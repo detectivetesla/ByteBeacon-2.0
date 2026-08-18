@@ -8,7 +8,17 @@ export class HttpClient {
 
   constructor(config?: Partial<ApiClientConfig>) {
     this.config = {
-      baseUrl: (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) || '/api/v1',
+      baseUrl: (() => {
+        const envUrl =
+          typeof import.meta !== 'undefined'
+            ? (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL
+            : undefined;
+        if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+          const trimmed = envUrl.trim().replace(/\/+$/, '');
+          return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
+        }
+        return '/api/v1';
+      })(),
       getAccessToken: () => {
         try {
           const stored = localStorage.getItem('bytebeacon_auth_tokens');
