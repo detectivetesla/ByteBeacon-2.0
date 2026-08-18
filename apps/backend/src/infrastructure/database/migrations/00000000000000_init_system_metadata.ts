@@ -1,7 +1,7 @@
 import { MigrationFile } from '../migrator.js';
 
-export const initSystemMetadataMigration: MigrationFile = {
-  version: '20260813000000',
+export const migration00000000000000: MigrationFile = {
+  version: '00000000000000',
   name: 'init_system_metadata',
   upSql: `
     CREATE TABLE IF NOT EXISTS system_metadata (
@@ -18,3 +18,5 @@ export const initSystemMetadataMigration: MigrationFile = {
     DROP TABLE IF EXISTS system_metadata;
   `,
 };
+
+export const initSystemMetadataMigration = migration00000000000000;

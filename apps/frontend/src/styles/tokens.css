@@ -1,99 +1,308 @@
+/* =========================================================================
+   BYTEBEACON 2.0 DESIGN TOKENS & SYSTEM
+   Aesthetic: Minimalist + Semi-Heavy Skeuomorphic + Tactile + Color-Rich Semantic Hierarchy + Fintech Polish
+   Typography: Manrope (Display) | Plus Jakarta Sans (UI) | Inter (Data) | JetBrains Mono (Code)
+   Surface Hierarchy: Level 0 (Page) -> Level 1 (Card) -> Level 2 (Elevated) -> Level 3 (Floating) -> Level 4 (Hero CTA)
+   ========================================================================= */
+
 :root {
-  /* Colors - Base Palette */
-  --color-bg-base: #0B0F17;
-  --color-bg-surface: #121824;
-  --color-bg-surface-elevated: #1A2234;
-  --color-bg-surface-hover: #222C42;
-  --color-bg-surface-glass: rgba(18, 24, 36, 0.75);
+  /* --- Typography Families --- */
+  --font-display: 'Manrope', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-data: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
-  /* Borders */
-  --color-border-subtle: #1E293B;
-  --color-border-default: #2A384F;
-  --color-border-hover: #3E5170;
+  /* --- Font Sizes --- */
+  --font-size-3xs: 0.625rem;   /* 10px */
+  --font-size-2xs: 0.6875rem;  /* 11px */
+  --font-size-xs: 0.75rem;     /* 12px */
+  --font-size-sm: 0.875rem;    /* 14px */
+  --font-size-base: 1rem;      /* 16px */
+  --font-size-lg: 1.125rem;    /* 18px */
+  --font-size-xl: 1.25rem;     /* 20px */
+  --font-size-2xl: 1.5rem;     /* 24px */
+  --font-size-3xl: 1.875rem;   /* 30px */
+  --font-size-4xl: 2.25rem;    /* 36px */
+  --font-size-5xl: 3rem;       /* 48px */
+  --font-size-6xl: 3.75rem;    /* 60px */
 
-  /* Typography Colors */
-  --color-text-primary: #F8FAFC;
-  --color-text-secondary: #94A3B8;
-  --color-text-muted: #64748B;
-  --color-text-inverse: #0B0F17;
+  /* --- Spacing --- */
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.25rem;   /* 20px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+  --space-20: 5rem;     /* 80px */
+  --space-24: 6rem;     /* 96px */
 
-  /* Brand & Accent Colors (Used with restraint) */
-  --color-cyan: #00F0FF;
-  --color-cyan-glow: rgba(0, 240, 255, 0.15);
-  --color-lime: #70FF00;
-  --color-lime-glow: rgba(112, 255, 0, 0.15);
-
-  /* Status Colors */
-  --color-success: #10B981;
-  --color-success-bg: rgba(16, 185, 129, 0.1);
-  --color-warning: #F59E0B;
-  --color-warning-bg: rgba(245, 158, 11, 0.1);
-  --color-danger: #EF4444;
-  --color-danger-bg: rgba(239, 68, 68, 0.1);
-  --color-info: #38BDF8;
-  --color-info-bg: rgba(56, 189, 248, 0.1);
-
-  /* Typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-
-  /* Font Sizes */
-  --font-size-xs: 0.75rem;
-  --font-size-sm: 0.875rem;
-  --font-size-base: 1rem;
-  --font-size-lg: 1.125rem;
-  --font-size-xl: 1.25rem;
-  --font-size-2xl: 1.5rem;
-  --font-size-3xl: 1.875rem;
-  --font-size-4xl: 2.25rem;
-
-  /* Line Heights */
-  --line-height-tight: 1.2;
-  --line-height-normal: 1.5;
-  --line-height-relaxed: 1.625;
-
-  /* Spacing */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-  --space-12: 3rem;
-  --space-16: 4rem;
-
-  /* Border Radii */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  /* --- Border Radius --- */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.6);
-  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-
-  /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* Container Max Widths */
+  /* --- Layout & Container Max Widths --- */
   --container-sm: 640px;
   --container-md: 768px;
   --container-lg: 1024px;
-  --container-xl: 1280px;
+  --container-xl: 1200px;
+  --container-2xl: 1360px;
 
-  /* Z-Index */
+  /* --- Transitions & Timing --- */
+  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 400ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* --- Z-Indices --- */
   --z-base: 0;
   --z-card: 1;
-  --z-sticky: 100;
-  --z-overlay: 200;
-  --z-modal: 300;
+  --z-header: 100;
+  --z-drawer: 200;
+  --z-modal-backdrop: 300;
+  --z-modal: 310;
   --z-toast: 400;
+
+  /* =========================================================================
+     GLOBAL SEMANTIC COLORS (Multi-Color Design System)
+     ========================================================================= */
+
+  /* Brand / Primary Green */
+  --color-brand: #16A34A;
+  --color-brand-hover: #15803D;
+  --color-brand-active: #166534;
+  --color-brand-bright: #22C55E;
+  --color-brand-surface: rgba(22, 163, 74, 0.08);
+  --color-brand-border: rgba(22, 163, 74, 0.28);
+  --color-brand-shadow: rgba(22, 163, 74, 0.25);
+
+  /* Blue — Orders / Information / Network Operations */
+  --color-info: #2563EB;
+  --color-info-hover: #1D4ED8;
+  --color-info-bright: #3B82F6;
+  --color-info-surface: rgba(37, 99, 235, 0.08);
+  --color-info-border: rgba(37, 99, 235, 0.28);
+  --color-info-shadow: rgba(37, 99, 235, 0.25);
+
+  /* Yellow / Amber — Wallet / Float / Financial Attention */
+  --color-warning: #F59E0B;
+  --color-warning-hover: #D97706;
+  --color-warning-bright: #FBBF24;
+  --color-warning-surface: rgba(245, 158, 11, 0.08);
+  --color-warning-border: rgba(245, 158, 11, 0.28);
+  --color-warning-shadow: rgba(245, 158, 11, 0.25);
+
+  /* Green — Success / Completion / Positive States */
+  --color-success: #16A34A;
+  --color-success-hover: #15803D;
+  --color-success-bright: #22C55E;
+  --color-success-surface: rgba(22, 163, 74, 0.08);
+  --color-success-border: rgba(22, 163, 74, 0.28);
+  --color-success-shadow: rgba(22, 163, 74, 0.25);
+
+  /* Red — Errors / Unavailable / Critical Alerts */
+  --color-danger: #DC2626;
+  --color-danger-hover: #B91C1C;
+  --color-danger-bright: #EF4444;
+  --color-danger-surface: rgba(220, 38, 38, 0.08);
+  --color-danger-border: rgba(220, 38, 38, 0.28);
+  --color-danger-shadow: rgba(220, 38, 38, 0.25);
+
+  /* Orange — Agent / Resellers / Commissions / Storefronts */
+  --color-agent: #EA580C;
+  --color-agent-hover: #C2410C;
+  --color-agent-bright: #F97316;
+  --color-agent-surface: rgba(234, 88, 12, 0.08);
+  --color-agent-border: rgba(234, 88, 12, 0.28);
+  --color-agent-shadow: rgba(234, 88, 12, 0.25);
+
+  /* Purple / Violet — Developer Tools / REST API / Webhooks */
+  --color-api: #7C3AED;
+  --color-api-hover: #6D28D9;
+  --color-api-bright: #8B5CF6;
+  --color-api-surface: rgba(124, 58, 237, 0.08);
+  --color-api-border: rgba(124, 58, 237, 0.28);
+  --color-api-shadow: rgba(124, 58, 237, 0.25);
+
+  /* Cyan — Analytics / Performance / Insights */
+  --color-analytics: #0891B2;
+  --color-analytics-hover: #0E7490;
+  --color-analytics-bright: #06B6D4;
+  --color-analytics-surface: rgba(8, 145, 178, 0.08);
+  --color-analytics-border: rgba(8, 145, 178, 0.28);
+  --color-analytics-shadow: rgba(8, 145, 178, 0.25);
+
+  /* Wallet / Escrow */
+  --color-wallet: #F59E0B;
+  --color-wallet-surface: rgba(245, 158, 11, 0.08);
+  --color-wallet-border: rgba(245, 158, 11, 0.28);
+
+  /* --- Ghanaian Network Official Brand Colors --- */
+  --color-network-mtn: #FFCC00;
+  --color-network-mtn-dark: #D4A000;
+  --color-network-mtn-bg: #FFFDF0;
+  --color-network-mtn-border: rgba(255, 204, 0, 0.45);
+  --color-network-mtn-glow: rgba(255, 204, 0, 0.25);
+
+  --color-network-telecel: #E7192D;
+  --color-network-telecel-dark: #C41223;
+  --color-network-telecel-bg: #FEF2F2;
+  --color-network-telecel-border: rgba(231, 25, 45, 0.4);
+  --color-network-telecel-glow: rgba(231, 25, 45, 0.22);
+
+  --color-network-airteltigo: #0066B2;
+  --color-network-airteltigo-dark: #004D85;
+  --color-network-airteltigo-bg: #F0F7FF;
+  --color-network-airteltigo-border: rgba(0, 102, 178, 0.4);
+  --color-network-airteltigo-glow: rgba(0, 102, 178, 0.22);
+
+  /* --- Backward Compatible Accent Mappings --- */
+  --color-primary: var(--color-brand);
+  --color-primary-hover: var(--color-brand-hover);
+  --color-primary-active: var(--color-brand-active);
+  --color-primary-bright: var(--color-brand-bright);
+  --color-primary-soft: var(--color-brand-surface);
+  --color-primary-border: var(--color-brand-border);
+  --color-primary-shadow: var(--color-brand-shadow);
+
+  --color-status-success: var(--color-success);
+  --color-status-success-bg: var(--color-success-surface);
+  --color-status-success-border: var(--color-success-border);
+
+  --color-status-processing: var(--color-info);
+  --color-status-processing-bg: var(--color-info-surface);
+  --color-status-processing-border: var(--color-info-border);
+
+  --color-status-warning: var(--color-warning);
+  --color-status-warning-bg: var(--color-warning-surface);
+  --color-status-warning-border: var(--color-warning-border);
+
+  --color-status-failed: var(--color-danger);
+  --color-status-failed-bg: var(--color-danger-surface);
+  --color-status-failed-border: var(--color-danger-border);
+
+  --color-accent-speed: #F59E0B;
+  --color-accent-security: #16A34A;
+  --color-accent-payments: #8B5CF6;
+  --color-accent-analytics: #06B6D4;
+  --color-accent-api: #A855F7;
+  --color-accent-support: #10B981;
+  --color-accent-wallet: #F59E0B;
+  --color-accent-orders: #3B82F6;
+  --color-accent-red: #EF4444;
+
+  /* =========================================================================
+     LIGHT MODE THEME SURFACES
+     ========================================================================= */
+  --color-bg-base: #F6F8FB;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-surface-elevated: #FFFFFF;
+  --color-bg-surface-hover: #F8FAFC;
+  --color-bg-surface-muted: #F1F5F9;
+  --color-bg-surface-glass: rgba(255, 255, 255, 0.75);
+  --color-bg-hero: #080D1A;
+
+  /* Text & Content */
+  --color-text-primary: #101828;
+  --color-text-secondary: #475467;
+  --color-text-muted: #667085;
+  --color-text-inverse: #FFFFFF;
+
+  /* Borders & Dividers */
+  --color-border-default: #E4E7EC;
+  --color-border-hover: #D0D5DD;
+  --color-border-subtle: #F2F4F7;
+  --color-border-strong: #98A2B3;
+
+  /* Tactile Shadows & Highlights (Light Mode) */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.10), 0 2px 4px -2px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 12px 16px -4px rgba(16, 24, 40, 0.08), 0 4px 6px -2px rgba(16, 24, 40, 0.03);
+  --shadow-xl: 0 20px 24px -4px rgba(16, 24, 40, 0.08), 0 8px 8px -4px rgba(16, 24, 40, 0.03);
+
+  --shadow-tactile-sm: 0 2px 6px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --shadow-tactile-md: 0 8px 24px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  --shadow-tactile-lg: 0 16px 36px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  --shadow-tactile-btn: 0 4px 14px var(--color-brand-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  --shadow-floating: 0 20px 40px -10px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  --shadow-glow-green: 0 0 24px rgba(22, 163, 74, 0.25);
+  --shadow-glow-blue: 0 0 24px rgba(37, 99, 235, 0.25);
+  --shadow-glow-amber: 0 0 24px rgba(245, 158, 11, 0.25);
+  --shadow-glow-cyan: 0 0 24px rgba(6, 182, 212, 0.25);
+  --shadow-glow-violet: 0 0 24px rgba(139, 92, 246, 0.25);
+  --shadow-glow-orange: 0 0 24px rgba(234, 88, 12, 0.25);
+}
+
+/* =========================================================================
+   DARK MODE TOKENS
+   ========================================================================= */
+html[data-theme='dark'],
+body.dark,
+.dark {
+  --color-bg-base: #080B12;
+  --color-bg-surface: #10151F;
+  --color-bg-surface-elevated: #151C28;
+  --color-bg-surface-hover: #1A2232;
+  --color-bg-surface-muted: #0D121B;
+  --color-bg-surface-glass: rgba(16, 21, 31, 0.78);
+  --color-bg-hero: #05080F;
+
+  /* Text & Content */
+  --color-text-primary: #F5F7FA;
+  --color-text-secondary: #98A2B3;
+  --color-text-muted: #667085;
+  --color-text-inverse: #101828;
+
+  /* Borders & Dividers */
+  --color-border-default: #242C38;
+  --color-border-hover: #344054;
+  --color-border-subtle: #18202E;
+  --color-border-strong: #475467;
+
+  /* Semantic Overrides in Dark Mode */
+  --color-brand-surface: rgba(34, 197, 94, 0.12);
+  --color-brand-border: rgba(34, 197, 94, 0.35);
+  --color-info-surface: rgba(59, 130, 246, 0.12);
+  --color-info-border: rgba(59, 130, 246, 0.35);
+  --color-warning-surface: rgba(251, 191, 36, 0.12);
+  --color-warning-border: rgba(251, 191, 36, 0.35);
+  --color-success-surface: rgba(34, 197, 94, 0.12);
+  --color-success-border: rgba(34, 197, 94, 0.35);
+  --color-danger-surface: rgba(248, 113, 113, 0.12);
+  --color-danger-border: rgba(248, 113, 113, 0.35);
+  --color-agent-surface: rgba(249, 115, 22, 0.12);
+  --color-agent-border: rgba(249, 115, 22, 0.35);
+  --color-api-surface: rgba(168, 85, 247, 0.12);
+  --color-api-border: rgba(168, 85, 247, 0.35);
+  --color-analytics-surface: rgba(56, 189, 248, 0.12);
+  --color-analytics-border: rgba(56, 189, 248, 0.35);
+  --color-wallet-surface: rgba(251, 191, 36, 0.12);
+  --color-wallet-border: rgba(251, 191, 36, 0.35);
+
+  /* Tactile Shadows & Highlights (Dark Mode) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 16px -4px rgba(0, 0, 0, 0.6), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 20px 24px -4px rgba(0, 0, 0, 0.7), 0 8px 8px -4px rgba(0, 0, 0, 0.5);
+
+  --shadow-tactile-sm: 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --shadow-tactile-md: 0 8px 24px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --shadow-tactile-lg: 0 16px 36px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-tactile-btn: 0 4px 14px var(--color-brand-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  --shadow-floating: 0 20px 40px -10px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  --shadow-glow-green: 0 0 28px rgba(34, 197, 94, 0.35);
+  --shadow-glow-blue: 0 0 28px rgba(59, 130, 246, 0.35);
+  --shadow-glow-amber: 0 0 28px rgba(251, 191, 36, 0.35);
+  --shadow-glow-cyan: 0 0 28px rgba(56, 189, 248, 0.35);
+  --shadow-glow-violet: 0 0 28px rgba(168, 85, 247, 0.35);
+  --shadow-glow-orange: 0 0 28px rgba(249, 115, 22, 0.35);
 }

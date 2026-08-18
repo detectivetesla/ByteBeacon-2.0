@@ -1,0 +1,51 @@
+# Multi-Stage Production Dockerfile for ByteBeacon 2.0 Standalone BullMQ Background Worker
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install system build dependencies
+RUN apk add --no-cache python3 make g++
+
+# Copy package manifests
+COPY package.json package-lock.json* ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/backend/package.json apps/backend/
+
+# Install all dependencies including devDependencies for build
+RUN npm ci
+
+# Copy source files
+COPY tsconfig.json ./
+COPY packages/shared/ packages/shared/
+COPY apps/backend/ apps/backend/
+
+# Build shared package and backend application
+RUN npm run build -w @bytebeacon/shared
+RUN npm run build -w @bytebeacon/backend
+
+# Production Runner Stage
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Install dumb-init for proper PID 1 signal forwarding
+RUN apk add --no-cache dumb-init
+
+# Copy package manifests and production dependencies
+COPY package.json package-lock.json* ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/backend/package.json apps/backend/
+
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Copy compiled artifacts from builder stage
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
+
+# Security: Run as non-root node user
+USER node
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["node", "apps/backend/dist/worker.js"]

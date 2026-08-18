@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Currency, NetworkProvider, PaymentMethod, ProviderStatus } from '@bytebeacon/shared';
 import { MockPaymentProvider } from '../src/providers/mocks/mock-payment.provider.js';
 import { MockTelecomProvider } from '../src/providers/mocks/mock-telecom.provider.js';
 import { MockNotificationProvider } from '../src/providers/mocks/mock-notification.provider.js';
@@ -9,23 +10,20 @@ describe('Provider Abstractions and Isolation', () => {
     expect(provider.providerName).toContain('MOCK');
 
     const initResult = await provider.initializePayment({
+      orderId: 'ord_123',
       amountPesewas: 1000,
-      currency: 'GHS',
+      currency: Currency.GHS,
       email: 'test@example.com',
-      reference: 'ref_123',
+      paymentMethod: PaymentMethod.MOMO,
     });
 
-    expect(initResult.success).toBe(true);
-    if (initResult.success) {
-      expect(initResult.data.reference).toBe('ref_123');
-      expect(initResult.data.authorizationUrl).toContain('mock-pay');
-    }
+    expect(initResult.provider).toBe('MOCK');
+    expect(initResult.providerReference).toBeDefined();
+    expect(initResult.authorizationUrl).toContain('mock-pay');
 
     const verifyResult = await provider.verifyPayment('ref_123');
-    expect(verifyResult.success).toBe(true);
-    if (verifyResult.success) {
-      expect(verifyResult.data.status).toBe('success');
-    }
+    expect(verifyResult.status).toBe('SUCCESS');
+    expect(verifyResult.amountPesewas).toBe(5000);
 
     const validSig = provider.verifyWebhookSignature('payload', 'mock-valid-signature');
     expect(validSig).toBe(true);
@@ -35,23 +33,21 @@ describe('Provider Abstractions and Isolation', () => {
     const provider = new MockTelecomProvider();
     expect(provider.providerName).toContain('MOCK');
 
-    const dispatchResult = await provider.dispatchOrder({
+    const submitResult = await provider.submitOrder({
+      orderId: 'ord_123',
       clientReference: 'telco_ref_1',
-      network: 'MTN',
-      recipientPhoneNumber: '0241234567',
-      volumeMb: 1000,
+      network: NetworkProvider.MTN,
+      recipientPhone: '0241234567',
+      dataAmountMb: 1000,
+      idempotencyKey: 'pst_sub_ord_123',
     });
 
-    expect(dispatchResult.success).toBe(true);
-    if (dispatchResult.success) {
-      expect(dispatchResult.data.providerReference).toBeDefined();
-    }
+    expect(submitResult.providerStatus).toBe(ProviderStatus.RECEIVED);
+    expect(submitResult.providerReference).toBe('telco_ref_1');
 
-    const statusResult = await provider.checkOrderStatus('telco_ref_1');
-    expect(statusResult.success).toBe(true);
-    if (statusResult.success) {
-      expect(statusResult.data.status).toBe('COMPLETED');
-    }
+    const statusResult = await provider.getOrderStatus({ providerReference: 'telco_ref_1' });
+    expect(statusResult.providerStatus).toBe(ProviderStatus.COMPLETED);
+    expect(statusResult.completedAt).toBeDefined();
   });
 
   it('MockNotificationProvider should fulfill INotificationProvider contract', async () => {
@@ -59,12 +55,9 @@ describe('Provider Abstractions and Isolation', () => {
     const result = await provider.sendNotification({
       recipient: '0241234567',
       channel: 'SMS',
-      message: 'Your code is 1234',
+      message: 'Test message',
     });
 
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.status).toBe('SENT');
-    }
   });
 });

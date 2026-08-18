@@ -1,21 +1,50 @@
 .wrapper {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 6px;
   width: 100%;
+  position: relative;
+  font-family: var(--font-sans);
+}
+
+.labelRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .label {
   font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.required {
+  color: var(--color-danger);
+  font-weight: 800;
+}
+
+.optionalBadge {
+  font-size: var(--font-size-3xs);
+  color: var(--color-text-muted);
   font-weight: 500;
-  color: var(--color-text-secondary);
+}
+
+.selectWrapper {
+  position: relative;
+  width: 100%;
 }
 
 .select {
   width: 100%;
-  padding: var(--space-2) var(--space-3);
-  font-family: var(--font-sans);
+  min-height: 44px;
+  padding: 0.625rem 2.2rem 0.625rem 0.875rem;
+  font-family: inherit;
   font-size: var(--font-size-sm);
+  font-weight: 600;
   color: var(--color-text-primary);
   background-color: var(--color-bg-surface-elevated);
   border: 1px solid var(--color-border-default);
@@ -23,26 +52,57 @@
   appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
-  background-position: right var(--space-3) center;
+  background-position: right 0.875rem center;
   background-size: 16px;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
+  outline: none;
+  letter-spacing: -0.01em;
+}
+
+.select:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+  background-color: var(--color-bg-surface);
 }
 
 .select:focus {
-  border-color: var(--color-cyan);
-  outline: none;
+  border-color: var(--color-brand);
+  background-color: var(--color-bg-surface);
+  box-shadow: 0 0 0 3.5px var(--color-brand-surface), 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .select:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
+  background-color: var(--color-bg-surface-elevated);
   cursor: not-allowed;
 }
 
-.error {
+.select.error {
   border-color: var(--color-danger);
+  box-shadow: 0 0 0 3.5px var(--color-danger-surface), 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.helperText {
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+  line-height: 1.35;
 }
 
 .errorText {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-2xs);
   color: var(--color-danger);
+  font-weight: 600;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.35;
+}
+
+.select option {
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  padding: 0.5rem 0.75rem;
 }

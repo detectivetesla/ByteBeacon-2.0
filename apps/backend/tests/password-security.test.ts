@@ -21,8 +21,9 @@ describe('Password Security (OWASP ASVS 4.0)', () => {
     expect(noSpecial.errors).toContain('Password must contain at least one special character');
 
     const commonPass = PasswordValidator.validate('Password123!');
-    // If it's not common, test explicit common
-    const explicitlyCommon = PasswordValidator.validate('bytebeacon123');
+    expect(commonPass.isValid).toBe(false);
+
+    const explicitlyCommon = PasswordValidator.validate('bytebeacon123!');
     expect(explicitlyCommon.isValid).toBe(false);
   });
 
@@ -33,7 +34,7 @@ describe('Password Security (OWASP ASVS 4.0)', () => {
   });
 
   it('should hash and verify passwords using Argon2id', async () => {
-    const hasher = new PasswordHasher({ memoryCost: 4096, timeCost: 1, parallelism: 1 });
+    const hasher = new PasswordHasher({ memoryCost: 4096, timeCost: 2, parallelism: 1 });
     const raw = 'Str0ngP@ssw0rd2026!';
     const hash = await hasher.hashPassword(raw);
 

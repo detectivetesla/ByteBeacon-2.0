@@ -20,6 +20,10 @@ export class AuditService {
     this.db = db;
   }
 
+  public async log(params: AuditEventParams): Promise<void> {
+    return this.logEvent(params);
+  }
+
   public async logEvent(params: AuditEventParams): Promise<void> {
     const query = `
       INSERT INTO audit_logs (correlation_id, actor_id, actor_type, action, resource_type, resource_id, metadata, ip_address, user_agent)

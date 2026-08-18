@@ -118,7 +118,7 @@ describe('Idempotency Engine & High-Concurrency Protection', () => {
     const mockDb = {
       connect: vi.fn().mockResolvedValue(mockClient),
       query: vi.fn().mockImplementation((q: string, params: unknown[]) => {
-        if (q.includes('SELECT request_hash as "requestHash"')) {
+        if (q.includes('FROM idempotency_keys')) {
           const found = idempotencyStore.get(`${params[1]}:${params[0]}`);
           if (found) {
             return Promise.resolve({

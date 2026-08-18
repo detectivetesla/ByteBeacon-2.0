@@ -15,13 +15,13 @@ export function createRedisClient(config: RedisConfig): Redis {
   redisInstance = new Redis(config.url, {
     maxRetriesPerRequest: 3,
     lazyConnect: true,
-    retryStrategy(times) {
+    retryStrategy(times: number) {
       const delay = Math.min(times * 100, 3000);
       return delay;
     },
   });
 
-  redisInstance.on('error', (err) => {
+  redisInstance.on('error', (err: any) => {
     logger.error({ err }, 'Redis connection background error');
   });
 

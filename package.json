@@ -6,26 +6,31 @@
   "type": "module",
   "description": "ByteBeacon 2.0 Monorepo Foundation — Production Brand: ByteBeacon",
   "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "pnpm -r run build",
-    "test": "pnpm -r run test",
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
     "lint": "eslint .",
-    "typecheck": "pnpm -r run typecheck",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --write \"./**/*.{ts,tsx,js,jsx,json,md,css}\"",
     "format:check": "prettier --check \"./**/*.{ts,tsx,js,jsx,json,md,css}\"",
-    "migrate": "pnpm --filter @bytebeacon/backend migrate",
-    "verify": "tsx scripts/verify-foundation.ts"
+    "migrate": "node apps/backend/dist/infrastructure/database/cli.js",
+    "verify": "node scripts/verify-foundation.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^22.0.0",
     "eslint": "^9.16.0",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.18.0"
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.8"
   }
 }

@@ -73,7 +73,27 @@ export function createAuthHooks(
 
       const validatedKey = await apiKeyService.validateApiKey(rawKey, requiredScope);
       req.apiKey = validatedKey;
+      const now = Math.floor(Date.now() / 1000);
+      req.user = {
+        sub: validatedKey.agentId,
+        email: `${validatedKey.name}@bytebeacon.agent`,
+        role: UserRole.AGENT,
+        domain: SecurityDomain.AGENT,
+        iat: now,
+        exp: now + 86400,
+      };
     };
+  };
+
+  const authenticate = async (req: FastifyRequest, reply: FastifyReply) => {
+    const authHeader = req.headers.authorization;
+    const apiKeyHeader = req.headers['x-api-key'];
+
+    if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+      await authenticateApiKey()(req, reply);
+    } else {
+      await authenticateCustomer(req, reply);
+    }
   };
 
   const requirePermission = (permission: Permission) => {
@@ -90,6 +110,7 @@ export function createAuthHooks(
   };
 
   return {
+    authenticate,
     authenticateCustomer,
     authenticateAdmin,
     authenticateApiKey,

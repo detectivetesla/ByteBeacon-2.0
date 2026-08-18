@@ -3,7 +3,6 @@ import {
   BulkSubmissionStatus,
   OrderStatus,
   CreateBulkSubmissionRequest,
-  BulkSubmissionSummaryDto,
   BulkSubmissionDetailsDto,
 } from '@bytebeacon/shared';
 import { CatalogService } from './catalog.service.js';

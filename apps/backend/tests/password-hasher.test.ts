@@ -5,7 +5,7 @@ import { runArgon2Benchmark } from '../src/core/security/password-hasher.bench.j
 describe('Password Hashing (Argon2id)', () => {
   const testHasher = new PasswordHasher({
     memoryCost: 4096,
-    timeCost: 1,
+    timeCost: 2,
     parallelism: 1,
   });
 
@@ -25,7 +25,7 @@ describe('Password Hashing (Argon2id)', () => {
 
   it('should run benchmark and record latency and resource utilization', async () => {
     const benchmark = await runArgon2Benchmark(
-      { memoryCost: 4096, timeCost: 1, parallelism: 1 },
+      { memoryCost: 4096, timeCost: 2, parallelism: 1 },
       2,
     );
 

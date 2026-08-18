@@ -15,7 +15,11 @@
     "exactOptionalPropertyTypes": false,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@bytebeacon/shared": ["./packages/shared/src/index.ts"]
+    }
   },
   "exclude": ["node_modules", "dist"]
 }

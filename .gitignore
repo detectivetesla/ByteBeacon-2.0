@@ -6,12 +6,18 @@ node_modules/
 dist/
 build/
 .vite/
+.turbo/
+.vercel/
 *.tsbuildinfo
 
 # Environment & Secrets
 .env
+.env.*
 .env.local
-.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
 *.pem
 *.key
 *.cert

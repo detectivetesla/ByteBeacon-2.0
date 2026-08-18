@@ -6,12 +6,18 @@ export interface PasswordValidationResult {
 const COMMON_PASSWORDS = new Set([
   'password',
   'password123',
+  'password123!',
   '12345678',
+  '123456789',
   'qwerty123',
+  'qwerty123!',
   'bytebeacon',
   'bytebeacon123',
+  'bytebeacon123!',
   'admin1234',
+  'admin123!',
   'letmein123',
+  'p@ssword123',
 ]);
 
 export class PasswordValidator {

@@ -1,0 +1,185 @@
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { AuthLayout } from '../../components/auth/AuthLayout.js';
+import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/index.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { useToast } from '../../context/ToastContext.js';
+import { Store, ArrowRight, User, Mail } from 'lucide-react';
+
+export const AgentSignUpPage: React.FC = () => {
+  const [storeName, setStoreName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ storeName?: string; fullName?: string; email?: string; phone?: string; password?: string }>({});
+
+  const { login } = useAuth();
+  const { error: toastError, success: toastSuccess } = useToast();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFieldErrors({});
+
+    const errors: { storeName?: string; fullName?: string; email?: string; phone?: string; password?: string } = {};
+    if (!storeName.trim()) errors.storeName = 'Store / Business name is required';
+    if (!fullName.trim()) errors.fullName = 'Full legal name is required';
+    if (!email.trim() || !email.includes('@')) errors.email = 'Valid business email is required';
+    if (!phone.trim() || phone.trim().length < 10) errors.phone = 'Valid 10-digit mobile money phone is required';
+    if (!password || password.length < 8) errors.password = 'Password must be at least 8 characters';
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch('/api/v1/auth/register-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: fullName.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          storeName: storeName.trim(),
+          password,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error?.message || 'Agent registration failed. Please review your details.');
+      }
+
+      if (json.data?.user && json.data?.tokens) {
+        login(json.data.user, json.data.tokens);
+        toastSuccess('Agent Account Created!', 'Welcome to the ByteBeacon Reseller Platform.');
+        navigate('/agent');
+      }
+    } catch (err: any) {
+      toastError('Registration failed', err.message || 'Unable to register agent right now. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <AuthLayout
+      title="Apply for an Agent Account"
+      subtitle="Join hundreds of data resellers across Ghana with wholesale data margins."
+      visualTitle="Accelerate Your Telecom Resale Business"
+      visualSubtitle="Access wholesale data pricing, multi-network float, custom storefronts, and automated sales commissions."
+      topActionText="Already an agent?"
+      topActionLinkText="Sign In"
+      topActionHref="/signin"
+    >
+      {/* Reseller Perks Card */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.625rem',
+          padding: '0.75rem 1rem',
+          borderRadius: 'var(--radius-md)',
+          backgroundColor: 'rgba(234, 179, 8, 0.1)',
+          border: '1px solid rgba(234, 179, 8, 0.25)',
+          fontSize: 'var(--font-size-2xs)',
+          color: 'var(--color-text-primary)',
+          marginBottom: 'var(--space-4)',
+        }}
+      >
+        <Store size={18} strokeWidth={2.4} color="#CA8A04" />
+        <span>Resellers receive wholesale rates, bulk API access, and instant delivery.</span>
+      </div>
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        {/* Store / Business Name */}
+        <Input
+          id="agent-store-name"
+          label="Store / Business Name"
+          type="text"
+          placeholder="e.g. Accra Data Hub"
+          value={storeName}
+          onChange={(e) => setStoreName(e.target.value)}
+          disabled={isLoading}
+          error={fieldErrors.storeName}
+          leftIcon={<Store size={15} color="var(--color-text-muted)" />}
+          required
+        />
+
+        {/* Full Legal Name */}
+        <Input
+          id="agent-fullname"
+          label="Full Legal Name"
+          type="text"
+          placeholder="e.g. Kofi Owusu"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          disabled={isLoading}
+          error={fieldErrors.fullName}
+          leftIcon={<User size={15} color="var(--color-text-muted)" />}
+          required
+        />
+
+        {/* Business Email */}
+        <Input
+          id="agent-email"
+          label="Business Email"
+          type="email"
+          placeholder="kofi@datahub.gh"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={isLoading}
+          error={fieldErrors.email}
+          leftIcon={<Mail size={15} color="var(--color-text-muted)" />}
+          required
+        />
+
+        {/* Mobile Money Payout Phone */}
+        <PhoneInput
+          id="agent-phone"
+          label="Mobile Money Payout Phone (MTN/Telecel/AT)"
+          placeholder="024 123 4567"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          disabled={isLoading}
+          error={fieldErrors.phone}
+          required
+        />
+
+        {/* Password */}
+        <PasswordInput
+          id="agent-password"
+          label="Account Password (min. 8 characters)"
+          placeholder="minimum 8 characters"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          error={fieldErrors.password}
+          disabled={isLoading}
+          showStrengthMeter
+          required
+        />
+
+        {/* Register Button */}
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          fullWidth
+          isLoading={isLoading}
+          style={{
+            marginTop: 'var(--space-3)',
+          }}
+          rightIcon={<ArrowRight size={16} strokeWidth={2.8} />}
+        >
+          Register as Agent
+        </Button>
+      </form>
+    </AuthLayout>
+  );
+};

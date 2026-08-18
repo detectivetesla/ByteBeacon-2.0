@@ -11,7 +11,7 @@ import { SecurityDomain, UserRole, UserStatus } from '@bytebeacon/shared';
 import type pg from 'pg';
 
 describe('Customer Auth & Lifecycle Integration', () => {
-  const hasher = new PasswordHasher({ memoryCost: 4096, timeCost: 1, parallelism: 1 });
+  const hasher = new PasswordHasher({ memoryCost: 4096, timeCost: 2, parallelism: 1 });
   const tokenService = new TokenService('0123456789abcdef0123456789abcdef');
 
   it('should successfully register a customer, enforce password strength, and issue tokens', async () => {

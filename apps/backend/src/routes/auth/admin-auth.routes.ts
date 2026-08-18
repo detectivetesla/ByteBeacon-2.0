@@ -176,7 +176,7 @@ export async function adminAuthRoutes(
     async (req: FastifyRequest, reply: FastifyReply) => {
       const secret = MfaService.generateSecret();
       const qrUri = MfaService.generateOtpAuthUri(req.user!.email, 'ByteBeacon Admin', secret);
-      const { rawCodes, hashedCodes } = MfaService.generateRecoveryCodes();
+      const { rawCodes } = MfaService.generateRecoveryCodes();
 
       // Store unconfirmed MFA secret in database
       await db.query('UPDATE users SET mfa_secret = $1 WHERE id = $2', [secret, req.user!.sub]);

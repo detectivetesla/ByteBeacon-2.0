@@ -1,18 +1,19 @@
-import { ProviderResult } from '@bytebeacon/shared';
 import {
-  ITelecomProvider,
-  TelecomOrderDispatchParams,
-  TelecomOrderDispatchData,
-  TelecomOrderStatusData,
-} from '../telecom/telecom-provider.interface.js';
+  SubmitOrderInput,
+  SubmitOrderResult,
+  GetOrderStatusInput,
+  ProviderOrderStatus,
+  ValidateBeneficiaryInput,
+  BeneficiaryValidationResult,
+  ProviderHealth,
+  ProviderStatus,
+} from '@bytebeacon/shared';
+import { ITelecomProvider } from '../../core/providers/telecom/telecom-provider.interface.js';
 import { logger } from '../../core/logging/logger.js';
 
 /**
  * MockTelecomProvider for testing and local contract verification only.
  * MUST NOT be activated in production.
- *
- * NOTE: Vendor-specific behaviors for DataHouse are AUTHORITATIVE SOURCE NOT VERIFIED.
- * This mock contains only abstract generic test doubles.
  */
 export class MockTelecomProvider implements ITelecomProvider {
   public readonly providerName = 'MOCK_TELECOM_PROVIDER (GENERIC TEST DOUBLE)';
@@ -24,35 +25,41 @@ export class MockTelecomProvider implements ITelecomProvider {
     logger.warn('MockTelecomProvider initialized for local/test double use only.');
   }
 
-  public async dispatchOrder(
-    params: TelecomOrderDispatchParams,
-  ): Promise<ProviderResult<TelecomOrderDispatchData>> {
+  public async submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
     return {
-      success: true,
-      data: {
-        providerReference: `mock_telco_ref_${params.clientReference}`,
-        status: 'PROCESSING',
-      },
-      providerTransactionId: `mock_dispatch_${Date.now()}`,
+      providerOrderId: `mock_gmpl_${Date.now()}`,
+      providerReference: input.clientReference,
+      providerStatus: ProviderStatus.RECEIVED,
+      acceptedAt: new Date().toISOString(),
     };
   }
 
-  public async checkOrderStatus(
-    providerReference: string,
-  ): Promise<ProviderResult<TelecomOrderStatusData>> {
+  public async getOrderStatus(input: GetOrderStatusInput): Promise<ProviderOrderStatus> {
     return {
-      success: true,
-      data: {
-        providerReference,
-        clientReference: 'mock_client_ref',
-        status: 'COMPLETED',
-        completedAt: new Date().toISOString(),
-      },
-      providerTransactionId: `mock_status_${Date.now()}`,
+      providerOrderId: `mock_gmpl_123`,
+      providerReference: input.providerReference,
+      providerStatus: ProviderStatus.COMPLETED,
+      completedAt: new Date().toISOString(),
     };
   }
 
-  public verifyWebhookSignature(payload: string | Buffer, signature: string): boolean {
+  public async validateBeneficiary(input: ValidateBeneficiaryInput): Promise<BeneficiaryValidationResult> {
+    return {
+      isValid: true,
+      network: input.network,
+      accountName: 'Test Beneficiary Account',
+    };
+  }
+
+  public async healthCheck(): Promise<ProviderHealth> {
+    return {
+      providerName: 'MockTelecomProvider',
+      status: 'UP',
+      latencyMs: 1,
+    };
+  }
+
+  public verifyWebhookSignature(_payload: string | Buffer, signature: string): boolean {
     return signature === 'mock-telco-signature';
   }
 }

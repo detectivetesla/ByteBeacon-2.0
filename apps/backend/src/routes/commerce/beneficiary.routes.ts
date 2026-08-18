@@ -69,4 +69,93 @@ export async function beneficiaryRoutes(
       return reply.send(response);
     },
   );
+
+  // 3. PRECHECK BENEFICIARIES (Bulk MTN Up2U & Carrier Verification)
+  app.post<{
+    Body: {
+      phoneNumbers: string[];
+      network: NetworkProvider;
+      record?: boolean;
+    };
+  }>(
+    '/beneficiaries/precheck',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const { phoneNumbers, network, record = false } = req.body || {};
+      if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
+        throw new BadRequestError('phoneNumbers array is required');
+      }
+      if (!network) {
+        throw new BadRequestError('network is required');
+      }
+
+      const result = await beneficiaryService.precheckBeneficiaries({
+        phoneNumbers,
+        network,
+        record,
+        userId: req.user!.sub,
+      });
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
+  // 4. ADMIN: LIST MTN BENEFICIARY APPROVALS
+  app.get<{
+    Querystring: {
+      network?: string;
+      status?: string;
+      page?: string;
+      limit?: string;
+    };
+  }>(
+    '/admin/mtn-approvals',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { network, status, page, limit } = req.query;
+      const pageNum = page ? parseInt(page, 10) : 1;
+      const limitNum = limit ? parseInt(limit, 10) : 20;
+
+      const result = await beneficiaryService.listBeneficiaryApprovals({
+        network: network as NetworkProvider,
+        status,
+        page: pageNum,
+        limit: limitNum,
+      });
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
+  // 5. ADMIN: APPROVE MTN BENEFICIARY
+  app.post<{ Params: { id: string } }>(
+    '/admin/mtn-approvals/:id/approve',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const updated = await beneficiaryService.approveBeneficiary(req.params.id);
+      return reply.send({
+        success: true,
+        data: updated,
+      });
+    },
+  );
+
+  // 6. ADMIN: REJECT MTN BENEFICIARY
+  app.post<{ Params: { id: string } }>(
+    '/admin/mtn-approvals/:id/reject',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const updated = await beneficiaryService.rejectBeneficiary(req.params.id);
+      return reply.send({
+        success: true,
+        data: updated,
+      });
+    },
+  );
 }

@@ -58,7 +58,7 @@ describe('Order Creation & Authoritative Pricing', () => {
                   correlationId: params[2],
                   actorId: params[3],
                   actorType: params[4],
-                  newState: JSON.parse(params[6] as string),
+                  newState: JSON.parse(params[5] as string),
                   occurredAt: new Date(),
                 },
               ],

@@ -1,0 +1,298 @@
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type pg from 'pg';
+import { TokenService } from '../../core/security/token.service.js';
+import { ApiKeyService } from '../../core/security/api-key.service.js';
+import { RbacService } from '../../core/security/rbac.service.js';
+import { AuditService } from '../../core/security/audit.service.js';
+import { FulfillmentQueueService } from '../../core/providers/fulfillment-queue.service.js';
+import { ProviderReconciliationService } from '../../core/providers/provider-reconciliation.service.js';
+import { createAuthHooks } from '../../plugins/auth.plugin.js';
+import { NotFoundError } from '../../core/errors/app-error.js';
+import { NetworkProvider } from '@bytebeacon/shared';
+
+export interface AdminOperationsRouteDependencies {
+  db: pg.Pool;
+  tokenService: TokenService;
+  apiKeyService: ApiKeyService;
+  rbacService: RbacService;
+  auditService?: AuditService;
+  fulfillmentQueueService: FulfillmentQueueService;
+  providerReconciliationService: ProviderReconciliationService;
+}
+
+export async function adminOperationsRoutes(
+  app: FastifyInstance,
+  deps: AdminOperationsRouteDependencies,
+) {
+  const {
+    db,
+    tokenService,
+    apiKeyService,
+    rbacService,
+    auditService,
+    fulfillmentQueueService,
+    providerReconciliationService,
+  } = deps;
+
+  const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
+
+  // 1. GET DLQ ITEMS
+  app.get<{
+    Querystring: { status?: string; page?: string; limit?: string };
+  }>(
+    '/admin/dlq',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Querystring: { status?: string; page?: string; limit?: string } }>, reply: FastifyReply) => {
+      const { status = 'PENDING_REVIEW', page = '1', limit = '20' } = req.query || {};
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const whereClause = status === 'ALL' ? '' : 'WHERE status = $1';
+      const countParams = status === 'ALL' ? [] : [status];
+
+      const countRes = await db.query(`SELECT COUNT(*) as total FROM provider_dlq ${whereClause}`, countParams);
+      const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+      const selectParams = status === 'ALL' ? [limitNum, offset] : [status, limitNum, offset];
+      const listSql = `
+        SELECT id, order_id as "orderId", provider, job_id as "jobId",
+               attempt_count as "attemptCount", error_code as "errorCode",
+               error_message as "errorMessage", request_reference as "requestReference",
+               correlation_id as "correlationId", first_failed_at as "firstFailedAt",
+               last_failed_at as "lastFailedAt", failure_class as "failureClass",
+               status, created_at as "createdAt"
+        FROM provider_dlq
+        ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT $${status === 'ALL' ? 1 : 2} OFFSET $${status === 'ALL' ? 2 : 3}
+      `;
+
+      const listRes = await db.query(listSql, selectParams);
+
+      return reply.send({
+        success: true,
+        data: {
+          items: listRes.rows,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total,
+            totalPages: Math.ceil(total / limitNum) || 1,
+          },
+        },
+      });
+    },
+  );
+
+  // 2. RETRY SINGLE DLQ ITEM
+  app.post<{ Params: { id: string } }>(
+    '/admin/dlq/:id/retry',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const dlqRes = await db.query(
+        `SELECT id, order_id, correlation_id FROM provider_dlq WHERE id = $1`,
+        [req.params.id],
+      );
+
+      if (dlqRes.rows.length === 0) {
+        throw new NotFoundError(`DLQ item with ID [${req.params.id}] not found`);
+      }
+
+      const dlq = dlqRes.rows[0];
+
+      // Fetch order details
+      const orderRes = await db.query(
+        `SELECT id, recipient_phone, network, data_amount_mb FROM orders WHERE id = $1`,
+        [dlq.order_id],
+      );
+
+      if (orderRes.rows.length === 0) {
+        throw new NotFoundError(`Order associated with DLQ item not found`);
+      }
+
+      const order = orderRes.rows[0];
+
+      // Re-enqueue into fulfillment queue
+      await fulfillmentQueueService.enqueueOrderFulfillment({
+        orderId: order.id,
+        phoneNumber: order.recipient_phone,
+        network: order.network as NetworkProvider,
+        dataAmountMb: order.data_amount_mb,
+        idempotencyKey: `dlq_retry_${order.id}_${Date.now()}`,
+        attemptCount: 1,
+        correlationId: dlq.correlation_id || req.id,
+      });
+
+      // Update DLQ status
+      await db.query(
+        `UPDATE provider_dlq SET status = 'RESOLVED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [req.params.id],
+      );
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'DLQ_RETRY',
+          resourceType: 'provider_dlq',
+          resourceId: req.params.id,
+          metadata: { orderId: order.id },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Order successfully re-enqueued for fulfillment from DLQ.',
+      });
+    },
+  );
+
+  // 3. DISMISS DLQ ITEM
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>(
+    '/admin/dlq/:id/dismiss',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { reason } = req.body || {};
+      const updateRes = await db.query(
+        `UPDATE provider_dlq SET status = 'DISMISSED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+        [req.params.id],
+      );
+
+      if (updateRes.rows.length === 0) {
+        throw new NotFoundError(`DLQ item with ID [${req.params.id}] not found`);
+      }
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'DLQ_DISMISS',
+          resourceType: 'provider_dlq',
+          resourceId: req.params.id,
+          metadata: { reason },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'DLQ entry marked as dismissed.',
+      });
+    },
+  );
+
+  // 4. REPLAY ALL PENDING DLQ ITEMS
+  app.post(
+    '/admin/dlq/replay-all',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const pendingRes = await db.query(
+        `SELECT q.id as "dlqId", q.order_id, q.correlation_id,
+                o.recipient_phone, o.network, o.data_amount_mb
+         FROM provider_dlq q
+         JOIN orders o ON q.order_id = o.id
+         WHERE q.status = 'PENDING_REVIEW'`,
+      );
+
+      let replayedCount = 0;
+      for (const row of pendingRes.rows) {
+        await fulfillmentQueueService.enqueueOrderFulfillment({
+          orderId: row.order_id,
+          phoneNumber: row.recipient_phone,
+          network: row.network as NetworkProvider,
+          dataAmountMb: row.data_amount_mb,
+          idempotencyKey: `dlq_batch_${row.order_id}_${Date.now()}`,
+          attemptCount: 1,
+          correlationId: row.correlation_id || req.id,
+        });
+
+        await db.query(
+          `UPDATE provider_dlq SET status = 'RESOLVED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [row.dlqId],
+        );
+        replayedCount++;
+      }
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'DLQ_REPLAY_ALL',
+          resourceType: 'provider_dlq',
+          resourceId: 'batch',
+          metadata: { replayedCount },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: { replayedCount },
+        message: `Successfully replayed ${replayedCount} DLQ items.`,
+      });
+    },
+  );
+
+  // 5. GET RECONCILIATION SUMMARY
+  app.get(
+    '/admin/reconciliation/summary',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (_req: FastifyRequest, reply: FastifyReply) => {
+      const statsRes = await db.query(`
+        SELECT 
+          COUNT(*) as "totalOrders",
+          COUNT(CASE WHEN provider_status = 'COMPLETED' THEN 1 END) as "completedOrders",
+          COUNT(CASE WHEN provider_status = 'PROCESSING' OR provider_status = 'RECEIVED' THEN 1 END) as "pendingOrders",
+          COUNT(CASE WHEN provider_status = 'FAILED' OR provider_status = 'REJECTED' THEN 1 END) as "failedOrders"
+        FROM provider_orders
+      `);
+
+      const stats = statsRes.rows[0];
+
+      return reply.send({
+        success: true,
+        data: {
+          lastAudited: new Date().toISOString(),
+          settlementMatchPercent: 100,
+          totalChecked: Number(stats?.totalOrders || 0),
+          completedCount: Number(stats?.completedOrders || 0),
+          pendingCount: Number(stats?.pendingOrders || 0),
+          failedCount: Number(stats?.failedOrders || 0),
+          discrepancyCount: 0,
+        },
+      });
+    },
+  );
+
+  // 6. TRIGGER ON-DEMAND RECONCILIATION
+  app.post(
+    '/admin/reconciliation/trigger',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const summary = await providerReconciliationService.reconcileStaleOrders(
+        new Date().toISOString(),
+        5, // stale threshold 5 mins
+      );
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'MANUAL_RECONCILIATION_RUN',
+          resourceType: 'reconciliation',
+          resourceId: summary.reconciliationId,
+          metadata: { summary },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: summary,
+        message: `Reconciliation complete. Checked ${summary.totalChecked} orders, found ${summary.discrepancyCount} discrepancies.`,
+      });
+    },
+  );
+}

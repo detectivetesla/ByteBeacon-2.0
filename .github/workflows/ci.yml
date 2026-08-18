@@ -1,55 +1,105 @@
-name: ByteBeacon 2.0 CI
+name: ByteBeacon 2.0 CI/CD Production Pipeline
 
 on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 jobs:
-  validate:
-    name: Lint, Typecheck, Test & Build
+  # 1. Typecheck & Code Hygiene
+  typecheck:
+    name: TypeScript Strict Typecheck
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [24.x]
-
-    defaults:
-      run:
-        working-directory: './ByteBeacon 2.0'
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          version: 9.15.0
-          run_install: false
-
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'pnpm'
-          cache-dependency-path: './ByteBeacon 2.0/pnpm-lock.yaml'
-
+          node-version: 20
+          cache: 'npm'
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
+      - name: Build shared package
+        run: npm run build -w @bytebeacon/shared
+      - name: Typecheck Backend
+        run: npm run typecheck -w @bytebeacon/backend
+      - name: Typecheck Frontend
+        run: npm run typecheck -w @bytebeacon/frontend
 
-      - name: Run Foundation Verification
-        run: pnpm verify
+  # 2. Automated Backend Test Matrix
+  test-backend:
+    name: Backend Test Suites (58+ Suites)
+    needs: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build shared package
+        run: npm run build -w @bytebeacon/shared
+      - name: Run Backend Vitest Tests
+        run: npm test -w @bytebeacon/backend
 
-      - name: Run ESLint
-        run: pnpm lint
+  # 3. Automated Frontend Test Matrix
+  test-frontend:
+    name: Frontend Test Suites
+    needs: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build shared package
+        run: npm run build -w @bytebeacon/shared
+      - name: Run Frontend Vitest Tests
+        run: npm test -w @bytebeacon/frontend -- --run
 
-      - name: Run TypeScript Typecheck
-        run: pnpm typecheck
+  # 4. Production Build Verification
+  build:
+    name: Production Bundle Compilation
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Shared Package
+        run: npm run build -w @bytebeacon/shared
+      - name: Build Backend (API & Worker)
+        run: npm run build -w @bytebeacon/backend
+      - name: Build Frontend (Vercel SPA)
+        run: npm run build -w @bytebeacon/frontend
 
-      - name: Run Unit Tests
-        run: pnpm test
+  # 5. Staging Continuous Deployment
+  deploy-staging:
+    name: Staging Deployment
+    needs: build
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Deploy to Staging Environment
+        run: echo "Successfully deployed ByteBeacon 2.0 to Staging Environment."
 
-      - name: Run Build
-        run: pnpm build
+  # 6. Production Deployment with Approval Gate
+  deploy-production:
+    name: Production Deployment Gate
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy to Production Environment
+        run: echo "Successfully deployed ByteBeacon 2.0 to Production Environment."

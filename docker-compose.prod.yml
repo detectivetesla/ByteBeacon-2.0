@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # 1. ByteBeacon 2.0 Fastify Backend API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: bytebeacon-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://postgres:postgres_prod_pass@postgres:5432/bytebeacon
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=production_super_secret_jwt_key_must_be_32bytes!
+      - PAYSTACK_SECRET_KEY=sk_test_mock_secret
+      - DATAHOUSE_BASE_URL=https://sandbox.getmorepaylessdatahouse.net/api/v1
+      - DATAHOUSE_API_KEY=dh_sandbox_api_key
+      - DATAHOUSE_WEBHOOK_SECRET=dh_webhook_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 2. ByteBeacon 2.0 Dedicated BullMQ Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: bytebeacon-worker
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres_prod_pass@postgres:5432/bytebeacon
+      - REDIS_URL=redis://redis:6379
+      - DATAHOUSE_BASE_URL=https://sandbox.getmorepaylessdatahouse.net/api/v1
+      - DATAHOUSE_API_KEY=dh_sandbox_api_key
+      - DATAHOUSE_WEBHOOK_SECRET=dh_webhook_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 3. Managed Redis (Standalone)
+  redis:
+    image: redis:7-alpine
+    container_name: bytebeacon-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # 4. PostgreSQL (Supabase-Compatible Relational Store)
+  postgres:
+    image: postgres:16-alpine
+    container_name: bytebeacon-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres_prod_pass
+      - POSTGRES_DB=bytebeacon
+    volumes:
+      - bytebeacon_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bytebeacon"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  bytebeacon_pgdata:

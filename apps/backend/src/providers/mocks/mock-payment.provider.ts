@@ -1,10 +1,15 @@
-import { ProviderResult } from '@bytebeacon/shared';
+import {
+  Currency,
+  ProviderHealth,
+} from '@bytebeacon/shared';
 import {
   IPaymentProvider,
-  PaymentInitializationParams,
-  PaymentInitializationData,
-  PaymentVerificationData,
-} from '../payment/payment-provider.interface.js';
+  InitializePaymentInput,
+  InitializePaymentResult,
+  VerifyPaymentResult,
+  InitiateRefundInput,
+  InitiateRefundResult,
+} from '../../core/payments/payment-provider.interface.js';
 import { logger } from '../../core/logging/logger.js';
 
 /**
@@ -21,36 +26,46 @@ export class MockPaymentProvider implements IPaymentProvider {
     logger.warn('MockPaymentProvider initialized. This provider is for local/test use only.');
   }
 
-  public async initializePayment(
-    params: PaymentInitializationParams,
-  ): Promise<ProviderResult<PaymentInitializationData>> {
+  public async initializePayment(input: InitializePaymentInput): Promise<InitializePaymentResult> {
+    const reference = `mock_ref_${input.orderId}_${Date.now()}`;
     return {
-      success: true,
-      data: {
-        authorizationUrl: `https://checkout.bytebeacon.dev/mock-pay/${params.reference}`,
-        accessCode: `mock_code_${Date.now()}`,
-        reference: params.reference,
-      },
-      providerTransactionId: `mock_tx_${Date.now()}`,
+      provider: 'MOCK',
+      providerReference: reference,
+      authorizationUrl: `https://checkout.bytebeacon.dev/mock-pay/${reference}`,
+      accessCode: `mock_code_${Date.now()}`,
     };
   }
 
-  public async verifyPayment(reference: string): Promise<ProviderResult<PaymentVerificationData>> {
+  public async verifyPayment(providerReference: string): Promise<VerifyPaymentResult> {
     return {
-      success: true,
-      data: {
-        reference,
-        amountPesewas: 5000,
-        currency: 'GHS',
-        status: 'success',
-        paidAt: new Date().toISOString(),
-        channel: 'mobile_money',
-      },
-      providerTransactionId: `mock_tx_verified_${Date.now()}`,
+      provider: 'MOCK',
+      providerReference,
+      status: 'SUCCESS',
+      amountPesewas: 5000,
+      currency: Currency.GHS,
+      paidAt: new Date(),
+      channel: 'mobile_money',
     };
   }
 
-  public verifyWebhookSignature(payload: string | Buffer, signature: string): boolean {
+  public async initiateRefund(input: InitiateRefundInput): Promise<InitiateRefundResult> {
+    return {
+      provider: 'MOCK',
+      providerRefundReference: `mock_rf_${Date.now()}`,
+      status: 'SUCCESS',
+      amountPesewas: input.amountPesewas,
+    };
+  }
+
+  public verifyWebhookSignature(_payload: string | Buffer, signature: string): boolean {
     return signature === 'mock-valid-signature';
+  }
+
+  public async healthCheck(): Promise<ProviderHealth> {
+    return {
+      providerName: 'MockPaymentProvider',
+      status: 'UP',
+      latencyMs: 1,
+    };
   }
 }

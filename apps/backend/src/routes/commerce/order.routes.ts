@@ -116,6 +116,39 @@ export async function orderRoutes(
     },
   );
 
+  // 3. GET PUBLIC CUSTOMER-SAFE ORDER (Provider Anonymity Guaranteed)
+  const handlePublicOrder = async (
+    req: FastifyRequest<{ Params: { reference: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const order = await orderService.getPublicOrder(req.params.reference);
+    if (!order) {
+      throw new BadRequestError(`Order '${req.params.reference}' not found`);
+    }
+
+    return reply.send({
+      success: true,
+      data: order,
+    });
+  };
+
+  app.get<{ Params: { reference: string } }>(
+    '/public/orders/:reference',
+    {
+      preHandler: [orderRateLimit],
+    },
+    handlePublicOrder,
+  );
+
+  app.get<{ Params: { reference: string } }>(
+    '/orders/track/:reference',
+    {
+      preHandler: [orderRateLimit],
+    },
+    handlePublicOrder,
+  );
+
+
   // 3. LIST ORDERS (Paginated with tenant isolation)
   app.get<{ Querystring: { page?: string; limit?: string } }>(
     '/orders',

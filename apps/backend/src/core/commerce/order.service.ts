@@ -13,6 +13,8 @@ import {
   OrderDetailsDto,
   OrderPricingSnapshot,
   PaginatedResponse,
+  CustomerOrderDto,
+  toCustomerFacingStatus,
 } from '@bytebeacon/shared';
 import { OrderStateMachine } from './order-state-machine.js';
 import { CatalogService } from './catalog.service.js';
@@ -319,6 +321,54 @@ export class OrderService {
       updatedAt: new Date(row.updatedAt).toISOString(),
     };
   }
+
+  public async getPublicOrder(reference: string): Promise<CustomerOrderDto | null> {
+    const res = await this.db.query(
+      `SELECT id, public_id as "publicId", recipient_phone as "recipientPhone", network,
+              data_amount_mb as "dataAmountMb", amount_pesewas as "amountPesewas", currency,
+              payment_status as "paymentStatus", order_status as "orderStatus",
+              pricing_snapshot as "pricingSnapshot",
+              created_at as "createdAt", updated_at as "updatedAt"
+       FROM orders
+       WHERE public_id = $1 OR id = $1`,
+      [reference],
+    );
+
+    if (res.rows.length === 0) {
+      return null;
+    }
+
+    const row = res.rows[0];
+    const { status, statusLabel } = toCustomerFacingStatus(
+      row.orderStatus as OrderStatus,
+      row.paymentStatus as PaymentStatus,
+    );
+
+    const dataDisplay = `${(row.dataAmountMb / 1024).toFixed(row.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`;
+    const amountPesewas = parseInt(row.amountPesewas, 10);
+    const amountDisplay = `GH₵ ${(amountPesewas / 100).toFixed(2)}`;
+
+    return {
+      orderId: row.publicId,
+      status,
+      statusLabel,
+      paymentStatus: row.paymentStatus === PaymentStatus.PAID ? 'PAID' : row.paymentStatus === PaymentStatus.PROCESSING ? 'PROCESSING' : row.paymentStatus === PaymentStatus.FAILED ? 'FAILED' : row.paymentStatus === PaymentStatus.REFUNDED ? 'REFUNDED' : 'PENDING',
+      product: {
+        name: `${row.network} ${dataDisplay} Data Bundle`,
+        network: row.network as NetworkProvider,
+        volumeDisplay: dataDisplay,
+        validityDisplay: '30 Days',
+      },
+      recipientPhone: row.recipientPhone,
+      amountPesewas,
+      amountDisplay,
+      currency: row.currency as Currency,
+      createdAt: new Date(row.createdAt).toISOString(),
+      updatedAt: new Date(row.updatedAt).toISOString(),
+      completedAt: row.orderStatus === OrderStatus.COMPLETED ? new Date(row.updatedAt).toISOString() : null,
+    };
+  }
+
 
   public async listOrders(
     userId: string,

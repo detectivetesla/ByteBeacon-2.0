@@ -66,6 +66,20 @@ export class DatabaseMigrator {
     }
   }
 
+  public async runPendingMigrations(availableMigrations: MigrationFile[]): Promise<string[]> {
+    const applied = await this.getAppliedMigrations();
+    const appliedVersions: string[] = [];
+
+    for (const migration of availableMigrations) {
+      if (!applied.has(migration.version)) {
+        await this.applyMigration(migration);
+        appliedVersions.push(migration.version);
+      }
+    }
+
+    return appliedVersions;
+  }
+
   public async rollbackMigration(migration: MigrationFile): Promise<void> {
     if (!migration.downSql) {
       throw new Error(`Migration [${migration.version}] does not provide a rollback script.`);

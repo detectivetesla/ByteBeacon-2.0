@@ -27,7 +27,7 @@ describe('Admin Authentication, TOTP MFA & Granular RBAC', () => {
 
   it('should evaluate granular RBAC permissions correctly', async () => {
     const mockDb = {
-      query: vi.fn().mockImplementation((q: string, params: unknown[]) => {
+      query: vi.fn().mockImplementation((_q: string, params: unknown[]) => {
         const role = params[0] as string;
         if (role === 'customer') {
           return Promise.resolve({

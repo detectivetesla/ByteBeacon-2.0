@@ -10,21 +10,27 @@ export interface RouteRateLimitConfig {
 
 export function createRateLimitHook(
   rateLimiter: RateLimiterService,
-  defaultConfig: RouteRateLimitConfig = { limit: 60, windowSeconds: 60 },
+  defaultConfigOrTag: RouteRateLimitConfig | string = { limit: 60, windowSeconds: 60 },
 ) {
+  const config: RouteRateLimitConfig =
+    typeof defaultConfigOrTag === 'string'
+      ? { limit: 60, windowSeconds: 60 }
+      : defaultConfigOrTag;
+
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const clientIp =
       (req.headers['cf-connecting-ip'] as string) ||
       (req.headers['x-forwarded-for'] ? (req.headers['x-forwarded-for'] as string).split(',')[0].trim() : req.ip);
 
-    const key = defaultConfig.keyGenerator
-      ? defaultConfig.keyGenerator(req)
-      : `ip:${clientIp}:${req.method}:${req.routerPath || req.url}`;
+    const routePath = (req as any).routerPath || req.url;
+    const key = config.keyGenerator
+      ? config.keyGenerator(req)
+      : `ip:${clientIp}:${req.method}:${routePath}`;
 
     const result = await rateLimiter.checkLimit({
       key,
-      limit: defaultConfig.limit,
-      windowSeconds: defaultConfig.windowSeconds,
+      limit: config.limit,
+      windowSeconds: config.windowSeconds,
     });
 
     reply.header('RateLimit-Limit', result.limit);
@@ -37,3 +43,5 @@ export function createRateLimitHook(
     }
   };
 }
+
+export const createRateLimitPreHandler = createRateLimitHook;

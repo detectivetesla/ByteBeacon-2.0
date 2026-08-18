@@ -1,0 +1,129 @@
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { UserSummaryDto } from '@bytebeacon/shared';
+import { apiClient } from '../api/httpClient.js';
+import { AuthTokens } from '../api/types.js';
+
+interface AuthContextType {
+  user: UserSummaryDto | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (user: UserSummaryDto, tokens: AuthTokens) => void;
+  logout: () => void;
+  updateUser: (user: Partial<UserSummaryDto>) => void;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const AUTH_USER_KEY = 'bytebeacon_auth_user';
+const AUTH_TOKENS_KEY = 'bytebeacon_auth_tokens';
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<UserSummaryDto | null>(() => {
+    try {
+      const stored = localStorage.getItem(AUTH_USER_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch {
+      // Ignore parsing error
+    }
+    return null;
+  });
+
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const logout = () => {
+    setUser(null);
+    try {
+      localStorage.removeItem(AUTH_USER_KEY);
+      localStorage.removeItem(AUTH_TOKENS_KEY);
+    } catch {
+      // LocalStorage access failsafe
+    }
+  };
+
+  useEffect(() => {
+    // Configure centralized API Client with dynamic token getters and auth failure callback
+    apiClient.setConfig({
+      getAccessToken: () => {
+        try {
+          const stored = localStorage.getItem(AUTH_TOKENS_KEY);
+          if (stored) return JSON.parse(stored).accessToken || null;
+        } catch {}
+        return null;
+      },
+      getRefreshToken: () => {
+        try {
+          const stored = localStorage.getItem(AUTH_TOKENS_KEY);
+          if (stored) return JSON.parse(stored).refreshToken || null;
+        } catch {}
+        return null;
+      },
+      onTokensRefreshed: (tokens: AuthTokens) => {
+        try {
+          localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(tokens));
+        } catch {}
+      },
+      onAuthFailure: () => {
+        logout();
+      },
+    });
+
+    // Check initial authentication state
+    try {
+      const storedUser = localStorage.getItem(AUTH_USER_KEY);
+      const storedTokens = localStorage.getItem(AUTH_TOKENS_KEY);
+      if (storedUser && storedTokens) {
+        setUser(JSON.parse(storedUser));
+      }
+    } catch {
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const login = (newUser: UserSummaryDto, newTokens: AuthTokens) => {
+    setUser(newUser);
+    try {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(newUser));
+      localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(newTokens));
+    } catch {
+      // LocalStorage access failsafe
+    }
+  };
+
+  const updateUser = (updatedFields: Partial<UserSummaryDto>) => {
+    if (!user) return;
+    const updated = { ...user, ...updatedFields };
+    setUser(updated);
+    try {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updated));
+    } catch {
+      // Ignore storage error
+    }
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated: !!user,
+        isLoading,
+        login,
+        logout,
+        updateUser,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = (): AuthContextType => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
