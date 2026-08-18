@@ -14,7 +14,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @bytebeacon/shared && npm run build -w @bytebeacon/frontend && npm run build -w @bytebeacon/backend",
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
