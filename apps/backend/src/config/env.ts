@@ -52,6 +52,14 @@ export const envSchema = z.object({
   REDIS_URL: z
     .string()
     .min(1, 'REDIS_URL is required')
+    .transform((val) => {
+      let cleaned = val.trim();
+      const match = cleaned.match(/(rediss?:\/\/[^\s"']+)/g);
+      if (match && match.length > 0) {
+        cleaned = match[match.length - 1];
+      }
+      return cleaned;
+    })
     .default('redis://localhost:6379'),
   JWT_SECRET: z
     .string()

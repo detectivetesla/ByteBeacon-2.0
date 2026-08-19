@@ -12,9 +12,12 @@ export function createRedisClient(config: RedisConfig): Redis {
     return redisInstance;
   }
 
+  const isTls = config.url.startsWith('rediss://') || config.url.includes('upstash.io');
+
   redisInstance = new Redis(config.url, {
     maxRetriesPerRequest: 3,
     lazyConnect: true,
+    ...(isTls && !config.url.startsWith('rediss://') ? { tls: { rejectUnauthorized: false } } : {}),
     retryStrategy(times: number) {
       const delay = Math.min(times * 100, 3000);
       return delay;
