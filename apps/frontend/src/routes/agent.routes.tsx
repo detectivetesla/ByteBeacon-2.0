@@ -20,6 +20,7 @@ import { AgentApiUsagePage } from '../pages/agent/AgentApiUsagePage.js';
 import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
 import { BuyDataPage } from '../pages/customer/BuyDataPage.js';
 import { DeveloperPortal } from '../pages/developer/DeveloperPortal.js';
+import { OrderTrackingPage } from '../pages/public/OrderTrackingPage.js';
 
 export const agentRoutes: RouteObject[] = [
   {
@@ -55,6 +56,18 @@ export const agentRoutes: RouteObject[] = [
       {
         path: 'orders',
         element: <AgentOrdersPage />,
+      },
+      {
+        path: 'track',
+        element: <OrderTrackingPage />,
+      },
+      {
+        path: 'track/:orderId',
+        element: <OrderTrackingPage />,
+      },
+      {
+        path: 'track-order',
+        element: <Navigate to="/agent/track" replace />,
       },
       {
         path: 'pending-approvals',

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
@@ -25,6 +26,7 @@ import {
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { apiClient } from '../../api/httpClient.js';
+import { walletApi } from '../../api/wallet.api.js';
 
 export type WalletTransactionType = 'DEPOSIT' | 'PURCHASE' | 'REFUND' | 'ADJUSTMENT';
 export type TransactionStatus = 'SUCCESSFUL' | 'PENDING' | 'FAILED' | 'REVERSED';
@@ -110,6 +112,7 @@ export const TypeBadge: React.FC<{ type: WalletTransactionType; isCredit?: boole
 export const AgentWalletPage: React.FC = () => {
   const { user } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [floatBalance] = useState('1,450.00');
 
@@ -241,9 +244,33 @@ export const AgentWalletPage: React.FC = () => {
     }
   }, [typeFilter, statusFilter, dateFilter, customStartDate, customEndDate, sortBy, page, pageSize, searchQuery]);
 
+  // Paystack Return Verification
   useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+    const isPaystackVerify = searchParams.get('paystack_verify');
+    const reference = searchParams.get('reference') || searchParams.get('trxref');
+
+    if (isPaystackVerify && reference) {
+      toastInfo('Verifying Payment', 'Confirming wallet deposit with Paystack...');
+      walletApi
+        .verifyTopup(reference)
+        .then((res) => {
+          if (res?.success) {
+            toastSuccess('Wallet Funded!', `Deposit confirmed. New balance: GH₵ ${(res.newBalancePesewas / 100).toFixed(2)}`);
+          } else {
+            toastSuccess('Deposit Received', 'Your wallet balance has been updated.');
+          }
+          fetchTransactions();
+        })
+        .catch(() => {
+          fetchTransactions();
+        })
+        .finally(() => {
+          setSearchParams({});
+        });
+    } else {
+      fetchTransactions();
+    }
+  }, [searchParams, setSearchParams, toastInfo, toastSuccess, fetchTransactions]);
 
   const handleResetFilters = () => {
     setTypeFilter('ALL');
@@ -277,21 +304,15 @@ export const AgentWalletPage: React.FC = () => {
 
   const handleProceedToPaystack = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (parsedTopUpAmount < 5) {
-      toastError('Minimum Required', 'Minimum wallet top-up amount is GHS 5.00.');
+    if (parsedTopUpAmount < 1) {
+      toastError('Minimum Required', 'Minimum wallet top-up amount is GH₵ 1.00.');
       return;
     }
 
     setIsProcessingCheckout(true);
 
     try {
-      const data: any = await apiClient.post('/payments/initialize', {
-        orderId: `topup_${Date.now()}`,
-        paymentMethod: 'CARD',
-        email: payerEmail,
-        amountPesewas: Math.round(totalPayableGhs * 100),
-        callbackUrl: `${window.location.origin}/agent/wallet?paystack_verify=true`,
-      });
+      const data = await walletApi.initializeTopup(parsedTopUpAmount);
 
       if (data?.authorizationUrl) {
         toastInfo('Redirecting to Paystack', 'Opening secure checkout...');
@@ -299,18 +320,13 @@ export const AgentWalletPage: React.FC = () => {
         return;
       }
 
-      // Mock completion fallback
-      setTimeout(() => {
-        setIsProcessingCheckout(false);
-        setIsTopUpExpanded(false);
-        toastSuccess('Wallet Funded', `Successfully deposited GH₵ ${parsedTopUpAmount.toFixed(2)}.`);
-        fetchTransactions();
-      }, 1000);
-    } catch {
-      setIsProcessingCheckout(false);
+      toastSuccess('Top-up Initiated', 'Follow the payment prompts to complete funding.');
       setIsTopUpExpanded(false);
-      toastSuccess('Wallet Funded', `Successfully deposited GH₵ ${parsedTopUpAmount.toFixed(2)}.`);
       fetchTransactions();
+    } catch (err: any) {
+      toastError('Top-up Failed', err.message || 'Unable to initialize Paystack checkout.');
+    } finally {
+      setIsProcessingCheckout(false);
     }
   };
 

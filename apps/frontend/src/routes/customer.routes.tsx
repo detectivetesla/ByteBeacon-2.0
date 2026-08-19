@@ -9,6 +9,7 @@ import { TransactionsPage } from '../pages/customer/TransactionsPage.js';
 import { SettingsPage } from '../pages/customer/SettingsPage.js';
 import { CustomerProfilePage } from '../pages/customer/CustomerProfilePage.js';
 import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
+import { OrderTrackingPage } from '../pages/public/OrderTrackingPage.js';
 
 export const customerRoutes: RouteObject[] = [
   {
@@ -38,6 +39,18 @@ export const customerRoutes: RouteObject[] = [
       {
         path: 'orders',
         element: <OrdersPage />,
+      },
+      {
+        path: 'track',
+        element: <OrderTrackingPage />,
+      },
+      {
+        path: 'track/:orderId',
+        element: <OrderTrackingPage />,
+      },
+      {
+        path: 'track-order',
+        element: <Navigate to="/app/track" replace />,
       },
       {
         path: 'wallet',
