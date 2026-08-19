@@ -17,11 +17,14 @@ export function createDatabasePool(config: DatabaseConfig): pg.Pool {
     return poolInstance;
   }
 
+  const isLocalhost = config.connectionString.includes('localhost') || config.connectionString.includes('127.0.0.1');
+
   poolInstance = new Pool({
     connectionString: config.connectionString,
     max: config.maxConnections ?? 20,
     idleTimeoutMillis: config.idleTimeoutMillis ?? 30000,
-    connectionTimeoutMillis: config.connectionTimeoutMillis ?? 5000,
+    connectionTimeoutMillis: config.connectionTimeoutMillis ?? 10000,
+    ssl: isLocalhost ? false : { rejectUnauthorized: false },
   });
 
   poolInstance.on('error', (err) => {
