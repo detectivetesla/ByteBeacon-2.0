@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Input } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { walletApi } from '../../api/wallet.api.js';
 import {
   Wallet,
   Coins,
@@ -27,13 +28,29 @@ export const AgentProfilePage: React.FC = () => {
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
+  const [walletBalanceGhs, setWalletBalanceGhs] = useState<number>(
+    (user?.walletBalancePesewas || 0) / 100,
+  );
+
+  const fetchBalance = useCallback(async () => {
+    try {
+      const bal = await walletApi.getBalance().catch(() => null);
+      if (bal && typeof bal.balanceGhs === 'number') {
+        setWalletBalanceGhs(bal.balanceGhs);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchBalance();
+  }, [fetchBalance]);
 
   const handleContactSupport = () => {
     toastInfo('Support Contact', 'Opening official ByteBeacon Agent Helpdesk channel.');
     window.open('mailto:support@bytebeacon.com?subject=Agent%20Account%20Support', '_blank');
   };
 
-  const displayName = user?.fullName || 'Agent Account';
+  const displayName = user?.fullName || user?.email?.split('@')[0] || 'Agent Account';
   const initial = (displayName.charAt(0) || 'A').toUpperCase();
 
   return (
@@ -192,7 +209,7 @@ export const AgentProfilePage: React.FC = () => {
               </span>
             </div>
             <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)' }}>
-              GHS 8.79
+              GHS {walletBalanceGhs.toFixed(2)}
             </div>
           </div>
 

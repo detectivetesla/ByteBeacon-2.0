@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { NetworkProvider } from '@bytebeacon/shared';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { NetworkProvider, OrderStatus } from '@bytebeacon/shared';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { SearchInput, Select } from '../../components/ui/index.js';
@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
-import { adminApi } from '../../api/admin.api.js';
+import { ordersApi } from '../../api/orders.api.js';
 
 export type ApprovalStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED';
 export type DetectedChannel = 'Web' | 'API' | 'Single Order' | 'Bulk Order' | 'Excel Upload' | 'Paste/Bulk Entry';
@@ -36,71 +36,18 @@ export interface PendingMtnApprovalItem {
   rawDate: string;
 }
 
-const SAMPLE_MTN_APPROVALS: PendingMtnApprovalItem[] = [
-  {
-    id: '1',
-    beneficiary: '024 111 2233',
-    network: NetworkProvider.MTN,
-    dataSize: '10 GB',
-    status: 'PENDING',
-    detectedFrom: 'Bulk Order',
-    timestamp: 'Aug 16, 2026 15:10',
-    rawDate: '2026-08-16T15:10:00Z',
-  },
-  {
-    id: '2',
-    beneficiary: '054 777 8899',
-    network: NetworkProvider.MTN,
-    dataSize: '20 GB',
-    status: 'PROCESSING',
-    detectedFrom: 'API',
-    timestamp: 'Aug 16, 2026 14:45',
-    rawDate: '2026-08-16T14:45:00Z',
-  },
-  {
-    id: '3',
-    beneficiary: '024 888 9900',
-    network: NetworkProvider.MTN,
-    dataSize: '2.5 GB',
-    status: 'PENDING',
-    detectedFrom: 'Excel Upload',
-    timestamp: 'Aug 16, 2026 13:20',
-    rawDate: '2026-08-16T13:20:00Z',
-  },
-  {
-    id: '4',
-    beneficiary: '059 444 3322',
-    network: NetworkProvider.MTN,
-    dataSize: '5 GB',
-    status: 'APPROVED',
-    detectedFrom: 'Single Order',
-    timestamp: 'Aug 15, 2026 18:05',
-    rawDate: '2026-08-15T18:05:00Z',
-  },
-  {
-    id: '5',
-    beneficiary: '055 222 1100',
-    network: NetworkProvider.MTN,
-    dataSize: '15 GB',
-    status: 'REJECTED',
-    detectedFrom: 'Web',
-    timestamp: 'Aug 15, 2026 10:15',
-    rawDate: '2026-08-15T10:15:00Z',
-  },
-];
-
-export const ApprovalStatusBadge: React.FC<{ status: ApprovalStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
+const renderStatusBadge = (status: ApprovalStatus) => {
   switch (status) {
-    case 'APPROVED':
-      return <Badge variant="success" size={size} dot>Approved</Badge>;
-    case 'PROCESSING':
-      return <Badge variant="info" size={size} dot>Processing</Badge>;
     case 'PENDING':
-      return <Badge variant="warning" size={size} dot>Pending</Badge>;
+      return <Badge variant="warning" size="sm" dot>Pending Approval</Badge>;
+    case 'PROCESSING':
+      return <Badge variant="neutral" size="sm" dot>Processing</Badge>;
+    case 'APPROVED':
+      return <Badge variant="success" size="sm" dot>Approved</Badge>;
     case 'REJECTED':
-      return <Badge variant="danger" size={size} dot>Rejected</Badge>;
+      return <Badge variant="danger" size="sm" dot>Rejected</Badge>;
     default:
-      return <Badge variant="neutral" size={size}>{status}</Badge>;
+      return <Badge variant="neutral" size="sm">{status}</Badge>;
   }
 };
 

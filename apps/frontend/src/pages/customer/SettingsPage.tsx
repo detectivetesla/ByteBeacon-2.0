@@ -34,11 +34,6 @@ interface ActiveSession {
   lastActive: string;
 }
 
-const SAMPLE_CUSTOMER_SESSIONS: ActiveSession[] = [
-  { id: 'sess-1', device: 'Chrome on Windows 11', browser: 'Chrome 128.0', location: 'Accra, Ghana', ip: '102.176.65.12', isCurrent: true, lastActive: 'Active now' },
-  { id: 'sess-2', device: 'Mobile Safari on iPhone 15', browser: 'Safari 17.4', location: 'Kumasi, Ghana', ip: '154.160.22.84', isCurrent: false, lastActive: '2 days ago' },
-];
-
 export const SettingsPage: React.FC = () => {
   const { user, logout } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
@@ -48,10 +43,10 @@ export const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('personal');
 
   // Personal Info Form State
-  const [fullName, setFullName] = useState(user?.fullName || 'Caleb Mensah');
-  const [email] = useState(user?.email || 'caleb.mensah@gmail.com');
-  const [phone, setPhone] = useState(user?.phone || '024 123 4567');
-  const [whatsapp, setWhatsapp] = useState('024 123 4567');
+  const [fullName, setFullName] = useState(user?.fullName || '');
+  const [email] = useState(user?.email || '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [whatsapp, setWhatsapp] = useState(user?.phone || '');
   const [isSavingPersonal, setIsSavingPersonal] = useState(false);
 
   // Security Form State
@@ -60,7 +55,17 @@ export const SettingsPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [is2faEnabled, setIs2faEnabled] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-  const [sessions, setSessions] = useState<ActiveSession[]>(SAMPLE_CUSTOMER_SESSIONS);
+  const [sessions, setSessions] = useState<ActiveSession[]>([
+    {
+      id: 'current-session',
+      device: navigator.userAgent.includes('Windows') ? 'Chrome on Windows' : 'Browser Session',
+      browser: 'Web Browser',
+      location: 'Ghana',
+      ip: 'Active Connection',
+      isCurrent: true,
+      lastActive: 'Active now',
+    },
+  ]);
 
   // Appearance State
   const [textSize, setTextSize] = useState<'sm' | 'md' | 'lg'>('md');

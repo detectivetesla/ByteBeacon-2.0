@@ -1,41 +1,66 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
 import { SearchInput, Select } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Plus } from 'lucide-react';
+import { Plus, RefreshCw, Users } from 'lucide-react';
+import { adminApi, AdminUserListItem } from '../../api/admin.api.js';
 
 interface UserRow {
   id: string;
   name: string;
   email: string;
   phone: string;
-  role: 'customer' | 'agent' | 'admin' | 'super_admin';
+  role: string;
   status: 'ACTIVE' | 'SUSPENDED';
   joinedDate: string;
 }
-
-const SAMPLE_USERS: UserRow[] = [
-  { id: 'usr_1', name: 'Dev Customer', email: 'dev.customer@bytebeacon.local', phone: '024 000 0001', role: 'customer', status: 'ACTIVE', joinedDate: 'Aug 14, 2026' },
-  { id: 'usr_2', name: 'Dev Agent', email: 'dev.agent@bytebeacon.local', phone: '024 000 0002', role: 'agent', status: 'ACTIVE', joinedDate: 'Aug 14, 2026' },
-  { id: 'usr_3', name: 'Dev Admin', email: 'dev.admin@bytebeacon.local', phone: '024 000 0003', role: 'admin', status: 'ACTIVE', joinedDate: 'Aug 14, 2026' },
-  { id: 'usr_4', name: 'Dev Super Admin', email: 'dev.superadmin@bytebeacon.local', phone: '024 000 0004', role: 'super_admin', status: 'ACTIVE', joinedDate: 'Aug 14, 2026' },
-  { id: 'usr_5', name: 'Kwame Mensah', email: 'kwame@example.com', phone: '024 555 1234', role: 'customer', status: 'ACTIVE', joinedDate: 'Aug 12, 2026' },
-  { id: 'usr_6', name: 'DataHub Agency', email: 'agent@datahub.gh', phone: '020 888 9900', role: 'agent', status: 'ACTIVE', joinedDate: 'Aug 10, 2026' },
-];
 
 export const AdminUsersPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [page, setPage] = useState(1);
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const filtered = SAMPLE_USERS.filter((u) => {
+  const fetchUsers = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await adminApi.getUsers({ page, limit: 50, search: searchQuery || undefined });
+      if (res && Array.isArray(res.users)) {
+        const mapped: UserRow[] = res.users.map((u: AdminUserListItem) => ({
+          id: u.id,
+          name: u.fullName || u.email.split('@')[0],
+          email: u.email,
+          phone: u.phoneNumber || '—',
+          role: u.role,
+          status: u.isActive ? 'ACTIVE' : 'SUSPENDED',
+          joinedDate: u.createdAt
+            ? new Date(u.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+            : '—',
+        }));
+        setUsers(mapped);
+      } else {
+        setUsers([]);
+      }
+    } catch {
+      setUsers([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, searchQuery]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const filtered = users.filter((u) => {
     const matchesSearch =
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.phone.includes(searchQuery);
-    const matchesRole = roleFilter === 'ALL' || u.role === roleFilter;
+    const matchesRole = roleFilter === 'ALL' || u.role.toLowerCase() === roleFilter.toLowerCase();
     return matchesSearch && matchesRole;
   });
 

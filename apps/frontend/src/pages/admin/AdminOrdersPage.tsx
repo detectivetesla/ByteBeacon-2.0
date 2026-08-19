@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
 import { SearchInput } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { OrderStatusBadge, PaymentStatusBadge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
 import { NetworkProvider, OrderStatus, PaymentStatus } from '@bytebeacon/shared';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download, RefreshCw, PackageX } from 'lucide-react';
+import { ordersApi } from '../../api/orders.api.js';
 
 interface AdminOrderRow {
   id: string;
@@ -21,18 +22,53 @@ interface AdminOrderRow {
   createdAt: string;
 }
 
-const SAMPLE_ORDERS: AdminOrderRow[] = [
-  { id: '1', orderNumber: 'BB-1029', network: NetworkProvider.MTN, customerEmail: 'dev.customer@bytebeacon.local', recipient: '024 123 4567', packageDisplay: '5 GB', amountDisplay: 'GH₵ 25.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.COMPLETED, providerSync: 'CONFIRMED', createdAt: 'Today, 14:12' },
-  { id: '2', orderNumber: 'BB-1028', network: NetworkProvider.TELECEL, customerEmail: 'dev.agent@bytebeacon.local', recipient: '020 987 6543', packageDisplay: '10 GB', amountDisplay: 'GH₵ 45.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.PROCESSING, providerSync: 'QUEUED', createdAt: 'Today, 13:40' },
-  { id: '3', orderNumber: 'BB-1027', network: NetworkProvider.MTN, customerEmail: 'kwame@example.com', recipient: '054 888 1122', packageDisplay: '2 GB', amountDisplay: 'GH₵ 12.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.COMPLETED, providerSync: 'CONFIRMED', createdAt: 'Yesterday, 18:30' },
-  { id: '4', orderNumber: 'BB-1026', network: NetworkProvider.AIRTELTIGO, customerEmail: 'abena@example.com', recipient: '026 555 9900', packageDisplay: '20 GB', amountDisplay: 'GH₵ 80.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.COMPLETED, providerSync: 'CONFIRMED', createdAt: 'Aug 12, 2026' },
-];
-
 export const AdminOrdersPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
+  const [orders, setOrders] = useState<AdminOrderRow[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const filtered = SAMPLE_ORDERS.filter(
+  const fetchOrders = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await ordersApi.listOrders({ page, limit: 50, search: searchQuery || undefined });
+      if (res && Array.isArray(res.orders)) {
+        const mapped: AdminOrderRow[] = res.orders.map((o: any) => ({
+          id: o.id,
+          orderNumber: o.publicId || o.reference || o.id.slice(0, 8).toUpperCase(),
+          network: o.network,
+          customerEmail: o.userEmail || o.customerEmail || '—',
+          recipient: o.recipientPhone || '—',
+          packageDisplay: `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB`,
+          amountDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
+          paymentStatus: o.paymentStatus || PaymentStatus.PENDING,
+          orderStatus: o.orderStatus || OrderStatus.PENDING,
+          providerSync: o.orderStatus === OrderStatus.COMPLETED ? 'CONFIRMED' : 'QUEUED',
+          createdAt: o.createdAt
+            ? new Date(o.createdAt).toLocaleDateString([], {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '—',
+        }));
+        setOrders(mapped);
+      } else {
+        setOrders([]);
+      }
+    } catch {
+      setOrders([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, searchQuery]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  const filtered = orders.filter(
     (o) =>
       o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       o.customerEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||

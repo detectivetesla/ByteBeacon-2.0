@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { NetworkProvider, OrderStatus, PaymentStatus } from '@bytebeacon/shared';
 import { Card } from '../../components/ui/Card/Card.js';
@@ -22,80 +22,13 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { ordersApi } from '../../api/orders.api.js';
 
 interface OrderRowData extends OrderDetailsItem {}
 
-const INITIAL_SAMPLE_ORDERS: OrderRowData[] = [
-  {
-    id: '1',
-    orderNumber: 'BB-84920',
-    network: NetworkProvider.MTN,
-    recipient: '024 111 2233',
-    dataDisplay: '10 GB',
-    amountDisplay: 'GH₵ 55.00',
-    source: 'Wallet',
-    paidDisplay: '₵55.00',
-    orderStatus: OrderStatus.COMPLETED,
-    paymentStatus: PaymentStatus.PAID,
-    dateDisplay: 'Aug 16, 2026 15:10',
-  },
-  {
-    id: '2',
-    orderNumber: 'BB-84919',
-    network: NetworkProvider.TELECEL,
-    recipient: '020 444 5566',
-    dataDisplay: '5 GB',
-    amountDisplay: 'GH₵ 24.00',
-    source: 'MoMo',
-    paidDisplay: '₵24.00',
-    orderStatus: OrderStatus.COMPLETED,
-    paymentStatus: PaymentStatus.PAID,
-    dateDisplay: 'Aug 16, 2026 14:02',
-  },
-  {
-    id: '3',
-    orderNumber: 'BB-84918',
-    network: NetworkProvider.MTN,
-    recipient: '054 777 8899',
-    dataDisplay: '20 GB',
-    amountDisplay: 'GH₵ 100.00',
-    source: 'Wallet',
-    paidDisplay: '₵100.00',
-    orderStatus: OrderStatus.PROCESSING,
-    paymentStatus: PaymentStatus.PAID,
-    dateDisplay: 'Aug 16, 2026 13:45',
-  },
-  {
-    id: '4',
-    orderNumber: 'BB-84917',
-    network: NetworkProvider.AIRTELTIGO,
-    recipient: '026 333 1122',
-    dataDisplay: '15 GB',
-    amountDisplay: 'GH₵ 60.00',
-    source: 'Card',
-    paidDisplay: '₵60.00',
-    orderStatus: OrderStatus.COMPLETED,
-    paymentStatus: PaymentStatus.PAID,
-    dateDisplay: 'Aug 15, 2026 19:20',
-  },
-  {
-    id: '5',
-    orderNumber: 'BB-84916',
-    network: NetworkProvider.MTN,
-    recipient: '024 888 9900',
-    dataDisplay: '2.5 GB',
-    amountDisplay: 'GH₵ 15.00',
-    source: 'Wallet',
-    paidDisplay: '₵15.00',
-    orderStatus: OrderStatus.COMPLETED,
-    paymentStatus: PaymentStatus.PAID,
-    dateDisplay: 'Aug 15, 2026 11:05',
-  },
-];
-
 export const AgentOrdersPage: React.FC = () => {
   const navigate = useNavigate();
-  const { toastSuccess, toastInfo } = useToast();
+  const { toastSuccess, toastInfo, toastError } = useToast();
 
   // Filters State
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -115,13 +48,64 @@ export const AgentOrdersPage: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Live Orders State
+  const [orders, setOrders] = useState<OrderRowData[]>([]);
+
+  const fetchAgentOrders = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await ordersApi.listAgentOrders({
+        page: 1,
+        limit: 100,
+        status: statusFilter !== 'ALL' ? (statusFilter as any) : undefined,
+        paymentStatus: paymentFilter !== 'ALL' ? (paymentFilter as any) : undefined,
+        search: searchQuery.trim() || undefined,
+      });
+
+      if (res && Array.isArray(res.orders)) {
+        const mapped: OrderRowData[] = res.orders.map((o: any) => ({
+          id: o.id,
+          orderNumber: o.publicId || o.reference || o.id.slice(0, 8).toUpperCase(),
+          network: o.network,
+          recipient: o.recipientPhone || '—',
+          dataDisplay: `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB`,
+          amountDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
+          source: (o.paymentMethod || 'Wallet') as any,
+          paidDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
+          orderStatus: o.orderStatus || OrderStatus.PENDING,
+          paymentStatus: o.paymentStatus || PaymentStatus.PENDING,
+          dateDisplay: o.createdAt
+            ? new Date(o.createdAt).toLocaleDateString([], {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '—',
+        }));
+        setOrders(mapped);
+      } else {
+        setOrders([]);
+      }
+    } catch {
+      setOrders([]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [statusFilter, paymentFilter, searchQuery]);
+
+  useEffect(() => {
+    fetchAgentOrders();
+  }, [fetchAgentOrders]);
+
   // Calculate Real Metrics
   const metrics = useMemo(() => {
     let totalRevenue = 0;
     let processingCount = 0;
     let failedCount = 0;
 
-    INITIAL_SAMPLE_ORDERS.forEach((o) => {
+    orders.forEach((o) => {
       const match = o.paidDisplay?.match(/[\d.]+/);
       const val = match ? parseFloat(match[0]) : 0;
       totalRevenue += val;
@@ -132,15 +116,15 @@ export const AgentOrdersPage: React.FC = () => {
 
     return {
       revenueDisplay: `₵${totalRevenue.toFixed(2)}`,
-      ordersCount: INITIAL_SAMPLE_ORDERS.length,
+      ordersCount: orders.length,
       processingCount,
       failedCount,
     };
-  }, []);
+  }, [orders]);
 
   // Filter & Sort Logic
   const filteredOrders = useMemo(() => {
-    let result = INITIAL_SAMPLE_ORDERS.filter((order) => {
+    let result = orders.filter((order) => {
       if (statusFilter !== 'ALL' && order.orderStatus !== statusFilter) return false;
       if (paymentFilter !== 'ALL' && order.paymentStatus !== paymentFilter) return false;
       if (searchQuery.trim()) {
@@ -170,7 +154,7 @@ export const AgentOrdersPage: React.FC = () => {
     });
 
     return result;
-  }, [statusFilter, paymentFilter, searchQuery, sortBy]);
+  }, [orders, statusFilter, paymentFilter, searchQuery, sortBy]);
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;

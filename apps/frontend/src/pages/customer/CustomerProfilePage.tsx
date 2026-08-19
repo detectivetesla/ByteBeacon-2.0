@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { walletApi } from '../../api/wallet.api.js';
+import { ordersApi } from '../../api/orders.api.js';
 
 export const CustomerProfilePage: React.FC = () => {
   const { user } = useAuth();
@@ -34,9 +36,37 @@ export const CustomerProfilePage: React.FC = () => {
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const customerName = user?.fullName || 'Caleb Mensah';
-  const customerEmail = user?.email || 'caleb.mensah@gmail.com';
-  const customerPhone = user?.phone || '024 123 4567';
+  const [walletBalanceGhs, setWalletBalanceGhs] = useState<number>(
+    (user?.walletBalancePesewas || 0) / 100,
+  );
+  const [totalOrdersCount, setTotalOrdersCount] = useState<number>(0);
+  const [totalVolumeGb, setTotalVolumeGb] = useState<number>(0);
+
+  const fetchProfileStats = useCallback(async () => {
+    try {
+      const balRes = await walletApi.getBalance().catch(() => null);
+      if (balRes && typeof balRes.balanceGhs === 'number') {
+        setWalletBalanceGhs(balRes.balanceGhs);
+      }
+
+      const ordersRes = await ordersApi.listOrders({ limit: 100 }).catch(() => null);
+      if (ordersRes && Array.isArray(ordersRes.orders)) {
+        setTotalOrdersCount(ordersRes.orders.length);
+        const sumMb = ordersRes.orders.reduce((acc: number, o: any) => acc + (o.dataAmountMb || 0), 0);
+        setTotalVolumeGb(parseFloat((sumMb / 1024).toFixed(1)));
+      }
+    } catch {
+      // keep resilient
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProfileStats();
+  }, [fetchProfileStats]);
+
+  const customerName = user?.fullName || user?.email?.split('@')[0] || 'Customer';
+  const customerEmail = user?.email || '—';
+  const customerPhone = user?.phone || 'Not linked';
   const memberSince = 'June 2025';
 
   const handleDeleteAccount = () => {
@@ -98,13 +128,12 @@ export const CustomerProfilePage: React.FC = () => {
                 borderRadius: '50%',
                 backgroundColor: 'var(--color-primary)',
                 color: '#FFFFFF',
-                fontSize: '1.5rem',
+                fontSize: 'var(--font-size-xl)',
                 fontWeight: 900,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: 'var(--shadow-tactile-sm)',
-                border: '3px solid var(--color-bg-surface-elevated)',
                 flexShrink: 0,
               }}
             >
@@ -113,24 +142,21 @@ export const CustomerProfilePage: React.FC = () => {
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
                   {customerName}
                 </h2>
-                <Badge variant="success" size="sm" dot>
-                  Active Customer
-                </Badge>
                 <span
                   style={{
                     fontSize: 'var(--font-size-3xs)',
                     fontWeight: 800,
-                    padding: '0.15rem 0.45rem',
-                    borderRadius: 'var(--radius-xs)',
-                    backgroundColor: 'rgba(59, 130, 246, 0.12)',
-                    color: '#3B82F6',
+                    padding: '0.12rem 0.5rem',
+                    borderRadius: 'var(--radius-full)',
+                    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                    color: 'var(--color-success)',
                     textTransform: 'uppercase',
                   }}
                 >
-                  Verified User
+                  Active Customer
                 </span>
               </div>
 
@@ -142,10 +168,6 @@ export const CustomerProfilePage: React.FC = () => {
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontFamily: 'var(--font-mono)' }}>
                   <Phone size={13} color="var(--color-text-muted)" />
                   {customerPhone}
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <Calendar size={13} color="var(--color-text-muted)" />
-                  Member since {memberSince}
                 </span>
               </div>
             </div>
@@ -200,7 +222,7 @@ export const CustomerProfilePage: React.FC = () => {
             </div>
 
             <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#FFFFFF', fontFamily: 'var(--font-data)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-              GH₵ 120.00
+              GH₵ {walletBalanceGhs.toFixed(2)}
             </div>
             <p style={{ fontSize: 'var(--font-size-3xs)', color: '#A7F3D0', margin: '4px 0 0 0' }}>
               Instant automated debit for all data bundle orders
@@ -251,10 +273,10 @@ export const CustomerProfilePage: React.FC = () => {
             </div>
 
             <div style={{ fontSize: '2.2rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-              145 GB
+              {totalVolumeGb} GB
             </div>
             <p style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)', margin: '4px 0 0 0' }}>
-              24 successfully dispatched telecom packages
+              {totalOrdersCount} successfully dispatched telecom packages
             </p>
           </div>
 

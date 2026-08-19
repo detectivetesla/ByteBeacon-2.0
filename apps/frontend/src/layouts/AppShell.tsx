@@ -48,12 +48,6 @@ interface NotificationItem {
   type: 'order' | 'payment' | 'system';
 }
 
-const SAMPLE_NOTIFICATIONS: NotificationItem[] = [
-  { id: 'n1', title: 'Data Bundle Delivered', detail: '5 GB MTN bundle credited to 024 123 4567', time: '12m ago', unread: true, type: 'order' },
-  { id: 'n2', title: 'Wallet Balance Topped Up', detail: 'GH₵ 250.00 MoMo deposit verified', time: '1h ago', unread: true, type: 'payment' },
-  { id: 'n3', title: 'Carrier Route Healthy', detail: 'Telecel provisioning latency normal (1.2s)', time: '3h ago', unread: false, type: 'system' },
-];
-
 export const AppShell: React.FC<AppShellProps> = ({
   portalTitle,
   portalSubtitle,
@@ -89,7 +83,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [storeMenuOpen, setStoreMenuOpen] = useState(false);
   const [copiedStore, setCopiedStore] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(SAMPLE_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   const profileRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -791,29 +785,35 @@ export const AppShell: React.FC<AppShellProps> = ({
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: '240px', overflowY: 'auto' }}>
-                    {notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        style={{
-                          padding: 'var(--space-2) var(--space-3)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: n.unread ? 'var(--color-bg-surface-elevated)' : 'transparent',
-                          border: n.unread ? '1px solid var(--color-border-hover)' : '1px solid transparent',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                            {n.title}
-                          </span>
-                          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                            {n.time}
-                          </span>
-                        </div>
-                        <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0', lineHeight: 1.3 }}>
-                          {n.detail}
-                        </p>
+                    {notifications.length === 0 ? (
+                      <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
+                        No new notifications
                       </div>
-                    ))}
+                    ) : (
+                      notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          style={{
+                            padding: 'var(--space-2) var(--space-3)',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: n.unread ? 'var(--color-bg-surface-elevated)' : 'transparent',
+                            border: n.unread ? '1px solid var(--color-border-hover)' : '1px solid transparent',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                              {n.title}
+                            </span>
+                            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                              {n.time}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0', lineHeight: 1.3 }}>
+                            {n.detail}
+                          </p>
+                        </div>
+                      ))
+                    )}
                   </div>
 
                   <Link

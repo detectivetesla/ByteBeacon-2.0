@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
 import { OrderStatusBadge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
@@ -10,12 +10,17 @@ import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
 import { OrderDetailDrawer, OrderDetailData } from '../../components/commerce/OrderDetailDrawer.js';
 import { OrderHealthProgressBar } from '../../components/dashboard/OrderHealthProgressBar.js';
 import { NetworkProvider, PaymentStatus, OrderStatus } from '@bytebeacon/shared';
+import { useAuth } from '../../context/AuthContext.js';
+import { ordersApi } from '../../api/orders.api.js';
+import { walletApi } from '../../api/wallet.api.js';
 import {
   Wallet,
   Smartphone,
   CheckCircle2,
   Clock,
   PlusCircle,
+  PackageX,
+  Activity,
 } from 'lucide-react';
 
 interface CustomerOrderRow {
@@ -30,27 +35,79 @@ interface CustomerOrderRow {
   dateDisplay: string;
 }
 
-const SAMPLE_ORDERS: CustomerOrderRow[] = [
-  { id: '1', orderNumber: 'BB-1029', network: NetworkProvider.MTN, recipient: '024 123 4567', dataDisplay: '5 GB', amountDisplay: 'GH₵ 25.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.COMPLETED, dateDisplay: 'Today, 14:12' },
-  { id: '2', orderNumber: 'BB-1028', network: NetworkProvider.TELECEL, recipient: '020 987 6543', dataDisplay: '10 GB', amountDisplay: 'GH₵ 45.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.PROCESSING, dateDisplay: 'Today, 13:40' },
-  { id: '3', orderNumber: 'BB-1027', network: NetworkProvider.MTN, recipient: '054 888 1122', dataDisplay: '2 GB', amountDisplay: 'GH₵ 12.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.COMPLETED, dateDisplay: 'Yesterday' },
-  { id: '4', orderNumber: 'BB-1026', network: NetworkProvider.AIRTELTIGO, recipient: '026 555 9900', dataDisplay: '20 GB', amountDisplay: 'GH₵ 80.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.COMPLETED, dateDisplay: 'Aug 12, 2026' },
-  { id: '5', orderNumber: 'BB-1025', network: NetworkProvider.MTN, recipient: '024 333 4455', dataDisplay: '1 GB', amountDisplay: 'GH₵ 6.00', paymentStatus: PaymentStatus.PAID, orderStatus: OrderStatus.COMPLETED, dateDisplay: 'Aug 11, 2026' },
-];
-
-const RECENT_ACTIVITIES = [
-  { id: 'a1', title: '5 GB MTN Delivered', time: '14m ago', type: 'success' },
-  { id: 'a2', title: 'MoMo Payment Authorized', time: '16m ago', type: 'info' },
-  { id: 'a3', title: 'GH₵ 100 Wallet Top-up', time: '2h ago', type: 'wallet' },
-];
-
 export const CustomerDashboard: React.FC = () => {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetailData | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const filteredOrders = SAMPLE_ORDERS.filter(
+  const [orders, setOrders] = useState<CustomerOrderRow[]>([]);
+  const [walletBalanceGhs, setWalletBalanceGhs] = useState<number>(
+    (user?.walletBalancePesewas || 0) / 100,
+  );
+  const [isLoading, setIsLoading] = useState(false);
+
+  const fetchDashboardData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // 1. Fetch real wallet balance
+      const balRes = await walletApi.getBalance().catch(() => null);
+      if (balRes && typeof balRes.balanceGhs === 'number') {
+        setWalletBalanceGhs(balRes.balanceGhs);
+      } else if (user?.walletBalancePesewas !== undefined) {
+        setWalletBalanceGhs(user.walletBalancePesewas / 100);
+      }
+
+      // 2. Fetch real user orders
+      const ordersRes = await ordersApi.listOrders({ limit: 20 }).catch(() => null);
+      if (ordersRes && Array.isArray(ordersRes.orders)) {
+        const mapped: CustomerOrderRow[] = ordersRes.orders.map((o: any) => ({
+          id: o.id,
+          orderNumber: o.publicId || o.reference || o.id.slice(0, 8).toUpperCase(),
+          network: o.network,
+          recipient: o.recipientPhone || '—',
+          dataDisplay: `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB`,
+          amountDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
+          paymentStatus: o.paymentStatus || PaymentStatus.PENDING,
+          orderStatus: o.orderStatus || OrderStatus.PENDING,
+          dateDisplay: o.createdAt
+            ? new Date(o.createdAt).toLocaleDateString([], {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : 'Recently',
+        }));
+        setOrders(mapped);
+      } else {
+        setOrders([]);
+      }
+    } catch {
+      setOrders([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  // Derived metrics
+  const totalOrders = orders.length;
+  const deliveredOrders = orders.filter(
+    (o) => o.orderStatus === OrderStatus.COMPLETED || o.orderStatus === OrderStatus.DELIVERED,
+  ).length;
+  const pendingOrders = orders.filter(
+    (o) => o.orderStatus === OrderStatus.PENDING || o.orderStatus === OrderStatus.PROCESSING,
+  ).length;
+  const failedOrders = orders.filter(
+    (o) => o.orderStatus === OrderStatus.FAILED || o.orderStatus === OrderStatus.CANCELLED,
+  ).length;
+
+  const filteredOrders = orders.filter(
     (o) =>
       o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       o.recipient.includes(searchQuery) ||
@@ -68,10 +125,12 @@ export const CustomerDashboard: React.FC = () => {
       paymentStatus: row.paymentStatus,
       orderStatus: row.orderStatus,
       dateDisplay: row.dateDisplay,
-      carrierLatency: '1.4s',
+      carrierLatency: '1.2s',
     });
     setDrawerOpen(true);
   };
+
+  const displayName = user?.fullName || user?.email?.split('@')[0] || 'Customer';
 
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
@@ -87,11 +146,11 @@ export const CustomerDashboard: React.FC = () => {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <Avatar name="Caleb Adzokatse" role="customer" status="online" size="md" />
+          <Avatar name={displayName} role="customer" status="online" size="md" />
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-                Customer Dashboard
+                Welcome, {displayName}
               </h1>
               <span
                 style={{
@@ -108,6 +167,9 @@ export const CustomerDashboard: React.FC = () => {
                 CUSTOMER
               </span>
             </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.2rem 0 0 0' }}>
+              {user?.email || 'Instant multi-network data fulfillment'}
+            </p>
           </div>
         </div>
 
@@ -131,16 +193,16 @@ export const CustomerDashboard: React.FC = () => {
         }}
       >
         <MetricCard
-          title="Wallet"
-          value="GH₵ 120.00"
-          subtitle="Instant checkout"
+          title="Wallet Balance"
+          value={`GH₵ ${walletBalanceGhs.toFixed(2)}`}
+          subtitle="Instant checkout balance"
           accent="amber"
           icon={<TactileIcon icon={Wallet} color="wallet" size="sm" />}
         />
 
         <MetricCard
-          title="Orders"
-          value="1,284"
+          title="Total Orders"
+          value={String(totalOrders)}
           subtitle="Lifetime purchases"
           accent="blue"
           icon={<TactileIcon icon={Smartphone} color="orders" size="sm" />}
@@ -148,16 +210,16 @@ export const CustomerDashboard: React.FC = () => {
 
         <MetricCard
           title="Delivered"
-          value="1,279"
-          subtitle="99.6% delivery rate"
+          value={String(deliveredOrders)}
+          subtitle={totalOrders > 0 ? `${Math.round((deliveredOrders / totalOrders) * 100)}% delivery rate` : '100% SLA'}
           accent="green"
           icon={<TactileIcon icon={CheckCircle2} color="security" size="sm" />}
         />
 
         <MetricCard
-          title="Pending"
-          value="1"
-          subtitle="Queued in carrier"
+          title="In-Progress"
+          value={String(pendingOrders)}
+          subtitle="Awaiting carrier"
           accent="orange"
           icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
         />
@@ -166,10 +228,10 @@ export const CustomerDashboard: React.FC = () => {
       {/* Order Health Segmented Bar */}
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <OrderHealthProgressBar
-          data={{ delivered: 1279, pending: 1, failed: 4 }}
+          data={{ delivered: deliveredOrders, pending: pendingOrders, failed: failedOrders }}
           title="Order Health"
           badgeLabel="Live"
-          tooltipText="Fulfillment confirmation on your mobile data purchases."
+          tooltipText="Real-time fulfillment metrics on your mobile data purchases."
         />
       </div>
 
@@ -200,66 +262,105 @@ export const CustomerDashboard: React.FC = () => {
 
             <div style={{ width: '220px' }}>
               <SearchInput
-                placeholder="Search..."
+                placeholder="Search orders..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
           </div>
 
-          <Table<CustomerOrderRow>
-            columns={[
-              {
-                header: 'Network',
-                accessor: 'network',
-                render: (row) => <NetworkBadge network={row.network} size="sm" />,
-              },
-              {
-                header: 'Recipient',
-                accessor: 'recipient',
-                render: (row) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>{row.recipient}</span>,
-              },
-              {
-                header: 'Bundle',
-                accessor: 'dataDisplay',
-                render: (row) => <strong style={{ color: 'var(--color-text-primary)' }}>{row.dataDisplay}</strong>,
-              },
-              {
-                header: 'Amount',
-                accessor: 'amountDisplay',
-                render: (row) => (
-                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-data)' }}>{row.amountDisplay}</span>
-                ),
-              },
-              {
-                header: 'Delivery',
-                accessor: 'orderStatus',
-                render: (row) => <OrderStatusBadge status={row.orderStatus} size="sm" />,
-              },
-              {
-                header: 'Date',
-                accessor: 'dateDisplay',
-                render: (row) => (
-                  <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                    {row.dateDisplay}
-                  </span>
-                ),
-              },
-            ]}
-            data={filteredOrders}
-            keyExtractor={(item) => item.id}
-            onRowClick={handleRowClick}
-          />
+          {filteredOrders.length === 0 ? (
+            <div
+              style={{
+                padding: 'var(--space-10) var(--space-4)',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '0.75rem',
+              }}
+            >
+              <div
+                style={{
+                  padding: '0.75rem',
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--color-bg-base)',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                <PackageX size={28} />
+              </div>
+              <div>
+                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, margin: 0, color: 'var(--color-text-primary)' }}>
+                  No orders found
+                </h4>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+                  {searchQuery ? `No records matching "${searchQuery}"` : 'You have not placed any mobile data orders yet.'}
+                </p>
+              </div>
+              {!searchQuery && (
+                <Button variant="primary" size="sm" onClick={() => setPurchaseModalOpen(true)} leftIcon={<PlusCircle size={14} />}>
+                  Buy Data Bundle
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              <Table<CustomerOrderRow>
+                columns={[
+                  {
+                    header: 'Network',
+                    accessor: 'network',
+                    render: (row) => <NetworkBadge network={row.network} size="sm" />,
+                  },
+                  {
+                    header: 'Recipient',
+                    accessor: 'recipient',
+                    render: (row) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>{row.recipient}</span>,
+                  },
+                  {
+                    header: 'Bundle',
+                    accessor: 'dataDisplay',
+                    render: (row) => <strong style={{ color: 'var(--color-text-primary)' }}>{row.dataDisplay}</strong>,
+                  },
+                  {
+                    header: 'Amount',
+                    accessor: 'amountDisplay',
+                    render: (row) => (
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-data)' }}>{row.amountDisplay}</span>
+                    ),
+                  },
+                  {
+                    header: 'Delivery',
+                    accessor: 'orderStatus',
+                    render: (row) => <OrderStatusBadge status={row.orderStatus} size="sm" />,
+                  },
+                  {
+                    header: 'Date',
+                    accessor: 'dateDisplay',
+                    render: (row) => (
+                      <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                        {row.dateDisplay}
+                      </span>
+                    ),
+                  },
+                ]}
+                data={filteredOrders}
+                keyExtractor={(item) => item.id}
+                onRowClick={handleRowClick}
+              />
 
-          <div style={{ marginTop: 'var(--space-3)' }}>
-            <Pagination
-              currentPage={1}
-              totalPages={1}
-              onPageChange={() => {}}
-              itemsPerPage={10}
-              totalItems={filteredOrders.length}
-            />
-          </div>
+              <div style={{ marginTop: 'var(--space-3)' }}>
+                <Pagination
+                  currentPage={1}
+                  totalPages={1}
+                  onPageChange={() => {}}
+                  itemsPerPage={10}
+                  totalItems={filteredOrders.length}
+                />
+              </div>
+            </>
+          )}
         </Card>
 
         {/* Right: Activity Stream */}
@@ -273,12 +374,20 @@ export const CustomerDashboard: React.FC = () => {
             </span>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            {RECENT_ACTIVITIES.map((act) => {
-              const dotColor = act.type === 'success' ? '#22C55E' : act.type === 'info' ? '#3B82F6' : '#F59E0B';
-              return (
+          {orders.length === 0 ? (
+            <div style={{ padding: 'var(--space-6) 0', textAlign: 'center' }}>
+              <div style={{ padding: '0.5rem', display: 'inline-block', borderRadius: '50%', backgroundColor: 'var(--color-bg-base)', color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>
+                <Activity size={18} />
+              </div>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
+                Live dispatch updates will stream here as you place orders.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              {orders.slice(0, 5).map((o) => (
                 <div
-                  key={act.id}
+                  key={o.id}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -288,27 +397,35 @@ export const CustomerDashboard: React.FC = () => {
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: dotColor, flexShrink: 0 }} />
+                    <span
+                      style={{
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        backgroundColor: o.orderStatus === OrderStatus.COMPLETED ? '#22C55E' : '#F59E0B',
+                        flexShrink: 0,
+                      }}
+                    />
                     <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                      {act.title}
+                      {o.dataDisplay} {o.network}
                     </span>
                   </div>
                   <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {act.time}
+                    {o.dateDisplay}
                   </span>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
 
           <Button
             variant="outline"
             size="sm"
             fullWidth
             style={{ marginTop: 'var(--space-4)' }}
-            onClick={() => (window.location.href = '/app/transactions')}
+            onClick={() => (window.location.href = '/app/orders')}
           >
-            Transactions →
+            All Orders →
           </Button>
         </Card>
       </div>
@@ -316,7 +433,10 @@ export const CustomerDashboard: React.FC = () => {
       {/* Modal & Detail Drawer */}
       <PurchaseModal
         isOpen={purchaseModalOpen}
-        onClose={() => setPurchaseModalOpen(false)}
+        onClose={() => {
+          setPurchaseModalOpen(false);
+          fetchDashboardData();
+        }}
         initialNetwork={NetworkProvider.MTN}
       />
 

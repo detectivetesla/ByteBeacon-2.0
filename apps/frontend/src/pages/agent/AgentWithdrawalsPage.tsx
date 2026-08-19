@@ -49,114 +49,6 @@ export interface ProfitLedgerRecord {
   isCredit: boolean;
 }
 
-const SAMPLE_PAYOUT_HISTORY: PayoutRecord[] = [
-  {
-    id: 'WTH-88201',
-    reference: 'PAYOUT-20260815-091',
-    amountPesewas: 85000,
-    feePesewas: 0,
-    method: 'MTN Mobile Money',
-    recipientAccount: '054 134 9282',
-    recipientName: 'Martin Teye Nomotsu',
-    date: 'Aug 15, 2026, 18:22',
-    rawDate: '2026-08-15T18:22:00Z',
-    status: 'COMPLETED',
-  },
-  {
-    id: 'WTH-87410',
-    reference: 'PAYOUT-20260810-044',
-    amountPesewas: 120000,
-    feePesewas: 0,
-    method: 'MTN Mobile Money',
-    recipientAccount: '054 134 9282',
-    recipientName: 'Martin Teye Nomotsu',
-    date: 'Aug 10, 2026, 11:15',
-    rawDate: '2026-08-10T11:15:00Z',
-    status: 'COMPLETED',
-  },
-  {
-    id: 'WTH-86109',
-    reference: 'PAYOUT-20260804-012',
-    amountPesewas: 50000,
-    feePesewas: 0,
-    method: 'Telecel Cash',
-    recipientAccount: '020 444 5566',
-    recipientName: 'Martin Nomotsu',
-    date: 'Aug 04, 2026, 14:30',
-    rawDate: '2026-08-04T14:30:00Z',
-    status: 'COMPLETED',
-  },
-];
-
-const SAMPLE_PROFIT_LEDGER: ProfitLedgerRecord[] = [
-  {
-    id: 'LED-9021',
-    date: 'Aug 16, 2026, 20:15',
-    rawDate: '2026-08-16T20:15:00Z',
-    reference: 'ORD-94821',
-    type: 'Profit Earned',
-    amountPesewas: 6800,
-    balanceAfterPesewas: 6800,
-    status: 'POSTED',
-    isCredit: true,
-  },
-  {
-    id: 'LED-9019',
-    date: 'Aug 15, 2026, 18:22',
-    rawDate: '2026-08-15T18:22:00Z',
-    reference: 'WTH-88201',
-    type: 'Withdrawal',
-    amountPesewas: 85000,
-    balanceAfterPesewas: 0,
-    status: 'POSTED',
-    isCredit: false,
-  },
-  {
-    id: 'LED-9012',
-    date: 'Aug 15, 2026, 10:15',
-    rawDate: '2026-08-15T10:15:00Z',
-    reference: 'ORD-93902',
-    type: 'Profit Earned',
-    amountPesewas: 5400,
-    balanceAfterPesewas: 85000,
-    status: 'POSTED',
-    isCredit: true,
-  },
-  {
-    id: 'LED-8994',
-    date: 'Aug 12, 2026, 16:40',
-    rawDate: '2026-08-12T16:40:00Z',
-    reference: 'ORD-92811',
-    type: 'Profit Earned',
-    amountPesewas: 79600,
-    balanceAfterPesewas: 79600,
-    status: 'POSTED',
-    isCredit: true,
-  },
-  {
-    id: 'LED-8980',
-    date: 'Aug 10, 2026, 11:15',
-    rawDate: '2026-08-10T11:15:00Z',
-    reference: 'WTH-87410',
-    type: 'Withdrawal',
-    amountPesewas: 120000,
-    balanceAfterPesewas: 0,
-    status: 'POSTED',
-    isCredit: false,
-  },
-  {
-    id: 'LED-8952',
-    date: 'Aug 08, 2026, 09:00',
-    rawDate: '2026-08-08T09:00:00Z',
-    reference: 'ADJ-102',
-    type: 'Profit Adjustment',
-    amountPesewas: 120000,
-    balanceAfterPesewas: 120000,
-    status: 'POSTED',
-    isCredit: true,
-  },
-];
-
 export const PayoutStatusBadge: React.FC<{ status: PayoutStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
     case 'COMPLETED':
@@ -178,17 +70,17 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const { user } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
 
-  // Authoritative Reseller Financial Balances (Separate from Wallet fulfillment balance)
-  const [availableProfitPesewas, setAvailableProfitPesewas] = useState<number>(0); // GHS 0.00 default as specified
-  const [totalProfitEarnedPesewas] = useState<number>(255000); // GHS 2,550.00 lifetime
-  const [totalWithdrawnPesewas, setTotalWithdrawnPesewas] = useState<number>(255000); // GHS 2,550.00 paid out
+  // Authoritative Reseller Financial Balances
+  const [availableProfitPesewas, setAvailableProfitPesewas] = useState<number>(0);
+  const [totalProfitEarnedPesewas] = useState<number>(0);
+  const [totalWithdrawnPesewas, setTotalWithdrawnPesewas] = useState<number>(0);
 
   // In-Place Withdraw Form Drawer / Panel State
   const [isWithdrawPanelOpen, setIsWithdrawPanelOpen] = useState(false);
   const [withdrawAmountGhs, setWithdrawAmountGhs] = useState('');
   const [payoutMethod, setPayoutMethod] = useState<'MTN_MOMO' | 'TELECEL_CASH' | 'AT_MONEY' | 'BANK'>('MTN_MOMO');
-  const [payoutPhone, setPayoutPhone] = useState(user?.phone || '0541349282');
-  const [accountName, setAccountName] = useState(user?.fullName || 'Martin Teye Nomotsu');
+  const [payoutPhone, setPayoutPhone] = useState(user?.phone || '');
+  const [accountName, setAccountName] = useState(user?.fullName || '');
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [bankName, setBankName] = useState('GCB Bank Ghana');
   const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
@@ -208,8 +100,8 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const [ledgerPageSize, setLedgerPageSize] = useState<number>(10);
 
   // Payout History & Profit Ledger
-  const [payouts, setPayouts] = useState<PayoutRecord[]>(SAMPLE_PAYOUT_HISTORY);
-  const [ledger, setLedger] = useState<ProfitLedgerRecord[]>(SAMPLE_PROFIT_LEDGER);
+  const [payouts, setPayouts] = useState<PayoutRecord[]>([]);
+  const [ledger, setLedger] = useState<ProfitLedgerRecord[]>([]);
 
   const availableProfitGhs = availableProfitPesewas / 100;
   const totalProfitEarnedGhs = totalProfitEarnedPesewas / 100;
