@@ -4,6 +4,27 @@ import { checkRedisHealth } from '../infrastructure/redis/client.js';
 
 export async function healthRoutes(fastify: FastifyInstance) {
   /**
+   * Root Server Metadata
+   * GET /
+   */
+  fastify.get('/', async (_request, reply) => {
+    return reply.status(200).send({
+      name: 'ByteBeacon 2.0 API Server',
+      status: 'online',
+      version: '2.0.0',
+      environment: process.env.NODE_ENV || 'production',
+      endpoints: {
+        health: '/healthz',
+        ready: '/readyz',
+        integrations: '/health/integrations',
+        docs: '/docs',
+        apiBase: '/api/v1',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  /**
    * Liveness Probe
    * GET /healthz
    * Returns immediately if process is alive. No external dependency checks.

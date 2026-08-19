@@ -18,7 +18,10 @@ export class HttpClient {
           const trimmed = envUrl.trim().replace(/\/+$/, '');
           return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
         }
-        return '/api/v1';
+        if (import.meta.env.DEV) {
+          return '/api/v1';
+        }
+        return 'https://bytebeacon-2-0.onrender.com/api/v1';
       })(),
       getAccessToken: () => {
         try {

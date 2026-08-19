@@ -70,7 +70,14 @@ export const envSchema = z.object({
     .optional()
     .transform((val) => {
       if (!val) {
-        return ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000'];
+        return [
+          'http://localhost:5173',
+          'http://127.0.0.1:5173',
+          'http://localhost:3000',
+          'http://127.0.0.1:3000',
+          'https://frontend-byte-beacon.vercel.app',
+          'https://frontend-hazel-six-10.vercel.app',
+        ];
       }
       return val.split(',').map((origin) => origin.trim()).filter(Boolean);
     })
