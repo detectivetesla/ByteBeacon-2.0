@@ -6,6 +6,7 @@ import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/in
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { authApi } from '../../api/auth.api.js';
+import { promptGoogleSignIn } from '../../utils/googleAuth.js';
 import { ArrowRight, User, Mail } from 'lucide-react';
 
 export const SignUpPage: React.FC = () => {
@@ -14,11 +15,39 @@ export const SignUpPage: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ fullName?: string; email?: string; phone?: string; password?: string }>({});
 
   const { login } = useAuth();
-  const { error: toastError, success: toastSuccess } = useToast();
+  const { error: toastError, success: toastSuccess, info: toastInfo } = useToast();
   const navigate = useNavigate();
+
+  const handleGoogleSignUp = async () => {
+    setIsGoogleLoading(true);
+    try {
+      toastInfo('Google Sign Up', 'Opening Google Authentication...');
+      const data = await promptGoogleSignIn();
+
+      if (data?.user && data?.tokens) {
+        login(data.user, data.tokens);
+        toastSuccess('Account Created!', `Welcome to ByteBeacon, ${data.user.fullName || data.user.email}`);
+
+        if (data.user.role === 'agent') {
+          navigate('/agent');
+        } else if (data.user.role === 'admin' || data.user.role === 'super_admin') {
+          navigate('/admin');
+        } else {
+          navigate('/app/dashboard');
+        }
+      }
+    } catch (err: any) {
+      if (err.message && !err.message.includes('cancelled')) {
+        toastError('Google Sign-Up', err.message || 'Unable to complete Google sign-up.');
+      }
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +93,31 @@ export const SignUpPage: React.FC = () => {
       topActionLinkText="Sign In"
       topActionHref="/signin"
     >
+      {/* Social Fast-Auth Options */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: 'var(--space-4)' }}>
+        <SocialAuthButton
+          provider="google"
+          onClick={handleGoogleSignUp}
+          isLoading={isGoogleLoading}
+        />
+      </div>
+
+      {/* Divider */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          margin: 'var(--space-3) 0 var(--space-4)',
+        }}
+      >
+        <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
+        <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Or register with email
+        </span>
+        <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
+      </div>
+
       {/* Registration Form */}
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         {/* Full Name */}

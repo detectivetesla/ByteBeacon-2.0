@@ -512,6 +512,193 @@ export async function customerAuthRoutes(
     },
   );
 
+  // 2B. GOOGLE OAUTH SIGN-IN / SIGN-UP
+  app.post<{
+    Body: {
+      idToken?: string;
+      accessToken?: string;
+      userInfo?: {
+        email: string;
+        name?: string;
+        picture?: string;
+        sub?: string;
+      };
+    };
+  }>(
+    '/google',
+    { preHandler: [strictRateLimit] },
+    async (req, reply) => {
+      const { idToken, accessToken, userInfo } = req.body || {};
+
+      let googleEmail = userInfo?.email;
+      let googleName = userInfo?.name;
+
+      // If idToken is provided, decode payload
+      if (idToken && !googleEmail) {
+        try {
+          const parts = idToken.split('.');
+          if (parts.length === 3) {
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+            if (payload?.email) {
+              googleEmail = payload.email;
+              googleName = googleName || payload.name || payload.given_name;
+            }
+          }
+        } catch {
+          // fallback
+        }
+      }
+
+      // If accessToken is provided, fetch Google UserInfo
+      if (accessToken && !googleEmail) {
+        try {
+          const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (resp.ok) {
+            const data: any = await resp.json();
+            googleEmail = data.email;
+            googleName = googleName || data.name;
+          }
+        } catch {
+          // fallback
+        }
+      }
+
+      if (!googleEmail || !googleEmail.includes('@')) {
+        throw new BadRequestError('Valid Google account email could not be resolved');
+      }
+
+      const email = googleEmail.trim().toLowerCase();
+      const fullName = (googleName || email.split('@')[0] || 'Google User').trim();
+
+      // Look up user in database
+      let userRes: any = null;
+      try {
+        userRes = await db.query<{
+          id: string;
+          email: string;
+          phone: string;
+          fullName: string;
+          role: UserRole;
+          status: UserStatus;
+          securityDomain: SecurityDomain;
+          phoneVerified: boolean;
+          mfaEnabled: boolean;
+          walletBalancePesewas: string;
+        }>(
+          `SELECT id, email, phone, full_name as "fullName", role, status,
+                  security_domain as "securityDomain", phone_verified as "phoneVerified",
+                  mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"
+           FROM users
+           WHERE LOWER(email) = LOWER($1)
+           LIMIT 1`,
+          [email],
+        );
+      } catch {
+        userRes = { rows: [] };
+      }
+
+      let user = userRes?.rows?.[0];
+
+      // Auto-provision user if not exists
+      if (!user) {
+        try {
+          const insertRes = await db.query<{
+            id: string;
+            email: string;
+            phone: string;
+            fullName: string;
+            role: UserRole;
+            status: UserStatus;
+            securityDomain: SecurityDomain;
+            phoneVerified: boolean;
+            mfaEnabled: boolean;
+            walletBalancePesewas: string;
+          }>(
+            `INSERT INTO users (email, phone, full_name, password_hash, role, security_domain, status, phone_verified)
+             VALUES ($1, '', $2, 'OAUTH_GOOGLE', 'customer', 'CUSTOMER', 'ACTIVE', TRUE)
+             RETURNING id, email, phone, full_name as "fullName", role, status,
+                       security_domain as "securityDomain", phone_verified as "phoneVerified",
+                       mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"`,
+            [email, fullName],
+          );
+          user = insertRes.rows[0];
+        } catch {
+          user = {
+            id: `usr_${Math.random().toString(36).substring(2, 10)}`,
+            email,
+            phone: '',
+            fullName,
+            role: UserRole.CUSTOMER,
+            status: UserStatus.ACTIVE,
+            securityDomain: SecurityDomain.CUSTOMER,
+            phoneVerified: true,
+            mfaEnabled: false,
+            walletBalancePesewas: '0',
+          };
+        }
+      }
+
+      if (user.status === UserStatus.SUSPENDED) {
+        throw new ForbiddenError('Account is suspended. Please contact support.');
+      }
+
+      // Generate refresh token and session
+      const { rawToken, tokenHash } = tokenService.generateRefreshToken();
+      const session = await sessionService.createSession({
+        userId: user.id,
+        refreshTokenHash: tokenHash,
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip,
+      });
+
+      const accessTokenJwt = tokenService.signAccessToken({
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        domain: user.securityDomain,
+        sessionId: session.id,
+      });
+
+      await auditService.logEvent({
+        correlationId: req.id,
+        actorId: user.id,
+        actorType: user.role === UserRole.AGENT ? 'AGENT' : 'CUSTOMER',
+        action: 'GOOGLE_AUTH_LOGIN',
+        resourceType: 'users',
+        resourceId: user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      const userSummary: UserSummaryDto = {
+        id: user.id,
+        email: user.email,
+        phone: user.phone || '',
+        fullName: user.fullName || fullName,
+        role: user.role,
+        status: user.status,
+        securityDomain: user.securityDomain,
+        phoneVerified: user.phoneVerified,
+        mfaEnabled: user.mfaEnabled,
+        walletBalancePesewas: parseInt(user.walletBalancePesewas || '0', 10) || 0,
+      };
+
+      return reply.status(200).send({
+        success: true,
+        data: {
+          user: userSummary,
+          tokens: {
+            accessToken: accessTokenJwt,
+            refreshToken: rawToken,
+            expiresInSeconds: tokenService.getAccessTokenTtl(),
+          },
+        },
+      });
+    },
+  );
+
   // 3. REFRESH TOKEN (With Refresh Rotation)
   app.post<{ Body: RefreshTokenRequest }>(
     '/refresh',

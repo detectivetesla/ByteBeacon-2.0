@@ -22,6 +22,10 @@ export const authApi = {
     return apiClient.post<LoginResponse>('/auth/login', credentials, { skipAuth: true });
   },
 
+  loginWithGoogle: async (payload: { idToken?: string; accessToken?: string; userInfo?: any }): Promise<LoginResponse> => {
+    return apiClient.post<LoginResponse>('/auth/google', payload, { skipAuth: true });
+  },
+
   register: async (payload: RegisterPayload): Promise<LoginResponse> => {
     return apiClient.post<LoginResponse>('/auth/register', payload, { skipAuth: true });
   },
