@@ -11,7 +11,9 @@ export class HttpClient {
       baseUrl: (() => {
         const envUrl =
           import.meta.env.VITE_API_BASE_URL ||
-          import.meta.env.VITE_API_URL;
+          import.meta.env.VITE_API_URL ||
+          import.meta.env.VITE_BACKEND_URL ||
+          import.meta.env.VITE_SERVER_URL;
         if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
           const trimmed = envUrl.trim().replace(/\/+$/, '');
           return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
