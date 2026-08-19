@@ -31,7 +31,7 @@ export function createAuthHooks(
 
     // Verify user is active in database
     const userRes = await db.query<{ status: UserStatus; role: UserRole }>(
-      'SELECT status, role FROM users WHERE id = $1',
+      'SELECT status, role FROM users WHERE uuid = $1',
       [payload.sub],
     );
 

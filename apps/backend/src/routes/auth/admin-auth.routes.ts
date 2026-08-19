@@ -58,7 +58,7 @@ export async function adminAuthRoutes(
       }
 
       const query = `
-        SELECT id, email, phone, full_name as "fullName", password_hash as "passwordHash",
+        SELECT uuid as id, email, phone, full_name as "fullName", password_hash as "passwordHash",
                role, status, security_domain as "securityDomain",
                mfa_secret as "mfaSecret", mfa_enabled as "mfaEnabled",
                wallet_balance_pesewas as "walletBalancePesewas",
@@ -179,7 +179,7 @@ export async function adminAuthRoutes(
       const { rawCodes } = MfaService.generateRecoveryCodes();
 
       // Store unconfirmed MFA secret in database
-      await db.query('UPDATE users SET mfa_secret = $1 WHERE id = $2', [secret, req.user!.sub]);
+      await db.query('UPDATE users SET mfa_secret = $1 WHERE uuid = $2', [secret, req.user!.sub]);
 
       await auditService.logEvent({
         correlationId: req.id,
@@ -226,7 +226,7 @@ export async function adminAuthRoutes(
         mfaEnabled: boolean;
         walletBalancePesewas: string;
       }>(
-        'SELECT id, email, phone, full_name as "fullName", role, status, mfa_secret as "mfaSecret", mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas" FROM users WHERE id = $1',
+        'SELECT uuid as id, email, phone, full_name as "fullName", role, status, mfa_secret as "mfaSecret", mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas" FROM users WHERE uuid = $1',
         [payload.sub],
       );
 
@@ -250,7 +250,7 @@ export async function adminAuthRoutes(
 
       // Mark MFA enabled if not already
       if (!user.mfaEnabled) {
-        await db.query('UPDATE users SET mfa_enabled = TRUE WHERE id = $1', [user.id]);
+        await db.query('UPDATE users SET mfa_enabled = TRUE WHERE uuid = $1', [user.id]);
       }
 
       const { rawToken, tokenHash } = tokenService.generateRefreshToken();

@@ -576,7 +576,7 @@ export async function storeRoutes(
       }
 
       const countRes = await db.query(
-        `SELECT COUNT(*) FROM stores s JOIN users u ON s.user_id = u.id ${whereClause}`,
+        `SELECT COUNT(*) FROM stores s JOIN users u ON s.user_id = u.uuid ${whereClause}`,
         params,
       );
       const total = Number(countRes.rows[0]?.count || 0);
@@ -589,7 +589,7 @@ export async function storeRoutes(
                 s.admin_notes as "adminNotes", s.created_at as "createdAt", s.approved_at as "approvedAt",
                 u.email as "ownerEmail", u.full_name as "ownerName", u.phone as "ownerPhone"
          FROM stores s
-         JOIN users u ON s.user_id = u.id
+         JOIN users u ON s.user_id = u.uuid
          ${whereClause}
          ORDER BY s.created_at DESC
          LIMIT $${params.length - 1} OFFSET $${params.length}`,

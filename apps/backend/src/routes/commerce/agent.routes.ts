@@ -104,7 +104,7 @@ export async function agentRoutes(
       );
 
       // Update user role to agent
-      await db.query("UPDATE users SET role = 'agent' WHERE id = $1", [req.user!.sub]);
+      await db.query("UPDATE users SET role = 'agent' WHERE uuid = $1", [req.user!.sub]);
 
       const r = insertRes.rows[0];
       const profile: AgentProfileDto = {
