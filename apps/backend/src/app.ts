@@ -185,9 +185,9 @@ export function createApp(options: AppOptions = {}) {
 
   const paymentProvider =
     options.paymentProvider ??
-    (config.ALLOW_MOCK_PROVIDERS
+    (config.NODE_ENV !== 'production' && config.ALLOW_MOCK_PROVIDERS
       ? (new MockPaymentProvider() as unknown as IPaymentProvider)
-      : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || 'test_secret' }));
+      : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || 'sk_test_paystack_secret_key' }));
 
   const ledgerService = options.ledgerService ?? new FinancialLedgerService(dbPool);
   const paymentService =

@@ -77,8 +77,13 @@ export const envSchema = z.object({
     .pipe(z.array(z.string().url('Invalid CORS origin URL'))),
   ALLOW_MOCK_PROVIDERS: z
     .string()
-    .transform((val) => val === 'true' || val === '1')
-    .default('true'),
+    .optional()
+    .transform((val) => {
+      if (val !== undefined) {
+        return val === 'true' || val === '1';
+      }
+      return process.env.NODE_ENV !== 'production';
+    }),
 
   // --- Telecom & Payment Provider Configuration ---
   DATAHOUSE_BASE_URL: z
