@@ -130,7 +130,7 @@ export const AgentWalletPage: React.FC = () => {
   // In-Place Expanded Paystack State
   const [isTopUpExpanded, setIsTopUpExpanded] = useState(false);
   const [topUpAmountGhs, setTopUpAmountGhs] = useState('10');
-  const [payerEmail, setPayerEmail] = useState(user?.email || 'nomotsumartin@gmail.com');
+  const [payerEmail, setPayerEmail] = useState(user?.email || '');
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
 
   // Server-Side Filter & Sort Controls

@@ -4,6 +4,7 @@ import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Input } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { useAuth } from '../../context/AuthContext.js';
 import {
   Wallet,
   Coins,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 
 export const AgentProfilePage: React.FC = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { toastInfo, toastError } = useToast();
 
@@ -28,8 +30,11 @@ export const AgentProfilePage: React.FC = () => {
 
   const handleContactSupport = () => {
     toastInfo('Support Contact', 'Opening official ByteBeacon Agent Helpdesk channel.');
-    window.open('mailto:support@bytebeacon.com?subject=Agent%20Account%20Support%20(AGT-84920)', '_blank');
+    window.open('mailto:support@bytebeacon.com?subject=Agent%20Account%20Support', '_blank');
   };
+
+  const displayName = user?.fullName || 'Agent Account';
+  const initial = (displayName.charAt(0) || 'A').toUpperCase();
 
   return (
     <div style={{ maxWidth: '840px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -78,13 +83,13 @@ export const AgentProfilePage: React.FC = () => {
               flexShrink: 0,
             }}
           >
-            M
+            {initial}
           </div>
 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
-                Martin Teye Nomotsu
+                {displayName}
               </h2>
               <span
                 style={{
@@ -98,19 +103,23 @@ export const AgentProfilePage: React.FC = () => {
                   textTransform: 'uppercase',
                 }}
               >
-                Dealer
+                {user?.role ? user.role.toUpperCase() : 'AGENT'}
               </span>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <Mail size={13} color="var(--color-text-muted)" />
-                nomotsumartin@gmail.com
-              </span>
-              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <Phone size={13} color="var(--color-text-muted)" />
-                0541349282
-              </span>
+              {user?.email && (
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Mail size={13} color="var(--color-text-muted)" />
+                  {user.email}
+                </span>
+              )}
+              {user?.phone && (
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Phone size={13} color="var(--color-text-muted)" />
+                  {user.phone}
+                </span>
+              )}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 'var(--space-3)' }}>

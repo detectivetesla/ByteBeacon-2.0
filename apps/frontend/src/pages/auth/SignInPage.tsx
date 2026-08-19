@@ -77,30 +77,6 @@ export const SignInPage: React.FC = () => {
       topActionLinkText="Sign Up"
       topActionHref="/signup"
     >
-      {/* Social Fast-Auth Options */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: 'var(--space-5)' }}>
-        <SocialAuthButton
-          provider="google"
-          onClick={() => toastError('Social Sign In', 'Google Sign-In is being provisioned.')}
-        />
-      </div>
-
-      {/* Divider */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          margin: 'var(--space-4) 0',
-        }}
-      >
-        <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
-        <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Or sign in with
-        </span>
-        <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
-      </div>
-
       {/* Form Fields */}
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
         {/* Email or Phone Input */}

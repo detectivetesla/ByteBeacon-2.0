@@ -38,18 +38,15 @@ export const SignUpPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const data = await authApi.register({
+      await authApi.register({
         fullName: fullName.trim(),
         email: email.trim(),
         phone: phone.trim(),
         password,
       });
 
-      if (data?.user && data?.tokens) {
-        login(data.user, data.tokens);
-        toastSuccess('Account Created!', 'Welcome to ByteBeacon.');
-        navigate('/app/dashboard');
-      }
+      toastSuccess('Account Created Successfully!', 'Please sign in with your credentials.');
+      navigate('/signin');
     } catch (err: any) {
       toastError('Registration failed', err.message || 'Unable to register right now. Please try again.');
     } finally {
@@ -67,30 +64,6 @@ export const SignUpPage: React.FC = () => {
       topActionLinkText="Sign In"
       topActionHref="/signin"
     >
-      {/* Social Fast-Auth Options */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: 'var(--space-4)' }}>
-        <SocialAuthButton
-          provider="google"
-          onClick={() => toastError('Social Sign Up', 'Google Sign-Up is being provisioned.')}
-        />
-      </div>
-
-      {/* Divider */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          margin: 'var(--space-3) 0 var(--space-4)',
-        }}
-      >
-        <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
-        <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Or register with email
-        </span>
-        <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
-      </div>
-
       {/* Registration Form */}
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         {/* Full Name */}

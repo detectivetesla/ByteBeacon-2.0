@@ -39,7 +39,7 @@ export const AgentSignUpPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const data = await authApi.registerAgent({
+      await authApi.registerAgent({
         fullName: fullName.trim(),
         email: email.trim(),
         phone: phone.trim(),
@@ -47,11 +47,8 @@ export const AgentSignUpPage: React.FC = () => {
         password,
       });
 
-      if (data?.user && data?.tokens) {
-        login(data.user, data.tokens);
-        toastSuccess('Agent Account Created!', 'Welcome to the ByteBeacon Reseller Platform.');
-        navigate('/agent');
-      }
+      toastSuccess('Agent Account Created Successfully!', 'Please sign in with your credentials.');
+      navigate('/signin');
     } catch (err: any) {
       toastError('Registration failed', err.message || 'Unable to register agent right now. Please try again.');
     } finally {

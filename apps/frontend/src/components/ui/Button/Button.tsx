@@ -173,6 +173,7 @@ export const Button: React.FC<ButtonProps> = ({
     >
       {isLoading ? (
         <span
+          className="button-spinner"
           style={{
             display: 'inline-block',
             width: '16px',
@@ -181,6 +182,7 @@ export const Button: React.FC<ButtonProps> = ({
             borderTopColor: '#FFFFFF',
             borderRadius: '50%',
             animation: 'spin 0.6s linear infinite',
+            WebkitAnimation: 'spin 0.6s linear infinite',
           }}
         />
       ) : (
