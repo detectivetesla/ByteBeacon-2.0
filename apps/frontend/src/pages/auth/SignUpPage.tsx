@@ -5,6 +5,7 @@ import { SocialAuthButton } from '../../components/auth/SocialAuthButton.js';
 import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { authApi } from '../../api/auth.api.js';
 import { ArrowRight, User, Mail } from 'lucide-react';
 
 export const SignUpPage: React.FC = () => {
@@ -37,25 +38,15 @@ export const SignUpPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: fullName.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-          password,
-        }),
+      const data = await authApi.register({
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        password,
       });
 
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error?.message || 'Registration failed. Please check your information.');
-      }
-
-      if (json.data?.user && json.data?.tokens) {
-        login(json.data.user, json.data.tokens);
+      if (data?.user && data?.tokens) {
+        login(data.user, data.tokens);
         toastSuccess('Account Created!', 'Welcome to ByteBeacon.');
         navigate('/app/dashboard');
       }

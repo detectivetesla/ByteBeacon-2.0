@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { PasswordInput, Button } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { authApi } from '../../api/auth.api.js';
 import { ArrowRight, CheckCircle2 } from 'lucide-react';
 
 export const ResetPasswordPage: React.FC = () => {
@@ -35,18 +36,7 @@ export const ResetPasswordPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/v1/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword }),
-      });
-
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error?.message || 'Invalid or expired password reset token.');
-      }
-
+      await authApi.resetPassword({ token, newPassword });
       setIsSuccess(true);
       toastSuccess('Password Updated', 'Your password has been successfully reset.');
     } catch (err: any) {

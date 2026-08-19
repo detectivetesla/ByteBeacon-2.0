@@ -4,6 +4,7 @@ import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { authApi } from '../../api/auth.api.js';
 import { Store, ArrowRight, User, Mail } from 'lucide-react';
 
 export const AgentSignUpPage: React.FC = () => {
@@ -38,26 +39,16 @@ export const AgentSignUpPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/v1/auth/register-agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: fullName.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-          storeName: storeName.trim(),
-          password,
-        }),
+      const data = await authApi.registerAgent({
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        storeName: storeName.trim(),
+        password,
       });
 
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error?.message || 'Agent registration failed. Please review your details.');
-      }
-
-      if (json.data?.user && json.data?.tokens) {
-        login(json.data.user, json.data.tokens);
+      if (data?.user && data?.tokens) {
+        login(data.user, data.tokens);
         toastSuccess('Agent Account Created!', 'Welcome to the ByteBeacon Reseller Platform.');
         navigate('/agent');
       }

@@ -5,6 +5,7 @@ import { SocialAuthButton } from '../../components/auth/SocialAuthButton.js';
 import { Input, PasswordInput, Checkbox, Button } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { authApi } from '../../api/auth.api.js';
 import { ArrowRight, Mail } from 'lucide-react';
 
 export const SignInPage: React.FC = () => {
@@ -39,21 +40,11 @@ export const SignInPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: identifier.trim(), password }),
-      });
+      const data = await authApi.login({ identifier: identifier.trim(), password });
 
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error?.message || 'Invalid login credentials. Please try again.');
-      }
-
-      if (json.data?.user && json.data?.tokens) {
-        login(json.data.user, json.data.tokens);
-        toastSuccess('Welcome back!', `Signed in as ${json.data.user.fullName || json.data.user.email}`);
+      if (data?.user && data?.tokens) {
+        login(data.user, data.tokens);
+        toastSuccess('Welcome back!', `Signed in as ${data.user.fullName || data.user.email}`);
 
         const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
         if (returnUrl && returnUrl.startsWith('/')) {
@@ -61,9 +52,9 @@ export const SignInPage: React.FC = () => {
           return;
         }
 
-        if (json.data.user.role === 'agent') {
+        if (data.user.role === 'agent') {
           navigate('/agent');
-        } else if (json.data.user.role === 'admin' || json.data.user.role === 'super_admin') {
+        } else if (data.user.role === 'admin' || data.user.role === 'super_admin') {
           navigate('/admin');
         } else {
           navigate('/app/dashboard');

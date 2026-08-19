@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { apiClient } from '../../api/httpClient.js';
 
 export type WalletTransactionType = 'DEPOSIT' | 'PURCHASE' | 'REFUND' | 'ADJUSTMENT';
 export type TransactionStatus = 'SUCCESSFUL' | 'PENDING' | 'FAILED' | 'REVERSED';
@@ -174,21 +175,13 @@ export const AgentWalletPage: React.FC = () => {
         ...(customEndDate ? { endDate: customEndDate } : {}),
       });
 
-      const response = await fetch(`/api/v1/agents/wallet/transactions?${params.toString()}`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (response.ok) {
-        const json = await response.json();
-        if (json?.data?.items && Array.isArray(json.data.items) && json.data.items.length > 0) {
-          setTransactions(json.data.items);
-          setTotalCount(json.data.pagination.total);
-          setTotalPages(json.data.pagination.totalPages);
-          setIsLoading(false);
-          return;
-        }
+      const json: any = await apiClient.get(`/agents/wallet/transactions?${params.toString()}`);
+      if (json?.items && Array.isArray(json.items) && json.items.length > 0) {
+        setTransactions(json.items);
+        setTotalCount(json.pagination.total);
+        setTotalPages(json.pagination.totalPages);
+        setIsLoading(false);
+        return;
       }
 
       // Fallback: Perform accurate in-memory server simulation
@@ -292,29 +285,18 @@ export const AgentWalletPage: React.FC = () => {
     setIsProcessingCheckout(true);
 
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      const response = await fetch('/api/v1/payments/initialize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          orderId: `topup_${Date.now()}`,
-          paymentMethod: 'CARD',
-          email: payerEmail,
-          amountPesewas: Math.round(totalPayableGhs * 100),
-          callbackUrl: `${window.location.origin}/agent/wallet?paystack_verify=true`,
-        }),
+      const data: any = await apiClient.post('/payments/initialize', {
+        orderId: `topup_${Date.now()}`,
+        paymentMethod: 'CARD',
+        email: payerEmail,
+        amountPesewas: Math.round(totalPayableGhs * 100),
+        callbackUrl: `${window.location.origin}/agent/wallet?paystack_verify=true`,
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data?.data?.authorizationUrl) {
-          toastInfo('Redirecting to Paystack', 'Opening secure checkout...');
-          window.location.href = data.data.authorizationUrl;
-          return;
-        }
+      if (data?.authorizationUrl) {
+        toastInfo('Redirecting to Paystack', 'Opening secure checkout...');
+        window.location.href = data.authorizationUrl;
+        return;
       }
 
       // Mock completion fallback

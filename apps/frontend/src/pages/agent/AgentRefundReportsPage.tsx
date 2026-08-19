@@ -23,6 +23,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { apiClient } from '../../api/httpClient.js';
 
 export type RefundStatus = 'Pending' | 'Processing' | 'Completed' | 'Failed' | 'Rejected';
 export type PaymentMethod = 'Paystack' | 'Mobile Money' | 'Card' | 'Bank Transfer' | 'Wallet';
@@ -180,18 +181,11 @@ export const AgentRefundReportsPage: React.FC = () => {
     setIsRefreshing(true);
 
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      const response = await fetch('/api/v1/payments/refunds', {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data?.data)) {
-          setRefunds(data.data);
-        }
+      const data: any = await apiClient.get('/payments/refunds');
+      if (Array.isArray(data)) {
+        setRefunds(data);
+      } else if (Array.isArray(data?.data)) {
+        setRefunds(data.data);
       }
     } catch {
       // Graceful local development fallback

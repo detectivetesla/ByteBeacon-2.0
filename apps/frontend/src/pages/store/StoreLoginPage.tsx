@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button/Button.js';
 import { Input, PasswordInput } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { authApi } from '../../api/auth.api.js';
 import { Store, ArrowLeft, Mail } from 'lucide-react';
 
 export const StoreLoginPage: React.FC = () => {
@@ -25,20 +26,10 @@ export const StoreLoginPage: React.FC = () => {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: email.trim(), password }),
-      });
+      const data = await authApi.login({ identifier: email.trim(), password });
 
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error?.message || 'Invalid email or password.');
-      }
-
-      if (json.data?.user && json.data?.tokens) {
-        login(json.data.user, json.data.tokens);
+      if (data?.user && data?.tokens) {
+        login(data.user, data.tokens);
         toastSuccess('Authenticated', 'Welcome back to your Agent Store Console.');
         navigate('/store-console/overview');
       } else {

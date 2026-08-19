@@ -11,12 +11,14 @@ export interface RegisterPayload {
   email: string;
   password?: string;
   phoneNumber?: string;
+  phone?: string;
   fullName?: string;
   role?: string;
+  storeName?: string;
 }
 
 export const authApi = {
-  login: async (credentials: { email: string; password?: string }): Promise<LoginResponse> => {
+  login: async (credentials: { identifier?: string; email?: string; password?: string }): Promise<LoginResponse> => {
     return apiClient.post<LoginResponse>('/auth/login', credentials, { skipAuth: true });
   },
 
@@ -24,7 +26,7 @@ export const authApi = {
     return apiClient.post<LoginResponse>('/auth/register', payload, { skipAuth: true });
   },
 
-  registerAgent: async (payload: RegisterPayload & { businessName?: string }): Promise<LoginResponse> => {
+  registerAgent: async (payload: RegisterPayload & { businessName?: string; storeName?: string }): Promise<LoginResponse> => {
     return apiClient.post<LoginResponse>('/auth/register-agent', payload, { skipAuth: true });
   },
 

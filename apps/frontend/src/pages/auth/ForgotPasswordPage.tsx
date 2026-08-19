@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { Input, Button } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { authApi } from '../../api/auth.api.js';
 import { ArrowRight, CheckCircle2, Mail } from 'lucide-react';
 
 export const ForgotPasswordPage: React.FC = () => {
@@ -24,18 +25,7 @@ export const ForgotPasswordPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/v1/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error?.message || 'Unable to process password reset request.');
-      }
-
+      await authApi.forgotPassword(email.trim());
       setIsSubmitted(true);
       toastSuccess('Reset Link Sent', 'If an account exists with this email, instructions have been sent.');
     } catch (err: any) {
