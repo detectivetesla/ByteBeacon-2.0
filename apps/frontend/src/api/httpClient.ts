@@ -10,9 +10,8 @@ export class HttpClient {
     this.config = {
       baseUrl: (() => {
         const envUrl =
-          typeof import.meta !== 'undefined'
-            ? (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL
-            : undefined;
+          import.meta.env.VITE_API_BASE_URL ||
+          import.meta.env.VITE_API_URL;
         if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
           const trimmed = envUrl.trim().replace(/\/+$/, '');
           return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
