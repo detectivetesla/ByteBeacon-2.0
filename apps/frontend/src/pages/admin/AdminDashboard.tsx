@@ -26,9 +26,22 @@ interface SystemHealthRow {
   lastChecked: string;
 }
 
+interface AuditStreamItem {
+  id: string;
+  action: string;
+  color: string;
+  time: string;
+}
+
 export const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
   const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditStreamItem[]>([
+    { id: '1', action: 'DATABASE_POOL_CONNECTED', color: '#10b981', time: 'Just now' },
+    { id: '2', action: 'REDIS_CLUSTER_ONLINE', color: '#10b981', time: '1m ago' },
+    { id: '3', action: 'DATAHOUSE_ROUTING_ACTIVE', color: '#3b82f6', time: '3m ago' },
+    { id: '4', action: 'SECURITY_AUTH_VERIFIED', color: '#10b981', time: '5m ago' },
+  ]);
   const [orderMetrics, setOrderMetrics] = useState({
     total: 0,
     delivered: 0,
@@ -253,7 +266,7 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            {ADMIN_AUDIT_LOGS.map((log) => (
+            {auditLogs.map((log) => (
               <div
                 key={log.id}
                 style={{
