@@ -7,8 +7,11 @@ import { PurchaseModal } from '../components/commerce/PurchaseModal.js';
 import { WhatsAppFloat } from '../components/ui/WhatsAppFloat.js';
 import { NetworkProvider } from '@bytebeacon/shared';
 
+import { useWalletBalance } from '../hooks/useWalletBalance.js';
+
 export const CustomerLayout: React.FC = () => {
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
+  const { balancePesewas } = useWalletBalance();
 
   return (
     <>
@@ -20,7 +23,7 @@ export const CustomerLayout: React.FC = () => {
         portalRoleColor="var(--color-brand)"
         navigationGroups={CUSTOMER_NAVIGATION_GROUPS}
         userRole="customer"
-        balancePesewas={12000} // Sample wallet balance
+        balancePesewas={balancePesewas}
         onTopUpClick={() => (window.location.href = '/app/wallet')}
       >
         <Outlet />

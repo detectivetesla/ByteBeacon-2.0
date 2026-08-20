@@ -7,8 +7,11 @@ import { PurchaseModal } from '../components/commerce/PurchaseModal.js';
 import { WhatsAppFloat } from '../components/ui/WhatsAppFloat.js';
 import { NetworkProvider } from '@bytebeacon/shared';
 
+import { useWalletBalance } from '../hooks/useWalletBalance.js';
+
 export const AgentLayout: React.FC = () => {
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
+  const { balancePesewas } = useWalletBalance();
 
   return (
     <>
@@ -20,7 +23,7 @@ export const AgentLayout: React.FC = () => {
         portalRoleColor="var(--color-agent)"
         navigationGroups={AGENT_NAVIGATION_GROUPS}
         userRole="agent"
-        balancePesewas={145000} // Unified float balance
+        balancePesewas={balancePesewas}
         onTopUpClick={() => (window.location.href = '/agent/wallet')}
         storeSlug="datahub-express"
       >

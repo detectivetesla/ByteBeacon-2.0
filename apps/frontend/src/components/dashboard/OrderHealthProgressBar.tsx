@@ -41,21 +41,37 @@ export const OrderHealthProgressBar: React.FC<OrderHealthProgressBarProps> = ({
     <Card
       elevated
       style={{
-        padding: 'var(--space-6)',
+        padding: 'var(--space-card-p, var(--space-6))',
         display: 'flex',
         flexDirection: 'column',
-        gap: 'var(--space-5)',
+        gap: 'var(--space-4)',
         border: '1px solid var(--color-border-default)',
         borderRadius: 'var(--radius-xl)',
         background: 'linear-gradient(145deg, var(--color-bg-surface-elevated), var(--color-bg-surface))',
         boxShadow: 'var(--shadow-tactile-md)',
         position: 'relative',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
         ...style,
       }}
     >
+      <style>{`
+        .health-legend-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+          gap: var(--space-2);
+          padding-top: var(--space-1);
+        }
+        @media (max-width: 420px) {
+          .health-legend-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
       {/* Header Row: Title, Live Pill, Tooltip, and Total Orders */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
           <TactileIcon icon={ShieldCheck} color="security" size="sm" />
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -99,7 +115,10 @@ export const OrderHealthProgressBar: React.FC<OrderHealthProgressBarProps> = ({
                       padding: 'var(--space-2) var(--space-3)',
                       fontSize: 'var(--font-size-2xs)',
                       color: 'var(--color-text-primary)',
-                      whiteSpace: 'nowrap',
+                      maxWidth: 'min(260px, 80vw)',
+                      width: 'max-content',
+                      whiteSpace: 'normal',
+                      wordBreak: 'break-word',
                       boxShadow: 'var(--shadow-tactile-lg)',
                       zIndex: 50,
                       pointerEvents: 'none',
@@ -196,14 +215,7 @@ export const OrderHealthProgressBar: React.FC<OrderHealthProgressBarProps> = ({
       </div>
 
       {/* Order Health Legend (Clean, Compact, Responsive Grid with Zero Paragraph Clutter) */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 'var(--space-3)',
-          paddingTop: 'var(--space-1)',
-        }}
-      >
+      <div className="health-legend-grid">
         {/* Delivered Item */}
         <div
           style={{

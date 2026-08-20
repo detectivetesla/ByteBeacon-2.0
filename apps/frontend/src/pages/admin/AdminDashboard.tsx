@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -6,6 +6,10 @@ import { Table } from '../../components/ui/Table/Table.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { Avatar } from '../../components/ui/Avatar/Avatar.js';
 import { OrderHealthProgressBar } from '../../components/dashboard/OrderHealthProgressBar.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { ordersApi } from '../../api/orders.api.js';
+import { apiClient } from '../../api/httpClient.js';
+import { OrderStatus } from '@bytebeacon/shared';
 import {
   Server,
   ShieldCheck,
@@ -22,25 +26,74 @@ interface SystemHealthRow {
   lastChecked: string;
 }
 
-const HEALTH_DATA: SystemHealthRow[] = [
-  { service: 'Carrier Provisioning', type: 'Fulfillment Dispatch', status: 'UP', latencyMs: 38, lastChecked: 'Just now' },
-  { service: 'Payment Rails', type: 'MoMo Gateway', status: 'UP', latencyMs: 24, lastChecked: 'Just now' },
-  { service: 'PostgreSQL Ledger', type: 'Primary DB', status: 'UP', latencyMs: 2, lastChecked: 'Just now' },
-  { service: 'Redis Queue & Mutex', type: 'Cache & Locks', status: 'UP', latencyMs: 1, lastChecked: 'Just now' },
-];
-
-const ADMIN_AUDIT_LOGS = [
-  { id: 'aud-1', action: 'Ledger Reconciled', time: '5m ago', color: '#22C55E' },
-  { id: 'aud-2', action: 'Carrier Pipeline Swapped', time: '18m ago', color: '#3B82F6' },
-  { id: 'aud-3', action: 'Agent Float Approved', time: '1h ago', color: '#F59E0B' },
-  { id: 'aud-4', action: 'Rate Limit Threshold Elevated', time: '3h ago', color: '#8B5CF6' },
-];
-
 export const AdminDashboard: React.FC = () => {
+  const { user } = useAuth();
   const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [orderMetrics, setOrderMetrics] = useState({
+    total: 0,
+    delivered: 0,
+    pending: 0,
+    failed: 0,
+    volumePesewas: 0,
+  });
+  const [healthData, setHealthData] = useState<SystemHealthRow[]>([
+    { service: 'Carrier Gateway', type: 'DataHouse Engine', status: 'UP', latencyMs: 32, lastChecked: 'Live' },
+    { service: 'Payment Rails', type: 'Paystack Gateway', status: 'UP', latencyMs: 24, lastChecked: 'Live' },
+    { service: 'Database Cluster', type: 'Supabase PostgreSQL', status: 'UP', latencyMs: 3, lastChecked: 'Live' },
+    { service: 'Queue & Concurrency', type: 'BullMQ / Redis', status: 'UP', latencyMs: 1, lastChecked: 'Live' },
+  ]);
+
+  const fetchAdminData = useCallback(async () => {
+    try {
+      const ordersRes = await ordersApi.listOrders({ limit: 50 }).catch(() => null);
+      if (ordersRes && Array.isArray(ordersRes.orders)) {
+        const total = ordersRes.orders.length;
+        const delivered = ordersRes.orders.filter((o: any) => o.orderStatus === OrderStatus.COMPLETED || o.orderStatus === OrderStatus.DELIVERED).length;
+        const pending = ordersRes.orders.filter((o: any) => o.orderStatus === OrderStatus.PENDING || o.orderStatus === OrderStatus.PROCESSING).length;
+        const failed = ordersRes.orders.filter((o: any) => o.orderStatus === OrderStatus.FAILED || o.orderStatus === OrderStatus.CANCELLED).length;
+        const volumePesewas = ordersRes.orders.reduce((sum: number, o: any) => sum + (o.amountPesewas || 0), 0);
+
+        setOrderMetrics({ total, delivered, pending, failed, volumePesewas });
+      }
+
+      // Check integration health endpoint
+      const healthRes = await apiClient.get<any>('/health/integrations').catch(() => null);
+      if (healthRes?.services) {
+        const rows: SystemHealthRow[] = Object.entries(healthRes.services).map(([key, val]: [string, any]) => ({
+          service: key.charAt(0).toUpperCase() + key.slice(1),
+          type: val.type || 'Core Subsystem',
+          status: val.status === 'healthy' ? 'UP' : 'DEGRADED',
+          latencyMs: val.latencyMs || 20,
+          lastChecked: 'Just now',
+        }));
+        if (rows.length > 0) setHealthData(rows);
+      }
+    } catch {
+      // Retain zero-state defaults
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAdminData();
+  }, [fetchAdminData]);
+
+  const displayName = user?.fullName || user?.email?.split('@')[0] || 'System Administrator';
 
   return (
-    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%' }}>
+    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', overflowX: 'hidden' }}>
+      <style>{`
+        .admin-dashboard-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.2fr) 320px;
+          gap: var(--space-6);
+          align-items: start;
+        }
+        @media (max-width: 1023px) {
+          .admin-dashboard-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
       {/* Header Bar */}
       <div
         style={{
@@ -52,10 +105,10 @@ export const AdminDashboard: React.FC = () => {
           marginBottom: 'var(--space-6)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <Avatar name="System Administrator" role="admin" status="online" size="md" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
+          <Avatar name={displayName} role="admin" status="online" size="md" />
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
                 Control Center
               </h1>
@@ -74,10 +127,13 @@ export const AdminDashboard: React.FC = () => {
                 SUPER ADMIN
               </span>
             </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.2rem 0 0 0' }}>
+              {user?.email || 'Platform operations & telecom gateway telemetry'}
+            </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
           <Button
             variant={maintenanceMode ? 'danger' : 'outline'}
             size="sm"
@@ -96,15 +152,15 @@ export const AdminDashboard: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
           gap: 'var(--space-4)',
           marginBottom: 'var(--space-6)',
         }}
       >
         <MetricCard
           title="Daily Volume"
-          value="GH₵ 42,180.00"
-          subtitle="1,492 orders (24h)"
+          value={`GH₵ ${(orderMetrics.volumePesewas / 100).toFixed(2)}`}
+          subtitle={`${orderMetrics.total} total orders`}
           accent="blue"
           icon={<TactileIcon icon={Activity} color="orders" size="sm" />}
         />
@@ -118,8 +174,8 @@ export const AdminDashboard: React.FC = () => {
         />
 
         <MetricCard
-          title="Active SIMs"
-          value="18 Lines"
+          title="Active Gateways"
+          value={`${healthData.length} Online`}
           subtitle="All routes operational"
           accent="purple"
           icon={<TactileIcon icon={Server} color="api" size="sm" />}
@@ -127,9 +183,9 @@ export const AdminDashboard: React.FC = () => {
 
         <MetricCard
           title="Failed Queue"
-          value="0"
-          subtitle="Queue fully clear"
-          accent="green"
+          value={String(orderMetrics.failed)}
+          subtitle={orderMetrics.failed === 0 ? 'Queue clear' : `${orderMetrics.failed} need review`}
+          accent={orderMetrics.failed === 0 ? 'green' : 'red'}
           icon={<TactileIcon icon={AlertTriangle} color="speed" size="sm" />}
         />
       </div>
@@ -137,7 +193,7 @@ export const AdminDashboard: React.FC = () => {
       {/* System Order Health */}
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <OrderHealthProgressBar
-          data={{ delivered: 1489, pending: 3, failed: 0, total: 1492 }}
+          data={{ delivered: orderMetrics.delivered, pending: orderMetrics.pending, failed: orderMetrics.failed, total: orderMetrics.total }}
           title="Systemwide Order Health"
           badgeLabel="Live"
           tooltipText="Fulfillment telemetry across all carrier SIM gateways and agent stores."
@@ -145,14 +201,7 @@ export const AdminDashboard: React.FC = () => {
       </div>
 
       {/* Main Workspace: Service Health + Audit Stream */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1.2fr) 320px',
-          gap: 'var(--space-6)',
-          alignItems: 'start',
-        }}
-      >
+      <div className="admin-dashboard-grid">
         {/* Left: Infrastructure Health */}
         <Card elevated style={{ padding: 'var(--space-5)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
@@ -187,14 +236,14 @@ export const AdminDashboard: React.FC = () => {
                 render: (row) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-brand)' }}>{row.latencyMs}ms</span>,
               },
             ]}
-            data={HEALTH_DATA}
+            data={healthData}
             keyExtractor={(item) => item.service}
           />
         </Card>
 
         {/* Right: Operations Stream */}
-        <Card elevated style={{ padding: 'var(--space-5)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+        <Card elevated style={{ padding: 'var(--space-5)', maxWidth: '100%', boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: '0.25rem' }}>
             <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Operations Audit
             </h3>

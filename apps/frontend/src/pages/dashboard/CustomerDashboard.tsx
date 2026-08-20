@@ -11,8 +11,8 @@ import { OrderDetailDrawer, OrderDetailData } from '../../components/commerce/Or
 import { OrderHealthProgressBar } from '../../components/dashboard/OrderHealthProgressBar.js';
 import { NetworkProvider, PaymentStatus, OrderStatus } from '@bytebeacon/shared';
 import { useAuth } from '../../context/AuthContext.js';
+import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { ordersApi } from '../../api/orders.api.js';
-import { walletApi } from '../../api/wallet.api.js';
 import {
   Wallet,
   Smartphone,
@@ -37,29 +37,21 @@ interface CustomerOrderRow {
 
 export const CustomerDashboard: React.FC = () => {
   const { user } = useAuth();
+  const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
   const [searchQuery, setSearchQuery] = useState('');
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetailData | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const [orders, setOrders] = useState<CustomerOrderRow[]>([]);
-  const [walletBalanceGhs, setWalletBalanceGhs] = useState<number>(
-    (user?.walletBalancePesewas || 0) / 100,
-  );
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchDashboardData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch real wallet balance
-      const balRes = await walletApi.getBalance().catch(() => null);
-      if (balRes && typeof balRes.balanceGhs === 'number') {
-        setWalletBalanceGhs(balRes.balanceGhs);
-      } else if (user?.walletBalancePesewas !== undefined) {
-        setWalletBalanceGhs(user.walletBalancePesewas / 100);
-      }
+      refreshBalance();
 
-      // 2. Fetch real user orders
+      // Fetch real user orders
       const ordersRes = await ordersApi.listOrders({ limit: 20 }).catch(() => null);
       if (ordersRes && Array.isArray(ordersRes.orders)) {
         const mapped: CustomerOrderRow[] = ordersRes.orders.map((o: any) => ({
@@ -133,7 +125,20 @@ export const CustomerDashboard: React.FC = () => {
   const displayName = user?.fullName || user?.email?.split('@')[0] || 'Customer';
 
   return (
-    <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
+    <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', overflowX: 'hidden' }}>
+      <style>{`
+        .customer-dashboard-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 300px;
+          gap: var(--space-6);
+          alignItems: start;
+        }
+        @media (max-width: 1023px) {
+          .customer-dashboard-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
       {/* Header Bar */}
       <div
         style={{
@@ -145,10 +150,10 @@ export const CustomerDashboard: React.FC = () => {
           marginBottom: 'var(--space-6)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
           <Avatar name={displayName} role="customer" status="online" size="md" />
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
                 Welcome, {displayName}
               </h1>
@@ -173,7 +178,7 @@ export const CustomerDashboard: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.625rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.625rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <Button variant="outline" size="sm" onClick={() => (window.location.href = '/app/wallet')}>
             Fund Wallet
           </Button>
@@ -187,14 +192,14 @@ export const CustomerDashboard: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
           gap: 'var(--space-4)',
           marginBottom: 'var(--space-6)',
         }}
       >
         <MetricCard
           title="Wallet Balance"
-          value={`GH₵ ${walletBalanceGhs.toFixed(2)}`}
+          value={`GH₵ ${balanceGhs.toFixed(2)}`}
           subtitle="Instant checkout balance"
           accent="amber"
           icon={<TactileIcon icon={Wallet} color="wallet" size="sm" />}
@@ -236,16 +241,9 @@ export const CustomerDashboard: React.FC = () => {
       </div>
 
       {/* Main Workspace: Recent Orders Table + Recent Activity Sidebar */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) 300px',
-          gap: 'var(--space-6)',
-          alignItems: 'start',
-        }}
-      >
+      <div className="customer-dashboard-grid">
         {/* Left: Orders Table with Drawer trigger */}
-        <Card elevated style={{ padding: 'var(--space-5)' }}>
+        <Card elevated style={{ padding: 'var(--space-5)', maxWidth: '100%', boxSizing: 'border-box' }}>
           <div
             style={{
               display: 'flex',
@@ -260,7 +258,7 @@ export const CustomerDashboard: React.FC = () => {
               Recent Orders
             </h2>
 
-            <div style={{ width: '220px' }}>
+            <div style={{ width: 'min(240px, 100%)' }}>
               <SearchInput
                 placeholder="Search orders..."
                 value={searchQuery}
@@ -364,8 +362,8 @@ export const CustomerDashboard: React.FC = () => {
         </Card>
 
         {/* Right: Activity Stream */}
-        <Card elevated style={{ padding: 'var(--space-5)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+        <Card elevated style={{ padding: 'var(--space-5)', maxWidth: '100%', boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: '0.25rem' }}>
             <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Live Feed
             </h3>
@@ -392,11 +390,13 @@ export const CustomerDashboard: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '0.35rem',
                     paddingBottom: 'var(--space-2)',
                     borderBottom: '1px solid var(--color-border-subtle)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
                     <span
                       style={{
                         width: '6px',
@@ -406,11 +406,11 @@ export const CustomerDashboard: React.FC = () => {
                         flexShrink: 0,
                       }}
                     />
-                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)', wordBreak: 'break-word' }}>
                       {o.dataDisplay} {o.network}
                     </span>
                   </div>
-                  <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
                     {o.dateDisplay}
                   </span>
                 </div>

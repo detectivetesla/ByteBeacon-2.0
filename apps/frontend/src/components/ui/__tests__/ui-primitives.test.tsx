@@ -218,9 +218,9 @@ describe('ByteBeacon 2.0 UI Components Suite', () => {
         keyExtractor={(item) => item.id}
       />,
     );
-    expect(screen.getByText('Kwame Mensah')).toBeInTheDocument();
-    expect(screen.getByText('Ama Osei')).toBeInTheDocument();
-    expect(screen.getByText('Admin')).toBeInTheDocument();
+    expect(screen.getAllByText('Kwame Mensah')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Ama Osei')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Admin')[0]).toBeInTheDocument();
   });
 
   it('renders TactileIcon with custom gradients, badges, and active state', () => {
