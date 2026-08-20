@@ -359,15 +359,28 @@ export async function customerAuthRoutes(
         }
       }
 
-      // Fetch user by email or phone
+      // Fetch user by email or phone variations
+      const normIdent = identifier.trim();
+      const cleanDigits = normIdent.replace(/\D/g, '');
+      const possiblePhones = [
+        normIdent,
+        cleanDigits,
+        cleanDigits.startsWith('0') ? `+233${cleanDigits.slice(1)}` : cleanDigits,
+        cleanDigits.startsWith('0') ? `233${cleanDigits.slice(1)}` : cleanDigits,
+        cleanDigits.startsWith('0') ? `+2330${cleanDigits.slice(1)}` : cleanDigits,
+        cleanDigits.startsWith('233') ? `0${cleanDigits.slice(3)}` : cleanDigits,
+        cleanDigits.startsWith('233') ? `+${cleanDigits}` : cleanDigits,
+        cleanDigits.startsWith('2330') ? `0${cleanDigits.slice(4)}` : cleanDigits,
+      ].filter(Boolean);
+
       const query = `
         SELECT *
         FROM users
-        WHERE LOWER(email) = LOWER($1) OR phone = $1
+        WHERE LOWER(email) = LOWER($1) OR phone = ANY($2::text[])
       `;
       let userRes: any = null;
       try {
-        const rawRes = await db.query(query, [identifier.trim()]);
+        const rawRes = await db.query(query, [normIdent, possiblePhones]);
         if (rawRes && rawRes.rows && rawRes.rows.length > 0) {
           const rawRow = rawRes.rows[0];
           const mappedUser = {

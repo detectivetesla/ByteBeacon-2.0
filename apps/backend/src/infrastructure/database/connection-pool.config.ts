@@ -21,9 +21,31 @@ export interface DatabasePoolOptions {
  */
 export function createOptimizedDatabasePool(options: DatabasePoolOptions = {}): pg.Pool {
   const isProduction = process.env.NODE_ENV === 'production';
+  let rawConnStr = options.connectionString || process.env.DATABASE_URL || '';
+
+  // Strip sslmode from query string so pg does not enforce strict local CA validation against Supabase poolers
+  if (rawConnStr) {
+    try {
+      const parsed = new URL(rawConnStr);
+      parsed.searchParams.delete('sslmode');
+      parsed.searchParams.delete('supa');
+      rawConnStr = parsed.toString();
+    } catch {
+      rawConnStr = rawConnStr.replace(/([?&])sslmode=[^&]+(&|$)/g, '$1').replace(/\?$/, '');
+    }
+  }
+
+  const isRemote =
+    rawConnStr.includes('supabase.co') ||
+    rawConnStr.includes('supabase.com') ||
+    rawConnStr.includes('render.com') ||
+    rawConnStr.includes('amazonaws.com') ||
+    rawConnStr.includes('pooler.supabase') ||
+    isProduction ||
+    process.env.DB_SSL === 'true';
 
   const poolConfig = {
-    connectionString: options.connectionString || process.env.DATABASE_URL,
+    connectionString: rawConnStr || undefined,
     host: options.host || process.env.DB_HOST,
     port: options.port ? Number(options.port) : process.env.DB_PORT ? Number(process.env.DB_PORT) : 5432,
     database: options.database || process.env.DB_NAME,
@@ -31,12 +53,12 @@ export function createOptimizedDatabasePool(options: DatabasePoolOptions = {}): 
     password: options.password || process.env.DB_PASSWORD,
     max: options.maxConnections || (isProduction ? 20 : 10),
     idleTimeoutMillis: options.idleTimeoutMillis || 30000,
-    connectionTimeoutMillis: options.connectionTimeoutMillis || 5000,
+    connectionTimeoutMillis: options.connectionTimeoutMillis || 8000,
     statement_timeout: options.statementTimeoutMillis || 10000, // 10s query timeout prevents runaway queries
     ssl:
       options.ssl !== undefined
         ? options.ssl
-        : isProduction || process.env.DB_SSL === 'true'
+        : isRemote
           ? { rejectUnauthorized: false }
           : false,
   };
