@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Input, PhoneInput, Textarea } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { storesApi } from '../../api/stores.api.js';
 import {
   Mail,
   Globe,
@@ -12,7 +13,7 @@ import {
 } from 'lucide-react';
 
 export const StoreProfilePage: React.FC = () => {
-  const { toastSuccess } = useToast();
+  const { toastSuccess, toastError } = useToast();
 
   const [storeName, setStoreName] = useState('DataHub Express');
   const [slug, setSlug] = useState('datahub-express');
@@ -23,6 +24,22 @@ export const StoreProfilePage: React.FC = () => {
   const [contactWhatsapp, setContactWhatsapp] = useState('+233244123456');
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    storesApi.getStore().then((st) => {
+      if (st) {
+        if (st.storeName) setStoreName(st.storeName);
+        if (st.slug) setSlug(st.slug);
+        if (st.tagline) setTagline(st.tagline);
+        if (st.description) setDescription(st.description);
+        if (st.contactPhone) setContactPhone(st.contactPhone);
+        if (st.contactEmail) setContactEmail(st.contactEmail);
+        if (st.contactWhatsapp) setContactWhatsapp(st.contactWhatsapp);
+      }
+    }).catch(() => {
+      // Use defaults
+    });
+  }, []);
+
   const publicUrl = `https://bytebeacon.online/store/${slug}`;
 
   const handleCopyLink = () => {
@@ -30,13 +47,25 @@ export const StoreProfilePage: React.FC = () => {
     toastSuccess('Copied', 'Storefront link copied to clipboard.');
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      await storesApi.saveStoreConfig({
+        storeName,
+        slug,
+        tagline,
+        description,
+        contactPhone,
+        contactEmail,
+        contactWhatsapp,
+      });
       toastSuccess('Profile Saved', 'Store profile details updated successfully.');
-    }, 500);
+    } catch (err: any) {
+      toastError('Save Failed', err.message || 'Unable to update store profile.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

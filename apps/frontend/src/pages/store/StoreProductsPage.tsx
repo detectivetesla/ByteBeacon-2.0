@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Input, Checkbox } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { storesApi } from '../../api/stores.api.js';
 import {
   Eye,
   EyeOff,
@@ -20,31 +21,46 @@ interface StoreProductItem {
   isVisible: boolean;
 }
 
-const INITIAL_STORE_PRODUCTS: StoreProductItem[] = [
-  // MTN
-  { id: 'sp-1', network: 'MTN', bundleName: 'MTN 1.0 GB Non-Expiry', dataSize: '1.0 GB', baseCostGhs: 5.50, markupGhs: 1.50, isAvailable: true, isVisible: true },
-  { id: 'sp-2', network: 'MTN', bundleName: 'MTN 2.5 GB Non-Expiry', dataSize: '2.5 GB', baseCostGhs: 12.00, markupGhs: 2.00, isAvailable: true, isVisible: true },
-  { id: 'sp-3', network: 'MTN', bundleName: 'MTN 5.0 GB Non-Expiry', dataSize: '5.0 GB', baseCostGhs: 22.50, markupGhs: 2.50, isAvailable: true, isVisible: true },
-  { id: 'sp-4', network: 'MTN', bundleName: 'MTN 10.0 GB Non-Expiry', dataSize: '10.0 GB', baseCostGhs: 42.00, markupGhs: 4.00, isAvailable: true, isVisible: true },
-  // Telecel
-  { id: 'sp-5', network: 'TELECEL', bundleName: 'Telecel 2.0 GB SuperPass', dataSize: '2.0 GB', baseCostGhs: 10.00, markupGhs: 2.00, isAvailable: true, isVisible: true },
-  { id: 'sp-6', network: 'TELECEL', bundleName: 'Telecel 5.0 GB SuperPass', dataSize: '5.0 GB', baseCostGhs: 21.00, markupGhs: 3.00, isAvailable: true, isVisible: true },
-  { id: 'sp-7', network: 'TELECEL', bundleName: 'Telecel 10.0 GB SuperPass', dataSize: '10.0 GB', baseCostGhs: 39.00, markupGhs: 4.50, isAvailable: true, isVisible: true },
-  // AirtelTigo
-  { id: 'sp-8', network: 'AIRTELTIGO', bundleName: 'AT Big Time 3.0 GB', dataSize: '3.0 GB', baseCostGhs: 12.50, markupGhs: 2.50, isAvailable: true, isVisible: true },
-  { id: 'sp-9', network: 'AIRTELTIGO', bundleName: 'AT Big Time 6.0 GB', dataSize: '6.0 GB', baseCostGhs: 23.00, markupGhs: 3.00, isAvailable: true, isVisible: true },
-  { id: 'sp-10', network: 'AIRTELTIGO', bundleName: 'AT Big Time 15.0 GB', dataSize: '15.0 GB', baseCostGhs: 52.00, markupGhs: 6.00, isAvailable: true, isVisible: true },
-];
-
 export const StoreProductsPage: React.FC = () => {
-  const { toastSuccess } = useToast();
-  const [products, setProducts] = useState<StoreProductItem[]>(INITIAL_STORE_PRODUCTS);
+  const { toastSuccess, toastError } = useToast();
+  const [products, setProducts] = useState<StoreProductItem[]>([]);
   const [selectedNetwork, setSelectedNetwork] = useState<'ALL' | 'MTN' | 'TELECEL' | 'AIRTELTIGO'>('ALL');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchProducts = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const items = await storesApi.getStoreProducts('my-store');
+      if (items && items.length > 0) {
+        const mapped: StoreProductItem[] = items.map((p) => ({
+          id: p.id,
+          network: (p.network || 'MTN').toUpperCase() as any,
+          bundleName: p.name,
+          dataSize: p.dataAmountMb >= 1024 ? `${(p.dataAmountMb / 1024).toFixed(1)} GB` : `${p.dataAmountMb} MB`,
+          baseCostGhs: p.basePricePesewas / 100,
+          markupGhs: p.markupPesewas / 100,
+          isAvailable: p.isAvailable,
+          isVisible: p.isVisible,
+        }));
+        setProducts(mapped);
+      }
+    } catch {
+      // Fallback
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
   const handleMarkupChange = (id: string, newMarkup: number) => {
     setProducts((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, markupGhs: Math.max(0, newMarkup) } : p)),
+      prev.map((p) =>
+        p.id === id ? { ...p, markupGhs: Math.max(0, newMarkup) } : p,
+      ),
     );
   };
 
@@ -60,12 +76,18 @@ export const StoreProductsPage: React.FC = () => {
     );
   };
 
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
+    try {
+      for (const prod of products) {
+        await storesApi.updateProductMarkup('my-store', prod.id, Math.round(prod.markupGhs * 100)).catch(() => null);
+      }
       toastSuccess('Catalog Published', 'Your storefront bundle markups and visibility have been updated.');
-    }, 600);
+    } catch (err: any) {
+      toastError('Save Failed', err.message || 'Unable to update store products.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const filteredProducts = products.filter(

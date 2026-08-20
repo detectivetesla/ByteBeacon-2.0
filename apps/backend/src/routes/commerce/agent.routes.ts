@@ -631,5 +631,63 @@ export async function agentRoutes(
       }
     },
   );
+
+  app.post<{
+    Body: {
+      name: string;
+      email: string;
+      phone: string;
+      storeName?: string;
+    };
+  }>(
+    '/agents/sub-agents',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req: FastifyRequest<{
+      Body: {
+        name: string;
+        email: string;
+        phone: string;
+        storeName?: string;
+      };
+    }>, reply: FastifyReply) => {
+      const { name, email, phone, storeName } = req.body || {};
+      if (!name || !email || !phone) {
+        throw new BadRequestError('Name, email, and phone are required for sub-agent enrollment');
+      }
+
+      const existing = await db.query('SELECT uuid FROM users WHERE email = $1 OR phone = $2', [
+        email.toLowerCase().trim(),
+        phone.trim(),
+      ]);
+      if (existing.rows.length > 0) {
+        throw new BadRequestError('A user with this email or phone already exists');
+      }
+
+      const defaultHash = '$argon2id$v=19$m=65536,t=3,p=4$tempHash$tempHashPlaceholder';
+      const insertRes = await db.query<{ id: string; created_at: string }>(
+        `INSERT INTO users (email, phone, full_name, name, password_hash, role, status, security_domain)
+         VALUES ($1, $2, $3, $3, $4, 'agent', 'ACTIVE', 'CUSTOMER')
+         RETURNING uuid as id, created_at`,
+        [email.toLowerCase().trim(), phone.trim(), name.trim(), defaultHash],
+      );
+
+      const created = insertRes.rows[0];
+      return reply.status(201).send({
+        success: true,
+        data: {
+          id: created.id,
+          agentId: `SA-${created.id.slice(0, 6).toUpperCase()}`,
+          name: name.trim(),
+          email: email.toLowerCase().trim(),
+          phone: phone.trim(),
+          storeName: storeName || `${name.trim()}'s Store`,
+          storeSlug: (storeName || name.trim()).toLowerCase().replace(/\s+/g, '-'),
+          storeStatus: 'ONLINE',
+          status: 'ACTIVE',
+          createdAt: created.created_at,
+        },
+      });
+    },
+  );
 }
 

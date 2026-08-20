@@ -75,4 +75,13 @@ export const walletApi = {
   getSubAgents: async (): Promise<{ subAgents: any[] }> => {
     return apiClient.get<{ subAgents: any[] }>('/agents/sub-agents');
   },
+
+  createSubAgent: async (payload: {
+    name: string;
+    email: string;
+    phone: string;
+    storeName?: string;
+  }): Promise<any> => {
+    return apiClient.post('/agents/sub-agents', payload);
+  },
 };

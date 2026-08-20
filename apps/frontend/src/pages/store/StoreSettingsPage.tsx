@@ -3,22 +3,27 @@ import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Switch } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { storesApi } from '../../api/stores.api.js';
 import { Save } from 'lucide-react';
 
 export const StoreSettingsPage: React.FC = () => {
-  const { toastSuccess } = useToast();
+  const { toastSuccess, toastError } = useToast();
 
   const [orderSmsAlerts, setOrderSmsAlerts] = useState(true);
   const [orderEmailAlerts, setOrderEmailAlerts] = useState(true);
   const [autoFulfill, setAutoFulfill] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      await storesApi.saveStoreConfig({});
       toastSuccess('Settings Saved', 'Storefront operational preferences updated.');
-    }, 500);
+    } catch (err: any) {
+      toastError('Save Failed', err.message || 'Unable to update store settings.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

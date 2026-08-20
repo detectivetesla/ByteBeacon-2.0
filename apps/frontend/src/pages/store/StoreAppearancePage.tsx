@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Input } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { storesApi } from '../../api/stores.api.js';
 import {
   Check,
   Save,
@@ -20,19 +21,38 @@ const PRESET_PRIMARY_COLORS = [
 ];
 
 export const StoreAppearancePage: React.FC = () => {
-  const { toastSuccess } = useToast();
+  const { toastSuccess, toastError } = useToast();
 
   const [primaryColor, setPrimaryColor] = useState('#0066FF');
   const [accentColor, setAccentColor] = useState('#00E599');
-  const storeName = 'DataHub Express';
+  const [storeName, setStoreName] = useState('DataHub Express');
   const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  useEffect(() => {
+    storesApi.getStore().then((st) => {
+      if (st) {
+        if (st.primaryColor) setPrimaryColor(st.primaryColor);
+        if (st.accentColor) setAccentColor(st.accentColor);
+        if (st.storeName) setStoreName(st.storeName);
+      }
+    }).catch(() => {
+      // Use defaults if store not yet provisioned
+    });
+  }, []);
+
+  const handleSave = async () => {
     setSaving(true);
-    setTimeout(() => {
+    try {
+      await storesApi.saveStoreConfig({
+        primaryColor,
+        accentColor,
+      });
+      toastSuccess('Appearance Saved', 'Storefront theme and branding updated successfully.');
+    } catch (err: any) {
+      toastError('Save Failed', err.message || 'Unable to update store appearance.');
+    } finally {
       setSaving(false);
-      toastSuccess('Appearance Saved', 'Storefront theme and colors updated.');
-    }, 500);
+    }
   };
 
   return (

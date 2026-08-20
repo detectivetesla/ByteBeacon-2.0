@@ -220,45 +220,31 @@ export const AgentCustomersPage: React.FC = () => {
     toastSuccess('Export Complete', `Exported ${filteredSubAgents.length} sub-agents to CSV.`);
   };
 
-  const handleCreateSubAgent = (e: React.FormEvent) => {
+  const handleCreateSubAgent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName || !newPhone || !newEmail) return;
+    if (!newName.trim() || !newPhone.trim() || !newEmail.trim()) {
+      toastError('Required Fields', 'Please provide name, email, and phone number.');
+      return;
+    }
 
-    const newSubAgent: SubAgentItem = {
-      id: `sa_${Date.now()}`,
-      agentId: `SA-${Math.floor(10000 + Math.random() * 90000)}`,
-      name: newName,
-      email: newEmail,
-      phone: newPhone,
-      storeName: newStoreName || `${newName}'s Store`,
-      storeSlug: (newStoreName || newName).toLowerCase().replace(/\s+/g, '-'),
-      storeStatus: 'ONLINE',
-      enabledProductsCount: 12,
-      dateJoined: 'Just now',
-      lastActive: 'Just now',
-      rawLastActive: new Date().toISOString(),
-      status: 'ACTIVE',
-      ordersCount: 0,
-      successfulOrdersCount: 0,
-      failedOrdersCount: 0,
-      totalSalesPesewas: 0,
-      totalCommissionPesewas: 0,
-      balancePesewas: 0,
-      totalDepositedPesewas: 0,
-      totalSpentPesewas: 0,
-      recentOrders: [],
-      activityLogs: [
-        { id: `log_${Date.now()}`, time: 'Just now', text: 'Sub-agent registered by master agent' },
-      ],
-    };
+    try {
+      await walletApi.createSubAgent({
+        name: newName.trim(),
+        email: newEmail.toLowerCase().trim(),
+        phone: newPhone.trim(),
+        storeName: newStoreName.trim() || undefined,
+      });
 
-    setSubAgents([newSubAgent, ...subAgents]);
-    setAddModalOpen(false);
-    setNewName('');
-    setNewPhone('');
-    setNewEmail('');
-    setNewStoreName('');
-    toastSuccess('Sub Agent Created', `${newSubAgent.name} has been enrolled.`);
+      setAddModalOpen(false);
+      setNewName('');
+      setNewPhone('');
+      setNewEmail('');
+      setNewStoreName('');
+      toastSuccess('Sub Agent Created', `${newName.trim()} has been enrolled as a sub-agent.`);
+      fetchSubAgents();
+    } catch (err: any) {
+      toastError('Enrollment Failed', err.message || 'Unable to provision sub-agent account.');
+    }
   };
 
   const handleToggleAgentStatus = (agentId: string) => {
