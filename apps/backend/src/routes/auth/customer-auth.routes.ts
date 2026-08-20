@@ -446,12 +446,20 @@ export async function customerAuthRoutes(
         throw new UnauthorizedError('Invalid login credentials');
       }
 
-      // Reset failed login attempts on successful password
+      // Reset failed login attempts on successful password & upgrade hash if needed
       try {
-        await db.query(
-          'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP WHERE uuid = $1',
-          [user.id],
-        );
+        if (hasher.needsRehash(user.passwordHash)) {
+          const upgradedHash = await hasher.hashPassword(password);
+          await db.query(
+            'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP, password_hash = $2 WHERE uuid = $1',
+            [user.id, upgradedHash],
+          );
+        } else {
+          await db.query(
+            'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP WHERE uuid = $1',
+            [user.id],
+          );
+        }
       } catch {
         // Development DB offline fallback
       }
