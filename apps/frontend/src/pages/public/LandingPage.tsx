@@ -40,7 +40,7 @@ export const LandingPage: React.FC = () => {
           position: 'relative',
           backgroundColor: 'var(--color-bg-hero)',
           color: '#FFFFFF',
-          padding: 'var(--space-20) var(--space-6) var(--space-24)',
+          padding: 'var(--space-20) var(--space-page-x, var(--space-6)) var(--space-24)',
           overflow: 'hidden',
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
         }}
@@ -52,7 +52,7 @@ export const LandingPage: React.FC = () => {
             top: '-80px',
             left: '50%',
             transform: `translateX(-50%) translateY(${scrollY * 0.03}px)`,
-            width: '900px',
+            width: 'min(900px, 100vw)',
             height: '500px',
             background: 'radial-gradient(ellipse at center, rgba(34, 197, 94, 0.16) 0%, rgba(2, 132, 199, 0.09) 45%, rgba(5, 8, 15, 0) 75%)',
             filter: 'blur(60px)',
@@ -68,7 +68,7 @@ export const LandingPage: React.FC = () => {
             maxWidth: 'var(--container-xl)',
             margin: '0 auto',
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))',
             alignItems: 'center',
             gap: 'var(--space-12)',
           }}
@@ -106,7 +106,7 @@ export const LandingPage: React.FC = () => {
             {/* Editorial Headline */}
             <h1
               style={{
-                fontSize: 'clamp(2.75rem, 5.5vw, 4.5rem)',
+                fontSize: 'var(--font-size-hero)',
                 fontWeight: 800,
                 letterSpacing: '-0.04em',
                 lineHeight: 1.06,
@@ -122,9 +122,9 @@ export const LandingPage: React.FC = () => {
             {/* Supporting Text */}
             <p
               style={{
-                fontSize: 'var(--font-size-lg)',
+                fontSize: 'var(--font-size-body-lead, var(--font-size-lg))',
                 color: 'rgba(255, 255, 255, 0.75)',
-                maxWidth: '520px',
+                maxWidth: 'min(520px, 100%)',
                 marginTop: 'var(--space-6)',
                 lineHeight: 1.6,
                 fontWeight: 400,
@@ -215,8 +215,8 @@ export const LandingPage: React.FC = () => {
       {/* =========================================================================
           NETWORK SELECTOR SECTION — Clean, Non-Bento, 3 Equal Autonomous Cards
           ========================================================================= */}
-      <section id="networks" style={{ maxWidth: 'var(--container-xl)', margin: '0 auto', padding: 'var(--space-16) var(--space-6) var(--space-12)' }}>
-        <div style={{ textAlign: 'center', maxWidth: '640px', margin: '0 auto var(--space-10)' }}>
+      <section id="networks" style={{ maxWidth: 'var(--container-xl)', margin: '0 auto', padding: 'var(--space-16) var(--space-page-x, var(--space-6)) var(--space-12)' }}>
+        <div style={{ textAlign: 'center', maxWidth: 'min(640px, 100%)', margin: '0 auto var(--space-10)' }}>
           <span
             style={{
               fontSize: 'var(--font-size-3xs)',
@@ -257,7 +257,7 @@ export const LandingPage: React.FC = () => {
       {/* =========================================================================
           DATA BUNDLE SELECTOR SECTION
           ========================================================================= */}
-      <section style={{ maxWidth: 'var(--container-xl)', margin: '0 auto', padding: '0 var(--space-6) var(--space-16)' }}>
+      <section style={{ maxWidth: 'var(--container-xl)', margin: '0 auto', padding: '0 var(--space-page-x, var(--space-6)) var(--space-16)' }}>
         <BundleSelector
           network={selectedNetwork}
           selectedBundleId={selectedBundle.id}

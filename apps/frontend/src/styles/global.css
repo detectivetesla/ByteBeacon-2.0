@@ -18,15 +18,34 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   scroll-behavior: smooth;
+  overflow-x: clip;
+  width: 100%;
 }
 
 body {
   min-height: 100vh;
+  width: 100%;
   background-color: var(--color-bg-base);
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
   line-height: 1.5;
   transition: background-color var(--transition-normal), color var(--transition-normal);
+  overflow-x: clip;
+  position: relative;
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: clip;
+  display: flex;
+  flex-direction: column;
+}
+
+img, svg, video, canvas, audio, iframe, embed, object {
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 
 a {
@@ -207,4 +226,60 @@ button {
   -webkit-animation: spin 0.6s linear infinite !important;
   vertical-align: middle;
 }
+
+/* =========================================================================
+   RESPONSIVE UTILITIES & CONTAINMENT
+   ========================================================================= */
+
+.break-words {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.truncate-id {
+  font-family: var(--font-mono);
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.code-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: pre;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-surface-elevated);
+}
+
+.touch-target {
+  min-height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Responsive visibility helpers */
+@media (max-width: 767px) {
+  .desktop-only { display: none !important; }
+}
+
+@media (min-width: 768px) {
+  .mobile-only { display: none !important; }
+}
+
+@media (max-width: 1023px) {
+  .lg-desktop-only { display: none !important; }
+}
+
+@media (min-width: 1024px) {
+  .lg-mobile-only { display: none !important; }
+}
+
 

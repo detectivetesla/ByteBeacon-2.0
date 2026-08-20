@@ -9,7 +9,12 @@
 .cols4 { grid-template-columns: repeat(1, 1fr); }
 .cols12 { grid-template-columns: repeat(12, 1fr); }
 
-@media (min-width: 768px) {
+/* Auto-fitting fluid grids for cards and KPI widgets */
+.autoFitSm { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.autoFitMd { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.autoFitLg { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+
+@media (min-width: 640px) {
   .cols2 { grid-template-columns: repeat(2, 1fr); }
   .cols3 { grid-template-columns: repeat(2, 1fr); }
   .cols4 { grid-template-columns: repeat(2, 1fr); }
@@ -21,6 +26,8 @@
 }
 
 .gap2 { gap: var(--space-2); }
+.gap3 { gap: var(--space-3); }
 .gap4 { gap: var(--space-4); }
 .gap6 { gap: var(--space-6); }
 .gap8 { gap: var(--space-8); }
+.gapResponsive { gap: var(--space-gap-responsive); }

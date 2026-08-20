@@ -27,20 +27,30 @@ export const Navbar: React.FC = () => {
         .mobile-toggle {
           display: flex;
         }
+        .nav-auth-buttons {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
         @media (min-width: 768px) {
           .desktop-nav { display: flex !important; }
           .mobile-toggle { display: none !important; }
+        }
+        @media (max-width: 767px) {
+          .nav-auth-buttons { display: none !important; }
         }
       `}</style>
       <div
         style={{
           maxWidth: 'var(--container-xl)',
           margin: '0 auto',
-          padding: '0 var(--space-6)',
+          padding: '0 var(--space-page-x, var(--space-6))',
           height: '68px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          flexWrap: 'nowrap',
+          gap: 'var(--space-3)',
         }}
       >
         {/* Brand Logo */}
@@ -130,21 +140,23 @@ export const Navbar: React.FC = () => {
             {resolvedTheme === 'dark' ? <Sun size={18} strokeWidth={2.5} /> : <Moon size={18} strokeWidth={2.5} />}
           </button>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/signin')}
-          >
-            Sign In
-          </Button>
+          <div className="nav-auth-buttons">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/signin')}
+            >
+              Sign In
+            </Button>
 
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => navigate('/signup')}
-          >
-            Get Started
-          </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => navigate('/signup')}
+            >
+              Get Started
+            </Button>
+          </div>
 
           {/* Mobile Menu Toggle */}
           <button

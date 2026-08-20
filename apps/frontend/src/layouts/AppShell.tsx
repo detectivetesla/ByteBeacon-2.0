@@ -288,7 +288,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           display: none !important;
         }
 
-        @media (max-width: 834px) {
+        @media (max-width: 1023px) {
           .app-desktop-sidebar {
             display: none !important;
           }
@@ -566,7 +566,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             height: '64px',
             backgroundColor: 'var(--color-bg-surface)',
             borderBottom: '1px solid var(--color-border-default)',
-            padding: '0 var(--space-6)',
+            padding: '0 var(--space-page-x, var(--space-6))',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -749,7 +749,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                     position: 'absolute',
                     right: 0,
                     top: 'calc(100% + 8px)',
-                    width: '320px',
+                    width: 'min(320px, calc(100vw - 2rem))',
                     backgroundColor: 'var(--color-bg-surface)',
                     border: '1px solid var(--color-border-default)',
                     borderRadius: 'var(--radius-xl)',
@@ -969,7 +969,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         </header>
 
         {/* Main Content Body */}
-        <main style={{ flex: 1, padding: 'var(--space-6)', overflowY: 'auto' }}>
+        <main style={{ flex: 1, padding: 'var(--space-page-y, var(--space-6)) var(--space-page-x, var(--space-6))', overflowY: 'auto' }}>
           {children}
         </main>
       </div>

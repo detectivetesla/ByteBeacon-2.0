@@ -41,7 +41,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 'var(--space-6)',
+        padding: 'var(--space-page-x, var(--space-6))',
         backgroundColor: 'var(--color-bg-base)',
         backgroundImage: 'url(/auth/auth-bg.jpg)',
         backgroundSize: 'cover',
@@ -75,6 +75,13 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
             display: block;
           }
         }
+
+        @media (max-width: 480px) {
+          .auth-split-card {
+            border-radius: var(--radius-lg);
+            min-height: auto;
+          }
+        }
       `}</style>
 
       {/* Main Split Authentication Card */}
@@ -90,7 +97,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            padding: 'var(--space-8) var(--space-8)',
+            padding: 'var(--space-card-p, var(--space-8))',
             backgroundColor: 'var(--color-bg-surface)',
           }}
         >
@@ -168,7 +175,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
           </div>
 
           {/* Form Core Container */}
-          <div style={{ maxWidth: '380px', width: '100%', margin: '0 auto', padding: 'var(--space-2) 0' }}>
+          <div style={{ maxWidth: 'min(380px, 100%)', width: '100%', margin: '0 auto', padding: 'var(--space-2) 0' }}>
             {/* Form Title & Subtitle */}
             {title && (
               <div style={{ textAlign: 'center', marginBottom: 'var(--space-6)' }}>
