@@ -30,8 +30,8 @@ export function createAuthHooks(
     const payload = tokenService.verifyAccessToken(token);
 
     // Verify user is active in database
-    const userRes = await db.query<{ status: UserStatus; role: UserRole }>(
-      'SELECT status, role FROM users WHERE uuid = $1',
+    const userRes = await db.query<any>(
+      'SELECT * FROM users WHERE uuid = $1',
       [payload.sub],
     );
 
@@ -39,12 +39,13 @@ export function createAuthHooks(
       throw new UnauthorizedError('User account not found');
     }
 
-    const user = userRes.rows[0];
-    if (user.status === UserStatus.SUSPENDED) {
+    const rawUser = userRes.rows[0];
+    const userStatus = rawUser.status || (rawUser.is_active === false ? UserStatus.SUSPENDED : UserStatus.ACTIVE);
+    if (userStatus === UserStatus.SUSPENDED) {
       throw new ForbiddenError('Your account has been suspended. Contact support.');
     }
 
-    req.user = { ...payload, status: user.status };
+    req.user = { ...payload, status: userStatus };
   };
 
   const authenticateAdmin = async (req: FastifyRequest, _reply: FastifyReply) => {

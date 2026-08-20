@@ -58,18 +58,41 @@ export async function adminAuthRoutes(
       }
 
       const query = `
-        SELECT uuid as id, email, phone, full_name as "fullName", password_hash as "passwordHash",
-               role, status, security_domain as "securityDomain",
-               mfa_secret as "mfaSecret", mfa_enabled as "mfaEnabled",
-               wallet_balance_pesewas as "walletBalancePesewas",
-               locked_until as "lockedUntil"
+        SELECT *
         FROM users
         WHERE LOWER(email) = LOWER($1) AND (role = 'admin' OR role = 'super_admin')
       `;
 
-      const userRes = await db.query(query, [email.trim()]);
+      let userRes: any = null;
+      try {
+        const rawRes = await db.query(query, [email.trim()]);
+        if (rawRes && rawRes.rows && rawRes.rows.length > 0) {
+          const rawRow = rawRes.rows[0];
+          const mappedUser = {
+            id: rawRow.uuid || rawRow.id,
+            email: rawRow.email,
+            phone: rawRow.phone,
+            fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',
+            passwordHash: rawRow.password_hash || rawRow.passwordHash,
+            role: rawRow.role,
+            status: rawRow.status || (rawRow.is_active === false ? UserStatus.SUSPENDED : UserStatus.ACTIVE),
+            securityDomain: rawRow.security_domain || SecurityDomain.ADMIN,
+            mfaSecret: rawRow.mfa_secret || null,
+            mfaEnabled: rawRow.mfa_enabled || false,
+            walletBalancePesewas: rawRow.wallet_balance_pesewas !== undefined && rawRow.wallet_balance_pesewas !== null
+              ? String(rawRow.wallet_balance_pesewas)
+              : '0',
+            lockedUntil: rawRow.locked_until || null,
+          };
+          userRes = { rows: [mappedUser] };
+        } else {
+          userRes = { rows: [] };
+        }
+      } catch (err: any) {
+        userRes = { rows: [] };
+      }
 
-      if (userRes.rows.length === 0) {
+      if (!userRes || userRes.rows.length === 0) {
         await hasher.verifyPassword('$argon2id$v=19$m=65536,t=3,p=4$dummyhashdummyhash$dummyhashdummyhash', password);
         throw new UnauthorizedError('Invalid administrator credentials');
       }

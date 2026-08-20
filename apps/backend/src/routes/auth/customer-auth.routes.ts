@@ -360,17 +360,40 @@ export async function customerAuthRoutes(
 
       // Fetch user by email or phone
       const query = `
-        SELECT uuid as id, email, phone, full_name as "fullName", password_hash as "passwordHash",
-               role, status, security_domain as "securityDomain", phone_verified as "phoneVerified",
-               mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas",
-               failed_login_attempts as "failedLoginAttempts", locked_until as "lockedUntil"
+        SELECT *
         FROM users
         WHERE LOWER(email) = LOWER($1) OR phone = $1
       `;
       let userRes: any = null;
       try {
-        userRes = await db.query(query, [identifier.trim()]);
-      } catch {
+        const rawRes = await db.query(query, [identifier.trim()]);
+        if (rawRes && rawRes.rows && rawRes.rows.length > 0) {
+          const rawRow = rawRes.rows[0];
+          const mappedUser = {
+            id: rawRow.uuid || rawRow.id,
+            email: rawRow.email,
+            phone: rawRow.phone,
+            fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',
+            passwordHash: rawRow.password_hash || rawRow.passwordHash,
+            role: rawRow.role || UserRole.CUSTOMER,
+            status: rawRow.status || (rawRow.is_active === false ? UserStatus.SUSPENDED : UserStatus.ACTIVE),
+            securityDomain: rawRow.security_domain || (rawRow.role === 'admin' || rawRow.role === 'super_admin' ? SecurityDomain.ADMIN : rawRow.role === 'agent' ? SecurityDomain.AGENT : SecurityDomain.CUSTOMER),
+            phoneVerified: rawRow.phone_verified !== undefined ? rawRow.phone_verified : (rawRow.email_verified || true),
+            mfaEnabled: rawRow.mfa_enabled || false,
+            walletBalancePesewas: rawRow.wallet_balance_pesewas !== undefined && rawRow.wallet_balance_pesewas !== null
+              ? String(rawRow.wallet_balance_pesewas)
+              : rawRow.wallet_balance
+                ? String(Math.round(parseFloat(rawRow.wallet_balance) * 100))
+                : '0',
+            failedLoginAttempts: rawRow.failed_login_attempts || 0,
+            lockedUntil: rawRow.locked_until || null,
+          };
+          userRes = { rows: [mappedUser] };
+        } else {
+          userRes = { rows: [] };
+        }
+      } catch (err: any) {
+        logger.error({ err, identifier }, '[AUTH_LOGIN] Database query error on users lookup');
         userRes = { rows: [] };
       }
 
