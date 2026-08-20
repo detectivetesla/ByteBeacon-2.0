@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { SearchInput, Input, PhoneInput, Select, Checkbox } from '../../components/ui/index.js';
@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { NetworkProvider } from '@bytebeacon/shared';
+import { walletApi } from '../../api/wallet.api.js';
 
 export type SubAgentStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'INACTIVE';
 
@@ -68,162 +69,6 @@ export interface SubAgentItem {
   activityLogs: Array<{ id: string; time: string; text: string }>;
 }
 
-const SAMPLE_SUB_AGENTS: SubAgentItem[] = [
-  {
-    id: 'sa_1',
-    agentId: 'SA-88219',
-    name: 'Kwame Asante',
-    email: 'kwame@asantedata.gh',
-    phone: '024 111 2233',
-    storeName: 'Asante Data Express',
-    storeSlug: 'asante-express',
-    storeStatus: 'ONLINE',
-    enabledProductsCount: 14,
-    dateJoined: 'Aug 01, 2026',
-    lastActive: '12 mins ago',
-    rawLastActive: '2026-08-16T15:30:00Z',
-    status: 'ACTIVE',
-    ordersCount: 142,
-    successfulOrdersCount: 140,
-    failedOrdersCount: 2,
-    totalSalesPesewas: 1845000,
-    totalCommissionPesewas: 147600,
-    balancePesewas: 420000,
-    totalDepositedPesewas: 2200000,
-    totalSpentPesewas: 1780000,
-    recentOrders: [
-      { id: 'ORD-9912', recipient: '024 455 6677', network: NetworkProvider.MTN, bundle: '10 GB', amount: 'GH₵ 57.00', source: 'Agent Store', paymentMethod: 'Paystack', status: 'DELIVERED', date: 'Today, 15:42' },
-      { id: 'ORD-9884', recipient: '054 112 3344', network: NetworkProvider.MTN, bundle: '5 GB', amount: 'GH₵ 30.00', source: 'Web', paymentMethod: 'Wallet', status: 'DELIVERED', date: 'Today, 14:20' },
-      { id: 'ORD-9730', recipient: '020 998 8776', network: NetworkProvider.TELECEL, bundle: '2 GB', amount: 'GH₵ 15.00', source: 'Bulk', paymentMethod: 'Mobile Money', status: 'DELIVERED', date: 'Yesterday, 18:21' },
-    ],
-    activityLogs: [
-      { id: 'log_1', time: 'Today · 15:42', text: 'Completed an MTN data purchase (10 GB)' },
-      { id: 'log_2', time: 'Today · 13:10', text: 'Added funds through Paystack (GH₵ 500.00)' },
-      { id: 'log_3', time: 'Yesterday · 18:21', text: 'Completed 5 orders via Storefront' },
-      { id: 'log_4', time: 'Aug 01', text: 'Sub-agent account activated & approved' },
-    ],
-  },
-  {
-    id: 'sa_2',
-    agentId: 'SA-90412',
-    name: 'Abena Mensah',
-    email: 'abena@datavault.com',
-    phone: '020 444 5566',
-    storeName: 'Vault Bundles GH',
-    storeSlug: 'vault-bundles',
-    storeStatus: 'ONLINE',
-    enabledProductsCount: 18,
-    dateJoined: 'Aug 05, 2026',
-    lastActive: '1 hour ago',
-    rawLastActive: '2026-08-16T14:30:00Z',
-    status: 'ACTIVE',
-    ordersCount: 98,
-    successfulOrdersCount: 97,
-    failedOrdersCount: 1,
-    totalSalesPesewas: 1240000,
-    totalCommissionPesewas: 99200,
-    balancePesewas: 285000,
-    totalDepositedPesewas: 1500000,
-    totalSpentPesewas: 1215000,
-    recentOrders: [
-      { id: 'ORD-8941', recipient: '055 777 9900', network: NetworkProvider.MTN, bundle: '20 GB', amount: 'GH₵ 110.00', source: 'API', paymentMethod: 'Wallet', status: 'DELIVERED', date: 'Today, 14:15' },
-      { id: 'ORD-8820', recipient: '026 333 4455', network: NetworkProvider.AIRTELTIGO, bundle: '10 GB', amount: 'GH₵ 52.00', source: 'Agent Store', paymentMethod: 'Paystack', status: 'DELIVERED', date: 'Today, 11:30' },
-    ],
-    activityLogs: [
-      { id: 'log_1', time: 'Today · 14:15', text: 'Completed API bundle dispatch (20 GB)' },
-      { id: 'log_2', time: 'Aug 05', text: 'Sub-agent account onboarded' },
-    ],
-  },
-  {
-    id: 'sa_3',
-    agentId: 'SA-71284',
-    name: 'Yaw Osei',
-    email: 'yaw.osei@fastbyte.gh',
-    phone: '054 777 8899',
-    storeName: 'FastByte Telecom',
-    storeSlug: 'fastbyte-gh',
-    storeStatus: 'ONLINE',
-    enabledProductsCount: 12,
-    dateJoined: 'Aug 10, 2026',
-    lastActive: '3 hours ago',
-    rawLastActive: '2026-08-16T12:00:00Z',
-    status: 'ACTIVE',
-    ordersCount: 84,
-    successfulOrdersCount: 82,
-    failedOrdersCount: 2,
-    totalSalesPesewas: 980000,
-    totalCommissionPesewas: 78400,
-    balancePesewas: 190000,
-    totalDepositedPesewas: 1100000,
-    totalSpentPesewas: 910000,
-    recentOrders: [
-      { id: 'ORD-7612', recipient: '024 333 9988', network: NetworkProvider.MTN, bundle: '5 GB', amount: 'GH₵ 30.00', source: 'Web', paymentMethod: 'Wallet', status: 'DELIVERED', date: 'Today, 12:00' },
-    ],
-    activityLogs: [
-      { id: 'log_1', time: 'Today · 12:00', text: 'Processed order ORD-7612' },
-      { id: 'log_2', time: 'Aug 10', text: 'Sub-agent store published' },
-    ],
-  },
-  {
-    id: 'sa_4',
-    agentId: 'SA-60591',
-    name: 'Kofi Mensah',
-    email: 'kofi@mensahtelecom.com',
-    phone: '026 333 1122',
-    storeName: 'Mensah Data Direct',
-    storeSlug: 'mensah-direct',
-    storeStatus: 'MAINTENANCE',
-    enabledProductsCount: 8,
-    dateJoined: 'Aug 14, 2026',
-    lastActive: 'Yesterday',
-    rawLastActive: '2026-08-15T10:00:00Z',
-    status: 'PENDING',
-    ordersCount: 12,
-    successfulOrdersCount: 12,
-    failedOrdersCount: 0,
-    totalSalesPesewas: 160000,
-    totalCommissionPesewas: 12800,
-    balancePesewas: 45000,
-    totalDepositedPesewas: 200000,
-    totalSpentPesewas: 155000,
-    recentOrders: [
-      { id: 'ORD-6120', recipient: '054 888 1122', network: NetworkProvider.MTN, bundle: '2.5 GB', amount: 'GH₵ 18.00', source: 'Manual', paymentMethod: 'Wallet', status: 'DELIVERED', date: 'Yesterday, 10:00' },
-    ],
-    activityLogs: [
-      { id: 'log_1', time: 'Aug 14', text: 'Application submitted for Sub-Agent partnership' },
-    ],
-  },
-  {
-    id: 'sa_5',
-    agentId: 'SA-51009',
-    name: 'Esi Frimpong',
-    email: 'esi@frimponghub.gh',
-    phone: '024 888 4411',
-    storeName: 'Frimpong Data Center',
-    storeSlug: 'frimpong-hub',
-    storeStatus: 'OFFLINE',
-    enabledProductsCount: 10,
-    dateJoined: 'Jul 20, 2026',
-    lastActive: '5 days ago',
-    rawLastActive: '2026-08-11T09:00:00Z',
-    status: 'SUSPENDED',
-    ordersCount: 65,
-    successfulOrdersCount: 61,
-    failedOrdersCount: 4,
-    totalSalesPesewas: 600000,
-    totalCommissionPesewas: 48000,
-    balancePesewas: 0,
-    totalDepositedPesewas: 600000,
-    totalSpentPesewas: 600000,
-    recentOrders: [
-      { id: 'ORD-5012', recipient: '020 123 4567', network: NetworkProvider.TELECEL, bundle: '5 GB', amount: 'GH₵ 35.00', source: 'Agent Store', paymentMethod: 'Card', status: 'DELIVERED', date: 'Aug 11' },
-    ],
-    activityLogs: [
-      { id: 'log_1', time: 'Aug 11', text: 'Account suspended due to verification requirement' },
-    ],
-  },
-];
-
 export const SubAgentStatusBadge: React.FC<{ status: SubAgentStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
     case 'ACTIVE':
@@ -240,9 +85,10 @@ export const SubAgentStatusBadge: React.FC<{ status: SubAgentStatus; size?: 'sm'
 };
 
 export const AgentCustomersPage: React.FC = () => {
-  const { toastSuccess, toastInfo } = useToast();
+  const { toastSuccess, toastError, toastInfo } = useToast();
 
-  const [subAgents, setSubAgents] = useState<SubAgentItem[]>(SAMPLE_SUB_AGENTS);
+  const [subAgents, setSubAgents] = useState<SubAgentItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<string>('newest');
@@ -261,6 +107,26 @@ export const AgentCustomersPage: React.FC = () => {
   const [newEmail, setNewEmail] = useState('');
   const [newStoreName, setNewStoreName] = useState('');
   const [newCommissionRate, setNewCommissionRate] = useState('8');
+
+  const fetchSubAgents = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await walletApi.getSubAgents().catch(() => null);
+      if (res && Array.isArray(res.subAgents)) {
+        setSubAgents(res.subAgents);
+      } else {
+        setSubAgents([]);
+      }
+    } catch {
+      setSubAgents([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSubAgents();
+  }, [fetchSubAgents]);
 
   // KPI Calculations
   const totalSubAgents = subAgents.length;

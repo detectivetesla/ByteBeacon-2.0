@@ -128,17 +128,8 @@ export const PublicStorefrontPage: React.FC = () => {
         toastSuccess('Order Placed', 'Payment processed and bundle is being dispatched!');
         return;
       }
-    } catch {
-      // Fallback optimistic simulation
-      const generatedOrder = {
-        orderId: `BB-${Math.floor(10000 + Math.random() * 90000)}`,
-        phone: recipientPhone,
-        bundle: selectedBundle?.dataLabel,
-        network: selectedBundle?.network,
-        amount: selectedBundle?.priceGhs,
-      };
-      setOrderComplete(generatedOrder);
-      toastSuccess('Order Placed', 'Payment processed and bundle is being dispatched!');
+    } catch (err: any) {
+      toastError('Checkout Failed', err.message || 'Unable to complete order. Please verify your payment details and try again.');
     } finally {
       setIsCheckingOut(false);
     }

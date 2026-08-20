@@ -162,17 +162,13 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       });
 
       setIsProcessing(false);
-      const orderRef = order.publicId || order.id || `BB-${Math.floor(10000 + Math.random() * 90000)}`;
+      const orderRef = order.publicId || (order as any).orderNumber || order.id || 'Order Confirmed';
       setCompletedOrder({ id: orderRef });
       setStep(3); // Order Dispatched
-      toastSuccess('Order Confirmed', `Paid GH₵ ${numericPrice.toFixed(2)} from wallet. Dispatched ${orderRef}.`);
-    } catch {
-      // Graceful fallback for offline demo or simulated mock test runs
+      toastSuccess('Order Confirmed', `Paid GH₵ ${numericPrice.toFixed(2)} from wallet. Order reference: ${orderRef}.`);
+    } catch (err: any) {
       setIsProcessing(false);
-      const fallbackOrderId = `BB-${Math.floor(10000 + Math.random() * 90000)}`;
-      setCompletedOrder({ id: fallbackOrderId });
-      setStep(3);
-      toastSuccess('Order Confirmed', `Paid GH₵ ${numericPrice.toFixed(2)} from wallet. Dispatched ${fallbackOrderId}.`);
+      toastError('Order Failed', err.message || 'Unable to dispatch data bundle. Please check your wallet balance and try again.');
     }
   };
 

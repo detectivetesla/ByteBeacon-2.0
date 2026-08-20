@@ -1,10 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Input, PhoneInput, AmountInput, Select, DateInput, SearchInput } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { useWalletBalance } from '../../hooks/useWalletBalance.js';
+import { walletApi } from '../../api/wallet.api.js';
 import {
   ArrowDownToLine,
   Wallet,
@@ -68,10 +70,10 @@ export const PayoutStatusBadge: React.FC<{ status: PayoutStatus; size?: 'sm' | '
 
 export const AgentWithdrawalsPage: React.FC = () => {
   const { user } = useAuth();
+  const { balanceGhs, balancePesewas, refresh: refreshBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
 
   // Authoritative Reseller Financial Balances
-  const [availableProfitPesewas, setAvailableProfitPesewas] = useState<number>(0);
   const [totalProfitEarnedPesewas] = useState<number>(0);
   const [totalWithdrawnPesewas, setTotalWithdrawnPesewas] = useState<number>(0);
 
@@ -103,7 +105,25 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const [payouts, setPayouts] = useState<PayoutRecord[]>([]);
   const [ledger, setLedger] = useState<ProfitLedgerRecord[]>([]);
 
-  const availableProfitGhs = availableProfitPesewas / 100;
+  const fetchWithdrawalData = useCallback(async () => {
+    try {
+      refreshBalance();
+      const res = await walletApi.getWithdrawals().catch(() => null);
+      if (res && Array.isArray(res.withdrawals)) {
+        setPayouts(res.withdrawals);
+        const sumWithdrawn = res.withdrawals.reduce((sum: number, w: any) => sum + (w.amountPesewas || 0), 0);
+        setTotalWithdrawnPesewas(sumWithdrawn);
+      }
+    } catch {
+      setPayouts([]);
+    }
+  }, [refreshBalance]);
+
+  useEffect(() => {
+    fetchWithdrawalData();
+  }, [fetchWithdrawalData]);
+
+  const availableProfitGhs = balanceGhs;
   const totalProfitEarnedGhs = totalProfitEarnedPesewas / 100;
   const totalWithdrawnGhs = totalWithdrawnPesewas / 100;
 
@@ -111,60 +131,24 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const withdrawalFeeGhs = 0.00; // Zero fee for reseller payouts
   const netDisbursementGhs = Math.max(0, parsedWithdrawAmount - withdrawalFeeGhs);
 
-  // Payout History Filtering & Sorting
+  // Filtered & Sorted Payouts
   const filteredPayouts = useMemo(() => {
-    let list = [...payouts];
-
-    if (statusFilter !== 'ALL') {
-      list = list.filter((p) => p.status === statusFilter);
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      list = list.filter(
-        (p) =>
-          p.id.toLowerCase().includes(q) ||
-          p.reference.toLowerCase().includes(q) ||
-          p.recipientAccount.includes(q) ||
-          p.recipientName.toLowerCase().includes(q),
-      );
-    }
-
-    if (dateFilter !== 'all') {
-      const now = new Date().getTime();
-      list = list.filter((p) => {
-        const pTime = new Date(p.rawDate).getTime();
-        if (dateFilter === 'custom') {
-          if (customStartDate && new Date(p.rawDate) < new Date(customStartDate)) return false;
-          if (customEndDate && new Date(p.rawDate) > new Date(customEndDate + 'T23:59:59Z')) return false;
-          return true;
-        }
-        const diffDays = (now - pTime) / (1000 * 60 * 60 * 24);
-        if (dateFilter === 'today') return diffDays <= 1;
-        if (dateFilter === '7d') return diffDays <= 7;
-        if (dateFilter === '30d') return diffDays <= 30;
-        if (dateFilter === '90d') return diffDays <= 90;
-        if (dateFilter === '1y') return diffDays <= 365;
-        return true;
-      });
-    }
-
-    list.sort((a, b) => {
-      if (sortBy === 'newest') return new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime();
-      if (sortBy === 'oldest') return new Date(a.rawDate).getTime() - new Date(b.rawDate).getTime();
-      if (sortBy === 'highest') return b.amountPesewas - a.amountPesewas;
-      if (sortBy === 'lowest') return a.amountPesewas - b.amountPesewas;
-      return 0;
+    return payouts.filter((p) => {
+      const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
+      const matchesSearch =
+        searchQuery === '' ||
+        p.reference.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.recipientAccount.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.recipientName.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesStatus && matchesSearch;
     });
+  }, [payouts, statusFilter, searchQuery]);
 
-    return list;
-  }, [payouts, statusFilter, searchQuery, dateFilter, customStartDate, customEndDate, sortBy]);
-
-  const totalPayoutPages = Math.ceil(filteredPayouts.length / historyPageSize) || 1;
   const paginatedPayouts = useMemo(() => {
     const start = (historyPage - 1) * historyPageSize;
     return filteredPayouts.slice(start, start + historyPageSize);
   }, [filteredPayouts, historyPage, historyPageSize]);
+  const totalPayoutPages = Math.ceil(filteredPayouts.length / historyPageSize) || 1;
 
   // Profit Ledger Filtering & Sorting
   const paginatedLedger = useMemo(() => {
@@ -174,7 +158,7 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const totalLedgerPages = Math.ceil(ledger.length / ledgerPageSize) || 1;
 
   // Handle Form Submission
-  const handleConfirmWithdrawal = (e: React.FormEvent) => {
+  const handleConfirmWithdrawal = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (availableProfitGhs <= 0) {
@@ -194,37 +178,16 @@ export const AgentWithdrawalsPage: React.FC = () => {
 
     setIsSubmittingWithdrawal(true);
 
-    setTimeout(() => {
+    try {
+      await walletApi.requestWithdrawal({
+        amountPesewas: Math.round(parsedWithdrawAmount * 100),
+        payoutMethod,
+        accountNumber: payoutMethod === 'BANK' ? bankAccountNumber : payoutPhone,
+        accountName,
+        bankName: payoutMethod === 'BANK' ? bankName : undefined,
+      });
+
       setIsSubmittingWithdrawal(false);
-      const newPayout: PayoutRecord = {
-        id: `WTH-${Math.floor(10000 + Math.random() * 90000)}`,
-        reference: `PAYOUT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
-        amountPesewas: Math.round(parsedWithdrawAmount * 100),
-        feePesewas: 0,
-        method: payoutMethod === 'BANK' ? `${bankName} Bank` : payoutMethod.replace('_', ' '),
-        recipientAccount: payoutMethod === 'BANK' ? bankAccountNumber : payoutPhone,
-        recipientName: accountName,
-        date: 'Today, Just now',
-        rawDate: new Date().toISOString(),
-        status: 'PROCESSING',
-      };
-
-      const newLedgerEntry: ProfitLedgerRecord = {
-        id: `LED-${Math.floor(1000 + Math.random() * 9000)}`,
-        date: 'Today, Just now',
-        rawDate: new Date().toISOString(),
-        reference: newPayout.id,
-        type: 'Withdrawal',
-        amountPesewas: Math.round(parsedWithdrawAmount * 100),
-        balanceAfterPesewas: availableProfitPesewas - Math.round(parsedWithdrawAmount * 100),
-        status: 'POSTED',
-        isCredit: false,
-      };
-
-      setAvailableProfitPesewas((prev) => Math.max(0, prev - Math.round(parsedWithdrawAmount * 100)));
-      setTotalWithdrawnPesewas((prev) => prev + Math.round(parsedWithdrawAmount * 100));
-      setPayouts((prev) => [newPayout, ...prev]);
-      setLedger((prev) => [newLedgerEntry, ...prev]);
       setIsWithdrawPanelOpen(false);
       setWithdrawAmountGhs('');
 
@@ -232,7 +195,11 @@ export const AgentWithdrawalsPage: React.FC = () => {
         'Payout Processing',
         `GH₵ ${parsedWithdrawAmount.toFixed(2)} payout initiated to ${payoutMethod === 'BANK' ? bankAccountNumber : payoutPhone}.`,
       );
-    }, 1200);
+      fetchWithdrawalData();
+    } catch (err: any) {
+      setIsSubmittingWithdrawal(false);
+      toastError('Withdrawal Failed', err.message || 'Unable to process withdrawal.');
+    }
   };
 
   const handleExportPayouts = (format: 'CSV' | 'EXCEL') => {

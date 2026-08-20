@@ -33,8 +33,11 @@ import { PaymentService } from './core/payments/payment.service.js';
 import { PaymentWebhookService } from './core/payments/payment-webhook.service.js';
 import { RefundService } from './core/payments/refund.service.js';
 import { ITelecomProvider } from './core/providers/telecom/telecom-provider.interface.js';
+import { TelecomProviderRegistry } from './core/providers/telecom-provider.registry.js';
 import { DataHouseClient } from './core/providers/datahouse/datahouse.client.js';
 import { DataHouseAdapter } from './core/providers/datahouse/datahouse.adapter.js';
+import { GmplClient } from './core/providers/gmpl/gmpl.client.js';
+import { GmplAdapter } from './core/providers/gmpl/gmpl.adapter.js';
 import { DataHouseWebhookService } from './core/providers/datahouse-webhook.service.js';
 import { CircuitBreaker } from './core/providers/circuit-breaker.js';
 import { RetryPolicy } from './core/providers/retry-policy.js';
@@ -200,18 +203,26 @@ export function createApp(options: AppOptions = {}) {
     options.refundService ??
     new RefundService(dbPool, paymentProvider, ledgerService, idempotencyService);
 
-  // Phase 7.2: DataHouse Authoritative Telecom Provider
+  // Phase 7.2 & 10.5: Dynamic Telecom Provider Registry (DataHouse + GMPL + Multi-carrier)
   const datahouseClient = new DataHouseClient({
     baseUrl: config.DATAHOUSE_BASE_URL || process.env.DATAHOUSE_BASE_URL || 'https://api.getmorepaylessdatahouse.net/api/v1',
     apiKey: config.DATAHOUSE_API_KEY || process.env.DATAHOUSE_API_KEY || 'dh_key',
     webhookSecret: config.DATAHOUSE_WEBHOOK_SECRET || process.env.DATAHOUSE_WEBHOOK_SECRET || 'dh_secret',
   });
-
   const datahouseAdapter = options.datahouseAdapter ?? new DataHouseAdapter(datahouseClient);
 
-  const telecomProvider: ITelecomProvider =
-    options.telecomProvider ??
-    datahouseAdapter;
+  const gmplClient = new GmplClient({
+    apiKey: process.env.GMPL_API_KEY || 'gmpl_key',
+    apiSecret: process.env.GMPL_API_SECRET || 'gmpl_secret',
+    baseUrl: process.env.GMPL_BASE_URL || 'https://api.gmpl.local/v1',
+  });
+  const gmplAdapter = new GmplAdapter(gmplClient);
+
+  const providerRegistry = new TelecomProviderRegistry();
+  providerRegistry.registerProvider('DataHouse', datahouseAdapter, { isAuthoritative: true, priority: 1 });
+  providerRegistry.registerProvider('GMPL', gmplAdapter, { isAuthoritative: false, priority: 2 });
+
+  const telecomProvider: ITelecomProvider = options.telecomProvider ?? providerRegistry;
 
   const beneficiaryService = options.beneficiaryService ?? new BeneficiaryService(dbPool, telecomProvider);
   const bulkOrderService =

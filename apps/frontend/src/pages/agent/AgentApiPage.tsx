@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
@@ -6,48 +6,56 @@ import { Modal } from '../../components/ui/Modal/Modal.js';
 import { Input } from '../../components/ui/index.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
+import { apiKeysApi, ApiKeyItem as RemoteApiKeyItem } from '../../api/apiKeys.api.js';
 import { Key, Copy, Check, Eye, EyeOff, RefreshCw, Plus, Trash2, ShieldAlert } from 'lucide-react';
 
 interface ApiKeyItem {
   id: string;
   name: string;
   prefix: string;
-  environment: 'LIVE' | 'TEST';
+  environment: 'LIVE' | 'SANDBOX';
   createdAt: string;
   lastUsed: string;
-  status: 'ACTIVE' | 'REVOKED';
+  status: 'ACTIVE' | 'REVOKED' | 'EXPIRED';
 }
 
 export const AgentApiPage: React.FC = () => {
-  const { toastSuccess, toastInfo } = useToast();
+  const { toastSuccess, toastError, toastInfo } = useToast();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
-  const [newKeyEnv, setNewKeyEnv] = useState<'LIVE' | 'TEST'>('LIVE');
+  const [newKeyEnv, setNewKeyEnv] = useState<'LIVE' | 'SANDBOX'>('LIVE');
   const [generatedSecret, setGeneratedSecret] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [revealedKeyIds, setRevealedKeyIds] = useState<Record<string, boolean>>({});
+  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
 
-  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([
-    {
-      id: 'key_1',
-      name: 'Production Server Integration',
-      prefix: 'ak_live_99f82a71d0e415b3ca61',
-      environment: 'LIVE',
-      createdAt: 'Aug 14, 2026',
-      lastUsed: '2 mins ago',
-      status: 'ACTIVE',
-    },
-    {
-      id: 'key_2',
-      name: 'Staging & QA Simulator',
-      prefix: 'ak_test_88f9104ac7819e0b1122',
-      environment: 'TEST',
-      createdAt: 'Aug 10, 2026',
-      lastUsed: '1 hour ago',
-      status: 'ACTIVE',
-    },
-  ]);
+  const fetchKeys = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const items = await apiKeysApi.listKeys();
+      const mapped: ApiKeyItem[] = (items || []).map((k) => ({
+        id: k.id,
+        name: k.name,
+        prefix: k.keyPrefix,
+        environment: k.environment,
+        createdAt: k.createdAt ? new Date(k.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently',
+        lastUsed: k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Never',
+        status: k.status,
+      }));
+      setApiKeys(mapped);
+    } catch {
+      setApiKeys([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchKeys();
+  }, [fetchKeys]);
 
   const handleToggleReveal = (id: string) => {
     setRevealedKeyIds((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -60,30 +68,49 @@ export const AgentApiPage: React.FC = () => {
     setTimeout(() => setCopiedKeyId(null), 2000);
   };
 
-  const handleGenerateKey = () => {
-    const rawSecret = `ak_${newKeyEnv.toLowerCase()}_${Array.from({ length: 28 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-    const newKey: ApiKeyItem = {
-      id: `key_${Date.now()}`,
-      name: newKeyName || (newKeyEnv === 'LIVE' ? 'Live Application Key' : 'Sandbox Test Key'),
-      prefix: rawSecret,
-      environment: newKeyEnv,
-      createdAt: 'Just now',
-      lastUsed: 'Never',
-      status: 'ACTIVE',
-    };
-    setApiKeys([newKey, ...apiKeys]);
-    setGeneratedSecret(rawSecret);
+  const handleGenerateKey = async () => {
+    if (!newKeyName.trim()) {
+      toastError('Name Required', 'Please enter an identifier name for this API key.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await apiKeysApi.createKey({
+        name: newKeyName.trim(),
+        environment: newKeyEnv,
+        scopes: ['orders:write', 'catalog:read', 'wallet:read'],
+      });
+
+      setGeneratedSecret(res.apiKey);
+      toastSuccess('API Key Provisioned', 'Store your raw API secret safely. It will not be shown again.');
+      fetchKeys();
+    } catch (err: any) {
+      toastError('Provisioning Failed', err.message || 'Unable to create API key.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleRevokeKey = (id: string) => {
-    setApiKeys(apiKeys.map((k) => (k.id === id ? { ...k, status: 'REVOKED' } : k)));
-    toastInfo('Key Revoked', 'API Key has been permanently disabled.');
+  const handleRevokeKey = async (id: string) => {
+    try {
+      await apiKeysApi.revokeKey(id);
+      toastInfo('Key Revoked', 'API Key has been permanently disabled.');
+      fetchKeys();
+    } catch (err: any) {
+      toastError('Revocation Failed', err.message || 'Unable to revoke key.');
+    }
   };
 
-  const handleRollKey = (id: string) => {
-    const newSecret = `ak_live_${Array.from({ length: 28 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-    setApiKeys(apiKeys.map((k) => (k.id === id ? { ...k, prefix: newSecret, lastUsed: 'Just rolled' } : k)));
-    toastSuccess('Key Rolled', 'A fresh secret has been provisioned for this key.');
+  const handleRollKey = async (id: string) => {
+    try {
+      const res = await apiKeysApi.rollKey(id);
+      setGeneratedSecret(res.apiKey);
+      toastSuccess('Key Rolled', 'A fresh secret has been provisioned. Save your new key immediately.');
+      fetchKeys();
+    } catch (err: any) {
+      toastError('Roll Failed', err.message || 'Unable to roll key.');
+    }
   };
 
   return (

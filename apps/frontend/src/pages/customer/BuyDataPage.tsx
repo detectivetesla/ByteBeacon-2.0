@@ -316,19 +316,46 @@ export const BuyDataPage: React.FC = () => {
     setExcelFile(file);
     setExcelLoading(true);
 
-    setTimeout(() => {
+    const reader = new FileReader();
+    reader.onload = (evt) => {
       setExcelLoading(false);
-      // Simulate parsed 24 recipients
-      const mockParsed = [
-        { phone: '024 123 4567', data: '5 GB', pricePesewas: 2800 },
-        { phone: '055 987 6543', data: '10 GB', pricePesewas: 5500 },
-        { phone: '020 444 8888', data: '2.5 GB', pricePesewas: 1500 },
-        { phone: '024 555 1212', data: '20 GB', pricePesewas: 10000 },
-        { phone: '054 777 3333', data: '1 GB', pricePesewas: 600 },
-      ];
-      setExcelParsedRows(mockParsed);
-      toastSuccess('File Parsed', `Parsed ${file.name} successfully (24 recipients detected).`);
-    }, 600);
+      const text = evt.target?.result as string;
+      if (!text) {
+        toastError('Empty File', 'Uploaded file appears to be empty.');
+        return;
+      }
+
+      const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      const parsedRows: Array<{ phone: string; data: string; pricePesewas: number }> = [];
+
+      // Skip header if first row contains non-digits
+      const startIdx = lines[0] && /[a-zA-Z]/.test(lines[0]) ? 1 : 0;
+      for (let i = startIdx; i < lines.length; i++) {
+        const parts = lines[i].split(',').map((p) => p.trim().replace(/^["']|["']$/g, ''));
+        if (parts.length >= 2) {
+          const phone = parts[0];
+          const dataMb = parseInt(parts[1], 10) || 1024;
+          const dataDisplay = dataMb >= 1024 ? `${(dataMb / 1024).toFixed(1)} GB` : `${dataMb} MB`;
+          const estimatedPrice = Math.round(dataMb * 0.55);
+          parsedRows.push({ phone, data: dataDisplay, pricePesewas: estimatedPrice });
+        }
+      }
+
+      if (parsedRows.length === 0) {
+        toastError('Format Error', 'No valid rows found. Please use the format: Beneficiary Msisdn, Data (MB)');
+        return;
+      }
+
+      setExcelParsedRows(parsedRows);
+      toastSuccess('File Parsed', `Parsed ${file.name} successfully (${parsedRows.length} recipients detected).`);
+    };
+
+    reader.onerror = () => {
+      setExcelLoading(false);
+      toastError('Read Error', 'Failed to read the uploaded file.');
+    };
+
+    reader.readAsText(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {

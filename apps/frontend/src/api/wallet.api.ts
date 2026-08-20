@@ -57,4 +57,22 @@ export const walletApi = {
       reference,
     });
   },
+
+  requestWithdrawal: async (payload: {
+    amountPesewas: number;
+    payoutMethod: string;
+    accountNumber: string;
+    accountName: string;
+    bankName?: string;
+  }): Promise<any> => {
+    return apiClient.post('/agents/withdrawals', payload);
+  },
+
+  getWithdrawals: async (): Promise<{ withdrawals: any[] }> => {
+    return apiClient.get<{ withdrawals: any[] }>('/agents/withdrawals');
+  },
+
+  getSubAgents: async (): Promise<{ subAgents: any[] }> => {
+    return apiClient.get<{ subAgents: any[] }>('/agents/sub-agents');
+  },
 };

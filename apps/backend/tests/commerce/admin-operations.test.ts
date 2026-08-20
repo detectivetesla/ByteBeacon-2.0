@@ -24,9 +24,9 @@ describe('Admin Operations, DLQ Management & Reconciliation Suite', () => {
     mockDb = {
       query: vi.fn().mockImplementation((query: string) => {
         const sql = query.replace(/\s+/g, ' ');
-        if (sql.includes('FROM users WHERE id = $1')) {
+        if (sql.includes('FROM users WHERE id = $1') || sql.includes('FROM users WHERE uuid = $1')) {
           return Promise.resolve({
-            rows: [{ id: 'usr_admin_1', status: 'ACTIVE', role: 'admin' }],
+            rows: [{ id: 'usr_admin_1', uuid: 'usr_admin_1', status: 'ACTIVE', role: 'admin' }],
           });
         }
         if (sql.includes('SELECT COUNT(*) as total FROM provider_dlq')) {

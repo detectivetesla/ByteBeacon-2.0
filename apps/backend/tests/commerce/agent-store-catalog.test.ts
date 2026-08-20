@@ -22,9 +22,9 @@ describe('Agent Store & Custom Catalog Suite', () => {
     mockDb = {
       query: vi.fn().mockImplementation((query: string, params?: any[]) => {
         const sql = query.replace(/\s+/g, ' ');
-        if (sql.includes('FROM users WHERE id = $1')) {
+        if (sql.includes('FROM users WHERE id = $1') || sql.includes('FROM users WHERE uuid = $1')) {
           return Promise.resolve({
-            rows: [{ id: 'usr_agent_1', status: 'ACTIVE', role: 'agent' }],
+            rows: [{ id: 'usr_agent_1', uuid: 'usr_agent_1', status: 'ACTIVE', role: 'agent' }],
           });
         }
         if (sql.includes('FROM agents WHERE user_id = $1')) {
