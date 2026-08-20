@@ -29,11 +29,11 @@ export const Card: React.FC<CardProps> = ({
       case 'none':
         return 0;
       case 'sm':
-        return 'var(--space-3)';
+        return 'clamp(0.5rem, 1.5vw, var(--space-3))';
       case 'md':
-        return 'var(--space-5)';
+        return 'var(--space-card-p, var(--space-5))';
       case 'lg':
-        return 'var(--space-8)';
+        return 'clamp(1.125rem, 2.5vw + 0.25rem, var(--space-8))';
     }
   };
 
@@ -128,6 +128,8 @@ export const Card: React.FC<CardProps> = ({
       style={{
         borderRadius: 'var(--radius-lg)',
         padding: getPadding(),
+        maxWidth: '100%',
+        boxSizing: 'border-box',
         transition: 'transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast)',
         position: 'relative',
         ...getBackgroundAndShadow(),
