@@ -10,6 +10,7 @@ import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
 import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
+import { logger } from '../../core/logging/logger.js';
 import { getConfig } from '../../config/env.js';
 import {
   BadRequestError,
