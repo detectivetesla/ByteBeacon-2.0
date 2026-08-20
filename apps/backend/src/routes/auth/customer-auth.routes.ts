@@ -804,7 +804,7 @@ export async function customerAuthRoutes(
       // Rotate Refresh Token
       const { rawToken: newRawToken, tokenHash: newTokenHash } = tokenService.generateRefreshToken();
       await db.query(
-        'UPDATE sessions SET refresh_token_hash = $1, last_active_at = CURRENT_TIMESTAMP WHERE uuid = $2',
+        'UPDATE sessions SET refresh_token_hash = $1, last_active_at = CURRENT_TIMESTAMP WHERE id = $2',
         [newTokenHash, session.id],
       );
 
