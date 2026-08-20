@@ -850,51 +850,62 @@ export async function customerAuthRoutes(
     },
   );
 
-  // 5. GET /me (Current User Profile)
-  app.get(
-    '/me',
-    { preHandler: [authHooks.authenticateCustomer] },
-    async (req: FastifyRequest, reply: FastifyReply) => {
-      const userRes = await db.query<{
-        id: string;
-        email: string;
-        phone: string;
-        fullName: string;
-        role: UserRole;
-        status: UserStatus;
-        securityDomain: SecurityDomain;
-        phoneVerified: boolean;
-        mfaEnabled: boolean;
-        walletBalancePesewas: string;
-      }>(
-        `SELECT uuid as id, email, phone, full_name as "fullName", role, status,
-                security_domain as "securityDomain", phone_verified as "phoneVerified",
-                mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"
-         FROM users WHERE uuid = $1`,
+  // 5. GET /me & Profile aliases (Resilient dynamic column mapping)
+  const handleGetProfile = async (req: FastifyRequest, reply: FastifyReply) => {
+    let userRes: any = null;
+    try {
+      userRes = await db.query<any>(
+        'SELECT * FROM users WHERE uuid = $1',
         [req.user!.sub],
       );
+    } catch (err: any) {
+      logger.error({ err, userId: req.user!.sub }, '[AUTH_PROFILE] Error querying user profile');
+      userRes = { rows: [] };
+    }
 
-      if (userRes.rows.length === 0) {
-        throw new NotFoundError('User profile not found');
-      }
+    if (!userRes || userRes.rows.length === 0) {
+      throw new NotFoundError('User profile not found');
+    }
 
-      const user = userRes.rows[0];
-      const summary: UserSummaryDto = {
-        id: user.id,
-        email: user.email,
-        phone: user.phone,
-        fullName: user.fullName,
-        role: user.role,
-        status: user.status,
-        securityDomain: user.securityDomain,
-        phoneVerified: user.phoneVerified,
-        mfaEnabled: user.mfaEnabled,
-        walletBalancePesewas: parseInt(user.walletBalancePesewas, 10) || 0,
-      };
+    const rawRow = userRes.rows[0];
+    const rawRole = (rawRow.role || 'customer').toString().toLowerCase().trim();
+    let normalizedRole: UserRole = UserRole.CUSTOMER;
+    let normalizedDomain: SecurityDomain = SecurityDomain.CUSTOMER;
 
-      return reply.send({ success: true, data: summary });
-    },
-  );
+    if (rawRole === 'admin') {
+      normalizedRole = UserRole.ADMIN;
+      normalizedDomain = SecurityDomain.ADMIN;
+    } else if (rawRole === 'super_admin' || rawRole === 'superadmin') {
+      normalizedRole = UserRole.SUPER_ADMIN;
+      normalizedDomain = SecurityDomain.ADMIN;
+    } else if (rawRole === 'agent' || rawRole === 'superagent' || rawRole === 'super_agent') {
+      normalizedRole = UserRole.AGENT;
+      normalizedDomain = SecurityDomain.AGENT;
+    }
+
+    const summary: UserSummaryDto = {
+      id: rawRow.uuid || rawRow.id,
+      email: rawRow.email,
+      phone: rawRow.phone || '',
+      fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',
+      role: normalizedRole,
+      status: rawRow.status || (rawRow.is_active === false ? UserStatus.SUSPENDED : UserStatus.ACTIVE),
+      securityDomain: rawRow.security_domain || normalizedDomain,
+      phoneVerified: rawRow.phone_verified !== undefined ? rawRow.phone_verified : (rawRow.email_verified || true),
+      mfaEnabled: rawRow.mfa_enabled || false,
+      walletBalancePesewas: rawRow.wallet_balance_pesewas !== undefined && rawRow.wallet_balance_pesewas !== null
+        ? parseInt(String(rawRow.wallet_balance_pesewas), 10)
+        : rawRow.wallet_balance
+          ? Math.round(parseFloat(rawRow.wallet_balance) * 100)
+          : 0,
+    };
+
+    return reply.send({ success: true, data: summary });
+  };
+
+  app.get('/me', { preHandler: [authHooks.authenticateCustomer] }, handleGetProfile);
+  app.get('/profile', { preHandler: [authHooks.authenticateCustomer] }, handleGetProfile);
+  app.get('/customer/profile', { preHandler: [authHooks.authenticateCustomer] }, handleGetProfile);
 
   // 6. VERIFY PHONE
   app.post<{ Body: PhoneVerificationRequest }>(

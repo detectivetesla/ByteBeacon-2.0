@@ -40,7 +40,7 @@ export const useWalletBalance = (): UseWalletBalanceResult => {
       }
 
       // Customer or general user profile endpoint
-      const profileRes = await apiClient.get<UserSummaryDto>('/auth/customer/profile');
+      const profileRes = await apiClient.get<UserSummaryDto>('/auth/me');
       if (profileRes && typeof profileRes.walletBalancePesewas === 'number') {
         setBalancePesewas(profileRes.walletBalancePesewas);
         updateUser({ walletBalancePesewas: profileRes.walletBalancePesewas });
