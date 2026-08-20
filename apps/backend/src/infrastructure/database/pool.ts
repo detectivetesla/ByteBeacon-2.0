@@ -17,10 +17,23 @@ export function createDatabasePool(config: DatabaseConfig): pg.Pool {
     return poolInstance;
   }
 
-  const isLocalhost = config.connectionString.includes('localhost') || config.connectionString.includes('127.0.0.1');
+  let sanitizedConnStr = config.connectionString || '';
+  if (sanitizedConnStr) {
+    try {
+      const parsed = new URL(sanitizedConnStr);
+      parsed.searchParams.delete('sslmode');
+      parsed.searchParams.delete('supa');
+      sanitizedConnStr = parsed.toString();
+    } catch {
+      sanitizedConnStr = sanitizedConnStr.replace(/([?&])sslmode=[^&]+(&|$)/g, '$1').replace(/\?$/, '');
+    }
+  }
+
+  const isLocalhost =
+    sanitizedConnStr.includes('localhost') || sanitizedConnStr.includes('127.0.0.1');
 
   poolInstance = new Pool({
-    connectionString: config.connectionString,
+    connectionString: sanitizedConnStr,
     max: config.maxConnections ?? 20,
     idleTimeoutMillis: config.idleTimeoutMillis ?? 30000,
     connectionTimeoutMillis: config.connectionTimeoutMillis ?? 10000,
