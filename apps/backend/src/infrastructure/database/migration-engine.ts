@@ -89,11 +89,13 @@ export class MigrationEngine {
       try {
         // Role mapping: Translate legacy roles to ByteBeacon 2.0 roles
         let role = UserRole.CUSTOMER;
-        const normalizedRole = (legacyUser.legacyRole || '').toLowerCase();
-        if (normalizedRole.includes('admin') || normalizedRole.includes('super')) {
-          role = normalizedRole.includes('super') ? UserRole.SUPER_ADMIN : UserRole.ADMIN;
-        } else if (normalizedRole.includes('agent') || normalizedRole.includes('reseller')) {
+        const normalizedRole = (legacyUser.legacyRole || '').toLowerCase().trim();
+        if (normalizedRole === 'superagent' || normalizedRole === 'super_agent' || normalizedRole === 'agent' || normalizedRole === 'reseller') {
           role = UserRole.AGENT;
+        } else if (normalizedRole === 'super_admin' || normalizedRole === 'superadmin') {
+          role = UserRole.SUPER_ADMIN;
+        } else if (normalizedRole.includes('admin')) {
+          role = UserRole.ADMIN;
         }
 
         const needsPasswordReset = !legacyUser.isHashCompatible;

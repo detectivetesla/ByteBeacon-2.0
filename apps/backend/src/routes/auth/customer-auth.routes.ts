@@ -97,31 +97,40 @@ export async function customerAuthRoutes(
 
       let userRes: any = null;
       try {
-        userRes = await db.query<{
-          id: string;
-          email: string;
-          phone: string;
-          fullName: string;
-          role: UserRole;
-          status: UserStatus;
-          securityDomain: SecurityDomain;
-          phoneVerified: boolean;
-          mfaEnabled: boolean;
-          walletBalancePesewas: string;
-        }>(
-          `INSERT INTO users (email, phone, full_name, password_hash, role, security_domain, status)
-           VALUES ($1, $2, $3, $4, 'customer', 'CUSTOMER', 'ACTIVE')
-           RETURNING uuid as id, email, phone, full_name as "fullName", role, status,
-                     security_domain as "securityDomain", phone_verified as "phoneVerified",
-                     mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"`,
-          [email.trim().toLowerCase(), phone.trim(), fullName.trim(), passwordHash],
-        );
-      } catch {
-        // Fallback for development without DB
+        const insertQuery = `
+          INSERT INTO users (email, phone, full_name, name, password_hash, role, security_domain, status, is_active)
+          VALUES ($1, $2, $3, $3, $4, 'customer', 'CUSTOMER', 'ACTIVE', true)
+          RETURNING *
+        `;
+        const rawRes = await db.query(insertQuery, [email.trim().toLowerCase(), phone.trim(), fullName.trim(), passwordHash]);
+        if (rawRes && rawRes.rows && rawRes.rows.length > 0) {
+          const rawRow = rawRes.rows[0];
+          userRes = {
+            rows: [
+              {
+                id: rawRow.uuid || rawRow.id,
+                email: rawRow.email,
+                phone: rawRow.phone,
+                fullName: rawRow.full_name || rawRow.name || fullName.trim(),
+                role: UserRole.CUSTOMER,
+                status: UserStatus.ACTIVE,
+                securityDomain: SecurityDomain.CUSTOMER,
+                phoneVerified: false,
+                mfaEnabled: false,
+                walletBalancePesewas: '0',
+              },
+            ],
+          };
+        }
+      } catch (err: any) {
+        logger.error({ err, email }, '[AUTH_REGISTER] Database insert error on user registration');
+        if (process.env.NODE_ENV === 'production') {
+          throw new BadRequestError(err.message || 'Failed to create user account in database');
+        }
       }
 
       const user = userRes?.rows?.[0] || {
-        id: `usr_${Math.random().toString(36).substring(2, 10)}`,
+        id: `usr_${Date.now()}_cust`,
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
         fullName: fullName.trim(),
@@ -133,9 +142,10 @@ export async function customerAuthRoutes(
         walletBalancePesewas: '0',
       };
 
-      // Also cache in memory for fallback
-      devUserCache.set(user.email.toLowerCase(), { ...user, passwordHash });
-      devUserCache.set(user.phone, { ...user, passwordHash });
+      if (process.env.NODE_ENV !== 'production') {
+        devUserCache.set(user.email.toLowerCase(), { ...user, passwordHash });
+        devUserCache.set(user.phone, { ...user, passwordHash });
+      }
 
       // Generate refresh token and session
       const { rawToken, tokenHash } = tokenService.generateRefreshToken();
@@ -383,15 +393,30 @@ export async function customerAuthRoutes(
         const rawRes = await db.query(query, [normIdent, possiblePhones]);
         if (rawRes && rawRes.rows && rawRes.rows.length > 0) {
           const rawRow = rawRes.rows[0];
+          const rawRole = (rawRow.role || 'customer').toString().toLowerCase().trim();
+          let normalizedRole: UserRole = UserRole.CUSTOMER;
+          let normalizedDomain: SecurityDomain = SecurityDomain.CUSTOMER;
+
+          if (rawRole === 'admin') {
+            normalizedRole = UserRole.ADMIN;
+            normalizedDomain = SecurityDomain.ADMIN;
+          } else if (rawRole === 'super_admin' || rawRole === 'superadmin') {
+            normalizedRole = UserRole.SUPER_ADMIN;
+            normalizedDomain = SecurityDomain.ADMIN;
+          } else if (rawRole === 'agent' || rawRole === 'superagent' || rawRole === 'super_agent') {
+            normalizedRole = UserRole.AGENT;
+            normalizedDomain = SecurityDomain.AGENT;
+          }
+
           const mappedUser = {
             id: rawRow.uuid || rawRow.id,
             email: rawRow.email,
             phone: rawRow.phone,
             fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',
             passwordHash: rawRow.password_hash || rawRow.passwordHash,
-            role: rawRow.role || UserRole.CUSTOMER,
+            role: normalizedRole,
             status: rawRow.status || (rawRow.is_active === false ? UserStatus.SUSPENDED : UserStatus.ACTIVE),
-            securityDomain: rawRow.security_domain || (rawRow.role === 'admin' || rawRow.role === 'super_admin' ? SecurityDomain.ADMIN : rawRow.role === 'agent' ? SecurityDomain.AGENT : SecurityDomain.CUSTOMER),
+            securityDomain: rawRow.security_domain || normalizedDomain,
             phoneVerified: rawRow.phone_verified !== undefined ? rawRow.phone_verified : (rawRow.email_verified || true),
             mfaEnabled: rawRow.mfa_enabled || false,
             walletBalancePesewas: rawRow.wallet_balance_pesewas !== undefined && rawRow.wallet_balance_pesewas !== null
