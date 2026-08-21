@@ -34,6 +34,13 @@ import {
   Edit3,
   FileText,
   ShieldCheck,
+  Download,
+  CreditCard,
+  Layers,
+  ChevronRight,
+  RotateCw,
+  Trash2,
+  ExternalLink,
 } from 'lucide-react';
 
 export const AdminUserDetailPage: React.FC = () => {
@@ -42,7 +49,9 @@ export const AdminUserDetailPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'wallet' | 'orders' | 'activity' | 'sessions'>('overview');
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'wallet' | 'orders' | 'transactions' | 'activity' | 'sessions' | 'agent' | 'notifications'
+  >('overview');
   const [userDetail, setUserDetail] = useState<AdminUserDetail | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -80,6 +89,20 @@ export const AdminUserDetailPage: React.FC = () => {
   const [suspendRevokeSessions, setSuspendRevokeSessions] = useState(true);
   const [isSuspending, setIsSuspending] = useState(false);
 
+  // Order Lifecycle Drawer / Modal
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+
+  // Reconciliation state
+  const [isReconciling, setIsReconciling] = useState(false);
+
+  // Export modal
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'CSV' | 'JSON'>('JSON');
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Order status filter
+  const [orderStatusFilter, setOrderStatusFilter] = useState('ALL');
+
   const fetchUser = useCallback(async () => {
     if (!id) return;
     setIsLoading(true);
@@ -94,7 +117,7 @@ export const AdminUserDetailPage: React.FC = () => {
         setEditEmailVerified(res.user.emailVerified);
       }
     } catch (err: any) {
-      toastError('Failed to load user', err.message || 'Unable to retrieve user details.');
+      toastError('Failed to load user dossier', err.message || 'Unable to retrieve user details.');
     } finally {
       setIsLoading(false);
     }
@@ -200,6 +223,24 @@ export const AdminUserDetailPage: React.FC = () => {
     }
   };
 
+  const handleRunReconciliation = async () => {
+    if (!id) return;
+    setIsReconciling(true);
+    try {
+      const res = await adminApi.reconcileUserWallet(id);
+      if (res?.data?.status === 'RECONCILED') {
+        toastSuccess('Reconciliation Passed', 'Wallet projection matches financial ledger entries.');
+      } else {
+        toastError('Discrepancy Detected', `Wallet balance differs by GH₵ ${(res.data.discrepancyPesewas / 100).toFixed(2)}.`);
+      }
+      fetchUser();
+    } catch (err: any) {
+      toastError('Reconciliation Error', err.message || 'Could not execute reconciliation check.');
+    } finally {
+      setIsReconciling(false);
+    }
+  };
+
   const handleUpdateRole = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id) return;
@@ -268,6 +309,44 @@ export const AdminUserDetailPage: React.FC = () => {
     }
   };
 
+  const handleRevokeApiKey = async (keyId: string) => {
+    if (!id) return;
+    try {
+      await adminApi.revokeUserApiKey(id, keyId);
+      toastSuccess('API Key Revoked', 'The selected API key has been revoked.');
+      fetchUser();
+    } catch (err: any) {
+      toastError('Revocation Failed', err.message || 'Could not revoke API key.');
+    }
+  };
+
+  const handleRotateApiKey = async (keyId: string) => {
+    if (!id) return;
+    try {
+      await adminApi.rotateUserApiKey(id, keyId);
+      toastSuccess('API Key Rotated', 'Old key revoked and new prefix provisioned.');
+      fetchUser();
+    } catch (err: any) {
+      toastError('Rotation Failed', err.message || 'Could not rotate API key.');
+    }
+  };
+
+  const handleExportDossier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id) return;
+
+    setIsExporting(true);
+    try {
+      await adminApi.exportUserDossier(id, exportFormat);
+      toastSuccess('Dossier Exported', `User data successfully exported in ${exportFormat} format.`);
+      setIsExportModalOpen(false);
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Could not export user dossier.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (isLoading && !userDetail) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '300px' }}>
@@ -277,16 +356,23 @@ export const AdminUserDetailPage: React.FC = () => {
   }
 
   const u = userDetail?.user;
-  const metrics = userDetail?.metrics;
+  const fin = userDetail?.financialSummary;
+  const ordSummary = userDetail?.orderSummary;
   const balanceGhs = ((u?.walletBalancePesewas || 0) / 100).toFixed(2);
-  const totalSpentGhs = ((metrics?.totalSpentPesewas || 0) / 100).toFixed(2);
-  const dailySpentGhs = ((metrics?.dailySpentPesewas || 0) / 100).toFixed(2);
-  const totalRefundsGhs = ((metrics?.totalRefundsPesewas || 0) / 100).toFixed(2);
+  const totalSpentGhs = ((fin?.totalSpentPesewas || 0) / 100).toFixed(2);
+  const totalRefundsGhs = ((fin?.totalRefundsPesewas || 0) / 100).toFixed(2);
   const isSuperAdmin = currentUser?.role === 'super_admin';
+  const isAgent = u?.role === 'agent';
+
+  // Order status filtering
+  const filteredOrders = (userDetail?.recentOrders || []).filter((o) => {
+    if (orderStatusFilter === 'ALL') return true;
+    return o.orderStatus === orderStatusFilter;
+  });
 
   return (
     <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* Back button */}
+      {/* Navigation Breadcrumb */}
       <div>
         <Button
           variant="ghost"
@@ -298,7 +384,7 @@ export const AdminUserDetailPage: React.FC = () => {
         </Button>
       </div>
 
-      {/* 11.3.11 User Profile Header Banner */}
+      {/* 11.4.1 User Header Banner & Action Control Bar */}
       <Card elevated accentColor="blue" style={{ padding: 'var(--space-6)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -306,7 +392,7 @@ export const AdminUserDetailPage: React.FC = () => {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                  {u?.fullName || u?.email?.split('@')[0] || 'User Dossier'}
+                  {u?.fullName || u?.email?.split('@')[0] || 'User Control Center'}
                 </h1>
                 <Badge
                   variant={
@@ -325,9 +411,17 @@ export const AdminUserDetailPage: React.FC = () => {
                 <Badge variant={u?.status === 'ACTIVE' ? 'success' : 'danger'} size="md" dot>
                   {u?.status}
                 </Badge>
+                {fin?.reconciliationStatus === 'RECONCILED' ? (
+                  <Badge variant="success" size="sm">✓ Reconciled</Badge>
+                ) : (
+                  <Badge variant="warning" size="sm">⚠ Discrepancy</Badge>
+                )}
               </div>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0', fontFamily: 'var(--font-mono)' }}>
-                {u?.email} • {u?.phone || 'No phone'} • User ID: {u?.id}
+                {u?.email} • {u?.phone || 'No phone linked'} • User ID: {u?.id}
+              </p>
+              <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', margin: '0.125rem 0 0' }}>
+                Registered: {u?.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'} • Last Active: {u?.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}
               </p>
             </div>
           </div>
@@ -339,6 +433,12 @@ export const AdminUserDetailPage: React.FC = () => {
             </Button>
             <Button variant="outline" size="sm" onClick={() => setIsNotifyModalOpen(true)} leftIcon={<Send size={14} />}>
               Notify
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setIsExportModalOpen(true)} leftIcon={<Download size={14} />}>
+              Export Dossier
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleRunReconciliation} isLoading={isReconciling} leftIcon={<RefreshCw size={14} />}>
+              Reconcile Wallet
             </Button>
             <Button variant="outline" size="sm" onClick={() => setIsAdjustModalOpen(true)} leftIcon={<Wallet size={14} />}>
               Adjust Wallet
@@ -359,53 +459,56 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* 11.3.12 Real Computed User Overview Metrics */}
+      {/* 11.4.2 Snapshot Overview Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
         <MetricCard
-          title="Wallet Balance"
+          title="Authoritative Wallet"
           value={`GH₵ ${balanceGhs}`}
-          subvalue="Authoritative ledger float"
+          subvalue={fin?.reconciliationStatus === 'RECONCILED' ? 'Ledger verified' : `Discrepancy: GH₵ ${((fin?.discrepancyPesewas || 0)/100).toFixed(2)}`}
           accent="green"
           icon={<TactileIcon icon={Wallet} color="security" size="sm" />}
         />
         <MetricCard
-          title="Total Orders"
-          value={(metrics?.totalOrders || 0).toLocaleString()}
-          subvalue={`Lifetime orders count`}
+          title="Total Lifetime Orders"
+          value={(ordSummary?.totalOrders || userDetail?.metrics?.totalOrders || 0).toLocaleString()}
+          subvalue={`${ordSummary?.completed || 0} completed • ${ordSummary?.failed || 0} failed`}
           accent="blue"
           icon={<TactileIcon icon={Package} color="orders" size="sm" />}
         />
         <MetricCard
-          title="Total Spent"
+          title="Total Spending"
           value={`GH₵ ${totalSpentGhs}`}
           subvalue="Lifetime purchase volume"
           accent="cyan"
           icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
         />
         <MetricCard
-          title="Daily Spent"
-          value={`GH₵ ${dailySpentGhs}`}
-          subvalue={`${metrics?.dailyOrders || 0} orders today`}
-          accent="amber"
-          icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
-        />
-        <MetricCard
-          title="Total Refunds"
+          title="Resolved Refunds"
           value={`GH₵ ${totalRefundsGhs}`}
-          subvalue="Resolved reversals"
+          subvalue={`${ordSummary?.refunded || 0} refunded orders`}
           accent="purple"
           icon={<TactileIcon icon={RefreshCw} color="api" size="sm" />}
         />
+        <MetricCard
+          title="Reconciliation Audit"
+          value={fin?.reconciliationStatus === 'RECONCILED' ? 'PASSED' : 'DISCREPANCY'}
+          subvalue="Double-entry ledger check"
+          accent={fin?.reconciliationStatus === 'RECONCILED' ? 'green' : 'amber'}
+          icon={<TactileIcon icon={ShieldCheck} color={fin?.reconciliationStatus === 'RECONCILED' ? 'emerald' : 'speed'} size="sm" />}
+        />
       </div>
 
-      {/* Tabs Row */}
-      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+      {/* Responsive Navigation Tabs */}
+      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border-subtle)', overflowX: 'auto', paddingBottom: '2px' }}>
         {[
-          { key: 'overview', label: 'Overview & Profile', icon: <User size={14} /> },
+          { key: 'overview', label: 'Overview', icon: <User size={14} /> },
           { key: 'wallet', label: `Wallet & Ledger (GH₵ ${balanceGhs})`, icon: <Wallet size={14} /> },
-          { key: 'orders', label: `Orders (${userDetail?.recentOrders?.length || 0})`, icon: <Package size={14} /> },
-          { key: 'activity', label: `Activity & Audit (${userDetail?.activity?.length || 0})`, icon: <Activity size={14} /> },
+          { key: 'orders', label: `Orders (${ordSummary?.totalOrders || userDetail?.recentOrders?.length || 0})`, icon: <Package size={14} /> },
+          { key: 'transactions', label: `Transactions (${userDetail?.transactions?.length || 0})`, icon: <CreditCard size={14} /> },
+          { key: 'activity', label: `Audit Stream (${userDetail?.activity?.length || 0})`, icon: <Activity size={14} /> },
           { key: 'sessions', label: `Sessions (${userDetail?.activeSessions?.length || 0})`, icon: <Lock size={14} /> },
+          ...(isAgent ? [{ key: 'agent', label: 'Agent & API Portal', icon: <Store size={14} /> }] : []),
+          { key: 'notifications', label: `Notifications (${userDetail?.notifications?.length || 0})`, icon: <Send size={14} /> },
         ].map((tab) => (
           <Button
             key={tab.key}
@@ -413,22 +516,106 @@ export const AdminUserDetailPage: React.FC = () => {
             size="sm"
             onClick={() => setActiveTab(tab.key as any)}
             leftIcon={tab.icon}
-            style={{ borderRadius: 'var(--radius-md) var(--radius-md) 0 0' }}
+            style={{ borderRadius: 'var(--radius-md) var(--radius-md) 0 0', whiteSpace: 'nowrap' }}
           >
             {tab.label}
           </Button>
         ))}
       </div>
 
-      {/* TAB 1: Overview & Profile */}
+      {/* TAB 1: Overview (11.4.2) */}
       {activeTab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-4)' }}>
-          {/* Account Profile Card */}
+          {/* Financial Overview Card */}
+          <Card elevated accentColor="green" style={{ padding: 'var(--space-5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
+              <TactileIcon icon={Wallet} color="security" size="sm" />
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+                11.4.2 Financial Overview
+              </h3>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Wallet Balance (Current)</span>
+                <strong style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {balanceGhs}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Ledger-Derived Balance</span>
+                <strong style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {((fin?.ledgerDerivedBalancePesewas || 0)/100).toFixed(2)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Total Deposits</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {((fin?.totalDepositsPesewas || 0)/100).toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Total Purchases</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {totalSpentGhs}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Total Refunds</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {totalRefundsGhs}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Pending Operations</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {((fin?.pendingOperationsPesewas || 0)/100).toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Reconciliation Status</span>
+                <Badge variant={fin?.reconciliationStatus === 'RECONCILED' ? 'success' : 'warning'} size="sm">
+                  {fin?.reconciliationStatus}
+                </Badge>
+              </div>
+            </div>
+          </Card>
+
+          {/* Orders Overview Card */}
           <Card elevated accentColor="blue" style={{ padding: 'var(--space-5)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
-              <TactileIcon icon={User} color="orders" size="sm" />
+              <TactileIcon icon={Package} color="orders" size="sm" />
               <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                11.3.13 Profile Information
+                11.4.2 Orders Overview
+              </h3>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Total Orders</span>
+                <strong>{ordSummary?.totalOrders || 0}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Completed</span>
+                <Badge variant="success" size="sm">{ordSummary?.completed || 0}</Badge>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Processing</span>
+                <Badge variant="info" size="sm">{ordSummary?.processing || 0}</Badge>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Pending Approval</span>
+                <Badge variant="warning" size="sm">{ordSummary?.pending || 0}</Badge>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Failed</span>
+                <Badge variant="danger" size="sm">{ordSummary?.failed || 0}</Badge>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Refunded</span>
+                <Badge variant="neutral" size="sm">{ordSummary?.refunded || 0}</Badge>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Last Order</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>
+                  {ordSummary?.lastOrderAt ? new Date(ordSummary.lastOrderAt).toLocaleDateString() : 'None'}
+                </span>
+              </div>
+            </div>
+          </Card>
+
+          {/* Account Profile Details */}
+          <Card elevated accentColor="purple" style={{ padding: 'var(--space-5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
+              <TactileIcon icon={User} color="api" size="sm" />
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+                11.4.2 Account & Security Overview
               </h3>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
@@ -445,127 +632,61 @@ export const AdminUserDetailPage: React.FC = () => {
                 <strong style={{ fontFamily: 'var(--font-mono)' }}>{u?.phone || 'Unlinked'}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-text-muted)' }}>Email Verified</span>
-                <Badge variant={u?.emailVerified ? 'success' : 'warning'} size="sm">{u?.emailVerified ? 'Verified' : 'Unverified'}</Badge>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-text-muted)' }}>Phone Verified</span>
-                <Badge variant={u?.phoneVerified ? 'success' : 'warning'} size="sm">{u?.phoneVerified ? 'Verified' : 'Unverified'}</Badge>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-text-muted)' }}>Registered</span>
-                <span style={{ fontFamily: 'var(--font-mono)' }}>{u?.createdAt ? new Date(u.createdAt).toLocaleString() : '—'}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-text-muted)' }}>Last Active</span>
-                <span style={{ fontFamily: 'var(--font-mono)' }}>{u?.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</span>
-              </div>
-            </div>
-          </Card>
-
-          {/* Security & Authentication Card */}
-          <Card elevated accentColor="purple" style={{ padding: 'var(--space-5)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
-              <TactileIcon icon={Lock} color="api" size="sm" />
-              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                11.3.25 Security & Access Control
-              </h3>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Security Domain</span>
                 <Badge variant="brand" size="sm">{u?.securityDomain || 'CUSTOMER'}</Badge>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>MFA Status</span>
-                <Badge variant={u?.mfaEnabled ? 'success' : 'neutral'} size="sm">{u?.mfaEnabled ? 'MFA Enabled' : 'Disabled'}</Badge>
+                <Badge variant={u?.mfaEnabled ? 'success' : 'neutral'} size="sm">{u?.mfaEnabled ? 'Enabled' : 'Disabled'}</Badge>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Failed Login Attempts</span>
                 <strong>{u?.failedLoginAttempts || 0}</strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-text-muted)' }}>Account Lock Status</span>
-                <Badge variant={u?.lockedUntil ? 'danger' : 'success'} size="sm">{u?.lockedUntil ? 'Locked' : 'Unlocked'}</Badge>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB 2: Wallet & Financial Control (11.4.3 & 11.4.18) */}
+      {activeTab === 'wallet' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Financial Integrity & Reconciliation Bar */}
+          <Card elevated accentColor={fin?.reconciliationStatus === 'RECONCILED' ? 'green' : 'amber'} style={{ padding: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {fin?.reconciliationStatus === 'RECONCILED' ? (
+                    <CheckCircle size={18} color="var(--color-success-bright)" />
+                  ) : (
+                    <AlertTriangle size={18} color="var(--color-warning-bright)" />
+                  )}
+                  Wallet Reconciliation Status: {fin?.reconciliationStatus}
+                </h3>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0' }}>
+                  User Wallet Projection: <strong>GH₵ {balanceGhs}</strong> • Double-Entry Ledger Sum: <strong>GH₵ {((fin?.ledgerDerivedBalancePesewas || 0)/100).toFixed(2)}</strong>
+                </p>
               </div>
-              <div style={{ marginTop: 'var(--space-2)' }}>
-                <Button variant="outline" size="sm" fullWidth onClick={handlePasswordReset} leftIcon={<Key size={13} />}>
-                  Force Password Reset
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <Button variant="outline" size="sm" onClick={handleRunReconciliation} isLoading={isReconciling} leftIcon={<RefreshCw size={14} />}>
+                  Run Reconciliation
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => setIsAdjustModalOpen(true)} leftIcon={<Wallet size={14} />}>
+                  Post Double-Entry Voucher
                 </Button>
               </div>
             </div>
           </Card>
 
-          {/* 11.3.28 Agent-Specific Storefront Card */}
-          {u?.role === 'agent' && (
-            <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
-                <TactileIcon icon={Store} color="speed" size="sm" />
-                <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                  Agent Storefront & API Integration
-                </h3>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-muted)' }}>Store Name</span>
-                  <strong>{userDetail?.agentData?.store?.storeName || 'No Storefront'}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-muted)' }}>Storefront Slug</span>
-                  <span style={{ fontFamily: 'var(--font-mono)' }}>/store/{userDetail?.agentData?.store?.slug || '—'}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-muted)' }}>Active API Keys</span>
-                  <Badge variant="info" size="sm">{userDetail?.agentData?.apiKeys?.length || 0} Keys Provisioned</Badge>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* 11.3.30 Admin-Specific Permissions Card */}
-          {(u?.role === 'admin' || u?.role === 'super_admin') && (
-            <Card elevated accentColor="purple" style={{ padding: 'var(--space-5)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
-                <TactileIcon icon={ShieldCheck} color="api" size="sm" />
-                <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                  Administrative Authority & Grants
-                </h3>
-              </div>
-              <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-3)' }}>
-                Assigned granular permissions enforced via RBAC Engine.
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                {(userDetail?.adminData?.permissions || ['orders.read', 'orders.create', 'wallet.read', 'agents.read']).map((p) => (
-                  <Badge key={p} variant="neutral" size="sm">
-                    {p}
-                  </Badge>
-                ))}
-              </div>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* TAB 2: Wallet & Ledger */}
-      {activeTab === 'wallet' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                11.3.17 Double-Entry Financial Ledger
-              </h2>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.125rem 0 0' }}>
-                Authoritative journal lines posted to this user account. Balanced against PLATFORM_RESERVE.
-              </p>
-            </div>
-            <Button variant="primary" size="sm" onClick={() => setIsAdjustModalOpen(true)} leftIcon={<Wallet size={14} />}>
-              Adjust Wallet
-            </Button>
-          </div>
-
+          {/* Ledger Journal Lines Table */}
           <Card elevated accentColor="green" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+                11.4.3 Double-Entry Ledger History
+              </h3>
+            </div>
             <Table
-              headers={['Entry Type', 'Amount (GHS)', 'Account Type', 'Reference', 'Description', 'Timestamp']}
+              headers={['Entry Type', 'Amount (GHS)', 'Account Type', 'Reference Type', 'Reference ID', 'Description', 'Timestamp']}
             >
               {(userDetail?.recentLedgerLines || []).map((line, idx) => (
                 <tr key={line.id || idx} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
@@ -581,7 +702,10 @@ export const AdminUserDetailPage: React.FC = () => {
                     {line.accountType || 'CUSTOMER_WALLET'}
                   </td>
                   <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
-                    {line.referenceType || 'LEDGER_TX'}
+                    {line.referenceType}
+                  </td>
+                  <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                    {line.referenceId?.slice(0, 12)}...
                   </td>
                   <td style={{ fontSize: 'var(--font-size-xs)' }}>
                     {line.description || 'System transaction'}
@@ -596,51 +720,121 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 3: Orders */}
+      {/* TAB 3: Orders & Lifecycle Visibility (11.4.4 & 11.4.5) */}
       {activeTab === 'orders' && (
-        <Card elevated accentColor="cyan" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Filter Bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {['ALL', 'COMPLETED', 'PROCESSING', 'FAILED', 'REFUNDED'].map((st) => (
+                <Button
+                  key={st}
+                  variant={orderStatusFilter === st ? 'primary' : 'outline'}
+                  size="sm"
+                  onClick={() => setOrderStatusFilter(st)}
+                >
+                  {st}
+                </Button>
+              ))}
+            </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
+              DataHouse Telecom Fulfillment is Authoritative
+            </p>
+          </div>
+
+          <Card elevated accentColor="cyan" style={{ padding: 0, overflow: 'hidden' }}>
+            <Table
+              headers={['Order ID / Public ID', 'Recipient', 'Network', 'Bundle Size', 'Amount', 'Payment', 'ByteBeacon State', 'DataHouse State', 'Date', 'Action']}
+            >
+              {filteredOrders.map((o) => (
+                <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
+                    {o.publicId || o.id.slice(0, 8)}
+                  </td>
+                  <td style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                    {o.recipientPhone}
+                  </td>
+                  <td>
+                    <Badge variant="neutral" size="sm">{o.network}</Badge>
+                  </td>
+                  <td>{o.dataAmountMb >= 1000 ? `${o.dataAmountMb / 1000} GB` : `${o.dataAmountMb} MB`}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                    GH₵ {((o.amountPesewas || 0) / 100).toFixed(2)}
+                  </td>
+                  <td>
+                    <Badge variant={o.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
+                      {o.paymentStatus || 'PAID'}
+                    </Badge>
+                  </td>
+                  <td>
+                    <Badge
+                      variant={
+                        o.orderStatus === 'COMPLETED'
+                          ? 'success'
+                          : o.orderStatus === 'PROCESSING'
+                          ? 'info'
+                          : o.orderStatus === 'FAILED'
+                          ? 'danger'
+                          : 'neutral'
+                      }
+                      size="sm"
+                      dot
+                    >
+                      {o.orderStatus}
+                    </Badge>
+                  </td>
+                  <td>
+                    <Badge variant="neutral" size="sm">
+                      {o.providerStatus || 'SUBMITTED'}
+                    </Badge>
+                  </td>
+                  <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}
+                  </td>
+                  <td>
+                    <Button variant="ghost" size="sm" onClick={() => setSelectedOrder(o)}>
+                      Inspect Pipeline
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB 4: Dedicated Transactions View (11.4.6) */}
+      {activeTab === 'transactions' && (
+        <Card elevated accentColor="purple" style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+              11.4.6 User Payments & Payment Gateway Transactions
+            </h3>
+          </div>
           <Table
-            headers={['Order ID', 'Recipient', 'Network', 'Bundle Size', 'Amount', 'Payment', 'Order Status', 'Date']}
+            headers={['Transaction ID', 'Amount (GHS)', 'Gateway / Provider', 'Payment Method', 'Payment Status', 'Timestamp']}
           >
-            {(userDetail?.recentOrders || []).map((o) => (
-              <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+            {(userDetail?.transactions || []).map((t) => (
+              <tr key={t.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                 <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
-                  {o.id.slice(0, 8)}...
+                  {t.id.slice(0, 12)}...
                 </td>
-                <td style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                  {o.recipientPhone}
-                </td>
-                <td>
-                  <Badge variant="neutral" size="sm">{o.network}</Badge>
-                </td>
-                <td>{o.dataAmountMb >= 1000 ? `${o.dataAmountMb / 1000} GB` : `${o.dataAmountMb} MB`}</td>
                 <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                  GH₵ {((o.amountPesewas || 0) / 100).toFixed(2)}
+                  GH₵ {((t.amountPesewas || 0) / 100).toFixed(2)}
                 </td>
                 <td>
-                  <Badge variant={o.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
-                    {o.paymentStatus || 'PAID'}
-                  </Badge>
+                  <Badge variant="brand" size="sm">{t.provider || 'PAYSTACK'}</Badge>
+                </td>
+                <td style={{ fontSize: 'var(--font-size-xs)' }}>
+                  {t.paymentMethod || 'MoMo'}
                 </td>
                 <td>
-                  <Badge
-                    variant={
-                      o.orderStatus === 'COMPLETED'
-                        ? 'success'
-                        : o.orderStatus === 'PROCESSING'
-                        ? 'info'
-                        : o.orderStatus === 'FAILED'
-                        ? 'danger'
-                        : 'neutral'
-                    }
-                    size="sm"
-                    dot
-                  >
-                    {o.orderStatus}
+                  <Badge variant={t.status === 'PAID' ? 'success' : 'warning'} size="sm">
+                    {t.status}
                   </Badge>
                 </td>
                 <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}
+                  {t.createdAt ? new Date(t.createdAt).toLocaleString() : '—'}
                 </td>
               </tr>
             ))}
@@ -648,11 +842,16 @@ export const AdminUserDetailPage: React.FC = () => {
         </Card>
       )}
 
-      {/* TAB 4: Activity & Audit */}
+      {/* TAB 5: Activity & Audit Stream (11.4.7) */}
       {activeTab === 'activity' && (
         <Card elevated accentColor="purple" style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+              11.4.7 Complete Account Audit Log
+            </h3>
+          </div>
           <Table
-            headers={['Action', 'Actor Type', 'Actor ID', 'Details / Metadata', 'Timestamp']}
+            headers={['Action', 'Actor Type', 'Actor ID', 'IP Address', 'Metadata', 'Timestamp']}
           >
             {(userDetail?.activity || []).map((act, idx) => (
               <tr key={act.id || idx} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
@@ -663,7 +862,10 @@ export const AdminUserDetailPage: React.FC = () => {
                   {act.actorType}
                 </td>
                 <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
-                  {act.actorId?.slice(0, 10)}...
+                  {act.actorId ? `${act.actorId.slice(0, 10)}...` : 'System'}
+                </td>
+                <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
+                  {act.ipAddress || '—'}
                 </td>
                 <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
                   {act.metadata ? JSON.stringify(act.metadata) : '—'}
@@ -677,21 +879,26 @@ export const AdminUserDetailPage: React.FC = () => {
         </Card>
       )}
 
-      {/* TAB 5: Sessions & Security */}
+      {/* TAB 6: Sessions & Security (11.4.8) */}
       {activeTab === 'sessions' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                11.3.24 Active Device Sessions
+                11.4.8 Active Device Sessions & Security Controls
               </h2>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.125rem 0 0' }}>
-                Track live browser and mobile tokens with remote termination capabilities.
+                Server-side session invalidation and password reset triggers.
               </p>
             </div>
-            <Button variant="danger" size="sm" onClick={handleRevokeSessions} leftIcon={<LogOut size={14} />}>
-              Revoke All Sessions
-            </Button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <Button variant="outline" size="sm" onClick={handlePasswordReset} leftIcon={<Key size={14} />}>
+                Force Password Reset
+              </Button>
+              <Button variant="danger" size="sm" onClick={handleRevokeSessions} leftIcon={<LogOut size={14} />}>
+                Revoke All Sessions
+              </Button>
+            </div>
           </div>
 
           <Card elevated accentColor="purple" style={{ padding: 0, overflow: 'hidden' }}>
@@ -720,6 +927,151 @@ export const AdminUserDetailPage: React.FC = () => {
                 </tr>
               ))}
             </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB 7: Agent & Developer Portal (11.4.11 - 11.4.13) */}
+      {activeTab === 'agent' && isAgent && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Agent Storefront Card */}
+          <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
+            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: '0 0 var(--space-4)' }}>
+              11.4.12 Agent Storefront Overview
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)', fontSize: 'var(--font-size-xs)' }}>
+              <div>
+                <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Store Name</span>
+                <strong>{userDetail?.agentData?.store?.storeName || 'No Storefront'}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Store Slug / URL</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>/store/{userDetail?.agentData?.store?.slug || '—'}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Commission Rate</span>
+                <strong>{((userDetail?.agentData?.store?.commissionRate || 0.05) * 100).toFixed(1)}%</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Estimated Commission Earned</span>
+                <strong style={{ color: 'var(--color-success-bright)' }}>GH₵ {((userDetail?.agentData?.commissionEarnedPesewas || 0)/100).toFixed(2)}</strong>
+              </div>
+            </div>
+          </Card>
+
+          {/* API Keys Table */}
+          <Card elevated accentColor="orange" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+                11.4.13 Provisioned API Keys (Secrets Masked)
+              </h3>
+            </div>
+            <Table
+              headers={['Key Name', 'Prefix Identifier', 'Environment', 'Rate Limit Tier', 'Status', 'Last Used', 'Actions']}
+            >
+              {(userDetail?.agentData?.apiKeys || []).map((k) => (
+                <tr key={k.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ fontWeight: 600 }}>{k.name}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{k.keyPrefix}...</td>
+                  <td><Badge variant="brand" size="sm">{k.environment}</Badge></td>
+                  <td style={{ fontSize: 'var(--font-size-2xs)' }}>{k.rateLimitTier}</td>
+                  <td><Badge variant={k.status === 'ACTIVE' ? 'success' : 'danger'} size="sm">{k.status}</Badge></td>
+                  <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
+                    {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : 'Never'}
+                  </td>
+                  <td>
+                    {k.status === 'ACTIVE' && (
+                      <div style={{ display: 'flex', gap: '0.25rem' }}>
+                        <Button variant="outline" size="sm" onClick={() => handleRotateApiKey(k.id)}>Rotate</Button>
+                        <Button variant="danger" size="sm" onClick={() => handleRevokeApiKey(k.id)}>Revoke</Button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB 8: Notifications Stream & Dispatch (11.4.14) */}
+      {activeTab === 'notifications' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+              11.4.14 Dispatched User Notifications
+            </h3>
+            <Button variant="primary" size="sm" onClick={() => setIsNotifyModalOpen(true)} leftIcon={<Send size={14} />}>
+              Send Direct Notification
+            </Button>
+          </div>
+
+          <Card elevated accentColor="blue" style={{ padding: 0, overflow: 'hidden' }}>
+            <Table
+              headers={['Channel', 'Subject / Message Title', 'Message Content Snippet', 'Timestamp']}
+            >
+              {(userDetail?.notifications || []).map((n) => (
+                <tr key={n.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td><Badge variant="info" size="sm">{n.channel}</Badge></td>
+                  <td style={{ fontWeight: 600 }}>{n.subject || 'Account Notification'}</td>
+                  <td style={{ fontSize: 'var(--font-size-xs)' }}>{n.message || '—'}</td>
+                  <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
+                    {n.createdAt ? new Date(n.createdAt).toLocaleString() : '—'}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* ORDER LIFECYCLE DRAWER / MODAL (11.4.5) */}
+      {selectedOrder && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
+          <Card elevated accentColor="cyan" style={{ maxWidth: '640px', width: '100%', padding: 'var(--space-6)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0 }}>
+                  Order Lifecycle Pipeline
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', margin: '0.125rem 0 0' }}>
+                  Order ID: {selectedOrder.id} • Public ID: {selectedOrder.publicId || 'N/A'}
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedOrder(null)}>Close</Button>
+            </div>
+
+            {/* Lifecycle Pipeline Visualization */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', backgroundColor: 'var(--color-surface-subtle)', padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>1. Payment State</span>
+                <Badge variant={selectedOrder.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">{selectedOrder.paymentStatus}</Badge>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>2. ByteBeacon Internal State</span>
+                <Badge variant={selectedOrder.orderStatus === 'COMPLETED' ? 'success' : 'info'} size="sm">{selectedOrder.orderStatus}</Badge>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>3. DataHouse Telecom Provider State</span>
+                <Badge variant="neutral" size="sm">{selectedOrder.providerStatus || 'SUBMITTED'}</Badge>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>4. Refund / Reconciliation State</span>
+                <Badge variant="neutral" size="sm">{selectedOrder.refundStatus || 'NONE'}</Badge>
+              </div>
+            </div>
+
+            <Card elevated accentColor="amber" style={{ padding: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+              <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-warning-bright)', margin: 0 }}>
+                <strong>DataHouse Authority Rule:</strong> DataHouse remains authoritative for telecom fulfillment. Administrators cannot force-complete orders manually.
+              </p>
+            </Card>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button variant="primary" size="sm" onClick={() => setSelectedOrder(null)}>
+                Done
+              </Button>
+            </div>
           </Card>
         </div>
       )}
@@ -776,15 +1128,15 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* 11.3.15 & 11.3.16 Safe Double-Entry Wallet Adjustment Modal */}
+      {/* Double-Entry Wallet Adjustment Modal (11.4.3) */}
       {isAdjustModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
           <Card elevated accentColor="green" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
-              11.3.15 Double-Entry Wallet Adjustment
+              Double-Entry Wallet Adjustment
             </h2>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Balanced against PLATFORM_RESERVE escrow. Never direct overwrite.
+              Posts balanced journal voucher to financial_ledger paired against PLATFORM_RESERVE.
             </p>
 
             <form onSubmit={handleAdjustWallet} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
@@ -843,12 +1195,12 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* 11.3.32 Role Change Modal */}
+      {/* Role Change Modal */}
       {isRoleModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
           <Card elevated accentColor="purple" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
-              11.3.32 Change Account Role
+              Change Account Role
             </h2>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
               Modifying roles will immediately invalidate all active sessions.
@@ -897,12 +1249,12 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* 11.3.35 Direct User Notification Modal */}
+      {/* Direct User Notification Modal */}
       {isNotifyModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
           <Card elevated accentColor="blue" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-4)' }}>
-              11.3.35 Send Notification to User
+              Send Notification to User
             </h2>
             <form onSubmit={handleSendNotification} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               <div>
@@ -967,12 +1319,12 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* 11.3.27 Suspension Modal */}
+      {/* Suspension Modal */}
       {isSuspendModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
           <Card elevated accentColor="red" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
-              11.3.27 Suspend User Account
+              Suspend User Account
             </h2>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
               Suspension immediately prevents storefront checkouts and authentication.
@@ -1002,6 +1354,50 @@ export const AdminUserDetailPage: React.FC = () => {
                 </Button>
                 <Button type="submit" variant="danger" size="sm" isLoading={isSuspending}>
                   Suspend Account
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Export Dossier Modal (11.4.15) */}
+      {isExportModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
+          <Card elevated accentColor="blue" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
+            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
+              Export User Dossier
+            </h2>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
+              Generates full account record (profile, orders, ledger, activity) excluding secrets.
+            </p>
+
+            <form onSubmit={handleExportDossier} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <div>
+                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>Format</label>
+                <select
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value as any)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--color-surface)',
+                    color: 'var(--color-text-primary)',
+                    border: '1px solid var(--color-border-default)',
+                  }}
+                >
+                  <option value="JSON">JSON Format</option>
+                  <option value="CSV">CSV Format</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setIsExportModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" size="sm" isLoading={isExporting}>
+                  Download Dossier
                 </Button>
               </div>
             </form>

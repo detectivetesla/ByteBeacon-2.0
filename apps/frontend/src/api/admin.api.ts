@@ -39,6 +39,30 @@ export interface AdminUserDetail {
     lockedUntil?: string;
     updatedAt: string;
   };
+  financialSummary?: {
+    walletBalancePesewas: number;
+    ledgerDerivedBalancePesewas: number;
+    totalDepositsPesewas: number;
+    totalSpentPesewas: number;
+    totalRefundsPesewas: number;
+    totalWithdrawalsPesewas: number;
+    pendingOperationsPesewas: number;
+    lifetimeValuePesewas: number;
+    reconciliationStatus: 'RECONCILED' | 'DISCREPANCY_DETECTED';
+    discrepancyPesewas: number;
+  };
+  orderSummary?: {
+    totalOrders: number;
+    completed: number;
+    processing: number;
+    pending: number;
+    failed: number;
+    refunded: number;
+    cancelled: number;
+    lastOrderAt?: string | null;
+    dailyOrders: number;
+    dailySpentPesewas: number;
+  };
   metrics?: {
     totalOrders: number;
     totalSpentPesewas: number;
@@ -49,6 +73,7 @@ export interface AdminUserDetail {
   };
   recentOrders: Array<{
     id: string;
+    publicId?: string;
     recipientPhone: string;
     network: string;
     dataAmountMb: number;
@@ -56,7 +81,9 @@ export interface AdminUserDetail {
     orderStatus: string;
     paymentStatus?: string;
     providerStatus?: string;
+    refundStatus?: string;
     createdAt: string;
+    updatedAt?: string;
   }>;
   recentLedgerLines: Array<{
     id: string;
@@ -67,6 +94,16 @@ export interface AdminUserDetail {
     referenceType: string;
     referenceId: string;
     description: string;
+    createdAt: string;
+  }>;
+  transactions?: Array<{
+    id: string;
+    amountPesewas: number;
+    currency: string;
+    provider: string;
+    paymentMethod: string;
+    status: string;
+    paidAt?: string;
     createdAt: string;
   }>;
   activeSessions: Array<{
@@ -83,8 +120,16 @@ export interface AdminUserDetail {
     action: string;
     actorType: string;
     actorId: string;
+    ipAddress?: string;
     createdAt: string;
     metadata?: any;
+  }>;
+  notifications?: Array<{
+    id: string;
+    channel: string;
+    subject?: string;
+    message?: string;
+    createdAt: string;
   }>;
   agentData?: {
     store?: {
@@ -106,6 +151,10 @@ export interface AdminUserDetail {
       lastUsedAt?: string;
       createdAt: string;
     }>;
+    revenuePesewas?: number;
+    commissionEarnedPesewas?: number;
+    subAgentsCount?: number;
+    withdrawableFloatPesewas?: number;
   } | null;
   adminData?: {
     permissions: string[];
@@ -241,6 +290,21 @@ export const adminApi = {
     return apiClient.post<{ userId: string; previousBalancePesewas: number; newBalancePesewas: number }>(`/admin/users/${id}/adjust-wallet`, data);
   },
 
+  reconcileUserWallet: async (id: string) => {
+    return apiClient.post<{
+      userId: string;
+      walletBalancePesewas: number;
+      ledgerDerivedBalancePesewas: number;
+      discrepancyPesewas: number;
+      status: string;
+      reconciledAt: string;
+    }>(`/admin/users/${id}/reconcile`);
+  },
+
+  exportUserDossier: async (id: string, format: 'CSV' | 'JSON' = 'JSON') => {
+    return apiClient.post(`/admin/users/${id}/export-dossier`, { format });
+  },
+
   revokeUserSessions: async (id: string) => {
     return apiClient.post(`/admin/users/${id}/revoke-sessions`);
   },
@@ -251,6 +315,14 @@ export const adminApi = {
 
   sendUserDirectNotification: async (id: string, data: { channel: 'EMAIL' | 'SMS' | 'IN_APP'; subject: string; message: string }) => {
     return apiClient.post(`/admin/users/${id}/notifications`, data);
+  },
+
+  revokeUserApiKey: async (userId: string, keyId: string) => {
+    return apiClient.post(`/admin/users/${userId}/api-keys/${keyId}/revoke`);
+  },
+
+  rotateUserApiKey: async (userId: string, keyId: string) => {
+    return apiClient.post(`/admin/users/${userId}/api-keys/${keyId}/rotate`);
   },
 
   exportUsers: async (data: { format?: 'CSV' | 'JSON'; role?: string; status?: string; search?: string } = {}) => {

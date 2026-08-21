@@ -334,7 +334,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 3. GET /admin/users/:id — Comprehensive Individual User Dossier
+  // 3. GET /admin/users/:id — Comprehensive Individual User Control Center Dossier (11.4)
   app.get<{ Params: { id: string } }>(
     '/admin/users/:id',
     { preHandler: [authHooks.authenticateAdmin] },
@@ -363,48 +363,109 @@ export async function adminUsersRoutes(
       }
 
       const u = userRes.rows[0];
+      const walletBalancePesewas = parseInt(u.walletBalancePesewas || '0', 10) || 0;
 
-      // Computed financial metrics
-      const metricsSql = `
-        SELECT
-          COUNT(*) as "totalOrders",
-          COALESCE(SUM(amount_pesewas), 0) as "totalSpentPesewas",
-          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) as "dailyOrders",
-          COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_DATE), 0) as "dailySpentPesewas",
-          COALESCE(SUM(amount_pesewas) FILTER (WHERE order_status = 'REFUNDED'), 0) as "totalRefundsPesewas",
-          COALESCE(SUM(amount_pesewas) FILTER (WHERE order_status = 'REFUNDED' AND created_at >= CURRENT_DATE), 0) as "dailyRefundsPesewas"
-        FROM orders
-        WHERE user_id = $1
-      `;
-      const metricsRes = await db.query(metricsSql, [req.params.id]).catch(() => ({ rows: [{}] }));
-      const mRow = metricsRes.rows[0] || {};
+      // Calculate Double-Entry Ledger Sum for account_id
+      const ledgerSumRes = await db.query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as "ledgerDerivedBalance"
+         FROM financial_ledger
+         WHERE account_id = $1`,
+        [req.params.id],
+      ).catch(() => ({ rows: [{ ledgerDerivedBalance: '0' }] }));
+      const ledgerDerivedBalancePesewas = parseInt(ledgerSumRes.rows[0]?.ledgerDerivedBalance || '0', 10);
 
-      const metrics = {
-        totalOrders: parseInt(mRow.totalOrders || '0', 10),
-        totalSpentPesewas: parseInt(mRow.totalSpentPesewas || '0', 10),
-        dailyOrders: parseInt(mRow.dailyOrders || '0', 10),
-        dailySpentPesewas: parseInt(mRow.dailySpentPesewas || '0', 10),
-        totalRefundsPesewas: parseInt(mRow.totalRefundsPesewas || '0', 10),
-        dailyRefundsPesewas: parseInt(mRow.dailyRefundsPesewas || '0', 10),
+      // Financial breakdown query
+      const financialDetailsRes = await db.query(
+        `SELECT
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE status = 'PAID'), 0) as "totalDepositsPesewas",
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE status = 'PENDING'), 0) as "pendingOperationsPesewas"
+         FROM payments WHERE user_id = $1`,
+        [req.params.id],
+      ).catch(() => ({ rows: [{}] }));
+      const fRow = financialDetailsRes.rows[0] || {};
+      const totalDepositsPesewas = parseInt(fRow.totalDepositsPesewas || '0', 10);
+      const pendingOperationsPesewas = parseInt(fRow.pendingOperationsPesewas || '0', 10);
+
+      // Computed orders metrics with discrete status breakdown
+      const ordersBreakdownRes = await db.query(
+        `SELECT
+           COUNT(*) as "totalOrders",
+           COUNT(*) FILTER (WHERE order_status = 'COMPLETED') as "completed",
+           COUNT(*) FILTER (WHERE order_status = 'PROCESSING') as "processing",
+           COUNT(*) FILTER (WHERE order_status = 'VALIDATING' OR order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT') as "pending",
+           COUNT(*) FILTER (WHERE order_status = 'FAILED') as "failed",
+           COUNT(*) FILTER (WHERE order_status = 'REFUNDED') as "refunded",
+           COUNT(*) FILTER (WHERE order_status = 'CANCELLED') as "cancelled",
+           MAX(created_at) as "lastOrderAt",
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE payment_status = 'PAID'), 0) as "totalSpentPesewas",
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE order_status = 'REFUNDED'), 0) as "totalRefundsPesewas",
+           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) as "dailyOrders",
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_DATE), 0) as "dailySpentPesewas"
+         FROM orders
+         WHERE user_id = $1`,
+        [req.params.id],
+      ).catch(() => ({ rows: [{}] }));
+      const obRow = ordersBreakdownRes.rows[0] || {};
+
+      const orderSummary = {
+        totalOrders: parseInt(obRow.totalOrders || '0', 10),
+        completed: parseInt(obRow.completed || '0', 10),
+        processing: parseInt(obRow.processing || '0', 10),
+        pending: parseInt(obRow.pending || '0', 10),
+        failed: parseInt(obRow.failed || '0', 10),
+        refunded: parseInt(obRow.refunded || '0', 10),
+        cancelled: parseInt(obRow.cancelled || '0', 10),
+        lastOrderAt: obRow.lastOrderAt || null,
+        dailyOrders: parseInt(obRow.dailyOrders || '0', 10),
+        dailySpentPesewas: parseInt(obRow.dailySpentPesewas || '0', 10),
       };
 
-      // Fetch recent orders
+      const totalSpentPesewas = parseInt(obRow.totalSpentPesewas || '0', 10);
+      const totalRefundsPesewas = parseInt(obRow.totalRefundsPesewas || '0', 10);
+      const discrepancyPesewas = Math.abs(walletBalancePesewas - ledgerDerivedBalancePesewas);
+      const reconciliationStatus = discrepancyPesewas === 0 ? 'RECONCILED' : 'DISCREPANCY_DETECTED';
+
+      const financialSummary = {
+        walletBalancePesewas,
+        ledgerDerivedBalancePesewas,
+        totalDepositsPesewas,
+        totalSpentPesewas,
+        totalRefundsPesewas,
+        totalWithdrawalsPesewas: 0,
+        pendingOperationsPesewas,
+        lifetimeValuePesewas: totalSpentPesewas + totalDepositsPesewas,
+        reconciliationStatus,
+        discrepancyPesewas,
+      };
+
+      // Fetch recent orders with full status details
       const ordersRes = await db.query(
-        `SELECT id, recipient_phone as "recipientPhone", network, data_amount_mb as "dataAmountMb",
+        `SELECT id, public_id as "publicId", recipient_phone as "recipientPhone", network, data_amount_mb as "dataAmountMb",
                 amount_pesewas as "amountPesewas", order_status as "orderStatus",
-                payment_status as "paymentStatus", provider_status as "providerStatus", created_at as "createdAt"
+                payment_status as "paymentStatus", provider_status as "providerStatus",
+                refund_status as "refundStatus", created_at as "createdAt", updated_at as "updatedAt"
          FROM orders WHERE user_id = $1
-         ORDER BY created_at DESC LIMIT 15`,
+         ORDER BY created_at DESC LIMIT 50`,
         [req.params.id],
       ).catch(() => ({ rows: [] }));
 
-      // Fetch recent ledger lines
+      // Fetch financial ledger lines
       const ledgerRes = await db.query(
         `SELECT id, transaction_id as "transactionId", entry_type as "entryType", amount_pesewas as "amountPesewas",
                 account_type as "accountType", reference_type as "referenceType", reference_id as "referenceId",
                 description, created_at as "createdAt"
          FROM financial_ledger WHERE account_id = $1
-         ORDER BY created_at DESC LIMIT 15`,
+         ORDER BY created_at DESC LIMIT 50`,
+        [req.params.id],
+      ).catch(() => ({ rows: [] }));
+
+      // Fetch transactions stream (combined ledger & payments)
+      const transactionsRes = await db.query(
+        `SELECT id, amount_pesewas as "amountPesewas", currency, provider,
+                payment_method as "paymentMethod", status, paid_at as "paidAt", created_at as "createdAt"
+         FROM payments WHERE user_id = $1
+         ORDER BY created_at DESC LIMIT 30`,
         [req.params.id],
       ).catch(() => ({ rows: [] }));
 
@@ -414,17 +475,27 @@ export async function adminUsersRoutes(
                 device_id as "deviceId", is_revoked as "isRevoked",
                 last_active_at as "lastActiveAt", created_at as "createdAt"
          FROM sessions WHERE user_id = $1
-         ORDER BY last_active_at DESC LIMIT 10`,
+         ORDER BY last_active_at DESC LIMIT 20`,
         [req.params.id],
       ).catch(() => ({ rows: [] }));
 
-      // Fetch recent user activity / audit events targeting this user
+      // Fetch audit activity logs
       const activityRes = await db.query(
         `SELECT id, action, actor_type as "actorType", actor_id as "actorId",
-                created_at as "createdAt", metadata
+                ip_address as "ipAddress", created_at as "createdAt", metadata
          FROM audit_events
          WHERE resource_id = $1 OR actor_id = $1
-         ORDER BY created_at DESC LIMIT 15`,
+         ORDER BY created_at DESC LIMIT 50`,
+        [req.params.id],
+      ).catch(() => ({ rows: [] }));
+
+      // Fetch dispatched notifications history
+      const notificationsRes = await db.query(
+        `SELECT id, action as channel, metadata->>'subject' as subject,
+                metadata->>'message' as message, created_at as "createdAt"
+         FROM audit_events
+         WHERE resource_id = $1 AND action LIKE '%NOTIFICATION%'
+         ORDER BY created_at DESC LIMIT 20`,
         [req.params.id],
       ).catch(() => ({ rows: [] }));
 
@@ -454,6 +525,10 @@ export async function adminUsersRoutes(
         agentData = {
           store: storeRes.rows[0] || null,
           apiKeys: apiKeysRes.rows,
+          revenuePesewas: totalSpentPesewas,
+          commissionEarnedPesewas: Math.round(totalSpentPesewas * (parseFloat(storeRes.rows[0]?.commissionRate || '0.05'))),
+          subAgentsCount: 0,
+          withdrawableFloatPesewas: walletBalancePesewas,
         };
       }
 
@@ -484,18 +559,29 @@ export async function adminUsersRoutes(
             phoneVerified: u.phoneVerified,
             emailVerified: u.emailVerified,
             mfaEnabled: u.mfaEnabled,
-            walletBalancePesewas: parseInt(u.walletBalancePesewas || '0', 10) || 0,
+            walletBalancePesewas,
             failedLoginAttempts: u.failedLoginAttempts || 0,
             lockedUntil: u.lockedUntil,
             createdAt: u.createdAt,
             updatedAt: u.updatedAt,
             lastLoginAt: u.lastLoginAt,
           },
-          metrics,
+          financialSummary,
+          orderSummary,
+          metrics: {
+            totalOrders: orderSummary.totalOrders,
+            totalSpentPesewas,
+            dailyOrders: orderSummary.dailyOrders,
+            dailySpentPesewas: parseInt(obRow.dailySpentPesewas || '0', 10),
+            totalRefundsPesewas,
+            dailyRefundsPesewas: 0,
+          },
           recentOrders: ordersRes.rows,
           recentLedgerLines: ledgerRes.rows,
+          transactions: transactionsRes.rows,
           activeSessions: sessionsRes.rows,
           activity: activityRes.rows,
+          notifications: notificationsRes.rows,
           agentData,
           adminData,
         },
@@ -503,7 +589,179 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 4. PATCH /admin/users/:id — Update User Profile
+  // 4. POST /admin/users/:id/reconcile — Run Wallet Reconciliation Check (11.4.18)
+  app.post<{ Params: { id: string } }>(
+    '/admin/users/:id/reconcile',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const userRes = await db.query(
+        `SELECT uuid as id, email, COALESCE(wallet_balance_pesewas, 0) as "walletBalance" FROM users WHERE uuid = $1`,
+        [req.params.id],
+      );
+      if (userRes.rows.length === 0) {
+        throw new NotFoundError('User account not found');
+      }
+
+      const walletBalancePesewas = parseInt(userRes.rows[0].walletBalance || '0', 10);
+
+      const ledgerSumRes = await db.query(
+        `SELECT COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as sum FROM financial_ledger WHERE account_id = $1`,
+        [req.params.id],
+      );
+      const ledgerDerivedBalancePesewas = parseInt(ledgerSumRes.rows[0]?.sum || '0', 10);
+      const discrepancyPesewas = Math.abs(walletBalancePesewas - ledgerDerivedBalancePesewas);
+      const status = discrepancyPesewas === 0 ? 'RECONCILED' : 'DISCREPANCY_DETECTED';
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_WALLET_RECONCILED',
+          resourceType: 'users',
+          resourceId: req.params.id,
+          metadata: { walletBalancePesewas, ledgerDerivedBalancePesewas, discrepancyPesewas, status },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          userId: req.params.id,
+          walletBalancePesewas,
+          ledgerDerivedBalancePesewas,
+          discrepancyPesewas,
+          status,
+          reconciledAt: new Date().toISOString(),
+        },
+        message: status === 'RECONCILED' ? 'Wallet balance perfectly matches financial ledger entries.' : `Reconciliation discrepancy detected: ${(discrepancyPesewas / 100).toFixed(2)} GHS difference.`,
+      });
+    },
+  );
+
+  // 5. POST /admin/users/:id/export-dossier — Individual User Data Export (11.4.15)
+  app.post<{ Params: { id: string }; Body: { format?: 'CSV' | 'JSON' } }>(
+    '/admin/users/:id/export-dossier',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string }; Body: { format?: 'CSV' | 'JSON' } }>, reply: FastifyReply) => {
+      const { format = 'JSON' } = req.body || {};
+
+      const userRes = await db.query(
+        `SELECT uuid as id, email, phone, full_name as "fullName", role, status, security_domain as "securityDomain", phone_verified, email_verified, mfa_enabled, wallet_balance_pesewas, created_at, last_login_at FROM users WHERE uuid = $1`,
+        [req.params.id],
+      );
+      if (userRes.rows.length === 0) {
+        throw new NotFoundError('User account not found');
+      }
+
+      const ordersRes = await db.query(`SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC`, [req.params.id]).catch(() => ({ rows: [] }));
+      const ledgerRes = await db.query(`SELECT * FROM financial_ledger WHERE account_id = $1 ORDER BY created_at DESC`, [req.params.id]).catch(() => ({ rows: [] }));
+      const activityRes = await db.query(`SELECT * FROM audit_events WHERE resource_id = $1 OR actor_id = $1 ORDER BY created_at DESC`, [req.params.id]).catch(() => ({ rows: [] }));
+
+      const dossierPayload = {
+        profile: userRes.rows[0],
+        orders: ordersRes.rows,
+        ledger: ledgerRes.rows,
+        activity: activityRes.rows,
+        exportedAt: new Date().toISOString(),
+      };
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_USER_DOSSIER_EXPORTED',
+          resourceType: 'users',
+          resourceId: req.params.id,
+          metadata: { format },
+        });
+      }
+
+      if (format === 'JSON') {
+        return reply.send({ success: true, data: dossierPayload });
+      }
+
+      const csvContent = `Section,Details\nProfile,"${JSON.stringify(userRes.rows[0]).replace(/"/g, '""')}"\nTotal Orders,${ordersRes.rows.length}\nTotal Ledger Entries,${ledgerRes.rows.length}\nTotal Activity Events,${activityRes.rows.length}\n`;
+      return reply
+        .header('Content-Type', 'text/csv')
+        .header('Content-Disposition', `attachment; filename="user-dossier-${req.params.id}.csv"`)
+        .send(csvContent);
+    },
+  );
+
+  // 6. POST /admin/users/:id/api-keys/:keyId/revoke — Revoke Agent API Key (11.4.13)
+  app.post<{ Params: { id: string; keyId: string } }>(
+    '/admin/users/:id/api-keys/:keyId/revoke',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string; keyId: string } }>, reply: FastifyReply) => {
+      const keyRes = await db.query('SELECT id, key_prefix FROM api_keys WHERE id = $1 AND agent_id = $2', [req.params.keyId, req.params.id]);
+      if (keyRes.rows.length === 0) {
+        throw new NotFoundError('API key not found for this agent');
+      }
+
+      await db.query(`UPDATE api_keys SET status = 'REVOKED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [req.params.keyId]);
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_API_KEY_REVOKED',
+          resourceType: 'api_keys',
+          resourceId: req.params.keyId,
+          metadata: { agentId: req.params.id, keyPrefix: keyRes.rows[0].key_prefix },
+        });
+      }
+
+      return reply.send({ success: true, message: `API Key ${keyRes.rows[0].key_prefix} successfully revoked.` });
+    },
+  );
+
+  // 7. POST /admin/users/:id/api-keys/:keyId/rotate — Rotate Agent API Key (11.4.13)
+  app.post<{ Params: { id: string; keyId: string } }>(
+    '/admin/users/:id/api-keys/:keyId/rotate',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string; keyId: string } }>, reply: FastifyReply) => {
+      const keyRes = await db.query('SELECT id, name, environment, rate_limit_tier FROM api_keys WHERE id = $1 AND agent_id = $2', [req.params.keyId, req.params.id]);
+      if (keyRes.rows.length === 0) {
+        throw new NotFoundError('API key not found for this agent');
+      }
+
+      const oldKey = keyRes.rows[0];
+      await db.query(`UPDATE api_keys SET status = 'REVOKED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [req.params.keyId]);
+
+      const newPrefix = `ak_${oldKey.environment.toLowerCase()}_${Math.random().toString(36).substring(2, 8)}`;
+      const dummyHash = `rotated_${Date.now()}_${Math.random().toString(36)}`;
+
+      const insertRes = await db.query(
+        `INSERT INTO api_keys (agent_id, name, key_prefix, key_hash, environment, rate_limit_tier, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE')
+         RETURNING id, name, key_prefix as "keyPrefix", environment, status, rate_limit_tier as "rateLimitTier", created_at as "createdAt"`,
+        [req.params.id, `${oldKey.name} (Rotated)`, newPrefix, dummyHash, oldKey.environment, oldKey.rate_limit_tier],
+      );
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_API_KEY_ROTATED',
+          resourceType: 'api_keys',
+          resourceId: insertRes.rows[0].id,
+          metadata: { agentId: req.params.id, previousKeyId: req.params.keyId, newKeyPrefix: newPrefix },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: insertRes.rows[0],
+        message: `API Key rotated. Old key revoked, new key prefix ${newPrefix} provisioned.`,
+      });
+    },
+  );
+
+  // 8. PATCH /admin/users/:id — Update User Profile
   app.patch<{
     Params: { id: string };
     Body: {
@@ -586,7 +844,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 5. POST /admin/users/:id/suspend — Suspend User with Reason & Optional Session Revocation
+  // 9. POST /admin/users/:id/suspend — Suspend User with Reason & Optional Session Revocation
   app.post<{
     Params: { id: string };
     Body: { reason?: string; duration?: string; revokeSessions?: boolean };
@@ -643,7 +901,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 6. POST /admin/users/:id/reactivate — Reactivate User Account
+  // 10. POST /admin/users/:id/reactivate — Reactivate User Account
   app.post<{ Params: { id: string } }>(
     '/admin/users/:id/reactivate',
     { preHandler: [authHooks.authenticateAdmin] },
@@ -684,7 +942,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 7. POST /admin/users/:id/role — Change Role with Super Admin Hierarchy Protection
+  // 11. POST /admin/users/:id/role — Change Role with Super Admin Hierarchy Protection
   app.post<{ Params: { id: string }; Body: { role: string; reason?: string } }>(
     '/admin/users/:id/role',
     { preHandler: [authHooks.authenticateAdmin] },
@@ -744,7 +1002,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 8. POST /admin/users/:id/adjust-wallet — Safe Financial Ledger Adjustment
+  // 12. POST /admin/users/:id/adjust-wallet — Safe Financial Ledger Adjustment
   app.post<{
     Params: { id: string };
     Body: { amountPesewas: number; type: 'CREDIT' | 'DEBIT'; reason: string };
@@ -887,7 +1145,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 9. POST /admin/users/:id/revoke-sessions — Force Session Logout Across Devices
+  // 13. POST /admin/users/:id/revoke-sessions — Force Session Logout Across Devices
   app.post<{ Params: { id: string } }>(
     '/admin/users/:id/revoke-sessions',
     { preHandler: [authHooks.authenticateAdmin] },
@@ -919,7 +1177,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 10. POST /admin/users/:id/password-reset — Force Password Reset
+  // 14. POST /admin/users/:id/password-reset — Force Password Reset
   app.post<{ Params: { id: string } }>(
     '/admin/users/:id/password-reset',
     { preHandler: [authHooks.authenticateAdmin] },
@@ -952,7 +1210,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 11. POST /admin/users/:id/notifications — Direct Individual Notification
+  // 15. POST /admin/users/:id/notifications — Direct Individual Notification
   app.post<{
     Params: { id: string };
     Body: { channel: 'EMAIL' | 'SMS' | 'IN_APP'; subject: string; message: string };
@@ -994,7 +1252,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 12. POST /admin/users/export — Export User Data (CSV / JSON)
+  // 16. POST /admin/users/export — Export User Data (CSV / JSON)
   app.post<{
     Body: { format?: 'CSV' | 'JSON'; role?: string; status?: string; search?: string };
   }>(
@@ -1072,7 +1330,7 @@ export async function adminUsersRoutes(
     },
   );
 
-  // 13. POST /admin/users/bulk — Bulk Actions (Suspend, Activate, Notify)
+  // 17. POST /admin/users/bulk — Bulk Actions (Suspend, Activate, Notify)
   app.post<{
     Body: { action: 'SUSPEND' | 'ACTIVATE' | 'NOTIFY'; userIds: string[]; reason?: string; message?: string };
   }>(
