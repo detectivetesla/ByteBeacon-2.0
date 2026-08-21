@@ -114,7 +114,7 @@ describe('ByteBeacon 2.0 — Navigation Permission Filtering', () => {
     const visibleNav = ADMIN_NAVIGATION.filter((item) => adminPerms.includes(item.permission));
 
     const paths = visibleNav.map((n) => n.path);
-    expect(paths).toContain('/admin/dashboard');
+    expect(paths).toContain('/admin/overview');
     expect(paths).toContain('/admin/users');
     expect(paths).toContain('/admin/orders');
     expect(paths).toContain('/admin/payments');
