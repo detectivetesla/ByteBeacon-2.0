@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card } from '../../components/ui/Card/Card.js';
+import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Input } from '../../components/ui/Input/Input.js';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { adminApi } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
 import {
@@ -14,6 +15,8 @@ import {
   Clock,
   RefreshCw,
   Radio,
+  Bell,
+  MessageSquare,
 } from 'lucide-react';
 
 export const AdminCommunicationsPage: React.FC = () => {
@@ -81,19 +84,22 @@ export const AdminCommunicationsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', overflowX: 'hidden' }}>
+    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-1)' }}>
-            <Mail size={22} color="var(--color-brand)" strokeWidth={2.5} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <TactileIcon icon={Mail} color="emerald" size="lg" />
+          <div>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-brand-bright)' }}>
+              Messaging & Alerts Network
+            </span>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Platform Communication Center
             </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Dispatch announcements, system maintenance notices, and targeted notifications to customers and agents.
+            </p>
           </div>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
-            Dispatch announcements, system maintenance notices, and targeted notifications to customers and agents.
-          </p>
         </div>
 
         <Button variant="ghost" size="sm" onClick={fetchHistory} disabled={isLoading}>
@@ -101,10 +107,35 @@ export const AdminCommunicationsPage: React.FC = () => {
         </Button>
       </div>
 
+      {/* Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
+        <MetricCard
+          title="Total Dispatched"
+          value={history.length.toString()}
+          subvalue="Recorded broadcasts"
+          accent="blue"
+          icon={<TactileIcon icon={Mail} color="orders" size="sm" />}
+        />
+        <MetricCard
+          title="Email Gateway Relay"
+          value="Resend API"
+          subvalue="High-deliverability cluster"
+          accent="green"
+          icon={<TactileIcon icon={Send} color="security" size="sm" />}
+        />
+        <MetricCard
+          title="Push Notification Hub"
+          value="Online"
+          subvalue="In-app and WebSocket streams"
+          accent="purple"
+          icon={<TactileIcon icon={Bell} color="api" size="sm" />}
+        />
+      </div>
+
       {/* Grid: Composer & History */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(320px, 1.8fr)', gap: 'var(--space-6)', alignItems: 'start' }}>
         {/* Left: Message Composer */}
-        <Card elevated style={{ padding: 'var(--space-6)' }}>
+        <Card elevated accentColor="green" style={{ padding: 'var(--space-6)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
             <Send size={18} color="var(--color-brand)" />
             <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, textTransform: 'uppercase', margin: 0 }}>
@@ -209,7 +240,7 @@ export const AdminCommunicationsPage: React.FC = () => {
         </Card>
 
         {/* Right: Dispatched History */}
-        <Card elevated style={{ padding: 'var(--space-6)' }}>
+        <Card elevated accentColor="blue" style={{ padding: 'var(--space-6)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
             <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, textTransform: 'uppercase', margin: 0 }}>
               Recent Broadcast Receipts
@@ -234,7 +265,7 @@ export const AdminCommunicationsPage: React.FC = () => {
               {
                 header: 'Channel',
                 accessor: 'channel',
-                render: (row) => <Badge variant="neutral" size="sm">{row.channel}</Badge>,
+                render: (row) => <Badge variant="brand" size="sm">{row.channel}</Badge>,
               },
               {
                 header: 'Status',

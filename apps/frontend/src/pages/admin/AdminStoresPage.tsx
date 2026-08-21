@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { Card } from '../../components/ui/Card/Card.js';
+import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Select, SearchInput, Textarea } from '../../components/ui/index.js';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
 import {
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
+  Store,
+  Clock,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface AdminStoreRecord {
@@ -150,23 +154,54 @@ export const AdminStoresPage: React.FC = () => {
     toastSuccess('Store Reactivated', 'The store has been reactivated.');
   };
 
+  const pendingReviewCount = stores.filter((s) => s.approvalStatus === 'AWAITING_APPROVAL').length;
+  const activeStoresCount = stores.filter((s) => s.storeStatus === 'ACTIVE').length;
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
-      <div>
-        <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#F97316' }}>
-          Operations & Moderation
-        </span>
-        <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
-          Agent Store Approvals
-        </h1>
-        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
-          Review paid store applications, audit Paystack transactions, and approve or moderate storefronts.
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <TactileIcon icon={Store} color="speed" size="lg" />
+        <div>
+          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#F97316' }}>
+            Operations & Moderation
+          </span>
+          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
+            Agent Store Approvals
+          </h1>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+            Review paid store applications, audit Paystack transactions, and approve or moderate storefronts.
+          </p>
+        </div>
+      </div>
+
+      {/* Metric Cards Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
+        <MetricCard
+          title="Total Store Applications"
+          value={stores.length.toString()}
+          subvalue="Registered tenant storefronts"
+          accent="blue"
+          icon={<TactileIcon icon={Store} color="orders" size="sm" />}
+        />
+        <MetricCard
+          title="Awaiting Review"
+          value={pendingReviewCount.toString()}
+          subvalue={pendingReviewCount === 0 ? 'Queue clear' : 'Pending verification'}
+          accent="amber"
+          icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
+        />
+        <MetricCard
+          title="Live Active Storefronts"
+          value={activeStoresCount.toString()}
+          subvalue="Online retail endpoints"
+          accent="green"
+          icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
+        />
       </div>
 
       {/* Filter Bar */}
-      <Card style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
+      <Card elevated accentColor="orange" style={{ padding: 'var(--space-4)' }}>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <Select
             value={statusFilter}
@@ -190,7 +225,7 @@ export const AdminStoresPage: React.FC = () => {
       </Card>
 
       {/* Stores List Table */}
-      <Card style={{ padding: 0, backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-2xl)', overflow: 'hidden' }}>
+      <Card elevated style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
             <thead>

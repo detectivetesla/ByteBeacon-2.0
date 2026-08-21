@@ -3,7 +3,8 @@ import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Select } from '../../components/ui/index.js';
-import { Cpu, RefreshCw, ShieldAlert, CheckCircle2, ArrowRight, Zap } from 'lucide-react';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
+import { Cpu, RefreshCw, ShieldAlert, CheckCircle2, ArrowRight, Zap, Radio, Server, Activity } from 'lucide-react';
 import { adminApi } from '../../api/admin.api.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -84,16 +85,19 @@ export const AdminProviderPage: React.FC = () => {
     <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-1)' }}>
-            <Cpu size={22} color="var(--color-brand)" strokeWidth={2.5} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <TactileIcon icon={Cpu} color="cyan" size="lg" />
+          <div>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-analytics-bright)' }}>
+              Telecom Infrastructure
+            </span>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Telecom Routing & Provider Gateways
             </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Authoritative telecom dispatch adapters, health probes, circuit breaker states, and failover routing.
+            </p>
           </div>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
-            Authoritative telecom dispatch adapters, health probes, circuit breaker states, and failover routing.
-          </p>
         </div>
 
         <Button variant="ghost" size="sm" onClick={fetchProviderData} disabled={isLoading}>
@@ -104,10 +108,10 @@ export const AdminProviderPage: React.FC = () => {
       {/* Provider Adapters Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-4)' }}>
         {providers.map((p) => (
-          <Card key={p.name} elevated style={{ padding: 'var(--space-5)' }}>
+          <Card key={p.name} elevated accentColor={p.isAuthoritative ? 'blue' : 'purple'} style={{ padding: 'var(--space-5)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Zap size={18} color="var(--color-brand)" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <TactileIcon icon={Server} color={p.isAuthoritative ? 'orders' : 'api'} size="sm" />
                 <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0 }}>
                   {p.name}
                 </h3>
@@ -124,7 +128,9 @@ export const AdminProviderPage: React.FC = () => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Authoritative Status</span>
-                <span style={{ fontWeight: 700 }}>{p.isAuthoritative ? 'Authoritative' : 'Non-authoritative'}</span>
+                <span style={{ fontWeight: 700, color: p.isAuthoritative ? 'var(--color-brand)' : 'var(--color-text-secondary)' }}>
+                  {p.isAuthoritative ? 'Direct Authoritative' : 'Secondary Adapter'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Supported Networks</span>
@@ -132,7 +138,7 @@ export const AdminProviderPage: React.FC = () => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Circuit Breaker</span>
-                <span style={{ fontWeight: 700, color: '#10B981' }}>CLOSED (Normal)</span>
+                <span style={{ fontWeight: 700, color: '#10B981' }}>CLOSED (Normal Dispatch)</span>
               </div>
             </div>
           </Card>
@@ -140,7 +146,7 @@ export const AdminProviderPage: React.FC = () => {
       </div>
 
       {/* Dynamic Routing Manager Card */}
-      <Card elevated style={{ padding: 'var(--space-6)' }}>
+      <Card elevated accentColor="cyan" style={{ padding: 'var(--space-6)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
           <div>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0 }}>

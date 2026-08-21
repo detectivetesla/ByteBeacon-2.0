@@ -268,6 +268,7 @@ export const AdminDashboard: React.FC = () => {
             title="Total Users"
             value={(data?.users?.total || 0).toLocaleString()}
             subvalue={`${data?.users?.customers || 0} Customers • ${data?.users?.agents || 0} Agents • ${data?.users?.admins || 0} Admins`}
+            accent="blue"
             icon={<TactileIcon icon={Users} color="orders" size="sm" />}
           />
         </div>
@@ -277,6 +278,7 @@ export const AdminDashboard: React.FC = () => {
             title="Platform Orders"
             value={(data?.orders?.total || 0).toLocaleString()}
             subvalue={`${data?.orders?.completed || 0} Completed • ${data?.orders?.processing || 0} In Flight (${data?.orders?.completionRate || 100}%)`}
+            accent="cyan"
             icon={<TactileIcon icon={Package} color="analytics" size="sm" />}
           />
         </div>
@@ -286,7 +288,8 @@ export const AdminDashboard: React.FC = () => {
             title="Period Revenue"
             value={`GH₵ ${monthGhs}`}
             subvalue={`Today: GH₵ ${todayGhs} • Lifetime: GH₵ ${lifetimeGhs}`}
-            icon={<TactileIcon icon={DollarSign} color="wallet" size="sm" />}
+            accent="green"
+            icon={<TactileIcon icon={DollarSign} color="security" size="sm" />}
           />
         </div>
 
@@ -295,7 +298,8 @@ export const AdminDashboard: React.FC = () => {
             title="Platform Financial Health"
             value="Ledger: Balanced"
             subvalue={`Float Liabilities: GH₵ ${walletLiabilityGhs} (0 Discrepancies)`}
-            icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
+            accent="amber"
+            icon={<TactileIcon icon={ShieldCheck} color="wallet" size="sm" />}
           />
         </div>
       </div>
@@ -322,7 +326,8 @@ export const AdminDashboard: React.FC = () => {
             title="Pending MTN Approvals"
             value={(data?.queues?.pendingMtnApprovals || 0).toString()}
             subvalue="Awaiting Whitelist Sync"
-            icon={<Clock size={20} color="#FFCC00" />}
+            accent="amber"
+            icon={<TactileIcon icon={Clock} color="mtn" size="sm" />}
           />
         </div>
 
@@ -331,7 +336,8 @@ export const AdminDashboard: React.FC = () => {
             title="Processing Orders"
             value={(data?.queues?.processingOrders || 0).toString()}
             subvalue="Avg Dispatch: ~420ms"
-            icon={<Activity size={20} color="#3B82F6" />}
+            accent="blue"
+            icon={<TactileIcon icon={Activity} color="orders" size="sm" />}
           />
         </div>
 
@@ -340,7 +346,8 @@ export const AdminDashboard: React.FC = () => {
             title="Failed Queue (DLQ)"
             value={(data?.queues?.pendingDlq || 0).toString()}
             subvalue="Retryable Provider Exceptions"
-            icon={<AlertOctagon size={20} color="#EF4444" />}
+            accent="red"
+            icon={<TactileIcon icon={AlertOctagon} color="red" size="sm" />}
           />
         </div>
 
@@ -349,7 +356,8 @@ export const AdminDashboard: React.FC = () => {
             title="Reconciliation"
             value="100% Synced"
             subvalue="Authoritative: DataHouse"
-            icon={<RefreshCw size={20} color="#06B6D4" />}
+            accent="cyan"
+            icon={<TactileIcon icon={RefreshCw} color="cyan" size="sm" />}
           />
         </div>
       </div>
@@ -560,25 +568,25 @@ export const AdminDashboard: React.FC = () => {
             Volume & Revenue by Tier
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
-            <div style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-md)' }}>
-              <Badge variant="neutral" size="sm">Customer Tier</Badge>
-              <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, marginTop: 'var(--space-2)' }}>
+            <Card accentColor="blue" style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)' }}>
+              <Badge variant="info" size="sm">Customer Tier</Badge>
+              <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-info-bright)', marginTop: 'var(--space-2)' }}>
                 GH₵ {(((data?.tiers?.customer?.monthlyRevenuePesewas || 0)) / 100).toFixed(2)}
               </div>
               <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
                 Orders: {data?.tiers?.customer?.totalOrders || 0} • Today: GH₵ {(((data?.tiers?.customer?.dailyRevenuePesewas || 0)) / 100).toFixed(2)}
               </div>
-            </div>
+            </Card>
 
-            <div style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-md)' }}>
-              <Badge variant="brand" size="sm">Agent Reseller Tier</Badge>
-              <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-brand)', marginTop: 'var(--space-2)' }}>
+            <Card accentColor="orange" style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)' }}>
+              <Badge variant="warning" size="sm">Agent Reseller Tier</Badge>
+              <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-agent-bright)', marginTop: 'var(--space-2)' }}>
                 GH₵ {(((data?.tiers?.agent?.monthlyRevenuePesewas || 0)) / 100).toFixed(2)}
               </div>
               <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
                 Orders: {data?.tiers?.agent?.totalOrders || 0} • Today: GH₵ {(((data?.tiers?.agent?.dailyRevenuePesewas || 0)) / 100).toFixed(2)}
               </div>
-            </div>
+            </Card>
           </div>
         </Card>
 

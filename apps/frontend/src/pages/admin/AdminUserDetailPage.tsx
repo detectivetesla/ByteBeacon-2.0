@@ -5,6 +5,7 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Input } from '../../components/ui/Input/Input.js';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { adminApi, AdminUserDetail } from '../../api/admin.api.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -22,6 +23,8 @@ import {
   LogOut,
   PlusCircle,
   MinusCircle,
+  Key,
+  Lock,
 } from 'lucide-react';
 
 export const AdminUserDetailPage: React.FC = () => {
@@ -170,22 +173,10 @@ export const AdminUserDetailPage: React.FC = () => {
       </Button>
 
       {/* Header Banner Card */}
-      <Card elevated style={{ padding: 'var(--space-6)', marginBottom: 'var(--space-6)' }}>
+      <Card elevated accentColor="blue" style={{ padding: 'var(--space-6)', marginBottom: 'var(--space-6)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-            <div
-              style={{
-                width: '56px',
-                height: '56px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--color-brand-alpha-10)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <User size={28} color="var(--color-brand)" />
-            </div>
+            <TactileIcon icon={User} color={u?.role === 'super_admin' ? 'api' : u?.role === 'agent' ? 'speed' : 'orders'} size="lg" />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
@@ -195,7 +186,7 @@ export const AdminUserDetailPage: React.FC = () => {
                   variant={u?.role === 'super_admin' ? 'brand' : u?.role === 'admin' ? 'info' : u?.role === 'agent' ? 'warning' : 'neutral'}
                   size="sm"
                 >
-                  {u?.role?.toUpperCase()}
+                  {u?.role?.replace('_', ' ').toUpperCase()}
                 </Badge>
                 <Badge variant={u?.status === 'ACTIVE' ? 'success' : 'danger'} size="sm">
                   {u?.status}
@@ -262,10 +253,13 @@ export const AdminUserDetailPage: React.FC = () => {
       {/* TAB CONTENT: Overview */}
       {activeTab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
-          <Card elevated style={{ padding: 'var(--space-5)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Security & Authentication
-            </h3>
+          <Card elevated accentColor="purple" style={{ padding: 'var(--space-5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
+              <TactileIcon icon={Lock} color="api" size="sm" />
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+                Security & Authentication
+              </h3>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Security Domain</span>
@@ -286,10 +280,13 @@ export const AdminUserDetailPage: React.FC = () => {
             </div>
           </Card>
 
-          <Card elevated style={{ padding: 'var(--space-5)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Financial Summary
-            </h3>
+          <Card elevated accentColor="green" style={{ padding: 'var(--space-5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
+              <TactileIcon icon={Wallet} color="security" size="sm" />
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+                Financial Summary
+              </h3>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)' }}>
                 <span style={{ color: 'var(--color-text-muted)' }}>Authoritative Balance</span>
@@ -312,11 +309,14 @@ export const AdminUserDetailPage: React.FC = () => {
 
       {/* TAB CONTENT: Wallet & Ledger */}
       {activeTab === 'wallet' && (
-        <Card elevated style={{ padding: 'var(--space-5)' }}>
+        <Card elevated accentColor="green" style={{ padding: 'var(--space-5)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, textTransform: 'uppercase' }}>
-              Double-Entry Ledger Lines
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <TactileIcon icon={Wallet} color="security" size="sm" />
+              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, textTransform: 'uppercase' }}>
+                Double-Entry Ledger Lines
+              </h3>
+            </div>
             <Button size="sm" onClick={() => setIsAdjustModalOpen(true)} leftIcon={<PlusCircle size={14} />}>
               Post Adjustment
             </Button>
@@ -375,10 +375,13 @@ export const AdminUserDetailPage: React.FC = () => {
 
       {/* TAB CONTENT: Orders */}
       {activeTab === 'orders' && (
-        <Card elevated style={{ padding: 'var(--space-5)' }}>
-          <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: '0 0 var(--space-4)', textTransform: 'uppercase' }}>
-            Recent Orders
-          </h3>
+        <Card elevated accentColor="cyan" style={{ padding: 'var(--space-5)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
+            <TactileIcon icon={Package} color="analytics" size="sm" />
+            <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, textTransform: 'uppercase' }}>
+              Recent Orders
+            </h3>
+          </div>
           <Table
             columns={[
               {
@@ -394,7 +397,11 @@ export const AdminUserDetailPage: React.FC = () => {
               {
                 header: 'Network',
                 accessor: 'network',
-                render: (row) => <Badge variant="neutral" size="sm">{row.network}</Badge>,
+                render: (row) => (
+                  <Badge variant={row.network === 'MTN' ? 'warning' : row.network === 'TELECEL' ? 'danger' : 'info'} size="sm">
+                    {row.network}
+                  </Badge>
+                ),
               },
               {
                 header: 'Bundle Size',
@@ -425,11 +432,14 @@ export const AdminUserDetailPage: React.FC = () => {
 
       {/* TAB CONTENT: Sessions */}
       {activeTab === 'sessions' && (
-        <Card elevated style={{ padding: 'var(--space-5)' }}>
+        <Card elevated accentColor="purple" style={{ padding: 'var(--space-5)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, textTransform: 'uppercase' }}>
-              Active Device Sessions
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <TactileIcon icon={Activity} color="api" size="sm" />
+              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, textTransform: 'uppercase' }}>
+                Active Device Sessions
+              </h3>
+            </div>
             <Button variant="danger" size="sm" onClick={handleRevokeSessions} leftIcon={<LogOut size={14} />}>
               Revoke All Devices
             </Button>
@@ -472,7 +482,7 @@ export const AdminUserDetailPage: React.FC = () => {
       {/* MODAL: Wallet Adjustment */}
       {isAdjustModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
+          <Card elevated accentColor="green" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, marginBottom: 'var(--space-4)', margin: 0 }}>
               Adjust User Wallet Balance
             </h2>
@@ -540,7 +550,7 @@ export const AdminUserDetailPage: React.FC = () => {
       {/* MODAL: Change Role */}
       {isRoleModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
+          <Card elevated accentColor="purple" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, marginBottom: 'var(--space-2)' }}>
               Reassign User Role
             </h2>

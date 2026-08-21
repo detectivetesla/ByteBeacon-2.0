@@ -5,9 +5,10 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Input, Select } from '../../components/ui/index.js';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
-import { ShoppingBag, Edit3, Plus, TrendingUp, DollarSign, Layers } from 'lucide-react';
+import { ShoppingBag, Edit3, Plus, TrendingUp, DollarSign, Layers, Radio, Sparkles } from 'lucide-react';
 
 interface BundlePlan {
   id: string;
@@ -97,16 +98,19 @@ export const AdminDataPlansPage: React.FC = () => {
     <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-1)' }}>
-            <ShoppingBag size={22} color="var(--color-brand)" strokeWidth={2.5} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <TactileIcon icon={ShoppingBag} color="speed" size="lg" />
+          <div>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-warning-bright)' }}>
+              Product Catalog & Rate Card
+            </span>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Data Plans & Catalog Pricing
             </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Manage bundle catalog items, non-expiry packages, retail pricing, and wholesale agent margins across all carriers.
+            </p>
           </div>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
-            Manage bundle catalog items, non-expiry packages, retail pricing, and wholesale agent margins across all carriers.
-          </p>
         </div>
       </div>
 
@@ -116,24 +120,27 @@ export const AdminDataPlansPage: React.FC = () => {
           title="Active Bundle Packages"
           value={plans.filter((p) => p.isActive).length.toString()}
           subvalue={`${plans.length} total catalog packages`}
-          icon={<Layers size={20} color="#3B82F6" />}
+          accent="blue"
+          icon={<TactileIcon icon={Layers} color="orders" size="sm" />}
         />
         <MetricCard
           title="Supported Carriers"
           value="3 Networks"
           subvalue="MTN, Telecel, AirtelTigo"
-          icon={<ShoppingBag size={20} color="#10B981" />}
+          accent="green"
+          icon={<TactileIcon icon={ShoppingBag} color="security" size="sm" />}
         />
         <MetricCard
           title="Average Reseller Margin"
           value="34.2%"
           subvalue="Wholesale discount spread"
-          icon={<TrendingUp size={20} color="#8B5CF6" />}
+          accent="purple"
+          icon={<TactileIcon icon={TrendingUp} color="api" size="sm" />}
         />
       </div>
 
       {/* Plans Card */}
-      <Card elevated style={{ padding: 'var(--space-5)' }}>
+      <Card elevated accentColor="amber" style={{ padding: 'var(--space-5)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {['ALL', NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO].map((net) => (
@@ -257,7 +264,7 @@ export const AdminDataPlansPage: React.FC = () => {
       {/* Edit Price Modal */}
       {editingPlan && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated style={{ maxWidth: '420px', width: '100%', padding: 'var(--space-6)' }}>
+          <Card elevated accentColor="amber" style={{ maxWidth: '420px', width: '100%', padding: 'var(--space-6)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
               Edit Plan Pricing
             </h2>

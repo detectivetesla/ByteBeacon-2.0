@@ -5,6 +5,7 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Input } from '../../components/ui/Input/Input.js';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { adminApi, AdminUserListItem } from '../../api/admin.api.js';
 import {
   Users,
@@ -15,6 +16,7 @@ import {
   ExternalLink,
   RefreshCw,
   Eye,
+  Briefcase,
 } from 'lucide-react';
 
 export const AdminAgentsPage: React.FC = () => {
@@ -44,19 +46,22 @@ export const AdminAgentsPage: React.FC = () => {
   const totalAgentWalletGhs = agents.reduce((sum, a) => sum + (a.walletBalancePesewas || 0), 0) / 100;
 
   return (
-    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', overflowX: 'hidden' }}>
+    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-1)' }}>
-            <Users size={22} color="var(--color-brand)" strokeWidth={2.5} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <TactileIcon icon={Store} color="speed" size="lg" />
+          <div>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-agent-bright)' }}>
+              Partner Operations & Commerce
+            </span>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Agent Reseller Console
             </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Manage registered agents, storefront activations, wallet balances, and reseller volume across Ghana.
+            </p>
           </div>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
-            Manage registered agents, storefront activations, wallet balances, and reseller volume across Ghana.
-          </p>
         </div>
 
         <Button variant="ghost" size="sm" onClick={fetchAgents} disabled={isLoading}>
@@ -65,29 +70,32 @@ export const AdminAgentsPage: React.FC = () => {
       </div>
 
       {/* Metric Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
         <MetricCard
           title="Total Registered Agents"
           value={agents.length.toString()}
           subvalue="Authorized Resellers"
-          icon={<Users size={20} color="#3B82F6" />}
+          accent="blue"
+          icon={<TactileIcon icon={Users} color="orders" size="sm" />}
         />
         <MetricCard
           title="Combined Agent Float"
           value={`GH₵ ${totalAgentWalletGhs.toFixed(2)}`}
-          subvalue="Total Liabilities"
-          icon={<DollarSign size={20} color="#10B981" />}
+          subvalue="Total Float Liabilities"
+          accent="green"
+          icon={<TactileIcon icon={DollarSign} color="security" size="sm" />}
         />
         <MetricCard
           title="Active Reseller Stores"
           value={agents.filter(a => a.status === 'ACTIVE').length.toString()}
           subvalue="Live Storefronts"
-          icon={<Store size={20} color="#F97316" />}
+          accent="orange"
+          icon={<TactileIcon icon={Store} color="speed" size="sm" />}
         />
       </div>
 
       {/* Agents Table Card */}
-      <Card elevated style={{ padding: 'var(--space-5)' }}>
+      <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
           <div style={{ maxWidth: '320px', width: '100%' }}>
             <Input

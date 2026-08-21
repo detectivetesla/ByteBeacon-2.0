@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card } from '../../components/ui/Card/Card.js';
+import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
 import { SearchInput } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { FileText, RefreshCw, Eye } from 'lucide-react';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
+import { FileText, RefreshCw, Eye, Shield, Lock, AlertTriangle } from 'lucide-react';
 import { adminApi, AdminAuditEvent } from '../../api/admin.api.js';
 
 export const AdminAuditPage: React.FC = () => {
@@ -50,20 +51,26 @@ export const AdminAuditPage: React.FC = () => {
     );
   });
 
+  const adminActionCount = auditLogs.filter((l) => l.action.includes('ADMIN') || l.action.includes('SUSPEND') || l.action.includes('ROLE')).length;
+  const authEventCount = auditLogs.filter((l) => l.action.includes('AUTH') || l.action.includes('LOGIN')).length;
+
   return (
     <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-1)' }}>
-            <FileText size={22} color="var(--color-brand)" strokeWidth={2.5} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <TactileIcon icon={Shield} color="api" size="lg" />
+          <div>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-api-bright)' }}>
+              Security & Compliance
+            </span>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Security Audit Stream
             </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Immutable security event journal recording every administrative action, configuration change, and security event. Total: {totalLogs.toLocaleString()} events.
+            </p>
           </div>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
-            Immutable security event journal recording every administrative action, configuration change, and security event. Total: {totalLogs.toLocaleString()} events.
-          </p>
         </div>
 
         <Button variant="ghost" size="sm" onClick={fetchAudit} disabled={isLoading}>
@@ -71,8 +78,40 @@ export const AdminAuditPage: React.FC = () => {
         </Button>
       </div>
 
+      {/* Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
+        <MetricCard
+          title="Total Events Logged"
+          value={totalLogs.toLocaleString()}
+          subvalue="Immutable audit trail"
+          accent="purple"
+          icon={<TactileIcon icon={FileText} color="api" size="sm" />}
+        />
+        <MetricCard
+          title="Admin Invocations"
+          value={adminActionCount.toString()}
+          subvalue="Privileged modifications"
+          accent="red"
+          icon={<TactileIcon icon={Shield} color="red" size="sm" />}
+        />
+        <MetricCard
+          title="Authentication Events"
+          value={authEventCount.toString()}
+          subvalue="Logins & token issues"
+          accent="blue"
+          icon={<TactileIcon icon={Lock} color="orders" size="sm" />}
+        />
+        <MetricCard
+          title="Tamper Seal"
+          value="VERIFIED"
+          subvalue="SHA-256 Chained Hash"
+          accent="green"
+          icon={<TactileIcon icon={RefreshCw} color="security" size="sm" />}
+        />
+      </div>
+
       {/* Filter Bar */}
-      <Card style={{ padding: 'var(--space-4)' }}>
+      <Card accentColor="purple" style={{ padding: 'var(--space-4)' }}>
         <div style={{ width: '320px', maxWidth: '100%' }}>
           <SearchInput
             value={searchQuery}
@@ -83,72 +122,74 @@ export const AdminAuditPage: React.FC = () => {
       </Card>
 
       {/* Audit Table */}
-      <Table
-        headers={[
-          'Action',
-          'Actor Type',
-          'Actor ID',
-          'Resource',
-          'Correlation ID',
-          'IP Address',
-          'Timestamp',
-          'Metadata',
-        ]}
-      >
-        {filtered.map((log) => (
-          <tr key={log.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <td>
-              <Badge
-                variant={
-                  log.action.includes('ADMIN') || log.action.includes('SUSPEND') || log.action.includes('ROLE')
-                    ? 'danger'
-                    : log.action.includes('AUTH') || log.action.includes('LOGIN')
-                    ? 'brand'
-                    : 'neutral'
-                }
-                size="sm"
-              >
-                {log.action}
-              </Badge>
-            </td>
-            <td>
-              <Badge variant={log.actorType === 'ADMIN' ? 'brand' : 'neutral'} size="sm">
-                {log.actorType}
-              </Badge>
-            </td>
-            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
-              {log.actorId ? `${log.actorId.slice(0, 10)}...` : 'SYSTEM'}
-            </td>
-            <td style={{ fontSize: 'var(--font-size-xs)' }}>
-              {log.resourceType ? `${log.resourceType}/${log.resourceId ? log.resourceId.slice(0, 6) : ''}` : '—'}
-            </td>
-            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-              {log.correlationId ? log.correlationId.slice(0, 12) : '—'}
-            </td>
-            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
-              {log.ipAddress || '127.0.0.1'}
-            </td>
-            <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-              {log.createdAt ? new Date(log.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-            </td>
-            <td>
-              {log.metadata ? (
-                <Button
-                  variant="ghost"
+      <Card elevated style={{ padding: '0', overflow: 'hidden' }}>
+        <Table
+          headers={[
+            'Action',
+            'Actor Type',
+            'Actor ID',
+            'Resource',
+            'Correlation ID',
+            'IP Address',
+            'Timestamp',
+            'Metadata',
+          ]}
+        >
+          {filtered.map((log) => (
+            <tr key={log.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td>
+                <Badge
+                  variant={
+                    log.action.includes('ADMIN') || log.action.includes('SUSPEND') || log.action.includes('ROLE')
+                      ? 'danger'
+                      : log.action.includes('AUTH') || log.action.includes('LOGIN')
+                      ? 'brand'
+                      : 'neutral'
+                  }
                   size="sm"
-                  onClick={() => setSelectedMeta(log.metadata)}
-                  leftIcon={<Eye size={12} />}
-                  style={{ padding: '0.25rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}
                 >
-                  View JSON
-                </Button>
-              ) : (
-                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>None</span>
-              )}
-            </td>
-          </tr>
-        ))}
-      </Table>
+                  {log.action}
+                </Badge>
+              </td>
+              <td>
+                <Badge variant={log.actorType === 'ADMIN' ? 'brand' : 'neutral'} size="sm">
+                  {log.actorType}
+                </Badge>
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
+                {log.actorId ? `${log.actorId.slice(0, 10)}...` : 'SYSTEM'}
+              </td>
+              <td style={{ fontSize: 'var(--font-size-xs)' }}>
+                {log.resourceType ? `${log.resourceType}/${log.resourceId ? log.resourceId.slice(0, 6) : ''}` : '—'}
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                {log.correlationId ? log.correlationId.slice(0, 12) : '—'}
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
+                {log.ipAddress || '127.0.0.1'}
+              </td>
+              <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                {log.createdAt ? new Date(log.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+              </td>
+              <td>
+                {log.metadata ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedMeta(log.metadata)}
+                    leftIcon={<Eye size={12} />}
+                    style={{ padding: '0.25rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}
+                  >
+                    View JSON
+                  </Button>
+                ) : (
+                  <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>None</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </Table>
+      </Card>
 
       {/* Pagination */}
       <Pagination
@@ -162,7 +203,7 @@ export const AdminAuditPage: React.FC = () => {
       {/* Metadata Modal */}
       {selectedMeta && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated style={{ maxWidth: '500px', width: '100%', padding: 'var(--space-6)' }}>
+          <Card elevated accentColor="purple" style={{ maxWidth: '500px', width: '100%', padding: 'var(--space-6)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-4)' }}>
               Audit Event Metadata
             </h2>

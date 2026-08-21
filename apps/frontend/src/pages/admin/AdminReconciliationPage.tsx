@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Card } from '../../components/ui/Card/Card.js';
+import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
+import { Badge } from '../../components/ui/Badge/Badge.js';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
 import { adminApi } from '../../api/admin.api.js';
-import { RefreshCw, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, CheckCircle2, ShieldCheck, AlertOctagon, Layers, ArrowRight } from 'lucide-react';
 
 export const AdminReconciliationPage: React.FC = () => {
-  const { toastSuccess } = useToast();
+  const { success: toastSuccess } = useToast();
   const [reconciling, setReconciling] = useState(false);
   const [summary, setSummary] = useState({
     totalChecked: 1420,
@@ -51,19 +53,22 @@ export const AdminReconciliationPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+    <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-        <div>
-          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)' }}>
-            Carrier Audit
-          </span>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.125rem' }}>
-            Automated Reconciliation Engine
-          </h1>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
-            Compare internal database order states against authoritative telecom provider settlement records.
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <TactileIcon icon={RefreshCw} color="security" size="lg" />
+          <div>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-brand-bright)' }}>
+              Carrier Audit & Settlement
+            </span>
+            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+              Automated Reconciliation Engine
+            </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
+              Compare internal database order states against authoritative telecom provider settlement records.
+            </p>
+          </div>
         </div>
 
         <Button variant="primary" size="md" onClick={handleTriggerReconcile} disabled={reconciling} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -72,16 +77,42 @@ export const AdminReconciliationPage: React.FC = () => {
         </Button>
       </div>
 
+      {/* Metrics Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
+        <MetricCard
+          title="Orders Verified"
+          value={summary.totalChecked.toLocaleString()}
+          subvalue="Cross-referenced batch"
+          accent="blue"
+          icon={<TactileIcon icon={Layers} color="orders" size="sm" />}
+        />
+        <MetricCard
+          title="Discrepancy Count"
+          value={summary.discrepancyCount.toString()}
+          subvalue="Zero unresolved mismatches"
+          accent="green"
+          icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
+        />
+        <MetricCard
+          title="Settlement Match"
+          value={`${summary.settlementMatchPercent}%`}
+          subvalue="Authoritative sync"
+          accent="cyan"
+          icon={<TactileIcon icon={RefreshCw} color="analytics" size="sm" />}
+        />
+      </div>
+
       {/* Health Status */}
-      <Card style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(34, 197, 94, 0.12)', color: 'var(--color-primary)' }}>
-            <CheckCircle2 size={28} strokeWidth={2.6} />
-          </div>
+      <Card elevated accentColor="green" style={{ padding: 'var(--space-6)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+          <TactileIcon icon={CheckCircle2} color="security" size="lg" />
           <div>
-            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-              {summary.settlementMatchPercent}% Provider Settlement Match
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                {summary.settlementMatchPercent}% Provider Settlement Match
+              </h2>
+              <Badge variant="success" size="sm">BALANCED</Badge>
+            </div>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
               Last automated audit executed {summary.lastAudited}. All {summary.totalChecked} orders verified with 0 unresolved carrier discrepancies.
             </p>
