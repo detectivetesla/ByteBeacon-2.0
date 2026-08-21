@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
 import { SearchInput, Select } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Plus, RefreshCw, Users } from 'lucide-react';
+import { Plus, RefreshCw, Users, Eye } from 'lucide-react';
 import { adminApi, AdminUserListItem } from '../../api/admin.api.js';
 
 interface UserRow {
@@ -18,6 +19,7 @@ interface UserRow {
 }
 
 export const AdminUsersPage: React.FC = () => {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [page, setPage] = useState(1);
@@ -138,8 +140,13 @@ export const AdminUsersPage: React.FC = () => {
               {user.joinedDate}
             </td>
             <td>
-              <Button variant="ghost" size="sm" style={{ padding: '0.25rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}>
-                Edit
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate(`/admin/users/${user.id}`)}
+                style={{ padding: '0.25rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}
+              >
+                Manage
               </Button>
             </td>
           </tr>

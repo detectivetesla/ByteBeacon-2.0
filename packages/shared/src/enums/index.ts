@@ -76,18 +76,32 @@ export enum Permission {
   // User & Agent Management
   USERS_READ = 'users.read',
   USERS_MANAGE = 'users.manage',
+  USERS_CREATE = 'users.create',
+  USERS_ROLE_PROMOTE = 'users.role_promote',
+  USERS_SECURITY_MANAGE = 'users.security_manage',
   AGENTS_READ = 'agents.read',
   AGENTS_SUSPEND = 'agents.suspend',
+
+  // Catalog & Telecom Providers
+  CATALOG_PRICING_MANAGE = 'catalog.pricing_manage',
+  PROVIDERS_MANAGE = 'providers.manage',
+  PROVIDERS_CREDENTIALS_READ = 'providers.credentials_read',
 
   // Developer & Infrastructure
   API_KEYS_MANAGE = 'api_keys.manage',
   WEBHOOKS_MANAGE = 'webhooks.manage',
   SANDBOX_MANAGE = 'sandbox.manage',
 
+  // Communication
+  COMMUNICATION_BROADCAST = 'communication.broadcast',
+  COMMUNICATION_TEMPLATES_MANAGE = 'communication.templates_manage',
+
   // Platform & Security Controls
   AUDIT_READ = 'audit.read',
   SETTINGS_MANAGE = 'settings.manage',
+  FEATURE_FLAGS_MANAGE = 'feature_flags.manage',
   MAINTENANCE_MANAGE = 'maintenance.manage',
+  SYSTEM_MAINTENANCE_TOGGLE = 'system.maintenance_toggle',
   REPORTS_VIEW = 'reports.view',
 }
 
@@ -99,7 +113,10 @@ export const ADMIN_ROLE_PERMISSIONS: Record<AdminSubRole, Permission[]> = {
     Permission.PENDING_MTN_MANAGE,
     Permission.ORDERS_RECONCILE,
     Permission.ORDERS_REFUND,
+    Permission.USERS_READ,
+    Permission.AGENTS_READ,
     Permission.AUDIT_READ,
+    Permission.REPORTS_VIEW,
   ],
   [AdminSubRole.FINANCE_ADMIN]: [
     Permission.WALLET_READ,
@@ -107,20 +124,24 @@ export const ADMIN_ROLE_PERMISSIONS: Record<AdminSubRole, Permission[]> = {
     Permission.PAYMENTS_MANAGE,
     Permission.LEDGER_READ,
     Permission.PRICING_MANAGE,
+    Permission.CATALOG_PRICING_MANAGE,
     Permission.ORDERS_REFUND,
     Permission.REPORTS_VIEW,
     Permission.AUDIT_READ,
   ],
   [AdminSubRole.SUPPORT_ADMIN]: [
     Permission.USERS_READ,
+    Permission.USERS_MANAGE,
     Permission.ORDERS_READ,
     Permission.WALLET_READ,
     Permission.AGENTS_READ,
+    Permission.AUDIT_READ,
   ],
   [AdminSubRole.DEVELOPER_ADMIN]: [
     Permission.API_KEYS_MANAGE,
     Permission.WEBHOOKS_MANAGE,
     Permission.SANDBOX_MANAGE,
+    Permission.PROVIDERS_MANAGE,
     Permission.AUDIT_READ,
   ],
   [AdminSubRole.READ_ONLY_ANALYST]: [

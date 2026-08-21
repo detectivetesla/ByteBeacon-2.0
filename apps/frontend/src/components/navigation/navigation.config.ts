@@ -31,6 +31,8 @@ import {
   Globe,
   Palette,
   DollarSign,
+  Mail,
+  ShieldCheck,
 } from 'lucide-react';
 
 export interface NavItemConfig {
@@ -410,15 +412,27 @@ export const STORE_NAVIGATION: NavItemConfig[] = STORE_NAVIGATION_GROUPS.flatMap
    ========================================================================= */
 export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
   {
-    title: 'Operations',
+    title: 'Overview',
     items: [
       {
-        label: 'Overview',
+        label: 'Dashboard',
         path: '/admin/dashboard',
         icon: React.createElement(Activity, { size: 18, strokeWidth: 2.4, color: '#8B5CF6' }),
         permission: 'admin.dashboard.view',
         color: '#8B5CF6',
       },
+      {
+        label: 'Analytics',
+        path: '/admin/analytics',
+        icon: React.createElement(BarChart3, { size: 18, strokeWidth: 2.4, color: '#3B82F6' }),
+        permission: 'admin.analytics.view',
+        color: '#3B82F6',
+      },
+    ],
+  },
+  {
+    title: 'Operations',
+    items: [
       {
         label: 'Orders',
         path: '/admin/orders',
@@ -434,16 +448,23 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
         color: '#FFCC00',
       },
       {
-        label: 'Transactions',
-        path: '/admin/ledger',
-        icon: React.createElement(Database, { size: 18, strokeWidth: 2.4, color: '#F59E0B' }),
-        permission: 'admin.ledger.view',
-        color: '#F59E0B',
+        label: 'Failed Queue (DLQ)',
+        path: '/admin/dlq',
+        icon: React.createElement(AlertOctagon, { size: 18, strokeWidth: 2.4, color: '#EF4444' }),
+        permission: 'admin.dlq.manage',
+        color: '#EF4444',
+      },
+      {
+        label: 'Reconciliation',
+        path: '/admin/reconciliation',
+        icon: React.createElement(RefreshCw, { size: 18, strokeWidth: 2.4, color: '#06B6D4' }),
+        permission: 'admin.reconciliation.manage',
+        color: '#06B6D4',
       },
     ],
   },
   {
-    title: 'Users',
+    title: 'People & Access',
     items: [
       {
         label: 'User Directory',
@@ -452,11 +473,25 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
         permission: 'admin.users.manage',
         color: '#3B82F6',
       },
+      {
+        label: 'Agents',
+        path: '/admin/agents',
+        icon: React.createElement(User, { size: 18, strokeWidth: 2.4, color: '#10B981' }),
+        permission: 'admin.agents.manage',
+        color: '#10B981',
+      },
     ],
   },
   {
     title: 'Commerce',
     items: [
+      {
+        label: 'Data Plans',
+        path: '/admin/bundles',
+        icon: React.createElement(ShoppingBag, { size: 18, strokeWidth: 2.4, color: '#EC4899' }),
+        permission: 'admin.bundles.manage',
+        color: '#EC4899',
+      },
       {
         label: 'Agent Stores',
         path: '/admin/stores',
@@ -465,7 +500,7 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
         color: '#F97316',
       },
       {
-        label: 'Networks',
+        label: 'Networks & Providers',
         path: '/admin/provider',
         icon: React.createElement(Cpu, { size: 18, strokeWidth: 2.4, color: '#22C55E' }),
         permission: 'admin.provider.manage',
@@ -484,18 +519,30 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
         color: '#22C55E',
       },
       {
-        label: 'Reconciliation',
-        path: '/admin/reconciliation',
-        icon: React.createElement(RefreshCw, { size: 18, strokeWidth: 2.4, color: '#06B6D4' }),
-        permission: 'admin.reconciliation.manage',
-        color: '#06B6D4',
+        label: 'Transactions & Ledger',
+        path: '/admin/ledger',
+        icon: React.createElement(Database, { size: 18, strokeWidth: 2.4, color: '#F59E0B' }),
+        permission: 'admin.ledger.view',
+        color: '#F59E0B',
+      },
+    ],
+  },
+  {
+    title: 'Communication',
+    items: [
+      {
+        label: 'Broadcasts & Email',
+        path: '/admin/communications',
+        icon: React.createElement(Mail, { size: 18, strokeWidth: 2.4, color: '#6366F1' }),
+        permission: 'admin.communications.manage',
+        color: '#6366F1',
       },
       {
-        label: 'Failed Queue',
-        path: '/admin/dlq',
-        icon: React.createElement(AlertOctagon, { size: 18, strokeWidth: 2.4, color: '#EF4444' }),
-        permission: 'admin.dlq.manage',
-        color: '#EF4444',
+        label: 'Notifications',
+        path: '/admin/notifications',
+        icon: React.createElement(Bell, { size: 18, strokeWidth: 2.4, color: '#8B5CF6' }),
+        permission: 'admin.dashboard.view',
+        color: '#8B5CF6',
       },
     ],
   },
@@ -508,13 +555,6 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
         icon: React.createElement(FileText, { size: 18, strokeWidth: 2.4, color: '#64748B' }),
         permission: 'admin.audit.view',
         color: '#64748B',
-      },
-      {
-        label: 'Notifications',
-        path: '/admin/notifications',
-        icon: React.createElement(Bell, { size: 18, strokeWidth: 2.4, color: '#8B5CF6' }),
-        permission: 'admin.dashboard.view',
-        color: '#8B5CF6',
       },
       {
         label: 'Settings',

@@ -55,6 +55,9 @@ import { bulkOrderRoutes } from './routes/commerce/bulk-order.routes.js';
 import { agentRoutes } from './routes/commerce/agent.routes.js';
 import { storeRoutes } from './routes/commerce/store.routes.js';
 import { adminOperationsRoutes } from './routes/commerce/admin-operations.routes.js';
+import { adminUsersRoutes } from './routes/commerce/admin-users.routes.js';
+import { adminAnalyticsRoutes } from './routes/commerce/admin-analytics.routes.js';
+import { adminCommunicationsRoutes } from './routes/commerce/admin-communications.routes.js';
 import { developerSandboxRoutes } from './routes/commerce/developer-sandbox.routes.js';
 import { registerSwagger } from './plugins/swagger.plugin.js';
 import { metricsPlugin } from './plugins/metrics.plugin.js';
@@ -399,6 +402,28 @@ export function createApp(options: AppOptions = {}) {
         auditService,
         fulfillmentQueueService,
         providerReconciliationService,
+      });
+      await adminUsersRoutes(commerceSubApp, {
+        db: dbPool!,
+        tokenService,
+        apiKeyService,
+        rbacService,
+        auditService,
+        sessionService,
+        ledgerService,
+      });
+      await adminAnalyticsRoutes(commerceSubApp, {
+        db: dbPool!,
+        tokenService,
+        apiKeyService,
+        rbacService,
+      });
+      await adminCommunicationsRoutes(commerceSubApp, {
+        db: dbPool!,
+        tokenService,
+        apiKeyService,
+        rbacService,
+        auditService,
       });
       await developerSandboxRoutes(commerceSubApp, {
         db: dbPool!,

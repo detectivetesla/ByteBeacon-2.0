@@ -18,15 +18,20 @@ export type PermissionKey =
   | 'analytics.view'
   // Admin Permissions
   | 'admin.dashboard.view'
+  | 'admin.analytics.view'
   | 'admin.users.manage'
+  | 'admin.agents.manage'
   | 'admin.orders.manage'
+  | 'admin.bundles.manage'
   | 'admin.payments.manage'
   | 'admin.ledger.view'
   | 'admin.reconciliation.manage'
   | 'admin.provider.manage'
   | 'admin.dlq.manage'
   | 'admin.audit.view'
-  | 'admin.settings.manage';
+  | 'admin.communications.manage'
+  | 'admin.settings.manage'
+  | 'admin.super.governance';
 
 export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   [UserRole.CUSTOMER]: [
@@ -68,14 +73,18 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'agent_api.manage',
     'analytics.view',
     'admin.dashboard.view',
+    'admin.analytics.view',
     'admin.users.manage',
+    'admin.agents.manage',
     'admin.orders.manage',
+    'admin.bundles.manage',
     'admin.payments.manage',
     'admin.ledger.view',
     'admin.reconciliation.manage',
     'admin.provider.manage',
     'admin.dlq.manage',
     'admin.audit.view',
+    'admin.communications.manage',
     'admin.settings.manage',
   ],
   [UserRole.SUPER_ADMIN]: [
@@ -93,15 +102,20 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'agent_api.manage',
     'analytics.view',
     'admin.dashboard.view',
+    'admin.analytics.view',
     'admin.users.manage',
+    'admin.agents.manage',
     'admin.orders.manage',
+    'admin.bundles.manage',
     'admin.payments.manage',
     'admin.ledger.view',
     'admin.reconciliation.manage',
     'admin.provider.manage',
     'admin.dlq.manage',
     'admin.audit.view',
+    'admin.communications.manage',
     'admin.settings.manage',
+    'admin.super.governance',
   ],
   // Sub-Roles
   [AdminSubRole.SUPER_ADMIN]: [

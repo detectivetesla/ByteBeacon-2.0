@@ -3,7 +3,11 @@ import { ProtectedRoute } from '../auth/guards/ProtectedRoute.js';
 import { RoleGuard } from '../auth/guards/RoleGuard.js';
 import { AdminLayout } from '../layouts/AdminLayout.js';
 import { AdminDashboard } from '../pages/admin/AdminDashboard.js';
+import { AdminAnalyticsPage } from '../pages/admin/AdminAnalyticsPage.js';
 import { AdminUsersPage } from '../pages/admin/AdminUsersPage.js';
+import { AdminUserDetailPage } from '../pages/admin/AdminUserDetailPage.js';
+import { AdminAgentsPage } from '../pages/admin/AdminAgentsPage.js';
+import { AdminCommunicationsPage } from '../pages/admin/AdminCommunicationsPage.js';
 import { AdminOrdersPage } from '../pages/admin/AdminOrdersPage.js';
 import { AdminPaymentsPage } from '../pages/admin/AdminPaymentsPage.js';
 import { AdminLedgerPage } from '../pages/admin/AdminLedgerPage.js';
@@ -37,6 +41,10 @@ export const adminRoutes: RouteObject[] = [
         element: <AdminDashboard />,
       },
       {
+        path: 'analytics',
+        element: <AdminAnalyticsPage />,
+      },
+      {
         path: 'stores',
         element: <AdminStoresPage />,
       },
@@ -47,6 +55,18 @@ export const adminRoutes: RouteObject[] = [
       {
         path: 'users',
         element: <AdminUsersPage />,
+      },
+      {
+        path: 'users/:id',
+        element: <AdminUserDetailPage />,
+      },
+      {
+        path: 'agents',
+        element: <AdminAgentsPage />,
+      },
+      {
+        path: 'communications',
+        element: <AdminCommunicationsPage />,
       },
       {
         path: 'orders',
