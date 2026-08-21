@@ -1,159 +1,223 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
-import { SearchInput } from '../../components/ui/index.js';
+import { SearchInput, Select } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { OrderStatusBadge, PaymentStatusBadge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
-import { NetworkProvider, OrderStatus, PaymentStatus } from '@bytebeacon/shared';
-import { Download, RefreshCw, PackageX } from 'lucide-react';
-import { ordersApi } from '../../api/orders.api.js';
-
-interface AdminOrderRow {
-  id: string;
-  orderNumber: string;
-  network: NetworkProvider;
-  customerEmail: string;
-  recipient: string;
-  packageDisplay: string;
-  amountDisplay: string;
-  paymentStatus: PaymentStatus;
-  orderStatus: OrderStatus;
-  providerSync: string;
-  createdAt: string;
-}
+import { Badge } from '../../components/ui/Badge/Badge.js';
+import { Download, RefreshCw, Package, Filter } from 'lucide-react';
+import { adminApi, AdminOrderListItem } from '../../api/admin.api.js';
 
 export const AdminOrdersPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [networkFilter, setNetworkFilter] = useState('ALL');
   const [page, setPage] = useState(1);
-  const [orders, setOrders] = useState<AdminOrderRow[]>([]);
+  const [orders, setOrders] = useState<AdminOrderListItem[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await ordersApi.listOrders({ page, limit: 50, search: searchQuery || undefined });
+      const res = await adminApi.getOrders({
+        page,
+        limit: 25,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        network: networkFilter !== 'ALL' ? networkFilter : undefined,
+        search: searchQuery.trim() || undefined,
+      });
+
       if (res && Array.isArray(res.orders)) {
-        const mapped: AdminOrderRow[] = res.orders.map((o: any) => ({
-          id: o.id,
-          orderNumber: o.publicId || o.reference || o.id.slice(0, 8).toUpperCase(),
-          network: o.network,
-          customerEmail: o.userEmail || o.customerEmail || '—',
-          recipient: o.recipientPhone || '—',
-          packageDisplay: `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB`,
-          amountDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
-          paymentStatus: o.paymentStatus || PaymentStatus.PENDING,
-          orderStatus: o.orderStatus || OrderStatus.PENDING,
-          providerSync: o.orderStatus === OrderStatus.COMPLETED ? 'CONFIRMED' : 'QUEUED',
-          createdAt: o.createdAt
-            ? new Date(o.createdAt).toLocaleDateString([], {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : '—',
-        }));
-        setOrders(mapped);
+        setOrders(res.orders);
+        setTotalPages(res.pagination?.totalPages || 1);
+        setTotalOrders(res.pagination?.total || res.orders.length);
       } else {
         setOrders([]);
+        setTotalPages(1);
+        setTotalOrders(0);
       }
     } catch {
       setOrders([]);
     } finally {
       setIsLoading(false);
     }
-  }, [page, searchQuery]);
+  }, [page, statusFilter, networkFilter, searchQuery]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
-  const filtered = orders.filter(
-    (o) =>
-      o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      o.customerEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      o.recipient.includes(searchQuery),
-  );
-
   return (
-    <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
         <div>
-          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)' }}>
-            Operations & Queue
-          </span>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.125rem' }}>
-            System Orders & Fulfillment
-          </h1>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
-            Monitor real-time fulfillment pipelines across all telecom carriers and customer accounts.
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-1)' }}>
+            <Package size={22} color="var(--color-brand)" strokeWidth={2.5} />
+            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+              Platform Orders & Fulfillment
+            </h1>
+          </div>
+          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
+            Authoritative telecom delivery stream across MTN, Telecel, and AT Ghana. Total: {totalOrders.toLocaleString()} orders.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <Button variant="outline" size="sm" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <Download size={16} />
-            Export CSV
-          </Button>
-          <Button variant="primary" size="sm" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <RefreshCw size={16} />
-            Sync Provider
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <Button variant="ghost" size="sm" onClick={fetchOrders} disabled={isLoading}>
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
           </Button>
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filter Bar */}
       <Card style={{ padding: 'var(--space-4)' }}>
-        <div style={{ width: '320px', maxWidth: '100%' }}>
-          <SearchInput
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-            placeholder="Search by order #, email, recipient..."
-          />
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+          <div style={{ width: '320px', maxWidth: '100%' }}>
+            <SearchInput
+              value={searchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Search order ID, phone, email..."
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <Select
+              value={networkFilter}
+              onChange={(e) => {
+                setNetworkFilter(e.target.value);
+                setPage(1);
+              }}
+              options={[
+                { label: 'All Networks', value: 'ALL' },
+                { label: 'MTN Ghana', value: 'MTN' },
+                { label: 'Telecel Ghana', value: 'TELECEL' },
+                { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
+              ]}
+            />
+
+            <Select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
+              options={[
+                { label: 'All Statuses', value: 'ALL' },
+                { label: 'Completed', value: 'COMPLETED' },
+                { label: 'Processing', value: 'PROCESSING' },
+                { label: 'Pending', value: 'PENDING' },
+                { label: 'Failed', value: 'FAILED' },
+                { label: 'Refunded', value: 'REFUNDED' },
+              ]}
+            />
+          </div>
         </div>
       </Card>
 
       {/* Orders Table */}
-      <Table headers={['Order #', 'Carrier', 'Customer', 'Recipient', 'Package', 'Amount', 'Payment', 'Status', 'Sync', 'Created']}>
-        {filtered.map((order) => (
-          <tr key={order.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-              {order.orderNumber}
-            </td>
-            <td>
-              <NetworkBadge network={order.network} />
-            </td>
-            <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-              {order.customerEmail}
-            </td>
-            <td style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
-              {order.recipient}
-            </td>
-            <td style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{order.packageDisplay}</td>
-            <td style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{order.amountDisplay}</td>
-            <td>
-              <PaymentStatusBadge status={order.paymentStatus} />
-            </td>
-            <td>
-              <OrderStatusBadge status={order.orderStatus} />
-            </td>
-            <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-              {order.providerSync}
-            </td>
-            <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-              {order.createdAt}
-            </td>
-          </tr>
-        ))}
+      <Table
+        headers={[
+          'Order ID',
+          'Customer Account',
+          'Recipient Phone',
+          'Network',
+          'Bundle Size',
+          'Amount',
+          'Payment',
+          'Order Status',
+          'Created At',
+        ]}
+      >
+        {orders.map((order) => {
+          const amountGhs = ((order.amountPesewas || 0) / 100).toFixed(2);
+          const bundleGb = ((order.dataAmountMb || 0) / 1024).toFixed(1);
+
+          return (
+            <tr key={order.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                {order.id.slice(0, 10)}...
+              </td>
+              <td style={{ fontSize: 'var(--font-size-xs)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 600 }}>{order.userName || 'Customer'}</span>
+                  <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {order.userEmail || '—'}
+                  </span>
+                </div>
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                {order.recipientPhone}
+              </td>
+              <td>
+                <Badge
+                  variant={
+                    order.network === 'MTN'
+                      ? 'warning'
+                      : order.network === 'TELECEL'
+                      ? 'danger'
+                      : 'info'
+                  }
+                  size="sm"
+                >
+                  {order.network}
+                </Badge>
+              </td>
+              <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                {bundleGb} GB
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                GH₵ {amountGhs}
+              </td>
+              <td>
+                <Badge
+                  variant={
+                    order.paymentStatus === 'PAID'
+                      ? 'success'
+                      : order.paymentStatus === 'FAILED'
+                      ? 'danger'
+                      : 'warning'
+                  }
+                  size="sm"
+                >
+                  {order.paymentStatus}
+                </Badge>
+              </td>
+              <td>
+                <Badge
+                  variant={
+                    order.orderStatus === 'COMPLETED'
+                      ? 'success'
+                      : order.orderStatus === 'FAILED'
+                      ? 'danger'
+                      : order.orderStatus === 'REFUNDED'
+                      ? 'brand'
+                      : 'warning'
+                  }
+                  size="sm"
+                >
+                  {order.orderStatus}
+                </Badge>
+              </td>
+              <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                {order.createdAt ? new Date(order.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+              </td>
+            </tr>
+          );
+        })}
       </Table>
 
+      {/* Pagination */}
       <Pagination
         currentPage={page}
-        totalPages={1}
+        totalPages={totalPages}
         onPageChange={setPage}
-        totalItems={filtered.length}
-        itemsPerPage={10}
+        totalItems={totalOrders}
+        itemsPerPage={25}
       />
     </div>
   );

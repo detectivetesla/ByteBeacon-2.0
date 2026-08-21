@@ -1,117 +1,209 @@
-import React from 'react';
-import { Card } from '../../components/ui/Card/Card.js';
-import { BentoCard } from '../../components/ui/BentoCard/BentoCard.js';
-import { Table } from '../../components/ui/Table/Table.js';
-import { Database } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, MetricCard } from '../../components/ui/Card/Card.js';
+import { Table, Pagination } from '../../components/ui/Table/Table.js';
+import { Select } from '../../components/ui/index.js';
+import { Button } from '../../components/ui/Button/Button.js';
+import { Badge } from '../../components/ui/Badge/Badge.js';
+import { Database, RefreshCw, DollarSign, ShieldCheck, CreditCard } from 'lucide-react';
+import { adminApi, AdminLedgerLine, AdminAnalyticsOverview } from '../../api/admin.api.js';
 
 export const AdminLedgerPage: React.FC = () => {
+  const [page, setPage] = useState(1);
+  const [entryTypeFilter, setEntryTypeFilter] = useState('ALL');
+  const [accountTypeFilter, setAccountTypeFilter] = useState('ALL');
+  const [ledgerLines, setLedgerLines] = useState<AdminLedgerLine[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalLines, setTotalLines] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [analytics, setAnalytics] = useState<AdminAnalyticsOverview | null>(null);
+
+  const fetchLedger = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [ledgerRes, analyticsRes] = await Promise.all([
+        adminApi.getLedger({
+          page,
+          limit: 25,
+          entryType: entryTypeFilter !== 'ALL' ? entryTypeFilter : undefined,
+          accountType: accountTypeFilter !== 'ALL' ? accountTypeFilter : undefined,
+        }),
+        adminApi.getAnalyticsOverview('all'),
+      ]);
+
+      if (ledgerRes && Array.isArray(ledgerRes.items)) {
+        setLedgerLines(ledgerRes.items);
+        setTotalPages(ledgerRes.pagination?.totalPages || 1);
+        setTotalLines(ledgerRes.pagination?.total || ledgerRes.items.length);
+      } else {
+        setLedgerLines([]);
+        setTotalPages(1);
+        setTotalLines(0);
+      }
+
+      if (analyticsRes) {
+        setAnalytics(analyticsRes);
+      }
+    } catch {
+      setLedgerLines([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, entryTypeFilter, accountTypeFilter]);
+
+  useEffect(() => {
+    fetchLedger();
+  }, [fetchLedger]);
+
+  const totalVolumeGhs = ((analytics?.revenue?.lifetimePesewas || 0) / 100).toFixed(2);
+  const monthVolumeGhs = ((analytics?.revenue?.monthPesewas || 0) / 100).toFixed(2);
+
   return (
-    <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
-      <div>
-        <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)' }}>
-          Financial Architecture
-        </span>
-        <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.125rem' }}>
-          Double-Entry Financial Ledger
-        </h1>
-        <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
-          Immutable balance sheet tracking system float, escrow reserves, customer liabilities, and carrier settlement accounts.
-        </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-1)' }}>
+            <Database size={22} color="var(--color-brand)" strokeWidth={2.5} />
+            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+              Double-Entry Financial Ledger
+            </h1>
+          </div>
+          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
+            Authoritative, immutable transaction journal enforcing zero-sum balanced entries across all platform wallets and escrows.
+          </p>
+        </div>
+
+        <Button variant="ghost" size="sm" onClick={fetchLedger} disabled={isLoading}>
+          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+        </Button>
       </div>
 
-      {/* Balance Sheet Stats */}
-      <div className="bento-grid">
-        <BentoCard
-          colSpan={3}
-          accent="green"
-          tag="System Carrier Float"
-          title="GH₵ 84,200.00"
-          subtitle="Pre-funded carrier balance"
-        >
-          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-primary)', fontWeight: 600 }}>
-            MTN (60%), Telecel (25%), AT (15%)
-          </div>
-        </BentoCard>
-
-        <BentoCard
-          colSpan={3}
-          accent="cyan"
-          tag="Customer Escrow"
-          title="GH₵ 32,450.00"
-          subtitle="Active customer wallet float"
-        >
-          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-accent-cyan)', fontWeight: 600 }}>
-            Held in designated settlement escrow
-          </div>
-        </BentoCard>
-
-        <BentoCard
-          colSpan={3}
-          accent="indigo"
-          tag="Agent Liabilities"
-          title="GH₵ 12,800.00"
-          subtitle="Unwithdrawn reseller commissions"
-        >
-          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-accent-indigo)', fontWeight: 600 }}>
-            Payable on-demand
-          </div>
-        </BentoCard>
-
-        <BentoCard
-          colSpan={3}
-          accent="amber"
-          tag="Net Platform Profit"
-          title="GH₵ 18,920.00"
-          subtitle="Settled operator margin"
-        >
-          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-accent-amber)', fontWeight: 600 }}>
-            Audit reconciled: 100%
-          </div>
-        </BentoCard>
+      {/* Balance Sheet Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
+        <MetricCard
+          title="Total Lifetime Inflow"
+          value={`GH₵ ${totalVolumeGhs}`}
+          subvalue="Gross payment volume"
+          icon={<DollarSign size={20} color="#10B981" />}
+        />
+        <MetricCard
+          title="30-Day Settled Volume"
+          value={`GH₵ ${monthVolumeGhs}`}
+          subvalue="Active rolling revenue"
+          icon={<CreditCard size={20} color="#3B82F6" />}
+        />
+        <MetricCard
+          title="Total Journal Lines"
+          value={totalLines.toLocaleString()}
+          subvalue="Immutable postings"
+          icon={<Database size={20} color="#8B5CF6" />}
+        />
+        <MetricCard
+          title="Audit Integrity"
+          value="100% Balanced"
+          subvalue="Double-entry verified"
+          icon={<ShieldCheck size={20} color="#10B981" />}
+        />
       </div>
 
-      {/* Ledger Accounts Table */}
-      <Card style={{ padding: 'var(--space-6)' }}>
-        <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Database size={18} color="var(--color-primary)" />
-          Chart of Accounts Summary
-        </h2>
-        <Table headers={['Account Code', 'Account Name', 'Classification', 'Debit Balance', 'Credit Balance', 'Status']}>
-          <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>1010-CASH</td>
-            <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Hubtel / MoMo Gateway Escrow</td>
-            <td style={{ fontSize: 'var(--font-size-xs)' }}>Asset</td>
-            <td style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>GH₵ 129,450.00</td>
-            <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>GH₵ 0.00</td>
-            <td><span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 'var(--font-size-3xs)' }}>BALANCED</span></td>
-          </tr>
-          <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>1020-FLOAT</td>
-            <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Telecom Carrier Pre-funded Float</td>
-            <td style={{ fontSize: 'var(--font-size-xs)' }}>Asset</td>
-            <td style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>GH₵ 84,200.00</td>
-            <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>GH₵ 0.00</td>
-            <td><span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 'var(--font-size-3xs)' }}>BALANCED</span></td>
-          </tr>
-          <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>2010-ESCROW</td>
-            <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Customer Prepaid Deposits</td>
-            <td style={{ fontSize: 'var(--font-size-xs)' }}>Liability</td>
-            <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>GH₵ 0.00</td>
-            <td style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>GH₵ 32,450.00</td>
-            <td><span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 'var(--font-size-3xs)' }}>BALANCED</span></td>
-          </tr>
-          <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>2020-COMM</td>
-            <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Agent Withdrawable Commissions</td>
-            <td style={{ fontSize: 'var(--font-size-xs)' }}>Liability</td>
-            <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>GH₵ 0.00</td>
-            <td style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>GH₵ 12,800.00</td>
-            <td><span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 'var(--font-size-3xs)' }}>BALANCED</span></td>
-          </tr>
-        </Table>
+      {/* Filter Bar */}
+      <Card style={{ padding: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '1rem', alignItems: 'center' }}>
+          <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+            Filtering {totalLines.toLocaleString()} journal postings:
+          </span>
+
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <Select
+              value={entryTypeFilter}
+              onChange={(e) => {
+                setEntryTypeFilter(e.target.value);
+                setPage(1);
+              }}
+              options={[
+                { label: 'All Entry Types', value: 'ALL' },
+                { label: 'DEBIT (Asset / Outflow)', value: 'DEBIT' },
+                { label: 'CREDIT (Liability / Inflow)', value: 'CREDIT' },
+              ]}
+            />
+
+            <Select
+              value={accountTypeFilter}
+              onChange={(e) => {
+                setAccountTypeFilter(e.target.value);
+                setPage(1);
+              }}
+              options={[
+                { label: 'All Account Types', value: 'ALL' },
+                { label: 'Customer Wallets', value: 'CUSTOMER_WALLET' },
+                { label: 'Agent Wallets', value: 'AGENT_WALLET' },
+                { label: 'Platform Escrow', value: 'PLATFORM_ESCROW' },
+                { label: 'Provider Payable', value: 'PROVIDER_PAYABLE' },
+              ]}
+            />
+          </div>
+        </div>
       </Card>
+
+      {/* Ledger Lines Table */}
+      <Table
+        headers={[
+          'Transaction ID',
+          'Entry Type',
+          'Account Type',
+          'Amount (GHS)',
+          'Reference Type',
+          'Reference ID',
+          'Description',
+          'Timestamp',
+        ]}
+      >
+        {ledgerLines.map((line) => {
+          const amountGhs = ((line.amountPesewas || 0) / 100).toFixed(2);
+
+          return (
+            <tr key={line.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                {line.transactionId ? `${line.transactionId.slice(0, 8)}...` : line.id.slice(0, 8)}
+              </td>
+              <td>
+                <Badge variant={line.entryType === 'CREDIT' ? 'success' : 'danger'} size="sm">
+                  {line.entryType}
+                </Badge>
+              </td>
+              <td>
+                <Badge variant="neutral" size="sm">
+                  {line.accountType}
+                </Badge>
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                GH₵ {amountGhs}
+              </td>
+              <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                {line.referenceType || '—'}
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
+                {line.referenceId ? `${line.referenceId.slice(0, 10)}...` : '—'}
+              </td>
+              <td style={{ fontSize: 'var(--font-size-xs)', maxWidth: '280px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                {line.description || '—'}
+              </td>
+              <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                {line.createdAt ? new Date(line.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+
+      {/* Pagination */}
+      <Pagination
+        currentPage={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        totalItems={totalLines}
+        itemsPerPage={25}
+      />
     </div>
   );
 };

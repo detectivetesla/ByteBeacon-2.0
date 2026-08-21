@@ -17,7 +17,7 @@ import { AdminDlqPage } from '../pages/admin/AdminDlqPage.js';
 import { AdminAuditPage } from '../pages/admin/AdminAuditPage.js';
 import { AdminSettingsPage } from '../pages/admin/AdminSettingsPage.js';
 import { AdminStoresPage } from '../pages/admin/AdminStoresPage.js';
-import { AgentPendingOrdersPage } from '../pages/agent/AgentPendingOrdersPage.js';
+import { AdminDataPlansPage } from '../pages/admin/AdminDataPlansPage.js';
 import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
 import { DataBundlesPage } from '../pages/shared/DataBundlesPage.js';
 
@@ -50,7 +50,7 @@ export const adminRoutes: RouteObject[] = [
       },
       {
         path: 'bundles',
-        element: <DataBundlesPage />,
+        element: <AdminDataPlansPage />,
       },
       {
         path: 'users',
