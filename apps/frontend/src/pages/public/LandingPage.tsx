@@ -288,12 +288,13 @@ export const LandingPage: React.FC = () => {
           ========================================================================= */}
       <CTASection />
 
-      {/* Purchase Modal */}
+      {/* Purchase Modal (Direct Paystack Checkout) */}
       <PurchaseModal
         isOpen={purchaseModalOpen}
         onClose={() => setPurchaseModalOpen(false)}
         initialNetwork={selectedNetwork}
         initialBundleId={selectedBundle.id}
+        isGuestPurchase={true}
       />
 
       {/* Floating WhatsApp Community Button */}

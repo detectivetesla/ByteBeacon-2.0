@@ -1,6 +1,19 @@
 import { apiClient } from './httpClient.js';
 import { IntegrationHealthReport } from '@bytebeacon/shared';
 
+export interface AdminUserStats {
+  total: number;
+  customers: number;
+  agents: number;
+  admins: number;
+  superAdmins: number;
+  active: number;
+  suspended: number;
+  unverified: number;
+  mfaEnabled: number;
+  recentlyRegistered: number;
+}
+
 export interface AdminUserListItem {
   id: string;
   email: string;
@@ -9,6 +22,9 @@ export interface AdminUserListItem {
   role: string;
   status: string;
   securityDomain?: string;
+  phoneVerified?: boolean;
+  emailVerified?: boolean;
+  mfaEnabled?: boolean;
   walletBalancePesewas: number;
   createdAt: string;
   lastLoginAt?: string;
@@ -17,8 +33,19 @@ export interface AdminUserListItem {
 export interface AdminUserDetail {
   user: AdminUserListItem & {
     phoneVerified: boolean;
+    emailVerified: boolean;
     mfaEnabled: boolean;
+    failedLoginAttempts: number;
+    lockedUntil?: string;
     updatedAt: string;
+  };
+  metrics?: {
+    totalOrders: number;
+    totalSpentPesewas: number;
+    dailyOrders: number;
+    dailySpentPesewas: number;
+    totalRefundsPesewas: number;
+    dailyRefundsPesewas: number;
   };
   recentOrders: Array<{
     id: string;
@@ -27,12 +54,16 @@ export interface AdminUserDetail {
     dataAmountMb: number;
     amountPesewas: number;
     orderStatus: string;
+    paymentStatus?: string;
+    providerStatus?: string;
     createdAt: string;
   }>;
   recentLedgerLines: Array<{
     id: string;
+    transactionId?: string;
     entryType: string;
     amountPesewas: number;
+    accountType?: string;
     referenceType: string;
     referenceId: string;
     description: string;
@@ -47,6 +78,38 @@ export interface AdminUserDetail {
     lastActiveAt: string;
     createdAt: string;
   }>;
+  activity?: Array<{
+    id: string;
+    action: string;
+    actorType: string;
+    actorId: string;
+    createdAt: string;
+    metadata?: any;
+  }>;
+  agentData?: {
+    store?: {
+      id: string;
+      storeName: string;
+      slug: string;
+      status: string;
+      commissionRate: number;
+      customDomain?: string;
+      createdAt: string;
+    } | null;
+    apiKeys?: Array<{
+      id: string;
+      name: string;
+      keyPrefix: string;
+      environment: string;
+      status: string;
+      rateLimitTier: string;
+      lastUsedAt?: string;
+      createdAt: string;
+    }>;
+  } | null;
+  adminData?: {
+    permissions: string[];
+  } | null;
 }
 
 export interface AdminAnalyticsOverview {
@@ -131,17 +194,39 @@ export interface AdminAuditEvent {
 }
 
 export const adminApi = {
-  // Users
-  getUsers: async (params: { page?: number; limit?: number; role?: string; status?: string; search?: string } = {}) => {
-    return apiClient.get<{ users: AdminUserListItem[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/admin/users', { params });
+  // Users & Administration
+  getUsers: async (params: {
+    page?: number;
+    limit?: number;
+    role?: string;
+    status?: string;
+    verification?: string;
+    mfa?: string;
+    period?: string;
+    search?: string;
+  } = {}) => {
+    return apiClient.get<{
+      users: AdminUserListItem[];
+      stats?: AdminUserStats;
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/users', { params });
+  },
+
+  createUser: async (data: { email: string; phone: string; fullName: string; password?: string; role?: string }) => {
+    return apiClient.post<{ user: AdminUserListItem }>('/admin/users', data);
   },
 
   getUserDetails: async (id: string) => {
     return apiClient.get<AdminUserDetail>(`/admin/users/${id}`);
   },
 
-  suspendUser: async (id: string, reason?: string) => {
-    return apiClient.post(`/admin/users/${id}/suspend`, { reason });
+  updateUserProfile: async (id: string, data: { fullName?: string; phone?: string; phoneVerified?: boolean; emailVerified?: boolean }) => {
+    return apiClient.patch(`/admin/users/${id}`, data);
+  },
+
+  suspendUser: async (id: string, data?: { reason?: string; duration?: string; revokeSessions?: boolean } | string) => {
+    const payload = typeof data === 'string' ? { reason: data } : data;
+    return apiClient.post(`/admin/users/${id}/suspend`, payload);
   },
 
   reactivateUser: async (id: string) => {
@@ -158,6 +243,22 @@ export const adminApi = {
 
   revokeUserSessions: async (id: string) => {
     return apiClient.post(`/admin/users/${id}/revoke-sessions`);
+  },
+
+  requestUserPasswordReset: async (id: string) => {
+    return apiClient.post(`/admin/users/${id}/password-reset`);
+  },
+
+  sendUserDirectNotification: async (id: string, data: { channel: 'EMAIL' | 'SMS' | 'IN_APP'; subject: string; message: string }) => {
+    return apiClient.post(`/admin/users/${id}/notifications`, data);
+  },
+
+  exportUsers: async (data: { format?: 'CSV' | 'JSON'; role?: string; status?: string; search?: string } = {}) => {
+    return apiClient.post('/admin/users/export', data);
+  },
+
+  bulkUsersAction: async (data: { action: 'SUSPEND' | 'ACTIVATE' | 'NOTIFY'; userIds: string[]; reason?: string; message?: string }) => {
+    return apiClient.post('/admin/users/bulk', data);
   },
 
   // Analytics
