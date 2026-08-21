@@ -200,9 +200,21 @@ export interface AdminAnalyticsOverview {
   systemStatus: Record<string, string>;
 }
 
+export interface AdminOrderStats {
+  totalOrders: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  refunded: number;
+  awaitingApproval: number;
+  syncIssues: number;
+  reconciliationRequired: number;
+}
+
 export interface AdminOrderListItem {
   id: string;
   userId: string;
+  agentId?: string;
   recipientPhone: string;
   network: string;
   dataAmountMb: number;
@@ -210,9 +222,116 @@ export interface AdminOrderListItem {
   paymentStatus: string;
   orderStatus: string;
   providerStatus: string;
+  refundStatus?: string;
   createdAt: string;
+  updatedAt?: string;
   userEmail?: string;
   userName?: string;
+  providerName?: string;
+  providerOrderId?: string;
+}
+
+export interface AdminOrderDetail {
+  order: AdminOrderListItem & {
+    currency: string;
+    idempotencyKey?: string;
+    pricingSnapshot?: any;
+  };
+  customer?: {
+    id: string;
+    email: string;
+    phone?: string;
+    fullName: string;
+    role: string;
+    status: string;
+  } | null;
+  agent?: {
+    id: string;
+    storeName: string;
+    storeSlug: string;
+    commissionRate: number;
+    floatPesewas?: number;
+  } | null;
+  providerOrder?: {
+    id: string;
+    providerName: string;
+    providerOrderId: string;
+    providerReference: string;
+    providerStatus: string;
+    rawPayload: any;
+    lastSyncedAt?: string;
+    createdAt: string;
+  } | null;
+  payment?: {
+    id: string;
+    amountPesewas: number;
+    paymentStatus: string;
+    provider: string;
+    reference: string;
+    createdAt: string;
+  } | null;
+  refund?: {
+    id: string;
+    amountPesewas: number;
+    reason: string;
+    status: string;
+    refundReference: string;
+    createdAt: string;
+  } | null;
+  events: Array<{
+    id: string;
+    eventType: string;
+    actorType: string;
+    actorId: string;
+    previousState?: string;
+    newState?: string;
+    metadata?: any;
+    occurredAt: string;
+  }>;
+  dlq?: {
+    id: string;
+    attemptCount: number;
+    errorCode?: string;
+    errorMessage?: string;
+    status: string;
+    createdAt: string;
+  } | null;
+}
+
+export interface AdminPendingApprovalStats {
+  awaitingApproval: number;
+  approvedToday: number;
+  rejected: number;
+  processing: number;
+  syncFailed: number;
+  affectedOrders: number;
+}
+
+export interface AdminPendingApprovalItem {
+  id: string;
+  phoneNumber: string;
+  network: string;
+  status: string;
+  providerReference?: string;
+  validatedAt?: string;
+  expiresAt?: string;
+  createdAt: string;
+  occurrences: number;
+}
+
+export interface AdminPendingApprovalDetail {
+  record: AdminPendingApprovalItem;
+  affectedOrders: Array<{
+    id: string;
+    recipientPhone: string;
+    network: string;
+    dataAmountMb: number;
+    amountPesewas: number;
+    orderStatus: string;
+    createdAt: string;
+    userName: string;
+    userEmail: string;
+  }>;
 }
 
 export interface AdminLedgerLine {
@@ -338,9 +457,84 @@ export const adminApi = {
     return apiClient.get<AdminAnalyticsOverview>('/admin/analytics/overview', { params: { range } });
   },
 
-  // Orders
-  getOrders: async (params: { page?: number; limit?: number; status?: string; network?: string; search?: string } = {}) => {
+  // Orders Control Plane (Phase 11.5)
+  getOrderStats: async () => {
+    return apiClient.get<AdminOrderStats>('/admin/orders/stats');
+  },
+
+  getOrders: async (params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    lifecycle?: string;
+    paymentStatus?: string;
+    provider?: string;
+    network?: string;
+    source?: string;
+    period?: string;
+    operationalState?: string;
+    status?: string;
+  } = {}) => {
     return apiClient.get<{ orders: AdminOrderListItem[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/admin/orders', { params });
+  },
+
+  getOrderDetail: async (id: string) => {
+    return apiClient.get<AdminOrderDetail>(`/admin/orders/${id}`);
+  },
+
+  reconcileOrder: async (id: string) => {
+    return apiClient.post<{ orderId: string; summary: any }>(`/admin/orders/${id}/reconcile`);
+  },
+
+  retryOrder: async (id: string) => {
+    return apiClient.post(`/admin/orders/${id}/retry`);
+  },
+
+  refundOrder: async (id: string, reason: string, amountPesewas?: number) => {
+    return apiClient.post(`/admin/orders/${id}/refund`, { reason, amountPesewas });
+  },
+
+  exportOrders: async (data: { format?: 'CSV' | 'JSON'; filter?: any } = {}) => {
+    return apiClient.post('/admin/orders/export', data);
+  },
+
+  // Pending MTN Approvals (Phase 11.5)
+  getPendingApprovalStats: async () => {
+    return apiClient.get<AdminPendingApprovalStats>('/admin/pending-approvals/stats');
+  },
+
+  getPendingApprovals: async (params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    network?: string;
+  } = {}) => {
+    return apiClient.get<{ items: AdminPendingApprovalItem[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/admin/pending-approvals', { params });
+  },
+
+  getPendingApprovalDetail: async (id: string) => {
+    return apiClient.get<AdminPendingApprovalDetail>(`/admin/pending-approvals/${id}`);
+  },
+
+  syncPendingApproval: async (id: string) => {
+    return apiClient.post(`/admin/pending-approvals/${id}/sync`);
+  },
+
+  bulkSyncPendingApprovals: async (ids: string[]) => {
+    return apiClient.post<{ syncedCount: number }>('/admin/pending-approvals/bulk-sync', { ids });
+  },
+
+  approveBeneficiaryApproval: async (id: string) => {
+    return apiClient.post(`/admin/pending-approvals/${id}/approve`);
+  },
+
+  rejectBeneficiaryApproval: async (id: string, reason?: string) => {
+    return apiClient.post(`/admin/pending-approvals/${id}/reject`, { reason });
+  },
+
+  exportPendingApprovals: async () => {
+    return apiClient.post('/admin/pending-approvals/export');
   },
 
   // Ledger & Payments

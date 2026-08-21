@@ -442,7 +442,7 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
       },
       {
         label: 'Pending Approvals',
-        path: '/admin/pending-orders',
+        path: '/admin/pending-approvals',
         icon: React.createElement(Clock, { size: 18, strokeWidth: 2.4, color: '#FFCC00' }),
         permission: 'admin.orders.manage',
         color: '#FFCC00',

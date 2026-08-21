@@ -18,6 +18,7 @@ import { AdminAuditPage } from '../pages/admin/AdminAuditPage.js';
 import { AdminSettingsPage } from '../pages/admin/AdminSettingsPage.js';
 import { AdminStoresPage } from '../pages/admin/AdminStoresPage.js';
 import { AdminDataPlansPage } from '../pages/admin/AdminDataPlansPage.js';
+import { AdminPendingApprovalsPage } from '../pages/admin/AdminPendingApprovalsPage.js';
 import { AgentPendingOrdersPage } from '../pages/agent/AgentPendingOrdersPage.js';
 import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
 
@@ -77,8 +78,12 @@ export const adminRoutes: RouteObject[] = [
         element: <AdminOrdersPage />,
       },
       {
+        path: 'pending-approvals',
+        element: <AdminPendingApprovalsPage />,
+      },
+      {
         path: 'pending-orders',
-        element: <AgentPendingOrdersPage />,
+        element: <Navigate to="/admin/pending-approvals" replace />,
       },
       {
         path: 'payments',
