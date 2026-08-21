@@ -18,8 +18,8 @@ import { AdminAuditPage } from '../pages/admin/AdminAuditPage.js';
 import { AdminSettingsPage } from '../pages/admin/AdminSettingsPage.js';
 import { AdminStoresPage } from '../pages/admin/AdminStoresPage.js';
 import { AdminDataPlansPage } from '../pages/admin/AdminDataPlansPage.js';
+import { AgentPendingOrdersPage } from '../pages/agent/AgentPendingOrdersPage.js';
 import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
-import { DataBundlesPage } from '../pages/shared/DataBundlesPage.js';
 
 export const adminRoutes: RouteObject[] = [
   {
@@ -34,11 +34,15 @@ export const adminRoutes: RouteObject[] = [
     children: [
       {
         path: '',
-        element: <Navigate to="/admin/dashboard" replace />,
+        element: <Navigate to="/admin/overview" replace />,
+      },
+      {
+        path: 'overview',
+        element: <AdminDashboard />,
       },
       {
         path: 'dashboard',
-        element: <AdminDashboard />,
+        element: <Navigate to="/admin/overview" replace />,
       },
       {
         path: 'analytics',

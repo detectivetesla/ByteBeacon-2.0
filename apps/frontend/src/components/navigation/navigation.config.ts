@@ -415,8 +415,8 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
     title: 'Overview',
     items: [
       {
-        label: 'Dashboard',
-        path: '/admin/dashboard',
+        label: 'Overview',
+        path: '/admin/overview',
         icon: React.createElement(Activity, { size: 18, strokeWidth: 2.4, color: '#8B5CF6' }),
         permission: 'admin.dashboard.view',
         color: '#8B5CF6',
