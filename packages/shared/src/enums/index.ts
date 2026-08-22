@@ -437,3 +437,62 @@ export enum LedgerAnomalySeverity {
   CRITICAL = 'CRITICAL',
 }
 
+// --- Phase 11.10 Enums: API Management, Developer Platform & Security ---
+
+export enum ApiSecurityEventType {
+  INVALID_API_KEY = 'INVALID_API_KEY',
+  AUTH_FAILURE = 'AUTH_FAILURE',
+  SUSPICIOUS_IP = 'SUSPICIOUS_IP',
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  SCOPE_VIOLATION = 'SCOPE_VIOLATION',
+  EXPIRED_KEY_ATTEMPT = 'EXPIRED_KEY_ATTEMPT',
+  REVOKED_KEY_ATTEMPT = 'REVOKED_KEY_ATTEMPT',
+  ABNORMAL_TRAFFIC = 'ABNORMAL_TRAFFIC',
+}
+
+export enum ApiSecuritySeverity {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
+export enum WebhookEvent {
+  ORDER_CREATED = 'order.created',
+  ORDER_PROCESSING = 'order.processing',
+  ORDER_COMPLETED = 'order.completed',
+  ORDER_FAILED = 'order.failed',
+  ORDER_REFUNDED = 'order.refunded',
+  PAYMENT_COMPLETED = 'payment.completed',
+  PAYMENT_FAILED = 'payment.failed',
+  WALLET_UPDATED = 'wallet.updated',
+}
+
+export enum WebhookStatus {
+  ACTIVE = 'ACTIVE',
+  PAUSED = 'PAUSED',
+  DISABLED = 'DISABLED',
+  FAILED = 'FAILED',
+}
+
+export enum ProviderAuthType {
+  BEARER = 'BEARER',
+  API_KEY = 'API_KEY',
+  BASIC = 'BASIC',
+  HMAC_SHA256 = 'HMAC_SHA256',
+}
+
+export enum ProviderHealthStatus {
+  HEALTHY = 'HEALTHY',
+  DEGRADED = 'DEGRADED',
+  DOWN = 'DOWN',
+  MAINTENANCE = 'MAINTENANCE',
+}
+
+export enum RateLimitTier {
+  CUSTOMER = 'CUSTOMER',
+  AGENT = 'AGENT',
+  ADMIN = 'ADMIN',
+  CUSTOM = 'CUSTOM',
+}
+

@@ -10,6 +10,7 @@ import { migration00000000000006 } from './migrations/00000000000006_create_prod
 import { migration00000000000007 } from './migrations/00000000000007_enhance_catalog_management_schema.js';
 import { migration00000000000008 } from './migrations/00000000000008_enhance_agents_and_stores_schema.js';
 import { migration00000000000009 } from './migrations/00000000000009_enhance_finance_and_reconciliation_schema.js';
+import { migration00000000000010 } from './migrations/00000000000010_enhance_api_management_and_security_schema.js';
 import { logger } from '../../core/logging/logger.js';
 
 const allMigrations = [
@@ -23,6 +24,7 @@ const allMigrations = [
   migration00000000000007,
   migration00000000000008,
   migration00000000000009,
+  migration00000000000010,
 ];
 
 async function main() {

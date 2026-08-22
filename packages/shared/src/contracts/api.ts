@@ -38,6 +38,13 @@ import {
   FinancialAdjustmentStatus,
   RefundAdminStatus,
   LedgerAnomalySeverity,
+  ApiSecurityEventType,
+  ApiSecuritySeverity,
+  WebhookEvent,
+  WebhookStatus,
+  ProviderAuthType,
+  ProviderHealthStatus,
+  RateLimitTier,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -1321,6 +1328,250 @@ export interface ReprocessPreviewDto {
 export interface ReprocessExecuteRequest {
   itemIds?: string[];
   reprocessAllEligible?: boolean;
+  reason: string;
+}
+
+// ==========================================
+// Phase 11.10: API Management, Developer Platform & API Security DTOs
+// ==========================================
+
+export interface ApiServiceHealthItemDto {
+  name: string;
+  environment: 'LIVE' | 'TEST';
+  status: 'HEALTHY' | 'DEGRADED' | 'DOWN';
+  requests24h: number;
+  errorRatePercent: number;
+  avgLatencyMs: number;
+}
+
+export interface AdminApiOverviewStats {
+  totalKeys: number;
+  activeKeys: number;
+  revokedKeys: number;
+  expiredKeys: number;
+  productionKeys: number;
+  testKeys: number;
+  agentKeys: number;
+  internalCredentials: number;
+  requestsToday: number;
+  requestsThisMonth: number;
+  failedRequestsToday: number;
+  rateLimitEventsToday: number;
+  authFailuresToday: number;
+  avgLatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+  servicesHealth: ApiServiceHealthItemDto[];
+}
+
+export interface AdminApiKeyListItemDto {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  ownerId: string;
+  ownerName: string;
+  ownerEmail: string;
+  ownerRole: string;
+  environment: ApiKeyEnvironment;
+  status: ApiKeyStatus;
+  scopes: Permission[];
+  rateLimitTier?: RateLimitTier;
+  rateLimitPerMinute: number;
+  ipRestrictions: string[];
+  requestCount: number;
+  lastUsedAt: string | null;
+  lastRequestIp: string | null;
+  lastRequestEndpoint: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminApiKeyDetailDto extends AdminApiKeyListItemDto {
+  revokedAt?: string | null;
+  revokedBy?: string | null;
+  revocationReason?: string | null;
+  rotationOfKeyId?: string | null;
+  recentSecurityEventsCount: number;
+  totalUsage24h: number;
+}
+
+export interface AdminCreateApiKeyRequest {
+  ownerUserId: string;
+  name: string;
+  environment: ApiKeyEnvironment;
+  scopes: Permission[];
+  expiresInDays?: number;
+  rateLimitPerMinute?: number;
+  ipRestrictions?: string[];
+  stepUpPassword?: string;
+}
+
+export interface AdminRotateApiKeyRequest {
+  expiresOldInHours?: number;
+  reason: string;
+  stepUpPassword?: string;
+}
+
+export interface AdminUpdateApiKeyRequest {
+  name?: string;
+  scopes?: Permission[];
+  rateLimitPerMinute?: number;
+  ipRestrictions?: string[];
+  status?: ApiKeyStatus;
+  reason?: string;
+}
+
+export interface AdminApiTimeSeriesPointDto {
+  timestamp: string;
+  requests: number;
+  errors: number;
+  avgLatencyMs: number;
+}
+
+export interface AdminApiTopEndpointDto {
+  endpoint: string;
+  method: string;
+  requests: number;
+  errorRatePercent: number;
+  p95LatencyMs: number;
+}
+
+export interface AdminApiAgentUsageDto {
+  agentId: string;
+  agentName: string;
+  requests: number;
+  errors: number;
+  lastUsedAt: string | null;
+}
+
+export interface AdminApiUsageAnalyticsDto {
+  timeRange: string;
+  totalRequests: number;
+  successRequests: number;
+  clientErrors: number;
+  serverErrors: number;
+  authFailures: number;
+  rateLimitEvents: number;
+  timeoutErrors: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+  timeSeries: AdminApiTimeSeriesPointDto[];
+  topEndpoints: AdminApiTopEndpointDto[];
+  agentUsage: AdminApiAgentUsageDto[];
+}
+
+export interface AdminEndpointDetailDto {
+  endpoint: string;
+  method: string;
+  requestCount: number;
+  successRatePercent: number;
+  failureRatePercent: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+  authFailures: number;
+  rateLimitEvents: number;
+  topConsumers: Array<{ name: string; requests: number }>;
+  recentErrors: Array<{ statusCode: number; message: string; timestamp: string }>;
+}
+
+export interface AdminApiSecurityEventDto {
+  id: string;
+  keyId?: string | null;
+  keyPrefix?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  eventType: ApiSecurityEventType;
+  severity: ApiSecuritySeverity;
+  ipAddress: string;
+  endpoint: string;
+  details: Record<string, any>;
+  timestamp: string;
+}
+
+export interface AdminWebhookListItemDto {
+  id: string;
+  agentId: string;
+  agentName: string;
+  agentEmail?: string;
+  url: string;
+  events: WebhookEvent[];
+  status: WebhookStatus;
+  rateLimitPerMinute: number;
+  failureCount: number;
+  lastDeliveryAt: string | null;
+  lastDeliveryStatus: string | null;
+  successRatePercent: number;
+  failedDeliveriesCount: number;
+  retryCount: number;
+  avgLatencyMs: number;
+  createdAt: string;
+}
+
+export interface AdminCreateWebhookRequest {
+  agentId: string;
+  url: string;
+  events: WebhookEvent[];
+  rateLimitPerMinute?: number;
+}
+
+export interface AdminUpdateWebhookRequest {
+  url?: string;
+  events?: WebhookEvent[];
+  status?: WebhookStatus;
+  rateLimitPerMinute?: number;
+  resetFailures?: boolean;
+}
+
+export interface AdminProviderConnectionDto {
+  id: string;
+  providerName: string;
+  slug: string;
+  isAuthoritative: boolean;
+  environment: 'LIVE' | 'TEST';
+  status: ProviderHealthStatus;
+  priority: number;
+  capabilities: string[];
+  apiBaseUrl: string;
+  authType: ProviderAuthType;
+  lastHealthCheck: string | null;
+  lastSuccessfulRequest: string | null;
+  lastFailedRequest: string | null;
+  lastError: string | null;
+}
+
+export interface AdminUpdateProviderConfigRequest {
+  priority?: number;
+  capabilities?: string[];
+  apiBaseUrl?: string;
+  status?: ProviderHealthStatus;
+}
+
+export interface AdminSwitchAuthoritativeProviderRequest {
+  newProvider: string;
+  reason: string;
+  stepUpPassword?: string;
+  runPreFlightHealthCheck?: boolean;
+}
+
+export interface AdminApiPolicyConfigDto {
+  customerRateLimitPerMin: number;
+  agentRateLimitPerMin: number;
+  adminRateLimitPerMin: number;
+  maxCustomRateLimitPerMin: number;
+  apiKeyDefaultExpiryDays: number;
+  enforceIpRestrictions: boolean;
+  agentApiDisabled: boolean;
+  sandboxApiDisabled: boolean;
+  newOrdersApiDisabled: boolean;
+  bulkOrdersApiDisabled: boolean;
+  webhooksDisabled: boolean;
+  providerIntegrationDisabled: boolean;
+}
+
+export interface AdminUpdateApiPolicyRequest {
+  policies: Partial<AdminApiPolicyConfigDto>;
   reason: string;
 }
 

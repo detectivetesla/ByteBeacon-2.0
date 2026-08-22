@@ -59,8 +59,33 @@ import {
   FinancialSafetySettingsDto,
   UpdateFinancialSafetySettingsRequest,
   ReprocessEligibleItemDto,
-  ReprocessPreviewDto,
-  ReprocessExecuteRequest,
+  ApiKeyEnvironment,
+  ApiKeyStatus,
+  Permission,
+  ApiSecurityEventType,
+  ApiSecuritySeverity,
+  WebhookEvent,
+  WebhookStatus,
+  ProviderAuthType,
+  ProviderHealthStatus,
+  RateLimitTier,
+  AdminApiOverviewStats,
+  AdminApiKeyListItemDto,
+  AdminApiKeyDetailDto,
+  AdminCreateApiKeyRequest,
+  AdminRotateApiKeyRequest,
+  AdminUpdateApiKeyRequest,
+  AdminApiUsageAnalyticsDto,
+  AdminEndpointDetailDto,
+  AdminApiSecurityEventDto,
+  AdminWebhookListItemDto,
+  AdminCreateWebhookRequest,
+  AdminUpdateWebhookRequest,
+  AdminProviderConnectionDto,
+  AdminUpdateProviderConfigRequest,
+  AdminSwitchAuthoritativeProviderRequest,
+  AdminApiPolicyConfigDto,
+  AdminUpdateApiPolicyRequest,
 } from '@bytebeacon/shared';
 
 export {
@@ -78,6 +103,36 @@ export {
   FinancialAdjustmentStatus,
   RefundAdminStatus,
   LedgerAnomalySeverity,
+  ApiKeyEnvironment,
+  ApiKeyStatus,
+  Permission,
+  ApiSecurityEventType,
+  ApiSecuritySeverity,
+  WebhookEvent,
+  WebhookStatus,
+  ProviderAuthType,
+  ProviderHealthStatus,
+  RateLimitTier,
+};
+
+export type {
+  AdminApiOverviewStats,
+  AdminApiKeyListItemDto,
+  AdminApiKeyDetailDto,
+  AdminCreateApiKeyRequest,
+  AdminRotateApiKeyRequest,
+  AdminUpdateApiKeyRequest,
+  AdminApiUsageAnalyticsDto,
+  AdminEndpointDetailDto,
+  AdminApiSecurityEventDto,
+  AdminWebhookListItemDto,
+  AdminCreateWebhookRequest,
+  AdminUpdateWebhookRequest,
+  AdminProviderConnectionDto,
+  AdminUpdateProviderConfigRequest,
+  AdminSwitchAuthoritativeProviderRequest,
+  AdminApiPolicyConfigDto,
+  AdminUpdateApiPolicyRequest,
 };
 export type {
   AdminAgentStats,
@@ -1082,4 +1137,108 @@ export const adminApi = {
   exportReconciliationCases: async (data: { status?: string; format?: string } = {}) => {
     return apiClient.post('/admin/reconciliation/export', data, { responseType: 'blob' });
   },
+
+  // ==========================================
+  // Phase 11.10: API Management, Developer Platform & Security
+  // ==========================================
+
+  getApiOverview: async (): Promise<AdminApiOverviewStats> => {
+    return apiClient.get<AdminApiOverviewStats>('/admin/api/overview');
+  },
+
+  getApiKeys: async (params: {
+    search?: string;
+    environment?: string;
+    status?: string;
+    ownerId?: string;
+    ownerRole?: string;
+    scope?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
+    return apiClient.get<{
+      items: AdminApiKeyListItemDto[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/api/keys', { params });
+  },
+
+  getApiKeyDetail: async (id: string): Promise<AdminApiKeyDetailDto> => {
+    return apiClient.get<AdminApiKeyDetailDto>(`/admin/api/keys/${id}`);
+  },
+
+  createAdminApiKey: async (data: AdminCreateApiKeyRequest) => {
+    return apiClient.post<{
+      id: string;
+      name: string;
+      keyPrefix: string;
+      rawApiKey: string;
+      environment: string;
+      scopes: string[];
+      createdAt: string;
+      expiresAt: string | null;
+    }>('/admin/api/keys', data);
+  },
+
+  rotateAdminApiKey: async (id: string, data: AdminRotateApiKeyRequest) => {
+    return apiClient.post<{
+      newKeyId: string;
+      name: string;
+      keyPrefix: string;
+      rawApiKey: string;
+      environment: string;
+      scopes: string[];
+      oldKeyExpiresAt: string;
+    }>(`/admin/api/keys/${id}/rotate`, data);
+  },
+
+  updateAdminApiKey: async (id: string, data: AdminUpdateApiKeyRequest) => {
+    return apiClient.patch(`/admin/api/keys/${id}`, data);
+  },
+
+  revokeAdminApiKey: async (id: string, reason: string) => {
+    return apiClient.post(`/admin/api/keys/${id}/revoke`, { reason });
+  },
+
+  getApiUsage: async (params: { timeRange?: string; environment?: string; agentId?: string } = {}): Promise<AdminApiUsageAnalyticsDto> => {
+    return apiClient.get<AdminApiUsageAnalyticsDto>('/admin/api/usage', { params });
+  },
+
+  getApiSecurityEvents: async (params: { eventType?: string; severity?: string; search?: string; page?: number; limit?: number } = {}) => {
+    return apiClient.get<{
+      items: AdminApiSecurityEventDto[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/api/security', { params });
+  },
+
+  getAdminWebhooks: async (params: { status?: string; agentId?: string; page?: number; limit?: number } = {}) => {
+    return apiClient.get<{
+      items: AdminWebhookListItemDto[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/api/webhooks', { params });
+  },
+
+  createAdminWebhook: async (data: AdminCreateWebhookRequest) => {
+    return apiClient.post('/admin/api/webhooks', data);
+  },
+
+  testAdminWebhook: async (id: string) => {
+    return apiClient.post(`/admin/api/webhooks/${id}/test`);
+  },
+
+  getAdminProviders: async (): Promise<AdminProviderConnectionDto[]> => {
+    return apiClient.get<AdminProviderConnectionDto[]>('/admin/api/providers');
+  },
+
+  switchAuthoritativeProvider: async (data: AdminSwitchAuthoritativeProviderRequest) => {
+    return apiClient.post('/admin/api/providers/switch', data);
+  },
+
+  getApiPolicies: async (): Promise<AdminApiPolicyConfigDto> => {
+    return apiClient.get<AdminApiPolicyConfigDto>('/admin/api/policies');
+  },
+
+  updateApiPolicies: async (data: AdminUpdateApiPolicyRequest) => {
+    return apiClient.put('/admin/api/policies', data);
+  },
 };
+

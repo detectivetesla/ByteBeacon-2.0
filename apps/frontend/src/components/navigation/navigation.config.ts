@@ -550,6 +550,13 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
     title: 'System',
     items: [
       {
+        label: 'API & Developer Platform',
+        path: '/admin/api-management',
+        icon: React.createElement(Key, { size: 18, strokeWidth: 2.4, color: '#3B82F6' }),
+        permission: 'admin.settings.manage',
+        color: '#3B82F6',
+      },
+      {
         label: 'Audit Stream',
         path: '/admin/audit',
         icon: React.createElement(FileText, { size: 18, strokeWidth: 2.4, color: '#64748B' }),

@@ -16,6 +16,7 @@ import { AdminProviderPage } from '../pages/admin/AdminProviderPage.js';
 import { AdminDlqPage } from '../pages/admin/AdminDlqPage.js';
 import { AdminAuditPage } from '../pages/admin/AdminAuditPage.js';
 import { AdminSettingsPage } from '../pages/admin/AdminSettingsPage.js';
+import { AdminApiManagementPage } from '../pages/admin/AdminApiManagementPage.js';
 import { AdminStoresPage } from '../pages/admin/AdminStoresPage.js';
 import { AdminDataPlansPage } from '../pages/admin/AdminDataPlansPage.js';
 import { AdminPendingApprovalsPage } from '../pages/admin/AdminPendingApprovalsPage.js';
@@ -116,6 +117,18 @@ export const adminRoutes: RouteObject[] = [
       {
         path: 'settings',
         element: <AdminSettingsPage />,
+      },
+      {
+        path: 'api-management',
+        element: <AdminApiManagementPage />,
+      },
+      {
+        path: 'api-settings',
+        element: <Navigate to="/admin/api-management" replace />,
+      },
+      {
+        path: 'api-keys',
+        element: <Navigate to="/admin/api-management" replace />,
       },
     ],
   },
