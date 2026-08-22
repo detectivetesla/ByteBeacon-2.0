@@ -67,6 +67,7 @@ import { adminAnalyticsRoutes } from './routes/commerce/admin-analytics.routes.j
 import { adminCommunicationsRoutes } from './routes/commerce/admin-communications.routes.js';
 import { adminApiManagementRoutes } from './routes/commerce/admin-api-management.routes.js';
 import { adminAuditSecurityRoutes } from './routes/commerce/admin-audit-security.routes.js';
+import { adminSettingsRoutes } from './routes/commerce/admin-settings.routes.js';
 import { developerSandboxRoutes } from './routes/commerce/developer-sandbox.routes.js';
 import { registerSwagger } from './plugins/swagger.plugin.js';
 import { metricsPlugin } from './plugins/metrics.plugin.js';
@@ -503,6 +504,13 @@ export function createApp(options: AppOptions = {}) {
         auditService,
       });
       await adminAuditSecurityRoutes(commerceSubApp, {
+        db: dbPool!,
+        apiKeyService,
+        tokenService,
+        rbacService,
+        auditService,
+      });
+      await adminSettingsRoutes(commerceSubApp, {
         db: dbPool!,
         apiKeyService,
         tokenService,

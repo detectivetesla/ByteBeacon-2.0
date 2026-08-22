@@ -603,5 +603,51 @@ export enum SecurityHealthStatus {
   CRITICAL = 'CRITICAL',
 }
 
+export enum ConfigRiskLevel {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
 
+export enum ConfigScope {
+  GLOBAL = 'GLOBAL',
+  SECURITY = 'SECURITY',
+  PAYMENTS = 'PAYMENTS',
+  TELECOM = 'TELECOM',
+  ORDERS = 'ORDERS',
+  CATALOG = 'CATALOG',
+  AGENTS = 'AGENTS',
+  CUSTOMERS = 'CUSTOMERS',
+  APIS = 'APIS',
+  NOTIFICATIONS = 'NOTIFICATIONS',
+  RATE_LIMITS = 'RATE_LIMITS',
+  MAINTENANCE = 'MAINTENANCE',
+}
 
+export enum ConfigCategory {
+  GENERAL = 'GENERAL',
+  SECURITY = 'SECURITY',
+  PAYMENTS = 'PAYMENTS',
+  TELECOM = 'TELECOM',
+  ORDERS = 'ORDERS',
+  CATALOG = 'CATALOG',
+  AGENTS = 'AGENTS',
+  APIS = 'APIS',
+  NOTIFICATIONS = 'NOTIFICATIONS',
+  SYSTEM = 'SYSTEM',
+}
+
+export enum FeatureFlagTargetRole {
+  ALL = 'ALL',
+  SUPER_ADMIN = 'SUPER_ADMIN',
+  ADMIN = 'ADMIN',
+  AGENT = 'AGENT',
+  CUSTOMER = 'CUSTOMER',
+}
+
+export enum ConfigurationHealthStatus {
+  HEALTHY = 'HEALTHY',
+  DEGRADED = 'DEGRADED',
+  CRITICAL = 'CRITICAL',
+}

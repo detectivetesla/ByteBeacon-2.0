@@ -57,6 +57,11 @@ import {
   AuditResult,
   SecurityIncidentStatus,
   SecurityHealthStatus,
+  ConfigRiskLevel,
+  ConfigScope,
+  ConfigCategory,
+  FeatureFlagTargetRole,
+  ConfigurationHealthStatus,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -1956,6 +1961,124 @@ export interface AdminEmergencyControlToggleRequest {
   stepUpConfirmation: string;
 }
 
+// ----------------------------------------------------
+// Phase 11.13: System Configuration & Global Control
+// ----------------------------------------------------
 
+export interface AdminSubsystemHealthItemDto {
+  component: string;
+  status: 'HEALTHY' | 'WARNING' | 'CRITICAL' | 'UNCONFIGURED';
+  message: string;
+  latencyMs?: number;
+  lastCheckedAt: string;
+}
 
+export interface AdminSystemHealthDiagnosticDto {
+  overallStatus: ConfigurationHealthStatus;
+  environment: string;
+  uptimeSeconds: number;
+  subsystems: AdminSubsystemHealthItemDto[];
+  detectedIssuesCount: number;
+}
 
+export interface AdminGlobalConfigOverviewDto {
+  platformStatus: 'OPERATIONAL' | 'MAINTENANCE' | 'DEGRADED';
+  environment: string;
+  configurationHealth: ConfigurationHealthStatus;
+  lastConfigChangeAt: string | null;
+  lastConfigChangeBy: string | null;
+  totalConfigSettings: number;
+  activeFeatureFlagsCount: number;
+  activeSessionsCount: number;
+  categoriesSummary: Array<{
+    category: ConfigCategory;
+    totalSettings: number;
+    highRiskSettings: number;
+    status: 'OPTIMAL' | 'ATTENTION_REQUIRED';
+  }>;
+}
+
+export interface AdminSystemConfigItemDto {
+  id: string;
+  scope: ConfigScope;
+  configKey: string;
+  category: ConfigCategory;
+  value: any;
+  dataType: 'STRING' | 'NUMBER' | 'BOOLEAN' | 'JSON';
+  isSecret: boolean;
+  riskLevel: ConfigRiskLevel;
+  requiresStepUp: boolean;
+  description: string;
+  version: number;
+  lastModifiedBy?: string | null;
+  lastModifiedByName?: string | null;
+  lastModifiedAt: string;
+  createdAt: string;
+}
+
+export interface AdminUpdateSystemConfigRequest {
+  value: any;
+  reason: string;
+  stepUpConfirmation?: string;
+}
+
+export interface AdminConfigVersionItemDto {
+  id: string;
+  configKey: string;
+  version: number;
+  previousValue: any;
+  newValue: any;
+  changeReason: string;
+  changedBy?: string | null;
+  changedByName?: string | null;
+  createdAt: string;
+}
+
+export interface AdminRollbackConfigRequest {
+  targetVersion: number;
+  reason: string;
+  stepUpConfirmation: string;
+}
+
+export interface AdminFeatureFlagItemDto {
+  id: string;
+  flagKey: string;
+  name: string;
+  description: string;
+  isEnabled: boolean;
+  targetRole: FeatureFlagTargetRole;
+  environment: string;
+  lastToggledBy?: string | null;
+  lastToggledByName?: string | null;
+  lastToggledAt?: string | null;
+  reason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminUpdateFeatureFlagRequest {
+  isEnabled: boolean;
+  targetRole?: FeatureFlagTargetRole;
+  environment?: string;
+  reason: string;
+  stepUpConfirmation?: string;
+}
+
+export interface AdminActiveSessionDto {
+  sessionId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userRole: string;
+  ipAddress: string;
+  userAgent: string;
+  lastActiveAt: string;
+  createdAt: string;
+  expiresAt: string;
+  isRevoked: boolean;
+}
+
+export interface AdminRevokeSessionRequest {
+  reason: string;
+  revokeAllForUser?: boolean;
+}

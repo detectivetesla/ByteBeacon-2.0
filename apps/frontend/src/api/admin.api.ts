@@ -123,6 +123,22 @@ import {
   AdminAuditIntegrityVerificationDto,
   AdminAuditExportRequest,
   AdminEmergencyControlToggleRequest,
+  ConfigRiskLevel,
+  ConfigScope,
+  ConfigCategory,
+  FeatureFlagTargetRole,
+  ConfigurationHealthStatus,
+  AdminGlobalConfigOverviewDto,
+  AdminSystemConfigItemDto,
+  AdminUpdateSystemConfigRequest,
+  AdminConfigVersionItemDto,
+  AdminRollbackConfigRequest,
+  AdminFeatureFlagItemDto,
+  AdminUpdateFeatureFlagRequest,
+  AdminActiveSessionDto,
+  AdminRevokeSessionRequest,
+  AdminSystemHealthDiagnosticDto,
+  AdminSubsystemHealthItemDto,
 } from '@bytebeacon/shared';
 
 export {
@@ -162,6 +178,11 @@ export {
   AuditResult,
   SecurityIncidentStatus,
   SecurityHealthStatus,
+  ConfigRiskLevel,
+  ConfigScope,
+  ConfigCategory,
+  FeatureFlagTargetRole,
+  ConfigurationHealthStatus,
 };
 
 export type {
@@ -1441,7 +1462,50 @@ export const adminApi = {
   toggleEmergencyControl: async (data: AdminEmergencyControlToggleRequest) => {
     return apiClient.post('/admin/audit/emergency/toggle', data);
   },
+
+  // System Settings, Configuration & Global Governance (Phase 11.13)
+  getGlobalConfigOverview: async (): Promise<AdminGlobalConfigOverviewDto> => {
+    return apiClient.get<AdminGlobalConfigOverviewDto>('/admin/settings/overview');
+  },
+
+  getSystemConfigs: async (params: {
+    scope?: ConfigScope;
+    category?: ConfigCategory;
+    riskLevel?: ConfigRiskLevel;
+    search?: string;
+  } = {}): Promise<AdminSystemConfigItemDto[]> => {
+    return apiClient.get<AdminSystemConfigItemDto[]>('/admin/settings/configs', { params });
+  },
+
+  updateSystemConfig: async (key: string, data: AdminUpdateSystemConfigRequest) => {
+    return apiClient.put(`/admin/settings/configs/${key}`, data);
+  },
+
+  getConfigVersions: async (key: string): Promise<AdminConfigVersionItemDto[]> => {
+    return apiClient.get<AdminConfigVersionItemDto[]>(`/admin/settings/configs/${key}/versions`);
+  },
+
+  rollbackSystemConfig: async (key: string, data: AdminRollbackConfigRequest) => {
+    return apiClient.post(`/admin/settings/configs/${key}/rollback`, data);
+  },
+
+  getFeatureFlags: async (): Promise<AdminFeatureFlagItemDto[]> => {
+    return apiClient.get<AdminFeatureFlagItemDto[]>('/admin/settings/feature-flags');
+  },
+
+  updateFeatureFlag: async (flagKey: string, data: AdminUpdateFeatureFlagRequest) => {
+    return apiClient.put(`/admin/settings/feature-flags/${flagKey}`, data);
+  },
+
+  getActiveSessions: async (): Promise<AdminActiveSessionDto[]> => {
+    return apiClient.get<AdminActiveSessionDto[]>('/admin/settings/sessions');
+  },
+
+  revokeActiveSession: async (sessionId: string, data: AdminRevokeSessionRequest) => {
+    return apiClient.post(`/admin/settings/sessions/${sessionId}/revoke`, data);
+  },
+
+  getSystemHealthDiagnostics: async (): Promise<AdminSystemHealthDiagnosticDto> => {
+    return apiClient.get<AdminSystemHealthDiagnosticDto>('/admin/settings/health');
+  },
 };
-
-
-
