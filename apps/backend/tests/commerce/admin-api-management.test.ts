@@ -609,4 +609,172 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
       expect.objectContaining({ action: 'SUPER_ADMIN_API_POLICY_UPDATED' }),
     );
   });
+
+  it('14. should list, create, and update API consumers with audit logging', async () => {
+    (mockDb.query as any).mockImplementation(async (sql: string, params?: any[]) => {
+      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+        return {
+          rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
+        };
+      }
+      if (typeof sql === 'string' && sql.includes('INSERT INTO api_consumers')) {
+        return {
+          rows: [
+            {
+              id: 'cons_new',
+              name: 'FastData Reseller Bot',
+              description: 'Automated topup client',
+              ownerId: 'admin_1',
+              environment: 'LIVE',
+              status: 'ACTIVE',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        };
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT COUNT(*) as total FROM api_consumers')) {
+        return { rows: [{ total: '1' }] };
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT') && sql.includes('FROM api_consumers')) {
+        return {
+          rows: [
+            {
+              id: 'cons_new',
+              name: 'FastData Reseller Bot',
+              description: 'Automated topup client',
+              ownerId: 'admin_1',
+              ownerName: 'Admin User',
+              ownerEmail: 'admin@bytebeacon.com',
+              environment: 'LIVE',
+              status: 'ACTIVE',
+              keyCount: 2,
+              requestCount24h: 1200,
+              totalRequests: 45000,
+              lastActivityAt: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        };
+      }
+      if (typeof sql === 'string' && sql.includes('UPDATE api_consumers SET')) {
+        return {
+          rows: [{ id: 'cons_new', name: 'FastData Reseller Bot', status: 'SUSPENDED' }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    // Create consumer
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/api/consumers',
+      headers: { authorization: 'Bearer mock_admin_token' },
+      payload: {
+        name: 'FastData Reseller Bot',
+        description: 'Automated topup client',
+        environment: 'LIVE',
+      },
+    });
+
+    expect(createRes.statusCode).toBe(201);
+    const createBody = JSON.parse(createRes.payload);
+    expect(createBody.data.name).toBe('FastData Reseller Bot');
+    expect(mockAuditService.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'ADMIN_API_CONSUMER_CREATED' }),
+    );
+
+    // List consumers
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/admin/api/consumers',
+      headers: { authorization: 'Bearer mock_admin_token' },
+    });
+
+    expect(listRes.statusCode).toBe(200);
+    const listBody = JSON.parse(listRes.payload);
+    expect(listBody.data.items.length).toBe(1);
+    expect(listBody.data.items[0].name).toBe('FastData Reseller Bot');
+
+    // Update consumer status
+    const updateRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/api/consumers/cons_new',
+      headers: { authorization: 'Bearer mock_admin_token' },
+      payload: {
+        status: 'SUSPENDED',
+        reason: 'Temporary investigation of abnormal request bursts',
+      },
+    });
+
+    expect(updateRes.statusCode).toBe(200);
+    expect(mockAuditService.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'ADMIN_API_CONSUMER_UPDATED' }),
+    );
+  });
+
+  it('15. should return structured platform health across all core subsystems', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/api/health',
+      headers: { authorization: 'Bearer mock_admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe('HEALTHY');
+    expect(body.data.components.apiGateway.status).toBe('OPERATIONAL');
+    expect(body.data.components.postgresql.status).toBe('OPERATIONAL');
+    expect(body.data.components.redis.status).toBe('OPERATIONAL');
+    expect(body.data.components.datahouse.status).toBe('OPERATIONAL');
+    expect(body.data.components.paystack.status).toBe('OPERATIONAL');
+  });
+
+  it('16. should retrieve a comprehensive API dossier for a specific agent', async () => {
+    (mockDb.query as any).mockImplementation(async (sql: string, params?: any[]) => {
+      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+        return {
+          rows: [{ id: 'agt_test', uuid: 'agt_test', email: 'agent@telecom.gh', full_name: 'Agent Kwesi', status: 'ACTIVE', role: UserRole.AGENT }],
+        };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM api_keys ak WHERE')) {
+        return {
+          rows: [{ id: 'k_1', name: 'Kwesi App Key', key_prefix: 'bb_live_k123', environment: 'LIVE', status: 'ACTIVE', scopes: ['orders.read', 'orders.create'], rate_limit_per_minute: 300, created_at: new Date() }],
+        };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM api_consumers WHERE owner_user_id = $1')) {
+        return {
+          rows: [{ id: 'c_1', name: 'Kwesi Portal', environment: 'LIVE', status: 'ACTIVE', created_at: new Date() }],
+        };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM agent_webhooks WHERE agent_id = $1')) {
+        return {
+          rows: [{ id: 'w_1', url: 'https://kwesi.com/wh', events: ['order.completed'], status: 'ACTIVE', rate_limit_per_minute: 60, failure_count: 0, created_at: new Date() }],
+        };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM api_usage_metrics WHERE user_id = $1')) {
+        return {
+          rows: [{ total: '250', avg_lat: '42' }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/api/agents/agt_test/dossier',
+      headers: { authorization: 'Bearer mock_admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(true);
+    expect(body.data.agentId).toBe('agt_test');
+    expect(body.data.agentName).toBe('Agent Kwesi');
+    expect(body.data.keys.length).toBe(1);
+    expect(body.data.consumers.length).toBe(1);
+    expect(body.data.webhooks.length).toBe(1);
+    expect(body.data.usage24h.totalRequests).toBe(250);
+  });
 });
+

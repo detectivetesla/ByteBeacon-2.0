@@ -30,6 +30,7 @@ import {
   SlidersHorizontal,
   Server,
   Terminal,
+  Users,
 } from 'lucide-react';
 import {
   adminApi,
@@ -41,6 +42,8 @@ import {
   AdminWebhookListItemDto,
   AdminProviderConnectionDto,
   AdminApiPolicyConfigDto,
+  AdminApiConsumerDto,
+  AdminStructuredHealthDto,
   ApiKeyEnvironment,
   ApiKeyStatus,
   Permission,
@@ -48,11 +51,26 @@ import {
 
 export const AdminApiManagementPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
-    'OVERVIEW' | 'KEYS' | 'USAGE' | 'ENDPOINTS' | 'WEBHOOKS' | 'SECURITY' | 'SANDBOX' | 'PROVIDERS' | 'POLICIES'
+    'OVERVIEW' | 'CONSUMERS' | 'KEYS' | 'USAGE' | 'ENDPOINTS' | 'WEBHOOKS' | 'SECURITY' | 'SANDBOX' | 'PROVIDERS' | 'POLICIES'
   >('OVERVIEW');
 
   const [isLoading, setIsLoading] = useState(false);
   const [overview, setOverview] = useState<AdminApiOverviewStats | null>(null);
+  const [structuredHealth, setStructuredHealth] = useState<AdminStructuredHealthDto | null>(null);
+
+  // --- API Consumers Tab State ---
+  const [consumers, setConsumers] = useState<AdminApiConsumerDto[]>([]);
+  const [consumerSearch, setConsumerSearch] = useState('');
+  const [consumerEnvFilter, setConsumerEnvFilter] = useState('ALL');
+  const [consumerStatusFilter, setConsumerStatusFilter] = useState('ALL');
+  const [consumerPage, setConsumerPage] = useState(1);
+  const [consumerTotalPages, setConsumerTotalPages] = useState(1);
+  const [consumerTotal, setConsumerTotal] = useState(0);
+  const [isCreateConsumerModalOpen, setIsCreateConsumerModalOpen] = useState(false);
+  const [newConsumerName, setNewConsumerName] = useState('');
+  const [newConsumerDesc, setNewConsumerDesc] = useState('');
+  const [newConsumerOwnerId, setNewConsumerOwnerId] = useState('');
+  const [newConsumerEnv, setNewConsumerEnv] = useState<ApiKeyEnvironment>(ApiKeyEnvironment.LIVE);
 
   // --- API Keys Tab State ---
   const [keys, setKeys] = useState<AdminApiKeyListItemDto[]>([]);
@@ -108,15 +126,42 @@ export const AdminApiManagementPage: React.FC = () => {
   const [policies, setPolicies] = useState<AdminApiPolicyConfigDto | null>(null);
   const [policiesSaving, setPoliciesSaving] = useState(false);
 
-  // 1. Fetch Overview Stats
+  // 1. Fetch Overview Stats & Structured Health
   const fetchOverview = useCallback(async () => {
     try {
-      const res = await adminApi.getApiOverview();
-      setOverview(res);
+      const [ovRes, hlRes] = await Promise.all([
+        adminApi.getApiOverview(),
+        adminApi.getStructuredApiHealth().catch(() => null),
+      ]);
+      setOverview(ovRes);
+      if (hlRes) setStructuredHealth(hlRes);
     } catch {
       // Fallback
     }
   }, []);
+
+  // 1b. Fetch API Consumers List
+  const fetchConsumers = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await adminApi.getApiConsumers({
+        page: consumerPage,
+        limit: 20,
+        search: consumerSearch || undefined,
+        environment: consumerEnvFilter !== 'ALL' ? consumerEnvFilter : undefined,
+        status: consumerStatusFilter !== 'ALL' ? consumerStatusFilter : undefined,
+      });
+      if (res && Array.isArray(res.items)) {
+        setConsumers(res.items);
+        setConsumerTotalPages(res.pagination?.totalPages || 1);
+        setConsumerTotal(res.pagination?.total || res.items.length);
+      }
+    } catch {
+      setConsumers([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [consumerPage, consumerSearch, consumerEnvFilter, consumerStatusFilter]);
 
   // 2. Fetch Keys List
   const fetchKeys = useCallback(async () => {
@@ -204,13 +249,14 @@ export const AdminApiManagementPage: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'OVERVIEW') fetchOverview();
+    if (activeTab === 'CONSUMERS') fetchConsumers();
     if (activeTab === 'KEYS') fetchKeys();
     if (activeTab === 'USAGE' || activeTab === 'ENDPOINTS') fetchUsage();
     if (activeTab === 'WEBHOOKS') fetchWebhooks();
     if (activeTab === 'SECURITY') fetchSecurityEvents();
     if (activeTab === 'PROVIDERS') fetchProviders();
     if (activeTab === 'POLICIES') fetchPolicies();
-  }, [activeTab, fetchOverview, fetchKeys, fetchUsage, fetchWebhooks, fetchSecurityEvents, fetchProviders, fetchPolicies]);
+  }, [activeTab, fetchOverview, fetchConsumers, fetchKeys, fetchUsage, fetchWebhooks, fetchSecurityEvents, fetchProviders, fetchPolicies]);
 
   // Create API Key Handler
   const handleCreateApiKey = async (e: React.FormEvent) => {
@@ -312,6 +358,47 @@ export const AdminApiManagementPage: React.FC = () => {
     }
   };
 
+  // Create Consumer Handler
+  const handleCreateConsumer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newConsumerName.trim()) {
+      alert('Consumer name is required');
+      return;
+    }
+
+    try {
+      await adminApi.createApiConsumer({
+        name: newConsumerName.trim(),
+        description: newConsumerDesc.trim() || undefined,
+        ownerUserId: newConsumerOwnerId.trim() || undefined as any,
+        environment: newConsumerEnv,
+      });
+      alert('API Consumer created successfully.');
+      setIsCreateConsumerModalOpen(false);
+      setNewConsumerName('');
+      setNewConsumerDesc('');
+      setNewConsumerOwnerId('');
+      fetchConsumers();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Failed to create consumer');
+    }
+  };
+
+  // Toggle Consumer Status
+  const handleToggleConsumerStatus = async (id: string, name: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    const reason = prompt(`Authorize status change for consumer "${name}" to ${nextStatus}. Enter justification:`);
+    if (!reason) return;
+
+    try {
+      await adminApi.updateApiConsumer(id, { status: nextStatus, reason });
+      alert(`Consumer status updated to ${nextStatus}.`);
+      fetchConsumers();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Failed to update consumer status');
+    }
+  };
+
   // Save Policies Handler
   const handleSavePolicies = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -371,11 +458,14 @@ export const AdminApiManagementPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button variant="secondary" size="sm" onClick={() => { fetchOverview(); fetchKeys(); fetchUsage(); }}>
+          <Button variant="secondary" size="sm" onClick={() => { fetchOverview(); fetchKeys(); fetchConsumers(); fetchUsage(); }}>
             <RefreshCw size={14} style={{ marginRight: '0.35rem' }} /> Refresh
           </Button>
           <Button variant="primary" size="sm" onClick={() => { setCreatedSecretResult(null); setIsCreateModalOpen(true); }}>
             <Key size={14} style={{ marginRight: '0.35rem' }} /> Generate API Key
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setIsCreateConsumerModalOpen(true)}>
+            <Users size={14} style={{ marginRight: '0.35rem' }} /> Register Consumer
           </Button>
           <Button variant="secondary" size="sm" onClick={() => { setIsSwitchModalOpen(true); }}>
             <Radio size={14} style={{ marginRight: '0.35rem' }} /> Switch Provider
@@ -422,6 +512,7 @@ export const AdminApiManagementPage: React.FC = () => {
       <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', gap: '1.25rem', overflowX: 'auto' }}>
         {[
           { id: 'OVERVIEW', label: 'Overview & Health', icon: Layers },
+          { id: 'CONSUMERS', label: `API Consumers (${consumers.length})`, icon: Users },
           { id: 'KEYS', label: `API Keys (${overview?.totalKeys || 0})`, icon: Key },
           { id: 'USAGE', label: 'Usage & Latency', icon: Activity },
           { id: 'ENDPOINTS', label: 'Endpoint Drill-Down', icon: Server },
@@ -495,6 +586,136 @@ export const AdminApiManagementPage: React.FC = () => {
               ])}
               loading={isLoading}
               emptyMessage="No service health telemetry available."
+            />
+          </Card>
+
+          {/* Structured Platform Infrastructure Health */}
+          {structuredHealth && (
+            <Card accentColor="cyan">
+              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: 'var(--font-size-base)', fontWeight: 700 }}>
+                Platform Subsystem Operational Matrix
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
+                {Object.entries(structuredHealth.components).map(([key, comp]) => (
+                  <div
+                    key={key}
+                    style={{
+                      padding: '0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-surface-sunken)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700, fontSize: '11px' }}>{comp.name}</span>
+                      <Badge variant={comp.status === 'OPERATIONAL' ? 'success' : 'danger'}>
+                        {comp.status}
+                      </Badge>
+                    </div>
+                    {comp.latencyMs !== undefined && (
+                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        Latency: {comp.latencyMs}ms
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* --- TAB 1b: API CONSUMERS --- */}
+      {activeTab === 'CONSUMERS' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <Card accentColor="blue">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+              <div style={{ flex: 1, minWidth: '240px' }}>
+                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Search API Consumers</label>
+                <SearchInput
+                  value={consumerSearch}
+                  onChange={(e) => setConsumerSearch(e.target.value)}
+                  placeholder="Application name, owner name, email..."
+                />
+              </div>
+
+              <div style={{ minWidth: '150px' }}>
+                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Environment</label>
+                <Select
+                  value={consumerEnvFilter}
+                  onChange={(e) => setConsumerEnvFilter(e.target.value)}
+                  options={[
+                    { value: 'ALL', label: 'All Environments' },
+                    { value: 'LIVE', label: 'LIVE / Production' },
+                    { value: 'TEST', label: 'TEST / Sandbox' },
+                  ]}
+                />
+              </div>
+
+              <div style={{ minWidth: '150px' }}>
+                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Status</label>
+                <Select
+                  value={consumerStatusFilter}
+                  onChange={(e) => setConsumerStatusFilter(e.target.value)}
+                  options={[
+                    { value: 'ALL', label: 'All Statuses' },
+                    { value: 'ACTIVE', label: 'ACTIVE' },
+                    { value: 'SUSPENDED', label: 'SUSPENDED' },
+                    { value: 'REVOKED', label: 'REVOKED' },
+                  ]}
+                />
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <Table
+              headers={['Consumer Application', 'Owner Account', 'Environment', 'Status', 'API Keys', '24h Requests', 'Last Activity', 'Actions']}
+              data={consumers.map((c) => [
+                <div key="name" style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{c.name}</span>
+                  {c.description && <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{c.description}</span>}
+                </div>,
+                <div key="own" style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{c.ownerName}</span>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{c.ownerEmail}</span>
+                </div>,
+                <Badge key="env" variant={c.environment === 'LIVE' ? 'success' : 'neutral'}>
+                  {c.environment}
+                </Badge>,
+                <Badge key="st" variant={c.status === 'ACTIVE' ? 'success' : c.status === 'SUSPENDED' ? 'warning' : 'danger'}>
+                  {c.status}
+                </Badge>,
+                <span key="kc" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                  {c.keyCount} keys
+                </span>,
+                <span key="rq" style={{ fontFamily: 'var(--font-mono)' }}>
+                  {c.requestCount24h.toLocaleString()}
+                </span>,
+                <span key="act" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                  {c.lastActivityAt ? new Date(c.lastActivityAt).toLocaleTimeString() : 'Never'}
+                </span>,
+                <div key="actions" style={{ display: 'flex', gap: '0.35rem' }}>
+                  <Button
+                    variant={c.status === 'ACTIVE' ? 'warning' : 'secondary'}
+                    size="sm"
+                    onClick={() => handleToggleConsumerStatus(c.id, c.name, c.status)}
+                  >
+                    {c.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
+                  </Button>
+                </div>,
+              ])}
+              loading={isLoading}
+              emptyMessage="No API consumers registered."
+            />
+
+            <Pagination
+              currentPage={consumerPage}
+              totalPages={consumerTotalPages}
+              totalItems={consumerTotal}
+              onPageChange={(p) => setConsumerPage(p)}
             />
           </Card>
         </div>
@@ -1282,6 +1503,66 @@ export const AdminApiManagementPage: React.FC = () => {
               </Button>
               <Button type="submit" variant="danger" disabled={switchingProvider}>
                 {switchingProvider ? 'Migrating Authority...' : 'Execute Provider Switch'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* --- CREATE CONSUMER MODAL --- */}
+      {isCreateConsumerModalOpen && (
+        <Modal
+          isOpen={isCreateConsumerModalOpen}
+          onClose={() => setIsCreateConsumerModalOpen(false)}
+          title="Register New API Consumer Application"
+        >
+          <form onSubmit={handleCreateConsumer} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Application Name *</label>
+              <Input
+                value={newConsumerName}
+                onChange={(e) => setNewConsumerName(e.target.value)}
+                placeholder="e.g. ABC Data Reseller Web App"
+                required
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Description</label>
+              <Input
+                value={newConsumerDesc}
+                onChange={(e) => setNewConsumerDesc(e.target.value)}
+                placeholder="e.g. Mobile app integration for retail data vending"
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Owner User ID (Optional - defaults to self)</label>
+              <Input
+                value={newConsumerOwnerId}
+                onChange={(e) => setNewConsumerOwnerId(e.target.value)}
+                placeholder="Agent UUID or empty for self"
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Environment *</label>
+              <Select
+                value={newConsumerEnv}
+                onChange={(e) => setNewConsumerEnv(e.target.value as any)}
+                options={[
+                  { value: ApiKeyEnvironment.LIVE, label: 'LIVE / Production' },
+                  { value: ApiKeyEnvironment.TEST, label: 'TEST / Sandbox' },
+                ]}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+              <Button type="button" variant="secondary" onClick={() => setIsCreateConsumerModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary">
+                Register Application
               </Button>
             </div>
           </form>

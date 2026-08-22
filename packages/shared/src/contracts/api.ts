@@ -1575,3 +1575,70 @@ export interface AdminUpdateApiPolicyRequest {
   reason: string;
 }
 
+export interface AdminApiConsumerDto {
+  id: string;
+  name: string;
+  description?: string;
+  ownerId: string;
+  ownerName: string;
+  ownerEmail: string;
+  environment: ApiKeyEnvironment;
+  status: 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
+  keyCount: number;
+  requestCount24h: number;
+  totalRequests: number;
+  lastActivityAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminCreateApiConsumerRequest {
+  name: string;
+  description?: string;
+  ownerUserId: string;
+  environment: ApiKeyEnvironment;
+}
+
+export interface AdminUpdateApiConsumerRequest {
+  name?: string;
+  description?: string;
+  status?: 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
+  reason?: string;
+}
+
+export interface AdminStructuredHealthComponentDto {
+  name: string;
+  status: 'OPERATIONAL' | 'DEGRADED' | 'OUTAGE';
+  latencyMs?: number;
+  details?: Record<string, any>;
+  lastCheckedAt: string;
+}
+
+export interface AdminStructuredHealthDto {
+  status: 'HEALTHY' | 'DEGRADED' | 'DOWN';
+  uptimeSeconds: number;
+  components: {
+    apiGateway: AdminStructuredHealthComponentDto;
+    postgresql: AdminStructuredHealthComponentDto;
+    redis: AdminStructuredHealthComponentDto;
+    bullmq: AdminStructuredHealthComponentDto;
+    datahouse: AdminStructuredHealthComponentDto;
+    paystack: AdminStructuredHealthComponentDto;
+    webhookProcessor: AdminStructuredHealthComponentDto;
+  };
+}
+
+export interface AdminAgentApiDossierDto {
+  agentId: string;
+  agentName: string;
+  agentEmail: string;
+  keys: AdminApiKeyListItemDto[];
+  consumers: AdminApiConsumerDto[];
+  webhooks: AdminWebhookListItemDto[];
+  usage24h: {
+    totalRequests: number;
+    errorRatePercent: number;
+    avgLatencyMs: number;
+  };
+}
+
+

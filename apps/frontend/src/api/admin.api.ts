@@ -86,6 +86,11 @@ import {
   AdminSwitchAuthoritativeProviderRequest,
   AdminApiPolicyConfigDto,
   AdminUpdateApiPolicyRequest,
+  AdminApiConsumerDto,
+  AdminCreateApiConsumerRequest,
+  AdminUpdateApiConsumerRequest,
+  AdminStructuredHealthDto,
+  AdminAgentApiDossierDto,
 } from '@bytebeacon/shared';
 
 export {
@@ -133,6 +138,11 @@ export type {
   AdminSwitchAuthoritativeProviderRequest,
   AdminApiPolicyConfigDto,
   AdminUpdateApiPolicyRequest,
+  AdminApiConsumerDto,
+  AdminCreateApiConsumerRequest,
+  AdminUpdateApiConsumerRequest,
+  AdminStructuredHealthDto,
+  AdminAgentApiDossierDto,
 };
 export type {
   AdminAgentStats,
@@ -1240,5 +1250,29 @@ export const adminApi = {
   updateApiPolicies: async (data: AdminUpdateApiPolicyRequest) => {
     return apiClient.put('/admin/api/policies', data);
   },
+
+  getApiConsumers: async (params: { search?: string; environment?: string; status?: string; page?: number; limit?: number } = {}) => {
+    return apiClient.get<{
+      items: AdminApiConsumerDto[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/api/consumers', { params });
+  },
+
+  createApiConsumer: async (data: AdminCreateApiConsumerRequest) => {
+    return apiClient.post('/admin/api/consumers', data);
+  },
+
+  updateApiConsumer: async (id: string, data: AdminUpdateApiConsumerRequest) => {
+    return apiClient.patch(`/admin/api/consumers/${id}`, data);
+  },
+
+  getStructuredApiHealth: async (): Promise<AdminStructuredHealthDto> => {
+    return apiClient.get<AdminStructuredHealthDto>('/admin/api/health');
+  },
+
+  getAgentApiDossier: async (agentId: string): Promise<AdminAgentApiDossierDto> => {
+    return apiClient.get<AdminAgentApiDossierDto>(`/admin/api/agents/${agentId}/dossier`);
+  },
 };
+
 

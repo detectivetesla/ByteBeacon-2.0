@@ -6,7 +6,24 @@ export const migration00000000000010: MigrationFile = {
   upSql: `
     CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-    -- 1. Extend api_keys table with developer management columns
+    -- 1. Create api_consumers table to represent client apps/integrations
+    CREATE TABLE IF NOT EXISTS api_consumers (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        owner_user_id UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+        environment VARCHAR(20) NOT NULL DEFAULT 'LIVE',
+        status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE'
+            CHECK (status IN ('ACTIVE', 'SUSPENDED', 'REVOKED')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_api_consumers_owner ON api_consumers(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_api_consumers_status ON api_consumers(status);
+
+    -- 2. Extend api_keys table with developer management columns
+    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS consumer_id UUID REFERENCES api_consumers(id) ON DELETE SET NULL;
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS owner_user_id UUID REFERENCES users(uuid) ON DELETE SET NULL;
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS ip_restrictions TEXT[] NOT NULL DEFAULT '{}';
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS rate_limit_per_minute INT NOT NULL DEFAULT 300;
@@ -17,6 +34,7 @@ export const migration00000000000010: MigrationFile = {
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS revocation_reason TEXT;
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS rotation_of_key_id UUID REFERENCES api_keys(id) ON DELETE SET NULL;
 
+    CREATE INDEX IF NOT EXISTS idx_api_keys_consumer ON api_keys(consumer_id);
     CREATE INDEX IF NOT EXISTS idx_api_keys_owner ON api_keys(owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_api_keys_env ON api_keys(environment);
 
