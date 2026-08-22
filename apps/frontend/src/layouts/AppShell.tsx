@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext.js';
 import { Avatar } from '../components/ui/Avatar/Avatar.js';
 import { Button } from '../components/ui/Button/Button.js';
 import { NavGroupConfig } from '../components/navigation/navigation.config.js';
+import { ResponsiveNavigation } from '../components/ui/responsive/ResponsiveNavigation.js';
 import {
   Menu,
   X,
@@ -969,10 +970,34 @@ export const AppShell: React.FC<AppShellProps> = ({
         </header>
 
         {/* Main Content Body */}
-        <main style={{ flex: 1, padding: 'var(--space-page-y, var(--space-6)) var(--space-page-x, var(--space-6))', overflowY: 'auto' }}>
+        <main
+          className="app-main-content"
+          style={{
+            flex: 1,
+            padding: 'var(--space-page-y, var(--space-6)) var(--space-page-x, var(--space-6))',
+            overflowY: 'auto',
+          }}
+        >
+          <style>{`
+            @media (max-width: 767px) {
+              .app-main-content {
+                padding-bottom: calc(var(--space-page-y, var(--space-6)) + var(--mobile-nav-height, 62px) + var(--safe-area-bottom, 0px)) !important;
+              }
+            }
+          `}</style>
           {children}
         </main>
       </div>
+
+      {/* =========================================================================
+          4. MOBILE ROLE-AWARE BOTTOM NAVIGATION BAR
+          ========================================================================= */}
+      <ResponsiveNavigation
+        role={userRole}
+        onMoreClick={() => setMobileDrawerOpen(true)}
+        unreadNotificationCount={unreadCount}
+        activeColor={portalRoleColor}
+      />
     </div>
   );
 };
