@@ -864,6 +864,10 @@ export async function adminUsersRoutes(
       const targetRole = targetRes.rows[0].role as UserRole;
       const actorRole = req.user!.role as UserRole;
 
+      if (targetRole === UserRole.SUPER_ADMIN && (await rbacService.isLastActiveSuperAdmin(req.params.id))) {
+        throw new ForbiddenError('Cannot suspend the last active Super Administrator. At least one active Super Admin must remain.');
+      }
+
       if (!rbacService.canManageTargetUser(actorRole, targetRole)) {
         throw new ForbiddenError('You do not have permission to suspend this administrator account.');
       }
@@ -960,6 +964,20 @@ export async function adminUsersRoutes(
       const currentRole = targetRes.rows[0].role as UserRole;
       const actorRole = req.user!.role as UserRole;
       const proposedRole = newRole.toLowerCase() as UserRole;
+
+      // Last Super Admin Demotion Protection
+      if (
+        (currentRole === UserRole.SUPER_ADMIN || (currentRole as string) === 'superadmin') &&
+        proposedRole !== UserRole.SUPER_ADMIN &&
+        (await rbacService.isLastActiveSuperAdmin(req.params.id))
+      ) {
+        throw new ForbiddenError('Cannot demote the last active Super Administrator. At least one active Super Admin must remain.');
+      }
+
+      // Anti-Self Escalation Check
+      if (req.user!.sub === req.params.id && proposedRole !== currentRole) {
+        throw new ForbiddenError('Self-role escalation is strictly prohibited.');
+      }
 
       if (!rbacService.canManageTargetUser(actorRole, currentRole, proposedRole)) {
         throw new ForbiddenError('Only Super Administrators can grant or modify Administrator privileges.');

@@ -62,6 +62,8 @@ import {
   ConfigCategory,
   FeatureFlagTargetRole,
   ConfigurationHealthStatus,
+  PermissionCategory,
+  AdminSubRole,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -2081,4 +2083,54 @@ export interface AdminActiveSessionDto {
 export interface AdminRevokeSessionRequest {
   reason: string;
   revokeAllForUser?: boolean;
+}
+
+// Phase 11.14 — Permission Enforcement & Authorization Control DTOs
+export interface PermissionMatrixEntryDto {
+  permission: Permission;
+  category: PermissionCategory;
+  name: string;
+  description: string;
+  riskLevel: ConfigRiskLevel;
+  requiresStepUp: boolean;
+  allowedRoles: {
+    customer: boolean;
+    agent: boolean;
+    operationsAdmin: boolean;
+    financeAdmin: boolean;
+    supportAdmin: boolean;
+    developerAdmin: boolean;
+    superAdmin: boolean;
+  };
+}
+
+export interface AdminRolePermissionMatrixDto {
+  registry: PermissionMatrixEntryDto[];
+  roleBreakdown: Array<{
+    role: UserRole;
+    adminSubRole?: AdminSubRole;
+    displayName: string;
+    totalPermissions: number;
+    effectivePermissions: Permission[];
+  }>;
+  totalPermissionsCount: number;
+  lastEvaluatedAt: string;
+}
+
+export interface AdminUserEffectiveAuthorizationDto {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  role: UserRole;
+  adminSubRole?: AdminSubRole;
+  status: string;
+  effectivePermissions: Permission[];
+  tenantScope: {
+    scopeType: 'GLOBAL' | 'AGENT_STORE' | 'CUSTOMER_SELF';
+    description: string;
+    resourceOwnerId?: string;
+  };
+  mfaEnforced: boolean;
+  isLastSuperAdmin: boolean;
+  canManageTargetUser: boolean;
 }

@@ -14,12 +14,15 @@ import {
   ConfigCategory,
   FeatureFlagTargetRole,
   ConfigurationHealthStatus,
+  PermissionCategory,
   AdminGlobalConfigOverviewDto,
   AdminSystemConfigItemDto,
   AdminConfigVersionItemDto,
   AdminFeatureFlagItemDto,
   AdminActiveSessionDto,
   AdminSystemHealthDiagnosticDto,
+  AdminRolePermissionMatrixDto,
+  AdminUserEffectiveAuthorizationDto,
 } from '../../api/admin.api.js';
 import {
   Sliders,
@@ -48,11 +51,15 @@ import {
   UserX,
   Clock,
   Key,
+  ShieldAlert,
+  ShieldCheck,
+  UserCheck,
 } from 'lucide-react';
 
 type SettingsTab =
   | 'PLATFORM'
   | 'SECURITY'
+  | 'PERMISSIONS'
   | 'SESSIONS'
   | 'RATE_LIMITS'
   | 'PAYMENTS'
@@ -78,6 +85,13 @@ export const AdminSettingsPage: React.FC = () => {
   const [featureFlags, setFeatureFlags] = useState<AdminFeatureFlagItemDto[]>([]);
   const [activeSessions, setActiveSessions] = useState<AdminActiveSessionDto[]>([]);
   const [healthDiagnostics, setHealthDiagnostics] = useState<AdminSystemHealthDiagnosticDto | null>(null);
+  const [permissionMatrix, setPermissionMatrix] = useState<AdminRolePermissionMatrixDto | null>(null);
+
+  // Permissions Inspector & Simulator States
+  const [selectedPermCategory, setSelectedPermCategory] = useState<string>('ALL');
+  const [simulatorUserId, setSimulatorUserId] = useState('');
+  const [simulatedUser, setSimulatedUser] = useState<AdminUserEffectiveAuthorizationDto | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
 
   // Modals & Actions
   const [editingConfig, setEditingConfig] = useState<AdminSystemConfigItemDto | null>(null);
@@ -108,12 +122,13 @@ export const AdminSettingsPage: React.FC = () => {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [overviewData, configData, flagData, sessionData, healthData] = await Promise.all([
+      const [overviewData, configData, flagData, sessionData, healthData, permData] = await Promise.all([
         adminApi.getGlobalConfigOverview().catch(() => null),
         adminApi.getSystemConfigs().catch(() => []),
         adminApi.getFeatureFlags().catch(() => []),
         adminApi.getActiveSessions().catch(() => []),
         adminApi.getSystemHealthDiagnostics().catch(() => null),
+        adminApi.getPermissionRegistry().catch(() => null),
       ]);
 
       if (overviewData) setOverview(overviewData);
@@ -121,6 +136,7 @@ export const AdminSettingsPage: React.FC = () => {
       setFeatureFlags(flagData || []);
       setActiveSessions(sessionData || []);
       if (healthData) setHealthDiagnostics(healthData);
+      if (permData) setPermissionMatrix(permData);
     } catch (err: any) {
       toastError('Failed to load settings', err.message || 'Error fetching system configurations');
     } finally {
@@ -325,6 +341,26 @@ export const AdminSettingsPage: React.FC = () => {
     }
   };
 
+  // Evaluate User Effective Permissions (Simulator)
+  const handleSimulateUser = async (targetId: string) => {
+    if (!targetId || targetId.trim() === '') {
+      toastError('User ID required', 'Please enter a valid user UUID.');
+      return;
+    }
+
+    setIsSimulating(true);
+    try {
+      const data = await adminApi.getUserEffectivePermissions(targetId.trim());
+      setSimulatedUser(data);
+      toastSuccess('Evaluation complete', `Evaluated authorization profile for ${data.userName}.`);
+    } catch (err: any) {
+      toastError('Evaluation failed', err.message || 'Error inspecting user effective permissions');
+      setSimulatedUser(null);
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
   // Filtered configurations
   const filteredConfigs = configs.filter((c) => {
     if (activeTab === 'PLATFORM') return c.category === ConfigCategory.GENERAL;
@@ -339,6 +375,18 @@ export const AdminSettingsPage: React.FC = () => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return c.configKey.toLowerCase().includes(q) || c.description.toLowerCase().includes(q);
+  });
+
+  // Filtered permissions
+  const filteredPermissions = (permissionMatrix?.registry || []).filter((p) => {
+    if (selectedPermCategory !== 'ALL' && p.category !== selectedPermCategory) {
+      return false;
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      return p.permission.toLowerCase().includes(q) || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
+    }
+    return true;
   });
 
   return (
@@ -360,10 +408,10 @@ export const AdminSettingsPage: React.FC = () => {
               </Badge>
             </div>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-              System Configuration Center
+              System Configuration & Authorization Center
             </h1>
             <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
-              Authoritative management of platform behavior, security policies, payments, telecom routing, order thresholds, active feature flags, and version history.
+              Authoritative management of platform behavior, security policies, RBAC permission matrix, payments, telecom routing, order thresholds, and feature flags.
             </p>
           </div>
         </div>
@@ -437,6 +485,14 @@ export const AdminSettingsPage: React.FC = () => {
           Security & Auth
         </Button>
         <Button
+          variant={activeTab === 'PERMISSIONS' ? 'primary' : 'ghost'}
+          size="sm"
+          onClick={() => setActiveTab('PERMISSIONS')}
+          icon={Lock}
+        >
+          Permissions & RBAC ({permissionMatrix?.totalPermissionsCount || 25})
+        </Button>
+        <Button
           variant={activeTab === 'SESSIONS' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('SESSIONS')}
@@ -504,8 +560,261 @@ export const AdminSettingsPage: React.FC = () => {
 
       {/* 4. Tab Contents */}
 
+      {/* TAB: PERMISSIONS & RBAC MATRIX (Phase 11.14) */}
+      {activeTab === 'PERMISSIONS' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          {/* Top RBAC Architecture Banner */}
+          <Card elevated accentColor="indigo" style={{ padding: 'var(--space-6)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Authoritative Permission Registry & Role Matrix
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0' }}>
+                  Roles determine potential capabilities; explicit permissions dictate operational access; Fastify backend is the final authority.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <Badge variant="success" size="sm">
+                  {permissionMatrix?.totalPermissionsCount || 25} Registered Permissions
+                </Badge>
+                <Badge variant="neutral" size="sm">
+                  7 Defined Role Tiers
+                </Badge>
+              </div>
+            </div>
+          </Card>
+
+          {/* User Authorization Simulator Card */}
+          <Card elevated accentColor="blue" style={{ padding: 'var(--space-5)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                    Live User Authorization Simulator & Anti-IDOR Inspector
+                  </h3>
+                  <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.125rem 0 0' }}>
+                    Inspect real-time evaluated effective permissions, tenant ownership scope, MFA enforcement, and Last-Super-Admin protection status for any account.
+                  </p>
+                </div>
+                {user?.id && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSimulatorUserId(user.id);
+                      handleSimulateUser(user.id);
+                    }}
+                    icon={UserCheck}
+                  >
+                    Simulate My Account
+                  </Button>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: '260px' }}>
+                  <Input
+                    placeholder="Enter target User UUID (e.g. 00000000-0000-0000-0000-000000000001)..."
+                    value={simulatorUserId}
+                    onChange={(e) => setSimulatorUserId(e.target.value)}
+                    icon={Search}
+                  />
+                </div>
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={() => handleSimulateUser(simulatorUserId)}
+                  disabled={isSimulating}
+                >
+                  {isSimulating ? 'Evaluating...' : 'Evaluate Access Profile'}
+                </Button>
+              </div>
+
+              {/* Simulation Result */}
+              {simulatedUser && (
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    border: '1px solid var(--color-border-subtle)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 'var(--space-3)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                        {simulatedUser.userName} ({simulatedUser.userEmail})
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                        <Badge variant="neutral" size="sm">Role: {simulatedUser.role}</Badge>
+                        {simulatedUser.adminSubRole && (
+                          <Badge variant="neutral" size="sm">Sub-Role: {simulatedUser.adminSubRole}</Badge>
+                        )}
+                        <Badge variant={simulatedUser.status === 'ACTIVE' ? 'success' : 'danger'} size="sm">
+                          Status: {simulatedUser.status}
+                        </Badge>
+                        <Badge variant={simulatedUser.mfaEnforced ? 'success' : 'warning'} size="sm">
+                          MFA: {simulatedUser.mfaEnforced ? 'Enforced' : 'Optional'}
+                        </Badge>
+                        {simulatedUser.isLastSuperAdmin && (
+                          <Badge variant="danger" size="sm">
+                            ★ Last Active Super Admin (Lockout Protected)
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: 'var(--font-size-2xs)', textAlign: 'right' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--color-api-bright)' }}>Tenant Ownership Scope:</span>
+                      <div style={{ color: 'var(--color-text-secondary)' }}>{simulatedUser.tenantScope.scopeType}</div>
+                    </div>
+                  </div>
+
+                  <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                    <strong>Boundary Description:</strong> {simulatedUser.tenantScope.description}
+                  </p>
+
+                  <div>
+                    <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      Effective Server-Side Permissions ({simulatedUser.effectivePermissions.length}):
+                    </span>
+                    <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginTop: '0.375rem' }}>
+                      {simulatedUser.effectivePermissions.map((perm) => (
+                        <code
+                          key={perm}
+                          style={{
+                            fontSize: 'var(--font-size-3xs)',
+                            padding: '0.125rem 0.375rem',
+                            borderRadius: 'var(--radius-xs)',
+                            backgroundColor: 'var(--color-bg-base)',
+                            border: '1px solid var(--color-border-subtle)',
+                            color: 'var(--color-text-primary)',
+                          }}
+                        >
+                          {perm}
+                        </code>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Filter Toolbar for Permission Matrix */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                Filter Domain:
+              </span>
+              {['ALL', 'ORDERS', 'WALLET_FINANCE', 'USERS_AGENTS', 'CATALOG_TELECOM', 'DEVELOPER_APIS', 'COMMUNICATION', 'PLATFORM_GOVERNANCE'].map((cat) => (
+                <Button
+                  key={cat}
+                  variant={selectedPermCategory === cat ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setSelectedPermCategory(cat)}
+                >
+                  {cat === 'ALL' ? 'All Domains' : cat.replace('_', ' ')}
+                </Button>
+              ))}
+            </div>
+
+            <div style={{ width: '240px' }}>
+              <Input
+                placeholder="Search permissions..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                icon={Search}
+              />
+            </div>
+          </div>
+
+          {/* Role Comparison Table */}
+          <Card elevated accentColor="cyan" style={{ padding: 'var(--space-6)', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', color: 'var(--color-text-muted)' }}>
+                  <th style={{ padding: '0.625rem' }}>Permission Identifier & Name</th>
+                  <th style={{ padding: '0.625rem' }}>Category</th>
+                  <th style={{ padding: '0.625rem' }}>Risk Level</th>
+                  <th style={{ padding: '0.625rem', textAlign: 'center' }}>Customer</th>
+                  <th style={{ padding: '0.625rem', textAlign: 'center' }}>Agent</th>
+                  <th style={{ padding: '0.625rem', textAlign: 'center' }}>Ops Admin</th>
+                  <th style={{ padding: '0.625rem', textAlign: 'center' }}>Finance Admin</th>
+                  <th style={{ padding: '0.625rem', textAlign: 'center' }}>Support Admin</th>
+                  <th style={{ padding: '0.625rem', textAlign: 'center' }}>Dev Admin</th>
+                  <th style={{ padding: '0.625rem', textAlign: 'center' }}>Super Admin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPermissions.map((perm) => (
+                  <tr key={perm.permission} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: '0.625rem' }}>
+                      <code style={{ fontWeight: 800, color: 'var(--color-api-bright)' }}>{perm.permission}</code>
+                      <div style={{ fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '0.125rem' }}>{perm.name}</div>
+                      <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)', maxWidth: '320px' }}>
+                        {perm.description}
+                      </div>
+                    </td>
+                    <td style={{ padding: '0.625rem' }}>
+                      <Badge variant="neutral" size="sm">{perm.category}</Badge>
+                    </td>
+                    <td style={{ padding: '0.625rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <Badge
+                          variant={
+                            perm.riskLevel === 'CRITICAL'
+                              ? 'danger'
+                              : perm.riskLevel === 'HIGH'
+                                ? 'warning'
+                                : 'default'
+                          }
+                          size="sm"
+                        >
+                          {perm.riskLevel}
+                        </Badge>
+                        {perm.requiresStepUp && (
+                          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-accent-red)', fontWeight: 700 }}>
+                            Step-Up Required
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td style={{ padding: '0.625rem', textAlign: 'center' }}>
+                      {perm.allowedRoles.customer ? <Badge variant="success" size="sm">✓</Badge> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '0.625rem', textAlign: 'center' }}>
+                      {perm.allowedRoles.agent ? <Badge variant="success" size="sm">✓</Badge> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '0.625rem', textAlign: 'center' }}>
+                      {perm.allowedRoles.operationsAdmin ? <Badge variant="success" size="sm">✓</Badge> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '0.625rem', textAlign: 'center' }}>
+                      {perm.allowedRoles.financeAdmin ? <Badge variant="success" size="sm">✓</Badge> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '0.625rem', textAlign: 'center' }}>
+                      {perm.allowedRoles.supportAdmin ? <Badge variant="success" size="sm">✓</Badge> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '0.625rem', textAlign: 'center' }}>
+                      {perm.allowedRoles.developerAdmin ? <Badge variant="success" size="sm">✓</Badge> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '0.625rem', textAlign: 'center' }}>
+                      <Badge variant="success" size="sm">✓</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      )}
+
       {/* TAB 1 TO 8: Configuration Grids */}
-      {activeTab !== 'SESSIONS' && activeTab !== 'FEATURE_FLAGS' && activeTab !== 'HISTORY_HEALTH' && (
+      {activeTab !== 'SESSIONS' && activeTab !== 'FEATURE_FLAGS' && activeTab !== 'HISTORY_HEALTH' && activeTab !== 'PERMISSIONS' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           {/* Search Toolbar */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>

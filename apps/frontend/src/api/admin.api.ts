@@ -139,6 +139,10 @@ import {
   AdminRevokeSessionRequest,
   AdminSystemHealthDiagnosticDto,
   AdminSubsystemHealthItemDto,
+  PermissionCategory,
+  PermissionMatrixEntryDto,
+  AdminRolePermissionMatrixDto,
+  AdminUserEffectiveAuthorizationDto,
 } from '@bytebeacon/shared';
 
 export {
@@ -183,6 +187,7 @@ export {
   ConfigCategory,
   FeatureFlagTargetRole,
   ConfigurationHealthStatus,
+  PermissionCategory,
 };
 
 export type {
@@ -1507,5 +1512,14 @@ export const adminApi = {
 
   getSystemHealthDiagnostics: async (): Promise<AdminSystemHealthDiagnosticDto> => {
     return apiClient.get<AdminSystemHealthDiagnosticDto>('/admin/settings/health');
+  },
+
+  // Permission Enforcement & Role Governance (Phase 11.14)
+  getPermissionRegistry: async (): Promise<AdminRolePermissionMatrixDto> => {
+    return apiClient.get<AdminRolePermissionMatrixDto>('/admin/permissions/registry');
+  },
+
+  getUserEffectivePermissions: async (userId: string): Promise<AdminUserEffectiveAuthorizationDto> => {
+    return apiClient.get<AdminUserEffectiveAuthorizationDto>(`/admin/permissions/users/${userId}/effective`);
   },
 };
