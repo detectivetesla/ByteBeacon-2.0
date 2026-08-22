@@ -45,6 +45,13 @@ import {
   ProviderAuthType,
   ProviderHealthStatus,
   RateLimitTier,
+  CommunicationChannel,
+  CommunicationPriority,
+  CommunicationDeliveryStatus,
+  CommunicationTargetType,
+  CampaignStatus,
+  TemplateStatus,
+  NotificationCategory,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -1640,5 +1647,181 @@ export interface AdminAgentApiDossierDto {
     avgLatencyMs: number;
   };
 }
+
+// =========================================================================
+// Phase 11.11: Communication Center & System Messaging DTOs
+// =========================================================================
+
+export interface AdminCommunicationChannelHealthDto {
+  channel: CommunicationChannel;
+  name: string;
+  status: 'OPERATIONAL' | 'DEGRADED' | 'NOT_CONFIGURED';
+  isConfigured: boolean;
+  providerName: string;
+  successRatePercent: number;
+  lastDeliveredAt: string | null;
+}
+
+export interface AdminCommunicationOverviewStats {
+  totalMessages: number;
+  todayMessages: number;
+  scheduledCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  pendingCount: number;
+  emailDeliveryRate: number;
+  inAppDeliveryRate: number;
+  smsDeliveryRate: number | null;
+  pushDeliveryRate: number | null;
+  channelsHealth: AdminCommunicationChannelHealthDto[];
+}
+
+export interface AdminComposeMessageRequest {
+  channels: CommunicationChannel[];
+  targetType: CommunicationTargetType;
+  recipientIds?: string[];
+  recipientEmails?: string[];
+  recipientRole?: UserRole;
+  recipientStatus?: string;
+  segment?: string;
+  templateId?: string;
+  subject: string;
+  body: string;
+  actionUrl?: string;
+  actionLabel?: string;
+  priority: CommunicationPriority;
+  scheduledAt?: string;
+  isBroadcast?: boolean;
+  justificationReason?: string;
+}
+
+export interface AdminCampaignListItemDto {
+  id: string;
+  title: string;
+  description?: string;
+  channels: CommunicationChannel[];
+  targetType: CommunicationTargetType;
+  segment?: string;
+  audienceCount: number;
+  subject: string;
+  body: string;
+  actionUrl?: string;
+  actionLabel?: string;
+  priority: CommunicationPriority;
+  status: CampaignStatus;
+  scheduledAt: string | null;
+  sentAt: string | null;
+  deliveredCount: number;
+  failedCount: number;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminCreateCampaignRequest {
+  title: string;
+  description?: string;
+  channels: CommunicationChannel[];
+  targetType: CommunicationTargetType;
+  segment?: string;
+  subject: string;
+  body: string;
+  actionUrl?: string;
+  actionLabel?: string;
+  priority: CommunicationPriority;
+  scheduledAt?: string;
+  stepUpConfirmed?: boolean;
+  justificationReason?: string;
+}
+
+export interface AdminNotificationTemplateDto {
+  id: string;
+  slug: string;
+  name: string;
+  category: NotificationCategory;
+  channels: CommunicationChannel[];
+  subjectTemplate: string;
+  bodyTemplate: string;
+  actionUrlTemplate?: string;
+  availableVariables: string[];
+  version: number;
+  status: TemplateStatus;
+  isSystemCritical: boolean;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminCreateTemplateRequest {
+  slug: string;
+  name: string;
+  category: NotificationCategory;
+  channels: CommunicationChannel[];
+  subjectTemplate: string;
+  bodyTemplate: string;
+  actionUrlTemplate?: string;
+  availableVariables?: string[];
+  isSystemCritical?: boolean;
+}
+
+export interface AdminUpdateTemplateRequest {
+  name?: string;
+  category?: NotificationCategory;
+  channels?: CommunicationChannel[];
+  subjectTemplate?: string;
+  bodyTemplate?: string;
+  actionUrlTemplate?: string;
+  availableVariables?: string[];
+  status?: TemplateStatus;
+  isSystemCritical?: boolean;
+  createNewVersion?: boolean;
+  reason?: string;
+}
+
+export interface AdminDeliveryLogItemDto {
+  id: string;
+  messageId: string;
+  campaignId?: string;
+  templateId?: string;
+  recipientUserId?: string;
+  recipientName: string;
+  recipientEmailRedacted: string;
+  recipientPhoneRedacted: string;
+  recipientRole: string;
+  channel: CommunicationChannel;
+  priority: CommunicationPriority;
+  subject: string;
+  bodyPreview: string;
+  status: CommunicationDeliveryStatus;
+  attempts: number;
+  errorMessage?: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminUserNotificationPreferenceDto {
+  userId: string;
+  emailOrderUpdates: boolean;
+  emailAccountAlerts: boolean;
+  emailMarketing: boolean;
+  smsSecurity: boolean;
+  smsTransactions: boolean;
+  smsMarketing: boolean;
+  inAppAll: boolean;
+  updatedAt: string;
+}
+
+export interface AdminUpdateUserPreferenceRequest {
+  emailOrderUpdates?: boolean;
+  emailAccountAlerts?: boolean;
+  emailMarketing?: boolean;
+  smsSecurity?: boolean;
+  smsTransactions?: boolean;
+  smsMarketing?: boolean;
+  inAppAll?: boolean;
+}
+
 
 

@@ -75,6 +75,18 @@ export const adminRoutes: RouteObject[] = [
         element: <AdminCommunicationsPage />,
       },
       {
+        path: 'notifications',
+        element: <AdminCommunicationsPage />,
+      },
+      {
+        path: 'campaigns',
+        element: <AdminCommunicationsPage />,
+      },
+      {
+        path: 'messages',
+        element: <AdminCommunicationsPage />,
+      },
+      {
         path: 'orders',
         element: <AdminOrdersPage />,
       },

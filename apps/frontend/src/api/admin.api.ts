@@ -91,6 +91,24 @@ import {
   AdminUpdateApiConsumerRequest,
   AdminStructuredHealthDto,
   AdminAgentApiDossierDto,
+  CommunicationChannel,
+  CommunicationPriority,
+  CommunicationDeliveryStatus,
+  CommunicationTargetType,
+  CampaignStatus,
+  TemplateStatus,
+  NotificationCategory,
+  AdminCommunicationChannelHealthDto,
+  AdminCommunicationOverviewStats,
+  AdminComposeMessageRequest,
+  AdminCampaignListItemDto,
+  AdminCreateCampaignRequest,
+  AdminNotificationTemplateDto,
+  AdminCreateTemplateRequest,
+  AdminUpdateTemplateRequest,
+  AdminDeliveryLogItemDto,
+  AdminUserNotificationPreferenceDto,
+  AdminUpdateUserPreferenceRequest,
 } from '@bytebeacon/shared';
 
 export {
@@ -118,6 +136,13 @@ export {
   ProviderAuthType,
   ProviderHealthStatus,
   RateLimitTier,
+  CommunicationChannel,
+  CommunicationPriority,
+  CommunicationDeliveryStatus,
+  CommunicationTargetType,
+  CampaignStatus,
+  TemplateStatus,
+  NotificationCategory,
 };
 
 export type {
@@ -143,6 +168,17 @@ export type {
   AdminUpdateApiConsumerRequest,
   AdminStructuredHealthDto,
   AdminAgentApiDossierDto,
+  AdminCommunicationChannelHealthDto,
+  AdminCommunicationOverviewStats,
+  AdminComposeMessageRequest,
+  AdminCampaignListItemDto,
+  AdminCreateCampaignRequest,
+  AdminNotificationTemplateDto,
+  AdminCreateTemplateRequest,
+  AdminUpdateTemplateRequest,
+  AdminDeliveryLogItemDto,
+  AdminUserNotificationPreferenceDto,
+  AdminUpdateUserPreferenceRequest,
 };
 export type {
   AdminAgentStats,
@@ -755,13 +791,63 @@ export const adminApi = {
     return apiClient.put('/admin/providers/routing', data);
   },
 
-  // Communications
-  sendCommunication: async (data: { target: string; recipientEmail?: string; channel: string; subject: string; message: string }) => {
+  // Communications & Messaging Center (Phase 11.11)
+  getCommunicationOverview: async (): Promise<AdminCommunicationOverviewStats> => {
+    return apiClient.get<AdminCommunicationOverviewStats>('/admin/communication/overview');
+  },
+
+  sendCommunication: async (data: AdminComposeMessageRequest) => {
     return apiClient.post('/admin/communication/send', data);
   },
 
+  getCommunicationCampaigns: async (params: { status?: string; search?: string; page?: number; limit?: number } = {}) => {
+    return apiClient.get<{ items: AdminCampaignListItemDto[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
+      '/admin/communication/campaigns',
+      { params },
+    );
+  },
+
+  createCommunicationCampaign: async (data: AdminCreateCampaignRequest) => {
+    return apiClient.post('/admin/communication/campaigns', data);
+  },
+
+  cancelCommunicationCampaign: async (id: string, reason: string) => {
+    return apiClient.post(`/admin/communication/campaigns/${id}/cancel`, { reason });
+  },
+
+  getNotificationTemplates: async (params: { category?: string; status?: string } = {}) => {
+    return apiClient.get<AdminNotificationTemplateDto[]>('/admin/communication/templates', { params });
+  },
+
+  createNotificationTemplate: async (data: AdminCreateTemplateRequest) => {
+    return apiClient.post('/admin/communication/templates', data);
+  },
+
+  updateNotificationTemplate: async (id: string, data: AdminUpdateTemplateRequest) => {
+    return apiClient.put(`/admin/communication/templates/${id}`, data);
+  },
+
+  getCommunicationDeliveryLogs: async (params: { search?: string; channel?: string; status?: string; priority?: string; page?: number; limit?: number } = {}) => {
+    return apiClient.get<{ items: AdminDeliveryLogItemDto[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
+      '/admin/communication/delivery-logs',
+      { params },
+    );
+  },
+
+  getCommunicationHealth: async () => {
+    return apiClient.get<{ status: string; subsystems: Record<string, any> }>('/admin/communication/health');
+  },
+
+  getUserNotificationPreferences: async (userId: string): Promise<AdminUserNotificationPreferenceDto> => {
+    return apiClient.get<AdminUserNotificationPreferenceDto>(`/admin/communication/user-preferences/${userId}`);
+  },
+
+  updateUserNotificationPreferences: async (userId: string, data: AdminUpdateUserPreferenceRequest) => {
+    return apiClient.patch(`/admin/communication/user-preferences/${userId}`, data);
+  },
+
   getCommunicationHistory: async () => {
-    return apiClient.get<{ items: any[]; total: number }>('/admin/communication/history');
+    return apiClient.get<{ items: any[]; total: number }>('/admin/communication/delivery-logs');
   },
 
   // Health, MTN Approvals & DLQ

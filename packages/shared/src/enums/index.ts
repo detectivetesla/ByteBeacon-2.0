@@ -496,3 +496,69 @@ export enum RateLimitTier {
   CUSTOM = 'CUSTOM',
 }
 
+// =========================================================================
+// Phase 11.11: Communication Center & Messaging Administration Enums
+// =========================================================================
+
+export enum CommunicationChannel {
+  IN_APP = 'IN_APP',
+  EMAIL = 'EMAIL',
+  SMS = 'SMS',
+  PUSH = 'PUSH',
+}
+
+export enum CommunicationPriority {
+  LOW = 'LOW',
+  NORMAL = 'NORMAL',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
+export enum CommunicationDeliveryStatus {
+  CREATED = 'CREATED',
+  QUEUED = 'QUEUED',
+  PROCESSING = 'PROCESSING',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED',
+  FAILED = 'FAILED',
+  RETRYING = 'RETRYING',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum CommunicationTargetType {
+  INDIVIDUAL = 'INDIVIDUAL',
+  CUSTOM_GROUP = 'CUSTOM_GROUP',
+  ROLE = 'ROLE',
+  ACCOUNT_STATUS = 'ACCOUNT_STATUS',
+  AGENT_SEGMENT = 'AGENT_SEGMENT',
+  CUSTOMER_SEGMENT = 'CUSTOMER_SEGMENT',
+  BROADCAST = 'BROADCAST',
+}
+
+export enum CampaignStatus {
+  DRAFT = 'DRAFT',
+  SCHEDULED = 'SCHEDULED',
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+  FAILED = 'FAILED',
+}
+
+export enum TemplateStatus {
+  ACTIVE = 'ACTIVE',
+  DRAFT = 'DRAFT',
+  ARCHIVED = 'ARCHIVED',
+}
+
+export enum NotificationCategory {
+  AUTH = 'AUTH',
+  WALLET = 'WALLET',
+  ORDERS = 'ORDERS',
+  BENEFICIARY = 'BENEFICIARY',
+  STORE = 'STORE',
+  API = 'API',
+  MARKETING = 'MARKETING',
+  SYSTEM = 'SYSTEM',
+}
+
+
