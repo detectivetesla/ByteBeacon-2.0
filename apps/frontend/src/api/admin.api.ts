@@ -143,9 +143,31 @@ import {
   PermissionMatrixEntryDto,
   AdminRolePermissionMatrixDto,
   AdminUserEffectiveAuthorizationDto,
+  UserRole,
+  NotificationSeverity,
+  NotificationType,
+  AlertStatus,
+  AlertSource,
+  NotificationRuleStatus,
+  AdminNotificationOverviewDto,
+  AdminSystemAlertDto,
+  AdminAlertEventDto,
+  AdminAcknowledgeAlertRequest,
+  AdminAssignAlertRequest,
+  AdminResolveAlertRequest,
+  AdminNotificationRuleDto,
+  AdminCreateNotificationRuleRequest,
+  AdminUpdateNotificationRuleRequest,
+  AdminNotificationAnalyticsDto,
+  AdminEmergencyBroadcastRequest,
+  AdminNotificationHistoryItemDto,
+  AdminNotificationDeliveryDetailDto,
+  UserNotificationItemDto,
+  UserNotificationCountsDto,
 } from '@bytebeacon/shared';
 
 export {
+  UserRole,
   AgentAccountStatus,
   StoreStatus,
   StoreApprovalStatus,
@@ -188,6 +210,11 @@ export {
   FeatureFlagTargetRole,
   ConfigurationHealthStatus,
   PermissionCategory,
+  NotificationSeverity,
+  NotificationType,
+  AlertStatus,
+  AlertSource,
+  NotificationRuleStatus,
 };
 
 export type {
@@ -233,6 +260,21 @@ export type {
   AdminAuditIntegrityVerificationDto,
   AdminAuditExportRequest,
   AdminEmergencyControlToggleRequest,
+  AdminNotificationOverviewDto,
+  AdminSystemAlertDto,
+  AdminAlertEventDto,
+  AdminAcknowledgeAlertRequest,
+  AdminAssignAlertRequest,
+  AdminResolveAlertRequest,
+  AdminNotificationRuleDto,
+  AdminCreateNotificationRuleRequest,
+  AdminUpdateNotificationRuleRequest,
+  AdminNotificationAnalyticsDto,
+  AdminEmergencyBroadcastRequest,
+  AdminNotificationHistoryItemDto,
+  AdminNotificationDeliveryDetailDto,
+  UserNotificationItemDto,
+  UserNotificationCountsDto,
 };
 export type {
   AdminAgentStats,
@@ -1521,5 +1563,100 @@ export const adminApi = {
 
   getUserEffectivePermissions: async (userId: string): Promise<AdminUserEffectiveAuthorizationDto> => {
     return apiClient.get<AdminUserEffectiveAuthorizationDto>(`/admin/permissions/users/${userId}/effective`);
+  },
+
+  // Notifications, Alerts & System Communications Administration (Phase 11.15)
+  getNotificationOverview: async (): Promise<AdminNotificationOverviewDto> => {
+    return apiClient.get<AdminNotificationOverviewDto>('/admin/notifications/overview');
+  },
+
+  getNotificationRules: async (): Promise<AdminNotificationRuleDto[]> => {
+    return apiClient.get<AdminNotificationRuleDto[]>('/admin/notifications/rules');
+  },
+
+  createNotificationRule: async (data: AdminCreateNotificationRuleRequest) => {
+    return apiClient.post('/admin/notifications/rules', data);
+  },
+
+  updateNotificationRule: async (id: string, data: AdminUpdateNotificationRuleRequest) => {
+    return apiClient.put(`/admin/notifications/rules/${id}`, data);
+  },
+
+  getNotificationAnalytics: async (): Promise<AdminNotificationAnalyticsDto> => {
+    return apiClient.get<AdminNotificationAnalyticsDto>('/admin/notifications/analytics');
+  },
+
+  getNotificationDeliveryDetail: async (id: string): Promise<AdminNotificationDeliveryDetailDto> => {
+    return apiClient.get<AdminNotificationDeliveryDetailDto>(`/admin/notifications/deliveries/${id}`);
+  },
+
+  sendEmergencyBroadcast: async (data: AdminEmergencyBroadcastRequest) => {
+    return apiClient.post('/admin/notifications/emergency-broadcast', data);
+  },
+
+  getNotificationHistory: async (params: {
+    recipient?: string;
+    role?: string;
+    type?: string;
+    channel?: string;
+    severity?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    event?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{ items: AdminNotificationHistoryItemDto[]; meta: any }> => {
+    return apiClient.get<{ items: AdminNotificationHistoryItemDto[]; meta: any }>('/admin/notifications/history', { params });
+  },
+
+  getAlerts: async (params: {
+    severity?: string;
+    source?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{ items: AdminSystemAlertDto[]; meta: any }> => {
+    return apiClient.get<{ items: AdminSystemAlertDto[]; meta: any }>('/admin/alerts', { params });
+  },
+
+  getAlertDetail: async (id: string): Promise<{ alert: AdminSystemAlertDto; timeline: AdminAlertEventDto[] }> => {
+    return apiClient.get<{ alert: AdminSystemAlertDto; timeline: AdminAlertEventDto[] }>(`/admin/alerts/${id}`);
+  },
+
+  acknowledgeAlert: async (id: string, data: AdminAcknowledgeAlertRequest = {}) => {
+    return apiClient.post(`/admin/alerts/${id}/acknowledge`, data);
+  },
+
+  assignAlert: async (id: string, data: AdminAssignAlertRequest) => {
+    return apiClient.post(`/admin/alerts/${id}/assign`, data);
+  },
+
+  investigateAlert: async (id: string, data: { note?: string } = {}) => {
+    return apiClient.post(`/admin/alerts/${id}/investigate`, data);
+  },
+
+  resolveAlert: async (id: string, data: AdminResolveAlertRequest) => {
+    return apiClient.post(`/admin/alerts/${id}/resolve`, data);
+  },
+
+  addAlertNote: async (id: string, note: string) => {
+    return apiClient.post(`/admin/alerts/${id}/note`, { note });
+  },
+
+  getUserNotifications: async (params: { page?: number; limit?: number; unreadOnly?: boolean } = {}): Promise<{ items: UserNotificationItemDto[]; meta: any }> => {
+    return apiClient.get<{ items: UserNotificationItemDto[]; meta: any }>('/notifications', { params });
+  },
+
+  getUserNotificationCounts: async (): Promise<UserNotificationCountsDto> => {
+    return apiClient.get<UserNotificationCountsDto>('/notifications/counts');
+  },
+
+  markNotificationRead: async (id: string) => {
+    return apiClient.post(`/notifications/${id}/read`);
+  },
+
+  markAllNotificationsRead: async () => {
+    return apiClient.post('/notifications/read-all');
   },
 };

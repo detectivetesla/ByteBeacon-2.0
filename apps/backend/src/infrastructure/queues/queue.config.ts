@@ -5,6 +5,7 @@ export const QUEUE_NAMES = {
   RECONCILIATION: 'bb:reconciliation',
   WEBHOOKS: 'bb:webhooks',
   BULK_PROCESSING: 'bb:bulk-processing',
+  NOTIFICATIONS: 'bb:notifications',
 } as const;
 
 export type QueueName = typeof QUEUE_NAMES[keyof typeof QUEUE_NAMES];

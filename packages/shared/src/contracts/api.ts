@@ -64,6 +64,11 @@ import {
   ConfigurationHealthStatus,
   PermissionCategory,
   AdminSubRole,
+  NotificationSeverity,
+  NotificationType,
+  AlertStatus,
+  AlertSource,
+  NotificationRuleStatus,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -2133,4 +2138,218 @@ export interface AdminUserEffectiveAuthorizationDto {
   mfaEnforced: boolean;
   isLastSuperAdmin: boolean;
   canManageTargetUser: boolean;
+}
+
+// =========================================================================
+// Phase 11.15: Notifications, Alerts & System Communications DTOs
+// =========================================================================
+
+export interface AdminNotificationOverviewDto {
+  totalNotifications: number;
+  unreadNotifications: number;
+  systemAlerts: number;
+  criticalAlerts: number;
+  failedDeliveries: number;
+  pendingDeliveries: number;
+  scheduledNotifications: number;
+  activeNotificationRules: number;
+  sentToday: number;
+  deliverySuccessRate: number;
+  recentSystemEvents: Array<{
+    id: string;
+    type: NotificationType;
+    severity: NotificationSeverity;
+    title: string;
+    createdAt: string;
+  }>;
+}
+
+export interface AdminSystemAlertDto {
+  id: string;
+  severity: NotificationSeverity;
+  source: AlertSource;
+  condition: string;
+  currentValue: string;
+  threshold: string;
+  status: AlertStatus;
+  deduplicationKey: string;
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  assignedToId?: string;
+  assignedToName?: string;
+  acknowledgedById?: string;
+  acknowledgedByName?: string;
+  acknowledgedAt?: string;
+  resolvedById?: string;
+  resolvedByName?: string;
+  resolvedAt?: string;
+  resolution?: string;
+  notesCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminAlertEventDto {
+  id: string;
+  alertId: string;
+  action: string;
+  actorId: string;
+  actorName: string;
+  note?: string;
+  previousStatus?: AlertStatus;
+  newStatus?: AlertStatus;
+  createdAt: string;
+}
+
+export interface AdminAcknowledgeAlertRequest {
+  note?: string;
+}
+
+export interface AdminAssignAlertRequest {
+  assigneeUserId: string;
+  note?: string;
+}
+
+export interface AdminResolveAlertRequest {
+  resolution: string;
+  note?: string;
+}
+
+export interface AdminNotificationRuleDto {
+  id: string;
+  name: string;
+  description: string;
+  eventCondition: string;
+  conditionValue: string;
+  notifyRoles: UserRole[];
+  notifyUserIds: string[];
+  channels: CommunicationChannel[];
+  severity: NotificationSeverity;
+  templateId?: string;
+  isActive: boolean;
+  version: number;
+  status: NotificationRuleStatus;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminCreateNotificationRuleRequest {
+  name: string;
+  description: string;
+  eventCondition: string;
+  conditionValue: string;
+  notifyRoles: UserRole[];
+  notifyUserIds?: string[];
+  channels: CommunicationChannel[];
+  severity: NotificationSeverity;
+  templateId?: string;
+}
+
+export interface AdminUpdateNotificationRuleRequest {
+  name?: string;
+  description?: string;
+  eventCondition?: string;
+  conditionValue?: string;
+  notifyRoles?: UserRole[];
+  notifyUserIds?: string[];
+  channels?: CommunicationChannel[];
+  severity?: NotificationSeverity;
+  templateId?: string;
+  isActive?: boolean;
+}
+
+export interface AdminNotificationAnalyticsDto {
+  sent: number;
+  delivered: number;
+  failed: number;
+  deliveryRate: number;
+  avgLatencyMs: number;
+  retryRate: number;
+  suppressionRate: number;
+  byChannel: Array<{
+    channel: CommunicationChannel;
+    sent: number;
+    delivered: number;
+    failed: number;
+    rate: number;
+  }>;
+  byEvent: Array<{
+    event: string;
+    count: number;
+  }>;
+  byRole: Array<{
+    role: string;
+    count: number;
+  }>;
+}
+
+export interface AdminEmergencyBroadcastRequest {
+  subject: string;
+  body: string;
+  severity: NotificationSeverity;
+  audience: CommunicationTargetType;
+  channels: CommunicationChannel[];
+  startTime?: string;
+  endTime?: string;
+  justificationReason: string;
+}
+
+export interface AdminNotificationHistoryItemDto {
+  id: string;
+  recipientUserId: string;
+  recipientName: string;
+  recipientRole: string;
+  type: NotificationType;
+  severity: NotificationSeverity;
+  title: string;
+  bodyPreview: string;
+  channel: CommunicationChannel;
+  status: CommunicationDeliveryStatus;
+  attempts: number;
+  errorMessage?: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  createdAt: string;
+}
+
+export interface AdminNotificationDeliveryDetailDto {
+  id: string;
+  recipientUserId: string;
+  recipientName: string;
+  recipientEmail: string;
+  recipientRole: string;
+  type: NotificationType;
+  severity: NotificationSeverity;
+  title: string;
+  body: string;
+  channelDeliveries: Array<{
+    channel: CommunicationChannel;
+    status: CommunicationDeliveryStatus;
+    attempts: number;
+    errorMessage?: string;
+    providerResponse?: string;
+    sentAt?: string;
+    deliveredAt?: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserNotificationItemDto {
+  id: string;
+  type: NotificationType;
+  severity: NotificationSeverity;
+  title: string;
+  body: string;
+  actionUrl?: string;
+  isRead: boolean;
+  channel: CommunicationChannel;
+  createdAt: string;
+}
+
+export interface UserNotificationCountsDto {
+  total: number;
+  unread: number;
 }

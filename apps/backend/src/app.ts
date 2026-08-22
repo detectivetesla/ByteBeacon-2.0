@@ -69,6 +69,9 @@ import { adminApiManagementRoutes } from './routes/commerce/admin-api-management
 import { adminAuditSecurityRoutes } from './routes/commerce/admin-audit-security.routes.js';
 import { adminSettingsRoutes } from './routes/commerce/admin-settings.routes.js';
 import { adminPermissionsRoutes } from './routes/commerce/admin-permissions.routes.js';
+import { adminNotificationsRoutes } from './routes/commerce/admin-notifications.routes.js';
+import { adminAlertsRoutes } from './routes/commerce/admin-alerts.routes.js';
+import { userNotificationsRoutes } from './routes/commerce/user-notifications.routes.js';
 import { developerSandboxRoutes } from './routes/commerce/developer-sandbox.routes.js';
 import { registerSwagger } from './plugins/swagger.plugin.js';
 import { metricsPlugin } from './plugins/metrics.plugin.js';
@@ -524,6 +527,26 @@ export function createApp(options: AppOptions = {}) {
         tokenService,
         rbacService,
         auditService,
+      });
+      await adminNotificationsRoutes(commerceSubApp, {
+        db: dbPool!,
+        apiKeyService,
+        tokenService,
+        rbacService,
+        auditService,
+      });
+      await adminAlertsRoutes(commerceSubApp, {
+        db: dbPool!,
+        apiKeyService,
+        tokenService,
+        rbacService,
+        auditService,
+      });
+      await userNotificationsRoutes(commerceSubApp, {
+        db: dbPool!,
+        apiKeyService,
+        tokenService,
+        rbacService,
       });
       await developerSandboxRoutes(commerceSubApp, {
         db: dbPool!,
