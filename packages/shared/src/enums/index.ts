@@ -332,3 +332,40 @@ export enum CatalogSyncBatchStatus {
   PARTIALLY_APPLIED = 'PARTIALLY_APPLIED',
 }
 
+// --- Phase 11.7 Agent & Store Enums ---
+
+export enum AgentAccountStatus {
+  PENDING = 'PENDING',
+  ACTIVE = 'ACTIVE',
+  SUSPENDED = 'SUSPENDED',
+  RESTRICTED = 'RESTRICTED',
+  DISABLED = 'DISABLED',
+}
+
+export enum StoreStatus {
+  NOT_STARTED = 'NOT_STARTED',
+  DRAFT = 'DRAFT',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+  SUSPENDED = 'SUSPENDED',
+  REJECTED = 'REJECTED',
+  ARCHIVED = 'ARCHIVED',
+}
+
+export enum StoreApprovalStatus {
+  NOT_SUBMITTED = 'NOT_SUBMITTED',
+  AWAITING_APPROVAL = 'AWAITING_APPROVAL',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
+export enum StorePayoutStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  PAID = 'PAID',
+  HELD = 'HELD',
+  REJECTED = 'REJECTED',
+  FAILED = 'FAILED',
+}
+

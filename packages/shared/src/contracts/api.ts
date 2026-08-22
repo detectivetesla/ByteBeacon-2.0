@@ -26,6 +26,10 @@ import {
   CatalogPricingMode,
   CatalogSyncChangeType,
   CatalogSyncBatchStatus,
+  AgentAccountStatus,
+  StoreStatus,
+  StoreApprovalStatus,
+  StorePayoutStatus,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -749,4 +753,281 @@ export interface ReconciliationSummaryDto {
   status: ReconciliationStatus;
   unmatchedCount: number;
   createdAt: string;
+}
+
+// --- Phase 11.7 Agent & Store Administration Contracts ---
+
+export interface AdminAgentStats {
+  totalAgents: number;
+  activeAgents: number;
+  suspendedAgents: number;
+  pendingAgents: number;
+  agentsWithStores: number;
+  agentsWithApi: number;
+  totalWalletFloatPesewas: number;
+  totalRevenuePesewas: number;
+}
+
+export interface AdminAgentListItem {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  businessName: string;
+  slug: string;
+  status: AgentAccountStatus | string;
+  storeStatus: StoreStatus | string;
+  hasStore: boolean;
+  storeName?: string;
+  storeSlug?: string;
+  apiEnabled: boolean;
+  activeKeysCount: number;
+  walletBalancePesewas: number;
+  ordersCount: number;
+  revenuePesewas: number;
+  subAgentsCount: number;
+  agentTier: string;
+  createdAt: string;
+  lastActiveAt?: string;
+}
+
+export interface AgentCustomPricingItemDto {
+  id?: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  network: NetworkProvider;
+  dataAmountMb: number;
+  defaultAgentPricePesewas: number;
+  basePricePesewas: number;
+  customPricePesewas: number | null;
+  effectivePricePesewas: number;
+  isActive: boolean;
+  updatedAt?: string;
+}
+
+export interface UpdateAgentPricingRequest {
+  pricing: Array<{
+    productId: string;
+    customPricePesewas: number | null;
+  }>;
+}
+
+export interface AgentSubAgentSummaryDto {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  businessName: string;
+  status: string;
+  walletBalancePesewas: number;
+  ordersCount: number;
+  revenuePesewas: number;
+  createdAt: string;
+}
+
+export interface AgentCustomerSummaryDto {
+  id: string;
+  customerId: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  ordersCount: number;
+  spentPesewas: number;
+  lastOrderDate?: string;
+  createdAt: string;
+}
+
+export interface AdminAgentDetail {
+  agent: AdminAgentListItem;
+  wallet: {
+    balancePesewas: number;
+    ledgerBalancePesewas: number;
+    totalDepositsPesewas: number;
+    totalSpentPesewas: number;
+    totalRevenuePesewas: number;
+    totalWithdrawalsPesewas: number;
+    totalRefundsPesewas: number;
+  };
+  ordersSummary: {
+    total: number;
+    completed: number;
+    processing: number;
+    failed: number;
+    refunded: number;
+  };
+  apiSummary: {
+    enabled: boolean;
+    activeKeys: number;
+    totalRequests30d: number;
+    successRate: number;
+    lastRequestAt?: string;
+  };
+  storeSummary?: {
+    id: string;
+    storeName: string;
+    slug: string;
+    storeStatus: string;
+    approvalStatus: string;
+    totalSalesPesewas: number;
+    productsCount: number;
+  };
+  subAgents: AgentSubAgentSummaryDto[];
+  customers: AgentCustomerSummaryDto[];
+  customPricing: AgentCustomPricingItemDto[];
+  recentOrders: any[];
+  auditLogs: any[];
+}
+
+export interface CreateAgentAdminRequest {
+  fullName: string;
+  email: string;
+  phone: string;
+  businessName: string;
+  slug: string;
+  agentTier?: string;
+  initialPassword?: string;
+  enableApiAccess?: boolean;
+}
+
+export interface UpdateAgentAdminRequest {
+  fullName?: string;
+  phone?: string;
+  businessName?: string;
+  slug?: string;
+  agentTier?: string;
+  commissionRate?: number;
+  enableApiAccess?: boolean;
+}
+
+export interface UpdateAgentStatusRequest {
+  status: AgentAccountStatus;
+  reason: string;
+}
+
+export interface AdminStoreStats {
+  totalStores: number;
+  activeStores: number;
+  pendingReviewStores: number;
+  pendingWithdrawalsCount: number;
+  pendingWithdrawalPesewas: number;
+  suspendedStores: number;
+  rejectedStores: number;
+  totalSalesPesewas: number;
+  totalRevenuePesewas: number;
+  totalPayoutsPesewas: number;
+}
+
+export interface AdminStoreListItem {
+  id: string;
+  agentId?: string;
+  userId: string;
+  storeName: string;
+  slug: string;
+  ownerName: string;
+  ownerEmail: string;
+  ownerPhone?: string;
+  paymentStatus: string;
+  approvalStatus: StoreApprovalStatus | string;
+  storeStatus: StoreStatus | string;
+  activationFeePesewas: number;
+  paystackReference?: string;
+  totalSalesPesewas: number;
+  pendingPayoutPesewas: number;
+  productsCount: number;
+  adminNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoreProductAdminDto {
+  id: string;
+  storeId: string;
+  catalogProductId: string;
+  productName: string;
+  sku: string;
+  network: NetworkProvider;
+  dataAmountMb: number;
+  basePricePesewas: number;
+  agentPricePesewas: number;
+  markupPesewas: number;
+  customPricePesewas?: number;
+  finalCustomerPricePesewas: number;
+  isAvailable: boolean;
+  isVisible: boolean;
+}
+
+export interface UpdateStoreProductsRequest {
+  products: Array<{
+    catalogProductId: string;
+    markupPesewas?: number;
+    customPricePesewas?: number;
+    isAvailable?: boolean;
+    isVisible?: boolean;
+  }>;
+}
+
+export interface StorePayoutDto {
+  id: string;
+  storeId: string;
+  storeName: string;
+  agentId?: string;
+  agentName?: string;
+  amountPesewas: number;
+  destinationAccount: string;
+  destinationProvider: string;
+  status: StorePayoutStatus | string;
+  adminNotes?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  paidAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StorePayoutActionRequest {
+  action: 'APPROVE' | 'REJECT' | 'HOLD' | 'RELEASE';
+  reason: string;
+}
+
+export interface StoreHealthReportDto {
+  storeId: string;
+  storeStatus: string;
+  isHealthy: boolean;
+  checks: {
+    catalogSynced: boolean;
+    paymentsHealthy: boolean;
+    ordersHealthy: boolean;
+    payoutsHealthy: boolean;
+    apiHealthy: boolean;
+  };
+  issues: string[];
+}
+
+export interface AdminStoreDetail {
+  store: AdminStoreListItem;
+  branding: {
+    tagline?: string;
+    description?: string;
+    logoUrl?: string;
+    bannerUrl?: string;
+    primaryColor: string;
+    accentColor: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    contactWhatsapp?: string;
+  };
+  products: StoreProductAdminDto[];
+  salesMetrics: {
+    totalOrders: number;
+    completedOrders: number;
+    grossSalesPesewas: number;
+    netMarginPesewas: number;
+    refundedPesewas: number;
+  };
+  recentOrders: any[];
+  payouts: StorePayoutDto[];
+  health: StoreHealthReportDto;
 }

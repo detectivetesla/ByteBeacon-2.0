@@ -13,7 +13,58 @@ import {
   ProviderCatalogSyncBatchDto,
   CatalogPlanStatus,
   CatalogProviderStatus,
+  AdminAgentStats,
+  AdminAgentListItem,
+  AdminAgentDetail,
+  CreateAgentAdminRequest,
+  UpdateAgentAdminRequest,
+  UpdateAgentStatusRequest,
+  AgentCustomPricingItemDto,
+  UpdateAgentPricingRequest,
+  AgentSubAgentSummaryDto,
+  AgentCustomerSummaryDto,
+  AdminStoreStats,
+  AdminStoreListItem,
+  AdminStoreDetail,
+  StoreProductAdminDto,
+  UpdateStoreProductsRequest,
+  StorePayoutDto,
+  StorePayoutActionRequest,
+  StoreHealthReportDto,
+  AgentAccountStatus,
+  StoreStatus,
+  StoreApprovalStatus,
+  StorePayoutStatus,
 } from '@bytebeacon/shared';
+
+export {
+  AgentAccountStatus,
+  StoreStatus,
+  StoreApprovalStatus,
+  StorePayoutStatus,
+  CatalogPlanStatus,
+  CatalogProviderStatus,
+};
+export type {
+  AdminAgentStats,
+  AdminAgentListItem,
+  AdminAgentDetail,
+  CreateAgentAdminRequest,
+  UpdateAgentAdminRequest,
+  UpdateAgentStatusRequest,
+  AgentCustomPricingItemDto,
+  UpdateAgentPricingRequest,
+  AgentSubAgentSummaryDto,
+  AgentCustomerSummaryDto,
+  AdminStoreStats,
+  AdminStoreListItem,
+  AdminStoreDetail,
+  StoreProductAdminDto,
+  UpdateStoreProductsRequest,
+  StorePayoutDto,
+  StorePayoutActionRequest,
+  StoreHealthReportDto,
+};
 
 export interface AdminUserStats {
   total: number;
@@ -742,5 +793,120 @@ export const adminApi = {
 
   exportCatalog: async (data: { format: 'csv' | 'json'; network?: string; status?: string }) => {
     return apiClient.post('/admin/catalog/export', data);
+  },
+
+  // --- Phase 11.7: Agent Administration ---
+
+  getAgentStats: async (): Promise<AdminAgentStats> => {
+    const res = await apiClient.get<AdminAgentStats>('/admin/agents/stats');
+    return res;
+  },
+
+  getAgentsList: async (params: {
+    search?: string;
+    status?: string;
+    store?: string;
+    api?: string;
+    financial?: string;
+    dateRange?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
+    return apiClient.get<{
+      items: AdminAgentListItem[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/agents', { params });
+  },
+
+  getAgentDetail: async (id: string): Promise<AdminAgentDetail> => {
+    return apiClient.get<AdminAgentDetail>(`/admin/agents/${id}`);
+  },
+
+  createAgent: async (data: CreateAgentAdminRequest) => {
+    return apiClient.post<{ id: string; userId: string; fullName: string; email: string }>('/admin/agents', data);
+  },
+
+  updateAgent: async (id: string, data: UpdateAgentAdminRequest) => {
+    return apiClient.put(`/admin/agents/${id}`, data);
+  },
+
+  updateAgentStatus: async (id: string, data: UpdateAgentStatusRequest) => {
+    return apiClient.patch<{ id: string; status: string; reason: string }>(`/admin/agents/${id}/status`, data);
+  },
+
+  adjustAgentWallet: async (id: string, data: { amountPesewas: number; direction: 'CREDIT' | 'DEBIT'; reason: string; idempotencyKey?: string }) => {
+    return apiClient.post(`/admin/agents/${id}/wallet/adjust`, data);
+  },
+
+  getAgentCustomPricing: async (id: string): Promise<AgentCustomPricingItemDto[]> => {
+    return apiClient.get<AgentCustomPricingItemDto[]>(`/admin/agents/${id}/pricing`);
+  },
+
+  updateAgentCustomPricing: async (id: string, data: UpdateAgentPricingRequest) => {
+    return apiClient.put(`/admin/agents/${id}/pricing`, data);
+  },
+
+  getAgentApiKeys: async (id: string) => {
+    return apiClient.get<any[]>(`/admin/agents/${id}/api-keys`);
+  },
+
+  revokeAgentApiKey: async (id: string, keyId: string, reason?: string) => {
+    return apiClient.post(`/admin/agents/${id}/api-keys/${keyId}/revoke`, { reason });
+  },
+
+  exportAgents: async (data: { format?: 'csv' | 'json'; status?: string } = {}) => {
+    return apiClient.post('/admin/agents/export', data);
+  },
+
+  // --- Phase 11.7: Store Administration ---
+
+  getStoreStats: async (): Promise<AdminStoreStats> => {
+    return apiClient.get<AdminStoreStats>('/admin/stores/stats');
+  },
+
+  getStoresList: async (params: {
+    search?: string;
+    status?: string;
+    approval?: string;
+    payment?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
+    return apiClient.get<{
+      items: AdminStoreListItem[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/stores', { params });
+  },
+
+  getStoreDetail: async (id: string): Promise<AdminStoreDetail> => {
+    return apiClient.get<AdminStoreDetail>(`/admin/stores/${id}`);
+  },
+
+  updateStoreStatus: async (id: string, storeStatus: string, reason?: string) => {
+    return apiClient.patch(`/admin/stores/${id}/status`, { storeStatus, reason });
+  },
+
+  approveStoreApplication: async (id: string, adminNotes?: string) => {
+    return apiClient.post(`/admin/stores/${id}/approve`, { adminNotes });
+  },
+
+  rejectStoreApplication: async (id: string, reason: string) => {
+    return apiClient.post(`/admin/stores/${id}/reject`, { reason });
+  },
+
+  getStoreProductsList: async (id: string): Promise<StoreProductAdminDto[]> => {
+    return apiClient.get<StoreProductAdminDto[]>(`/admin/stores/${id}/products`);
+  },
+
+  updateStoreProductsList: async (id: string, data: UpdateStoreProductsRequest) => {
+    return apiClient.put(`/admin/stores/${id}/products`, data);
+  },
+
+  processStorePayoutAction: async (storeId: string, payoutId: string, data: StorePayoutActionRequest) => {
+    return apiClient.post(`/admin/stores/${storeId}/payouts/${payoutId}/action`, data);
+  },
+
+  exportStores: async (data: { format?: 'csv' | 'json'; status?: string } = {}) => {
+    return apiClient.post('/admin/stores/export', data);
   },
 };

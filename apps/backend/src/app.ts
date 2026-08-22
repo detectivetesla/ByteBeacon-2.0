@@ -59,6 +59,8 @@ import { adminOrdersRoutes } from './routes/commerce/admin-orders.routes.js';
 import { adminApprovalsRoutes } from './routes/commerce/admin-approvals.routes.js';
 import { adminCatalogRoutes } from './routes/commerce/admin-catalog.routes.js';
 import { adminUsersRoutes } from './routes/commerce/admin-users.routes.js';
+import { adminAgentsRoutes } from './routes/commerce/admin-agents.routes.js';
+import { adminStoresRoutes } from './routes/commerce/admin-stores.routes.js';
 import { adminAnalyticsRoutes } from './routes/commerce/admin-analytics.routes.js';
 import { adminCommunicationsRoutes } from './routes/commerce/admin-communications.routes.js';
 import { developerSandboxRoutes } from './routes/commerce/developer-sandbox.routes.js';
@@ -442,6 +444,23 @@ export function createApp(options: AppOptions = {}) {
         auditService,
         sessionService,
         ledgerService,
+      });
+      await adminAgentsRoutes(commerceSubApp, {
+        db: dbPool!,
+        tokenService,
+        apiKeyService,
+        rbacService,
+        auditService,
+        financialLedgerService: ledgerService,
+        passwordHasher: hasher,
+      });
+      await adminStoresRoutes(commerceSubApp, {
+        db: dbPool!,
+        tokenService,
+        apiKeyService,
+        rbacService,
+        auditService,
+        financialLedgerService: ledgerService,
       });
       await adminAnalyticsRoutes(commerceSubApp, {
         db: dbPool!,
