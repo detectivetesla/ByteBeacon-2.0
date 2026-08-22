@@ -57,6 +57,7 @@ import { storeRoutes } from './routes/commerce/store.routes.js';
 import { adminOperationsRoutes } from './routes/commerce/admin-operations.routes.js';
 import { adminOrdersRoutes } from './routes/commerce/admin-orders.routes.js';
 import { adminApprovalsRoutes } from './routes/commerce/admin-approvals.routes.js';
+import { adminCatalogRoutes } from './routes/commerce/admin-catalog.routes.js';
 import { adminUsersRoutes } from './routes/commerce/admin-users.routes.js';
 import { adminAnalyticsRoutes } from './routes/commerce/admin-analytics.routes.js';
 import { adminCommunicationsRoutes } from './routes/commerce/admin-communications.routes.js';
@@ -423,6 +424,15 @@ export function createApp(options: AppOptions = {}) {
         auditService,
         fulfillmentQueueService,
         beneficiaryService,
+      });
+      await adminCatalogRoutes(commerceSubApp, {
+        db: dbPool!,
+        tokenService,
+        apiKeyService,
+        rbacService,
+        auditService,
+        catalogService,
+        telecomProvider,
       });
       await adminUsersRoutes(commerceSubApp, {
         db: dbPool!,

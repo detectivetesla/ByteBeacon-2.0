@@ -21,6 +21,11 @@ import {
   PaymentEventType,
   RefundEventType,
   ReconciliationStatus,
+  CatalogPlanStatus,
+  CatalogProviderStatus,
+  CatalogPricingMode,
+  CatalogSyncChangeType,
+  CatalogSyncBatchStatus,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -168,12 +173,250 @@ export interface CatalogProductDto {
   name: string;
   dataAmountMb: number;
   validityDays: number;
+  validityDesc?: string;
   basePricePesewas: number;
   agentPricePesewas: number | null;
+  agentMinPricePesewas?: number | null;
+  agentMaxPricePesewas?: number | null;
+  storePricePesewas?: number | null;
+  providerPricePesewas?: number;
+  providerName?: string;
+  providerPlanId?: string | null;
+  providerPlanCode?: string | null;
+  providerProductCode?: string | null;
+  pricingMode?: CatalogPricingMode;
+  markupValue?: number;
+  description?: string | null;
+  category?: string;
+  status?: CatalogPlanStatus;
+  providerStatus?: CatalogProviderStatus;
+  availableForCustomer?: boolean;
+  availableForAgent?: boolean;
+  availableForStore?: boolean;
+  availableForApi?: boolean;
+  version?: number;
+  lastSyncedAt?: string | null;
+  syncError?: string | null;
+  popular?: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface AdminCatalogStats {
+  totalPlans: number;
+  activePlans: number;
+  disabledPlans: number;
+  customerPlans: number;
+  agentPlans: number;
+  storePlans: number;
+  providerSynced: number;
+  syncIssues: number;
+}
+
+export interface CatalogPriceHistoryDto {
+  id: string;
+  productId: string;
+  changedBy: string | null;
+  changedByName?: string | null;
+  changeType: string;
+  previousProviderPricePesewas: number | null;
+  newProviderPricePesewas: number | null;
+  previousBasePricePesewas: number | null;
+  newBasePricePesewas: number | null;
+  previousAgentPricePesewas: number | null;
+  newAgentPricePesewas: number | null;
+  previousStorePricePesewas: number | null;
+  newStorePricePesewas: number | null;
+  reason: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AdminCatalogPlanDetail extends CatalogProductDto {
+  customerMarginPesewas: number;
+  customerMarginPct: number;
+  agentMarginPesewas: number;
+  agentMarginPct: number;
+  storeMarginPesewas: number;
+  storeMarginPct: number;
+  analytics: {
+    todayOrders: number;
+    todayRevenuePesewas: number;
+    last7DaysOrders: number;
+    last7DaysRevenuePesewas: number;
+    last30DaysOrders: number;
+    last30DaysRevenuePesewas: number;
+    last90DaysOrders: number;
+    lifetimeOrders: number;
+    lifetimeRevenuePesewas: number;
+    successfulOrders: number;
+    failedOrders: number;
+    refundedOrders: number;
+    successRatePct: number;
+  };
+  priceHistory: CatalogPriceHistoryDto[];
+  recentOrders: Array<{
+    id: string;
+    publicId: string;
+    customerEmail?: string;
+    recipientPhone: string;
+    amountPesewas: number;
+    paymentStatus: string;
+    orderStatus: string;
+    providerStatus: string;
+    createdAt: string;
+  }>;
+}
+
+export interface CreateCatalogPlanRequest {
+  name: string;
+  network: NetworkProvider;
+  providerName?: string;
+  providerPlanId?: string;
+  providerPlanCode?: string;
+  providerProductCode?: string;
+  dataAmountMb: number;
+  validityDays?: number;
+  validityDesc?: string;
+  providerPricePesewas: number;
+  basePricePesewas: number; // Customer retail price
+  agentPricePesewas?: number;
+  agentMinPricePesewas?: number;
+  agentMaxPricePesewas?: number;
+  storePricePesewas?: number;
+  pricingMode?: CatalogPricingMode;
+  markupValue?: number;
+  description?: string;
+  category?: string;
+  sku?: string;
+  status?: CatalogPlanStatus;
+  availableForCustomer?: boolean;
+  availableForAgent?: boolean;
+  availableForStore?: boolean;
+  availableForApi?: boolean;
+  popular?: boolean;
+}
+
+export interface UpdateCatalogPlanRequest {
+  name?: string;
+  network?: NetworkProvider;
+  providerName?: string;
+  providerPlanId?: string;
+  providerPlanCode?: string;
+  providerProductCode?: string;
+  dataAmountMb?: number;
+  validityDays?: number;
+  validityDesc?: string;
+  providerPricePesewas?: number;
+  basePricePesewas?: number;
+  agentPricePesewas?: number;
+  agentMinPricePesewas?: number;
+  agentMaxPricePesewas?: number;
+  storePricePesewas?: number;
+  pricingMode?: CatalogPricingMode;
+  markupValue?: number;
+  description?: string;
+  category?: string;
+  sku?: string;
+  status?: CatalogPlanStatus;
+  providerStatus?: CatalogProviderStatus;
+  availableForCustomer?: boolean;
+  availableForAgent?: boolean;
+  availableForStore?: boolean;
+  availableForApi?: boolean;
+  popular?: boolean;
+  changeReason?: string;
+}
+
+export interface BulkCatalogActionRequest {
+  planIds: string[];
+  action:
+    | 'ACTIVATE'
+    | 'DISABLE'
+    | 'ARCHIVE'
+    | 'ENABLE_CUSTOMER'
+    | 'DISABLE_CUSTOMER'
+    | 'ENABLE_AGENT'
+    | 'DISABLE_AGENT'
+    | 'ENABLE_STORE'
+    | 'DISABLE_STORE'
+    | 'ENABLE_API'
+    | 'DISABLE_API';
+  reason?: string;
+}
+
+export interface BulkPricingPreviewRequest {
+  network?: NetworkProvider | 'ALL';
+  planIds?: string[];
+  customerMarkupPercent?: number;
+  agentMarkupPercent?: number;
+  storeMarkupPercent?: number;
+  customerMarkupPesewas?: number;
+  agentMarkupPesewas?: number;
+  storeMarkupPesewas?: number;
+}
+
+export interface BulkPricingPlanImpact {
+  id: string;
+  name: string;
+  network: NetworkProvider;
+  dataAmountMb: number;
+  currentProviderPricePesewas: number;
+  currentBasePricePesewas: number;
+  newBasePricePesewas: number;
+  currentAgentPricePesewas: number | null;
+  newAgentPricePesewas: number | null;
+  currentStorePricePesewas: number | null;
+  newStorePricePesewas: number | null;
+  estimatedDailyRevenueDiffPesewas: number;
+}
+
+export interface BulkPricingPreviewResponse {
+  affectedPlansCount: number;
+  totalDailyRevenueDiffPesewas: number;
+  plans: BulkPricingPlanImpact[];
+}
+
+export interface BulkPricingApplyRequest extends BulkPricingPreviewRequest {
+  reason: string;
+}
+
+export interface ProviderCatalogSyncItemDto {
+  id: string;
+  batchId: string;
+  catalogProductId?: string | null;
+  providerPlanId: string;
+  changeType: CatalogSyncChangeType;
+  network: string;
+  planName: string;
+  dataAmountMb: number;
+  currentProviderPricePesewas?: number | null;
+  newProviderPricePesewas: number;
+  currentCustomerPricePesewas?: number | null;
+  proposedCustomerPricePesewas?: number | null;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+}
+
+export interface ProviderCatalogSyncBatchDto {
+  id: string;
+  providerName: string;
+  initiatedBy?: string | null;
+  totalProviderPlans: number;
+  matchedPlans: number;
+  newPlansCount: number;
+  changedPlansCount: number;
+  removedPlansCount: number;
+  discrepancyCount: number;
+  status: CatalogSyncBatchStatus;
+  appliedAt?: string | null;
+  createdAt: string;
+  items?: ProviderCatalogSyncItemDto[];
+}
+
 
 // --- Order DTOs ---
 

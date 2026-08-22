@@ -7,6 +7,7 @@ import { migration00000000000003 } from './migrations/00000000000003_create_fina
 import { migration00000000000004 } from './migrations/00000000000004_create_provider_fulfillment_schema.js';
 import { migration00000000000005 } from './migrations/00000000000005_create_agent_stores_schema.js';
 import { migration00000000000006 } from './migrations/00000000000006_create_production_indexes.js';
+import { migration00000000000007 } from './migrations/00000000000007_enhance_catalog_management_schema.js';
 import { logger } from '../../core/logging/logger.js';
 
 const allMigrations = [
@@ -17,6 +18,7 @@ const allMigrations = [
   migration00000000000004,
   migration00000000000005,
   migration00000000000006,
+  migration00000000000007,
 ];
 
 async function main() {

@@ -292,3 +292,43 @@ export enum ReconciliationStatus {
   DISCREPANCY = 'DISCREPANCY',
   PENDING_INVESTIGATION = 'PENDING_INVESTIGATION',
 }
+
+// --- Phase 11.6 Catalog Enums ---
+
+export enum CatalogPlanStatus {
+  ACTIVE = 'ACTIVE',
+  DISABLED = 'DISABLED',
+  ARCHIVED = 'ARCHIVED',
+  DRAFT = 'DRAFT',
+}
+
+export enum CatalogProviderStatus {
+  AVAILABLE = 'AVAILABLE',
+  UNAVAILABLE = 'UNAVAILABLE',
+  UNKNOWN = 'UNKNOWN',
+  SUSPENDED = 'SUSPENDED',
+  PROVIDER_REMOVED = 'PROVIDER_REMOVED',
+  SYNC_ERROR = 'SYNC_ERROR',
+}
+
+export enum CatalogPricingMode {
+  FIXED = 'FIXED',
+  PERCENTAGE_MARKUP = 'PERCENTAGE_MARKUP',
+  ABSOLUTE_MARKUP = 'ABSOLUTE_MARKUP',
+}
+
+export enum CatalogSyncChangeType {
+  NEW_PLAN = 'NEW_PLAN',
+  PRICE_CHANGE = 'PRICE_CHANGE',
+  REMOVED_PLAN = 'REMOVED_PLAN',
+  NETWORK_CHANGE = 'NETWORK_CHANGE',
+  NO_CHANGE = 'NO_CHANGE',
+}
+
+export enum CatalogSyncBatchStatus {
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  APPLIED = 'APPLIED',
+  REJECTED = 'REJECTED',
+  PARTIALLY_APPLIED = 'PARTIALLY_APPLIED',
+}
+

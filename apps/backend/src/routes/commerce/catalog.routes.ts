@@ -12,34 +12,58 @@ export async function catalogRoutes(
 ) {
   const { catalogService } = deps;
 
-  // 1. LIST CATALOG PRODUCTS
-  app.get<{ Querystring: { network?: string } }>(
+  const handleListProducts = async (
+    req: FastifyRequest<{ Querystring: { network?: string; channel?: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const network = req.query.network as NetworkProvider | undefined;
+    const channel = req.query.channel as 'CUSTOMER' | 'AGENT' | 'STORE' | 'API' | undefined;
+    const products = await catalogService.listActiveProducts({
+      network: network && network !== ('ALL' as any) ? network : undefined,
+      channel: channel || 'CUSTOMER',
+    });
+
+    const response: ApiResponse<CatalogProductDto[]> = {
+      success: true,
+      data: products,
+    };
+
+    return reply.send(response);
+  };
+
+  const handleGetProductById = async (
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const product = await catalogService.getProductById(req.params.id);
+
+    const response: ApiResponse<CatalogProductDto> = {
+      success: true,
+      data: product,
+    };
+
+    return reply.send(response);
+  };
+
+  // 1. LIST CATALOG PRODUCTS & BUNDLES (Supports both aliases)
+  app.get<{ Querystring: { network?: string; channel?: string } }>(
     '/catalog/products',
-    async (req: FastifyRequest<{ Querystring: { network?: string } }>, reply: FastifyReply) => {
-      const network = req.query.network as NetworkProvider | undefined;
-      const products = await catalogService.listActiveProducts(network);
-
-      const response: ApiResponse<CatalogProductDto[]> = {
-        success: true,
-        data: products,
-      };
-
-      return reply.send(response);
-    },
+    handleListProducts,
   );
 
-  // 2. GET PRODUCT BY ID
+  app.get<{ Querystring: { network?: string; channel?: string } }>(
+    '/catalog/bundles',
+    handleListProducts,
+  );
+
+  // 2. GET PRODUCT / BUNDLE BY ID
   app.get<{ Params: { id: string } }>(
     '/catalog/products/:id',
-    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const product = await catalogService.getProductById(req.params.id);
+    handleGetProductById,
+  );
 
-      const response: ApiResponse<CatalogProductDto> = {
-        success: true,
-        data: product,
-      };
-
-      return reply.send(response);
-    },
+  app.get<{ Params: { id: string } }>(
+    '/catalog/bundles/:id',
+    handleGetProductById,
   );
 }

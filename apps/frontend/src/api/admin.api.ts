@@ -1,5 +1,19 @@
 import { apiClient } from './httpClient.js';
-import { IntegrationHealthReport } from '@bytebeacon/shared';
+import {
+  IntegrationHealthReport,
+  CatalogProductDto,
+  AdminCatalogStats,
+  AdminCatalogPlanDetail,
+  CreateCatalogPlanRequest,
+  UpdateCatalogPlanRequest,
+  BulkCatalogActionRequest,
+  BulkPricingPreviewRequest,
+  BulkPricingPreviewResponse,
+  BulkPricingApplyRequest,
+  ProviderCatalogSyncBatchDto,
+  CatalogPlanStatus,
+  CatalogProviderStatus,
+} from '@bytebeacon/shared';
 
 export interface AdminUserStats {
   total: number;
@@ -621,5 +635,112 @@ export const adminApi = {
 
   triggerReconciliation: async () => {
     return apiClient.post('/admin/reconciliation/trigger');
+  },
+
+  // Catalog & Data Plans Control Plane (Phase 11.6)
+  getCatalogStats: async () => {
+    return apiClient.get<AdminCatalogStats>('/admin/catalog/stats');
+  },
+
+  getCatalogPlans: async (params: {
+    search?: string;
+    network?: string;
+    provider?: string;
+    status?: string;
+    providerStatus?: string;
+    customerAvailability?: string;
+    agentAvailability?: string;
+    storeAvailability?: string;
+    apiAvailability?: string;
+    minPrice?: string;
+    maxPrice?: string;
+    page?: number;
+    limit?: number;
+    sortBy?: string;
+    sortOrder?: string;
+  } = {}) => {
+    return apiClient.get<{ items: CatalogProductDto[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/admin/catalog/plans', { params });
+  },
+
+  getCatalogPlanDetail: async (id: string) => {
+    return apiClient.get<AdminCatalogPlanDetail>(`/admin/catalog/plans/${id}`);
+  },
+
+  createCatalogPlan: async (data: CreateCatalogPlanRequest) => {
+    return apiClient.post<CatalogProductDto>('/admin/catalog/plans', data);
+  },
+
+  updateCatalogPlan: async (id: string, data: UpdateCatalogPlanRequest) => {
+    return apiClient.put<CatalogProductDto>(`/admin/catalog/plans/${id}`, data);
+  },
+
+  updatePlanStatus: async (id: string, status: CatalogPlanStatus, reason?: string) => {
+    return apiClient.patch<CatalogProductDto>(`/admin/catalog/plans/${id}/status`, { status, reason });
+  },
+
+  updatePlanVisibility: async (
+    id: string,
+    visibility: {
+      availableForCustomer?: boolean;
+      availableForAgent?: boolean;
+      availableForStore?: boolean;
+      availableForApi?: boolean;
+    },
+  ) => {
+    return apiClient.patch<CatalogProductDto>(`/admin/catalog/plans/${id}/visibility`, visibility);
+  },
+
+  executeBulkCatalogAction: async (data: BulkCatalogActionRequest) => {
+    return apiClient.post<{ affectedCount: number }>('/admin/catalog/plans/bulk', data);
+  },
+
+  previewBulkPricing: async (data: BulkPricingPreviewRequest) => {
+    return apiClient.post<BulkPricingPreviewResponse>('/admin/catalog/plans/bulk-pricing/preview', data);
+  },
+
+  applyBulkPricing: async (data: BulkPricingApplyRequest) => {
+    return apiClient.post<{ updatedCount: number }>('/admin/catalog/plans/bulk-pricing/apply', data);
+  },
+
+  triggerProviderCatalogSync: async (data: { autoApply?: boolean; network?: string } = {}) => {
+    return apiClient.post<{
+      batchId: string;
+      totalProviderPlans: number;
+      matchedPlans: number;
+      newPlansCount: number;
+      changedPlansCount: number;
+      removedPlansCount: number;
+      discrepancyCount: number;
+      status: string;
+      items: any[];
+    }>('/admin/catalog/sync', data);
+  },
+
+  getSyncBatches: async () => {
+    return apiClient.get<ProviderCatalogSyncBatchDto[]>('/admin/catalog/sync/batches');
+  },
+
+  getSyncBatchDetail: async (id: string) => {
+    return apiClient.get<ProviderCatalogSyncBatchDto>(`/admin/catalog/sync/batches/${id}`);
+  },
+
+  applySyncBatch: async (id: string, data: { itemIds?: string[] } = {}) => {
+    return apiClient.post<{ appliedCount: number }>(`/admin/catalog/sync/batches/${id}/apply`, data);
+  },
+
+  rejectSyncBatch: async (id: string, reason?: string) => {
+    return apiClient.post(`/admin/catalog/sync/batches/${id}/reject`, { reason });
+  },
+
+  getPlanOrders: async (id: string, params: { page?: number; limit?: number } = {}) => {
+    return apiClient.get<{ items: any[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(`/admin/catalog/plans/${id}/orders`, { params });
+  },
+
+  getPlanPriceHistory: async (id: string) => {
+    return apiClient.get<any[]>(`/admin/catalog/plans/${id}/price-history`);
+  },
+
+  exportCatalog: async (data: { format: 'csv' | 'json'; network?: string; status?: string }) => {
+    return apiClient.post('/admin/catalog/export', data);
   },
 };

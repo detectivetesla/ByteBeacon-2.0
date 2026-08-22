@@ -2,6 +2,7 @@ import React from 'react';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { Card } from '../ui/Card/Card.js';
 import { Sparkles, ArrowRight, Zap } from 'lucide-react';
+import { catalogApi } from '../../api/catalog.api.js';
 
 export interface BundleItem {
   id: string;
@@ -90,6 +91,8 @@ const NETWORK_THEMES: Record<
 
 export interface BundleSelectorProps {
   network: NetworkProvider;
+  bundles?: BundleItem[];
+  channel?: 'CUSTOMER' | 'AGENT' | 'STORE' | 'API';
   selectedBundleId?: string;
   onSelectBundle?: (bundle: BundleItem) => void;
   onSelect?: (bundle: BundleItem) => void;
@@ -100,16 +103,64 @@ export interface BundleSelectorProps {
 
 export const BundleSelector: React.FC<BundleSelectorProps> = ({
   network,
+  bundles,
+  channel = 'CUSTOMER',
   selectedBundleId,
   onSelectBundle,
   onSelect,
   searchQuery = '',
   viewMode = 'grid',
-  isLoading = false,
+  isLoading: externalLoading = false,
 }) => {
   const handleSelect = onSelectBundle || onSelect || (() => {});
-  const allBundles = SAMPLE_BUNDLES[network] || [];
+  const [liveBundles, setLiveBundles] = React.useState<BundleItem[]>([]);
+  const [internalLoading, setInternalLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (bundles && bundles.length > 0) return;
+
+    let isMounted = true;
+    setInternalLoading(true);
+    catalogApi
+      .getBundles(network, channel)
+      .then((res) => {
+        if (isMounted && res.data && res.data.length > 0) {
+          const mapped: BundleItem[] = res.data.map((p) => ({
+            id: p.id,
+            sku: p.sku,
+            network: p.network,
+            dataAmountMb: p.dataAmountMb,
+            dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+            pricePesewas: p.basePricePesewas,
+            priceDisplay: `GH₵ ${(p.basePricePesewas / 100).toFixed(2)}`,
+            validityDays: p.validityDays,
+            validityDisplay: p.validityDesc || `${p.validityDays} Days`,
+            popular: Boolean(p.popular),
+          }));
+          setLiveBundles(mapped);
+        }
+      })
+      .catch(() => {
+        // Fallback to static sample bundles if offline
+      })
+      .finally(() => {
+        if (isMounted) setInternalLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [network, channel, bundles]);
+
+  const allBundles =
+    bundles && bundles.length > 0
+      ? bundles
+      : liveBundles.length > 0
+      ? liveBundles
+      : SAMPLE_BUNDLES[network] || [];
+
   const theme = NETWORK_THEMES[network] || NETWORK_THEMES[NetworkProvider.MTN];
+  const isLoading = externalLoading || (internalLoading && allBundles.length === 0);
 
   const filteredBundles = allBundles.filter((b) => {
     return (
