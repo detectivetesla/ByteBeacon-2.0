@@ -35,6 +35,32 @@ import {
   StoreStatus,
   StoreApprovalStatus,
   StorePayoutStatus,
+  TransactionType,
+  TransactionStatus,
+  ReconciliationSeverity,
+  ReconciliationSource,
+  ReconciliationCaseStatus,
+  FinancialAdjustmentStatus,
+  RefundAdminStatus,
+  LedgerAnomalySeverity,
+  AdminFinanceStats,
+  AdminTransactionListItem,
+  AdminTransactionFilterQuery,
+  AdminTransactionDetailDto,
+  AdminLedgerAnomalyDto,
+  ReconciliationDashboardDto,
+  ReconciliationCaseDto,
+  UpdateReconciliationCaseRequest,
+  AdminRefundListItemDto,
+  AdminRefundActionRequest,
+  FinancialAdjustmentDto,
+  CreateFinancialAdjustmentRequest,
+  ReviewFinancialAdjustmentRequest,
+  FinancialSafetySettingsDto,
+  UpdateFinancialSafetySettingsRequest,
+  ReprocessEligibleItemDto,
+  ReprocessPreviewDto,
+  ReprocessExecuteRequest,
 } from '@bytebeacon/shared';
 
 export {
@@ -44,6 +70,14 @@ export {
   StorePayoutStatus,
   CatalogPlanStatus,
   CatalogProviderStatus,
+  TransactionType,
+  TransactionStatus,
+  ReconciliationSeverity,
+  ReconciliationSource,
+  ReconciliationCaseStatus,
+  FinancialAdjustmentStatus,
+  RefundAdminStatus,
+  LedgerAnomalySeverity,
 };
 export type {
   AdminAgentStats,
@@ -64,6 +98,24 @@ export type {
   StorePayoutDto,
   StorePayoutActionRequest,
   StoreHealthReportDto,
+  AdminFinanceStats,
+  AdminTransactionListItem,
+  AdminTransactionFilterQuery,
+  AdminTransactionDetailDto,
+  AdminLedgerAnomalyDto,
+  ReconciliationDashboardDto,
+  ReconciliationCaseDto,
+  UpdateReconciliationCaseRequest,
+  AdminRefundListItemDto,
+  AdminRefundActionRequest,
+  FinancialAdjustmentDto,
+  CreateFinancialAdjustmentRequest,
+  ReviewFinancialAdjustmentRequest,
+  FinancialSafetySettingsDto,
+  UpdateFinancialSafetySettingsRequest,
+  ReprocessEligibleItemDto,
+  ReprocessPreviewDto,
+  ReprocessExecuteRequest,
 };
 
 export interface AdminUserStats {
@@ -908,5 +960,126 @@ export const adminApi = {
 
   exportStores: async (data: { format?: 'csv' | 'json'; status?: string } = {}) => {
     return apiClient.post('/admin/stores/export', data);
+  },
+
+  // --- Phase 11.8: Finance, Transactions & Reconciliation ---
+
+  getFinanceOverview: async (): Promise<AdminFinanceStats> => {
+    return apiClient.get<AdminFinanceStats>('/admin/finance/overview');
+  },
+
+  getFinanceTransactions: async (params: AdminTransactionFilterQuery = {}) => {
+    return apiClient.get<{
+      items: AdminTransactionListItem[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/finance/transactions', { params });
+  },
+
+  getFinanceTransactionDetail: async (id: string): Promise<AdminTransactionDetailDto> => {
+    return apiClient.get<AdminTransactionDetailDto>(`/admin/finance/transactions/${id}`);
+  },
+
+  getFinanceLedger: async (params: { page?: number; limit?: number; entryType?: string; accountType?: string; transactionId?: string } = {}) => {
+    return apiClient.get<{
+      items: any[];
+      isBalanced: boolean;
+      status: string;
+      totalDebitsPesewas: number;
+      totalCreditsPesewas: number;
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/finance/ledger', { params });
+  },
+
+  getFinanceLedgerAnomalies: async () => {
+    return apiClient.get<{
+      anomaliesCount: number;
+      status: string;
+      anomalies: AdminLedgerAnomalyDto[];
+    }>('/admin/finance/ledger/anomalies');
+  },
+
+  getFinanceRefunds: async (params: { status?: string; riskLevel?: string; page?: number; limit?: number } = {}) => {
+    return apiClient.get<{
+      items: AdminRefundListItemDto[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/finance/refunds', { params });
+  },
+
+  processRefundAction: async (id: string, data: AdminRefundActionRequest) => {
+    return apiClient.post(`/admin/finance/refunds/${id}/action`, data);
+  },
+
+  getFinanceWithdrawals: async (params: { status?: string; page?: number; limit?: number } = {}) => {
+    return apiClient.get<{
+      items: any[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/finance/withdrawals', { params });
+  },
+
+  getFinanceAdjustments: async (): Promise<FinancialAdjustmentDto[]> => {
+    return apiClient.get<FinancialAdjustmentDto[]>('/admin/finance/adjustments');
+  },
+
+  requestFinancialAdjustment: async (data: CreateFinancialAdjustmentRequest) => {
+    return apiClient.post('/admin/finance/adjustments/request', data);
+  },
+
+  reviewFinancialAdjustment: async (id: string, data: ReviewFinancialAdjustmentRequest) => {
+    return apiClient.post(`/admin/finance/adjustments/${id}/action`, data);
+  },
+
+  getFinancialSafetySettings: async (): Promise<FinancialSafetySettingsDto> => {
+    return apiClient.get<FinancialSafetySettingsDto>('/admin/finance/safety-controls');
+  },
+
+  updateFinancialSafetySettings: async (data: UpdateFinancialSafetySettingsRequest) => {
+    return apiClient.put('/admin/finance/safety-controls', data);
+  },
+
+  getReprocessPreview: async (): Promise<ReprocessPreviewDto> => {
+    return apiClient.post<ReprocessPreviewDto>('/admin/finance/reprocess/preview');
+  },
+
+  executeReprocessBatch: async (data: ReprocessExecuteRequest) => {
+    return apiClient.post('/admin/finance/reprocess/execute', data);
+  },
+
+  exportFinancialReport: async (data: { reportType: string; format?: string; startDate?: string; endDate?: string }) => {
+    return apiClient.post('/admin/finance/reports/export', data, { responseType: 'blob' });
+  },
+
+  getReconciliationDashboard: async (): Promise<ReconciliationDashboardDto> => {
+    return apiClient.get<ReconciliationDashboardDto>('/admin/reconciliation/dashboard');
+  },
+
+  getReconciliationCases: async (params: { status?: string; severity?: string; source?: string; search?: string; page?: number; limit?: number } = {}) => {
+    return apiClient.get<{
+      items: ReconciliationCaseDto[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/reconciliation/cases', { params });
+  },
+
+  getReconciliationCaseDetail: async (id: string): Promise<ReconciliationCaseDto> => {
+    return apiClient.get<ReconciliationCaseDto>(`/admin/reconciliation/cases/${id}`);
+  },
+
+  updateReconciliationCaseStatus: async (id: string, data: UpdateReconciliationCaseRequest) => {
+    return apiClient.patch(`/admin/reconciliation/cases/${id}/status`, data);
+  },
+
+  triggerPaystackReconciliation: async () => {
+    return apiClient.post('/admin/reconciliation/trigger/paystack');
+  },
+
+  triggerDatahouseReconciliation: async () => {
+    return apiClient.post('/admin/reconciliation/trigger/datahouse');
+  },
+
+  triggerLedgerReconciliation: async () => {
+    return apiClient.post('/admin/reconciliation/trigger/ledger');
+  },
+
+  exportReconciliationCases: async (data: { status?: string; format?: string } = {}) => {
+    return apiClient.post('/admin/reconciliation/export', data, { responseType: 'blob' });
   },
 };

@@ -30,6 +30,14 @@ import {
   StoreStatus,
   StoreApprovalStatus,
   StorePayoutStatus,
+  TransactionType,
+  TransactionStatus,
+  ReconciliationSeverity,
+  ReconciliationSource,
+  ReconciliationCaseStatus,
+  FinancialAdjustmentStatus,
+  RefundAdminStatus,
+  LedgerAnomalySeverity,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -1031,3 +1039,288 @@ export interface AdminStoreDetail {
   payouts: StorePayoutDto[];
   health: StoreHealthReportDto;
 }
+
+// --- Phase 11.8 Finance, Transactions & Reconciliation DTOs ---
+
+export interface AdminFinanceStats {
+  totalPlatformBalancePesewas: number;
+  customerWalletBalancePesewas: number;
+  agentWalletBalancePesewas: number;
+  totalDepositsPesewas: number;
+  totalWithdrawalsPesewas: number;
+  totalRevenuePesewas: number;
+  totalCommissionsPesewas: number;
+  totalRefundsPesewas: number;
+  pendingRefundsCount: number;
+  pendingRefundsPesewas: number;
+  processingPaymentsCount: number;
+  processingPaymentsPesewas: number;
+  failedPaymentsCount: number;
+  failedPaymentsPesewas: number;
+  unreconciledEventsCount: number;
+  ledgerBalanceStatus: 'BALANCED' | 'ANOMALY_DETECTED';
+  recentDailyTrend: Array<{
+    date: string;
+    revenuePesewas: number;
+    depositsPesewas: number;
+    refundsPesewas: number;
+  }>;
+}
+
+export interface AdminTransactionListItem {
+  id: string;
+  reference: string;
+  type: TransactionType | string;
+  status: TransactionStatus | string;
+  amountPesewas: number;
+  currency: Currency | string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userPhone: string;
+  userRole: string;
+  orderId?: string | null;
+  paymentId?: string | null;
+  providerReference?: string | null;
+  network?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface AdminTransactionFilterQuery {
+  search?: string;
+  status?: string;
+  type?: string;
+  role?: string;
+  network?: string;
+  minAmountPesewas?: number;
+  maxAmountPesewas?: number;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface AdminTransactionDetailDto {
+  transaction: AdminTransactionListItem;
+  financialMovement: {
+    ledgerJournalId?: string;
+    debitAccount: string;
+    creditAccount: string;
+    debitAmountPesewas: number;
+    creditAmountPesewas: number;
+    balanceBeforePesewas?: number;
+    balanceAfterPesewas?: number;
+    ledgerLines: FinancialLedgerEntryDto[];
+  };
+  externalPayment?: {
+    provider: string;
+    providerReference?: string;
+    paymentStatus: string;
+    verificationStatus: string;
+    webhookStatus?: string;
+    webhookEventId?: string;
+    verifiedAt?: string;
+    rawMetadata?: any;
+  };
+  relatedOrder?: {
+    id: string;
+    publicId: string;
+    productName?: string;
+    dataAmountMb?: number;
+    network?: string;
+    recipientPhone?: string;
+    orderStatus?: string;
+    fulfillmentStatus?: string;
+  };
+  auditTrail: Array<{
+    actorId: string;
+    actorType: string;
+    action: string;
+    timestamp: string;
+    ipAddress?: string;
+    metadata?: any;
+  }>;
+}
+
+export interface AdminLedgerAnomalyDto {
+  transactionId: string;
+  referenceType: string;
+  referenceId: string;
+  totalDebitsPesewas: number;
+  totalCreditsPesewas: number;
+  discrepancyPesewas: number;
+  severity: LedgerAnomalySeverity | string;
+  detectedAt: string;
+  affectedAccounts: string[];
+  journalLines: FinancialLedgerEntryDto[];
+}
+
+export interface ReconciliationDashboardDto {
+  lastReconciliation: string;
+  status: 'HEALTHY' | 'DISCREPANCIES_DETECTED' | 'RUNNING';
+  paystackMetrics: {
+    recordsChecked: number;
+    matched: number;
+    mismatched: number;
+    amountDiscrepanciesPesewas: number;
+    matchRatePercent: number;
+  };
+  datahouseMetrics: {
+    recordsChecked: number;
+    matched: number;
+    mismatched: number;
+    missingCarrierRecords: number;
+    matchRatePercent: number;
+  };
+  ledgerMetrics: {
+    totalJournalsChecked: number;
+    balancedJournals: number;
+    anomaliesCount: number;
+    integrityPercent: number;
+  };
+  openCasesCount: number;
+  criticalCasesCount: number;
+}
+
+export interface ReconciliationCaseDto {
+  id: string;
+  caseNumber: string;
+  severity: ReconciliationSeverity | string;
+  source: ReconciliationSource | string;
+  accountId: string;
+  accountName: string;
+  amountPesewas: number;
+  expectedState: string;
+  actualState: string;
+  discrepancyDetails: Record<string, any>;
+  status: ReconciliationCaseStatus | string;
+  assignedTo?: string | null;
+  assignedName?: string | null;
+  resolutionNotes?: string | null;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  escalatedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateReconciliationCaseRequest {
+  status: ReconciliationCaseStatus | string;
+  resolutionNotes?: string;
+  assignedTo?: string;
+}
+
+export interface AdminRefundListItemDto {
+  id: string;
+  orderId: string;
+  orderPublicId: string;
+  paymentId?: string;
+  userId: string;
+  customerName: string;
+  customerEmail: string;
+  amountPesewas: number;
+  reason: string;
+  status: RefundAdminStatus | string;
+  riskLevel: 'STANDARD' | 'HIGH_RISK';
+  providerReference?: string;
+  requestedAt: string;
+  processedAt?: string;
+  reviewedBy?: string;
+  adminNotes?: string;
+}
+
+export interface AdminRefundActionRequest {
+  action: 'APPROVE' | 'REJECT' | 'PROCESS';
+  reason: string;
+  rejectionReason?: string;
+}
+
+export interface FinancialAdjustmentDto {
+  id: string;
+  adjustmentNumber: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userRole: string;
+  amountPesewas: number;
+  direction: 'CREDIT' | 'DEBIT';
+  reason: string;
+  requestedBy: string;
+  requestedByName: string;
+  status: FinancialAdjustmentStatus | string;
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
+  ledgerJournalId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateFinancialAdjustmentRequest {
+  userId: string;
+  amountPesewas: number;
+  direction: 'CREDIT' | 'DEBIT';
+  reason: string;
+}
+
+export interface ReviewFinancialAdjustmentRequest {
+  action: 'APPROVE' | 'REJECT';
+  reason: string;
+}
+
+export interface FinancialSafetySettingsDto {
+  emergencyPaymentsDisabled: boolean;
+  emergencyWithdrawalsDisabled: boolean;
+  emergencyRefundsDisabled: boolean;
+  walletOperationsFrozen: boolean;
+  agentPurchasesFrozen: boolean;
+  globalMaintenanceMode: boolean;
+  providerDisabled: {
+    datahouse: boolean;
+    paystack: boolean;
+    gmpl: boolean;
+  };
+  maxSingleTransactionPesewas: number;
+  maxDailyWithdrawalPesewas: number;
+  maxDailyDepositPesewas: number;
+  suspiciousVelocityThreshold: number;
+  updatedBy?: string;
+  updatedAt: string;
+}
+
+export interface UpdateFinancialSafetySettingsRequest {
+  settings: Partial<FinancialSafetySettingsDto>;
+  reason: string;
+}
+
+export interface ReprocessEligibleItemDto {
+  id: string;
+  orderId: string;
+  publicId: string;
+  recipientPhone: string;
+  network: string;
+  amountPesewas: number;
+  failureClass: string;
+  errorCode: string;
+  errorMessage: string;
+  eligibleForRetry: boolean;
+  retryReason: string;
+}
+
+export interface ReprocessPreviewDto {
+  totalFailed: number;
+  eligibleCount: number;
+  ineligibleCount: number;
+  eligibleItems: ReprocessEligibleItemDto[];
+  summaryByNetwork: Record<string, number>;
+}
+
+export interface ReprocessExecuteRequest {
+  itemIds?: string[];
+  reprocessAllEligible?: boolean;
+  reason: string;
+}
+

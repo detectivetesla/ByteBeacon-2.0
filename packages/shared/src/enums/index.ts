@@ -369,3 +369,71 @@ export enum StorePayoutStatus {
   FAILED = 'FAILED',
 }
 
+// --- Phase 11.8 Finance, Transactions & Reconciliation Enums ---
+
+export enum TransactionType {
+  DEPOSIT = 'DEPOSIT',
+  DATA_PURCHASE = 'DATA_PURCHASE',
+  REFUND = 'REFUND',
+  WITHDRAWAL = 'WITHDRAWAL',
+  COMMISSION = 'COMMISSION',
+  ADJUSTMENT = 'ADJUSTMENT',
+  REVERSAL = 'REVERSAL',
+  AGENT_ACTIVATION = 'AGENT_ACTIVATION',
+}
+
+export enum TransactionStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  REFUNDED = 'REFUNDED',
+  REVERSED = 'REVERSED',
+  PENDING_RECONCILIATION = 'PENDING_RECONCILIATION',
+}
+
+export enum ReconciliationSeverity {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
+export enum ReconciliationSource {
+  PAYSTACK = 'PAYSTACK',
+  DATAHOUSE = 'DATAHOUSE',
+  LEDGER = 'LEDGER',
+  WALLET = 'WALLET',
+  ORDERS = 'ORDERS',
+}
+
+export enum ReconciliationCaseStatus {
+  OPEN = 'OPEN',
+  INVESTIGATING = 'INVESTIGATING',
+  RESOLVED = 'RESOLVED',
+  ESCALATED = 'ESCALATED',
+}
+
+export enum FinancialAdjustmentStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  EXECUTED = 'EXECUTED',
+  FAILED = 'FAILED',
+}
+
+export enum RefundAdminStatus {
+  REQUESTED = 'REQUESTED',
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  REJECTED = 'REJECTED',
+  FAILED = 'FAILED',
+}
+
+export enum LedgerAnomalySeverity {
+  WARNING = 'WARNING',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
