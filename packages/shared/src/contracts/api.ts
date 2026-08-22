@@ -52,6 +52,11 @@ import {
   CampaignStatus,
   TemplateStatus,
   NotificationCategory,
+  AuditSeverity,
+  AuditCategory,
+  AuditResult,
+  SecurityIncidentStatus,
+  SecurityHealthStatus,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -1822,6 +1827,135 @@ export interface AdminUpdateUserPreferenceRequest {
   smsMarketing?: boolean;
   inAppAll?: boolean;
 }
+
+// =========================================================================
+// Phase 11.12: Audit & Security Operations DTOs
+// =========================================================================
+
+export interface AdminAuditOverviewStatsDto {
+  totalEvents: number;
+  criticalEventsCount: number;
+  highSeverityCount: number;
+  warningCount: number;
+  failedLogins24h: number;
+  rateLimitViolations24h: number;
+  securityIncidentsCount: number;
+  overallSecurityHealth: SecurityHealthStatus;
+  tamperEvidenceStatus: 'VERIFIED' | 'TAMPER_DETECTED' | 'UNVERIFIED';
+  lastChainedHash: string;
+  verifiedBlocksCount: number;
+}
+
+export interface AdminAuditListItemDto {
+  id: string;
+  correlationId: string;
+  timestamp: string;
+  actorId: string | null;
+  actorName: string;
+  actorEmailRedacted: string;
+  actorRole: string;
+  actorType: string;
+  action: string;
+  category: AuditCategory;
+  resourceType: string;
+  resourceId: string | null;
+  result: AuditResult;
+  severity: AuditSeverity;
+  ipAddress: string | null;
+  userAgent: string | null;
+  reason?: string;
+  eventHash: string;
+  previousEventHash: string | null;
+}
+
+export interface AdminAuditDetailDto extends AdminAuditListItemDto {
+  metadata: Record<string, any>;
+  beforeState?: Record<string, any>;
+  afterState?: Record<string, any>;
+  linkedRecords?: {
+    orderId?: string;
+    paymentId?: string;
+    walletId?: string;
+    userId?: string;
+    apiKeyId?: string;
+  };
+}
+
+export interface AdminSecurityIncidentTimelineItem {
+  timestamp: string;
+  action: string;
+  note: string;
+  actorName: string;
+}
+
+export interface AdminSecurityIncidentDto {
+  id: string;
+  incidentNumber: string;
+  title: string;
+  severity: AuditSeverity;
+  status: SecurityIncidentStatus;
+  triggeringEventId: string | null;
+  assignedAdminId?: string | null;
+  assignedAdminName?: string;
+  affectedUserId?: string | null;
+  affectedUserEmail?: string;
+  timeline: AdminSecurityIncidentTimelineItem[];
+  investigationNotes: string;
+  resolution?: string | null;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminCreateSecurityIncidentRequest {
+  title: string;
+  severity: AuditSeverity;
+  triggeringEventId?: string;
+  affectedUserId?: string;
+  investigationNotes: string;
+}
+
+export interface AdminUpdateSecurityIncidentRequest {
+  status?: SecurityIncidentStatus;
+  severity?: AuditSeverity;
+  assignedAdminId?: string;
+  investigationNotes?: string;
+  resolution?: string;
+  timelineNote?: string;
+}
+
+export interface AdminAuditIntegrityVerificationDto {
+  isTamperEvident: boolean;
+  totalChecked: number;
+  discrepanciesCount: number;
+  brokenChains: Array<{
+    eventId: string;
+    expectedPrevHash: string;
+    actualPrevHash: string;
+    timestamp: string;
+  }>;
+  lastVerifiedAt: string;
+}
+
+export interface AdminAuditExportRequest {
+  format: 'CSV' | 'JSON';
+  category?: string;
+  severity?: string;
+  actorRole?: string;
+  action?: string;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface AdminEmergencyControlToggleRequest {
+  controlKey: 'MAINTENANCE_MODE' | 'DISABLE_AGENT_STORES' | 'KILL_SWITCH_PAYSTACK' | 'KILL_SWITCH_TELECOM_DISPATCH' | 'EMERGENCY_READ_ONLY';
+  enabled: boolean;
+  reason: string;
+  stepUpConfirmation: string;
+}
+
 
 
 

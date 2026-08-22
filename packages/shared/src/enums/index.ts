@@ -561,4 +561,47 @@ export enum NotificationCategory {
   SYSTEM = 'SYSTEM',
 }
 
+// =========================================================================
+// Phase 11.12: Audit & Security Operations Enums
+// =========================================================================
+
+export enum AuditSeverity {
+  INFO = 'INFO',
+  WARNING = 'WARNING',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
+export enum AuditCategory {
+  AUTH = 'AUTH',
+  AUTHORIZATION = 'AUTHORIZATION',
+  API_SECURITY = 'API_SECURITY',
+  FINANCIAL_SECURITY = 'FINANCIAL_SECURITY',
+  TELECOM_SECURITY = 'TELECOM_SECURITY',
+  SYSTEM_WORKER = 'SYSTEM_WORKER',
+  ADMIN_ACTION = 'ADMIN_ACTION',
+}
+
+export enum AuditResult {
+  SUCCESS = 'SUCCESS',
+  FAILURE = 'FAILURE',
+  DENIED = 'DENIED',
+  CHALLENGED = 'CHALLENGED',
+}
+
+export enum SecurityIncidentStatus {
+  OPEN = 'OPEN',
+  INVESTIGATING = 'INVESTIGATING',
+  CONTAINED = 'CONTAINED',
+  RESOLVED = 'RESOLVED',
+  FALSE_POSITIVE = 'FALSE_POSITIVE',
+}
+
+export enum SecurityHealthStatus {
+  HEALTHY = 'HEALTHY',
+  WARNING = 'WARNING',
+  CRITICAL = 'CRITICAL',
+}
+
+
 

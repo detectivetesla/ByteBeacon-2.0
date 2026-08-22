@@ -109,6 +109,20 @@ import {
   AdminDeliveryLogItemDto,
   AdminUserNotificationPreferenceDto,
   AdminUpdateUserPreferenceRequest,
+  AuditSeverity,
+  AuditCategory,
+  AuditResult,
+  SecurityIncidentStatus,
+  SecurityHealthStatus,
+  AdminAuditOverviewStatsDto,
+  AdminAuditListItemDto,
+  AdminAuditDetailDto,
+  AdminSecurityIncidentDto,
+  AdminCreateSecurityIncidentRequest,
+  AdminUpdateSecurityIncidentRequest,
+  AdminAuditIntegrityVerificationDto,
+  AdminAuditExportRequest,
+  AdminEmergencyControlToggleRequest,
 } from '@bytebeacon/shared';
 
 export {
@@ -143,6 +157,11 @@ export {
   CampaignStatus,
   TemplateStatus,
   NotificationCategory,
+  AuditSeverity,
+  AuditCategory,
+  AuditResult,
+  SecurityIncidentStatus,
+  SecurityHealthStatus,
 };
 
 export type {
@@ -179,6 +198,15 @@ export type {
   AdminDeliveryLogItemDto,
   AdminUserNotificationPreferenceDto,
   AdminUpdateUserPreferenceRequest,
+  AdminAuditOverviewStatsDto,
+  AdminAuditListItemDto,
+  AdminAuditDetailDto,
+  AdminSecurityIncidentDto,
+  AdminCreateSecurityIncidentRequest,
+  AdminUpdateSecurityIncidentRequest,
+  AdminAuditIntegrityVerificationDto,
+  AdminAuditExportRequest,
+  AdminEmergencyControlToggleRequest,
 };
 export type {
   AdminAgentStats,
@@ -1359,6 +1387,61 @@ export const adminApi = {
   getAgentApiDossier: async (agentId: string): Promise<AdminAgentApiDossierDto> => {
     return apiClient.get<AdminAgentApiDossierDto>(`/admin/api/agents/${agentId}/dossier`);
   },
+
+  // =========================================================================
+  // Phase 11.12: Audit & Security Operations Control Plane
+  // =========================================================================
+
+  getAuditOverview: async (): Promise<AdminAuditOverviewStatsDto> => {
+    return apiClient.get<AdminAuditOverviewStatsDto>('/admin/audit/overview');
+  },
+
+  getAuditEvents: async (params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    category?: string;
+    severity?: string;
+    result?: string;
+    actorRole?: string;
+    action?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}) => {
+    return apiClient.get<{
+      items: AdminAuditListItemDto[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/audit/events', { params });
+  },
+
+  getAuditEventDetail: async (id: string): Promise<AdminAuditDetailDto> => {
+    return apiClient.get<AdminAuditDetailDto>(`/admin/audit/events/${id}`);
+  },
+
+  verifyAuditIntegrity: async (): Promise<AdminAuditIntegrityVerificationDto> => {
+    return apiClient.get<AdminAuditIntegrityVerificationDto>('/admin/audit/integrity');
+  },
+
+  exportAuditLogs: async (data: AdminAuditExportRequest) => {
+    return apiClient.post('/admin/audit/export', data);
+  },
+
+  getSecurityIncidents: async (params: { status?: string; severity?: string } = {}): Promise<AdminSecurityIncidentDto[]> => {
+    return apiClient.get<AdminSecurityIncidentDto[]>('/admin/audit/incidents', { params });
+  },
+
+  createSecurityIncident: async (data: AdminCreateSecurityIncidentRequest) => {
+    return apiClient.post('/admin/audit/incidents', data);
+  },
+
+  updateSecurityIncident: async (id: string, data: AdminUpdateSecurityIncidentRequest) => {
+    return apiClient.patch(`/admin/audit/incidents/${id}`, data);
+  },
+
+  toggleEmergencyControl: async (data: AdminEmergencyControlToggleRequest) => {
+    return apiClient.post('/admin/audit/emergency/toggle', data);
+  },
 };
+
 
 

@@ -296,52 +296,6 @@ export async function adminOperationsRoutes(
     },
   );
 
-  // 10. GET /admin/audit — Immutable Security Audit Stream
-  app.get<{
-    Querystring: { page?: string; limit?: string; action?: string };
-  }>(
-    '/admin/audit',
-    { preHandler: [authHooks.authenticateAdmin] },
-    async (req: FastifyRequest<{ Querystring: { page?: string; limit?: string; action?: string } }>, reply: FastifyReply) => {
-      const { page = '1', limit = '25', action } = req.query || {};
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
-      const offset = (pageNum - 1) * limitNum;
-
-      const whereClause = action && action !== 'ALL' ? 'WHERE action = $1' : '';
-      const params = action && action !== 'ALL' ? [action, limitNum, offset] : [limitNum, offset];
-
-      const countRes = await db.query(`SELECT COUNT(*) as total FROM audit_events ${whereClause}`, action && action !== 'ALL' ? [action] : []).catch(() => ({ rows: [{ total: 0 }] }));
-      const total = parseInt(countRes.rows[0]?.total || '0', 10);
-
-      const listSql = `
-        SELECT id, correlation_id as "correlationId", actor_id as "actorId",
-               actor_type as "actorType", action, resource_type as "resourceType",
-               resource_id as "resourceId", ip_address as "ipAddress",
-               metadata, created_at as "createdAt"
-        FROM audit_events
-        ${whereClause}
-        ORDER BY created_at DESC
-        LIMIT $${action && action !== 'ALL' ? 2 : 1} OFFSET $${action && action !== 'ALL' ? 3 : 2}
-      `;
-
-      const listRes = await db.query(listSql, params).catch(() => ({ rows: [] }));
-
-      return reply.send({
-        success: true,
-        data: {
-          items: listRes.rows,
-          pagination: {
-            page: pageNum,
-            limit: limitNum,
-            total,
-            totalPages: Math.ceil(total / limitNum) || 1,
-          },
-        },
-      });
-    },
-  );
-
   // 11. GET /admin/providers — Multi-Provider Health & Routing Matrix
   app.get(
     '/admin/providers',

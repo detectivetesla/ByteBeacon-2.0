@@ -66,6 +66,7 @@ import { adminReconciliationRoutes } from './routes/commerce/admin-reconciliatio
 import { adminAnalyticsRoutes } from './routes/commerce/admin-analytics.routes.js';
 import { adminCommunicationsRoutes } from './routes/commerce/admin-communications.routes.js';
 import { adminApiManagementRoutes } from './routes/commerce/admin-api-management.routes.js';
+import { adminAuditSecurityRoutes } from './routes/commerce/admin-audit-security.routes.js';
 import { developerSandboxRoutes } from './routes/commerce/developer-sandbox.routes.js';
 import { registerSwagger } from './plugins/swagger.plugin.js';
 import { metricsPlugin } from './plugins/metrics.plugin.js';
@@ -495,6 +496,13 @@ export function createApp(options: AppOptions = {}) {
         auditService,
       });
       await adminApiManagementRoutes(commerceSubApp, {
+        db: dbPool!,
+        apiKeyService,
+        tokenService,
+        rbacService,
+        auditService,
+      });
+      await adminAuditSecurityRoutes(commerceSubApp, {
         db: dbPool!,
         apiKeyService,
         tokenService,

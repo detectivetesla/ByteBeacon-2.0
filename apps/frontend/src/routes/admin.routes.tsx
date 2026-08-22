@@ -123,8 +123,16 @@ export const adminRoutes: RouteObject[] = [
         element: <AdminAuditPage />,
       },
       {
-        path: 'notifications',
-        element: <NotificationsPage />,
+        path: 'security',
+        element: <AdminAuditPage />,
+      },
+      {
+        path: 'audit-stream',
+        element: <AdminAuditPage />,
+      },
+      {
+        path: 'incidents',
+        element: <AdminAuditPage />,
       },
       {
         path: 'settings',
