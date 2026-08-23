@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Badge } from '../../components/ui/Badge/Badge.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
 import { adminApi } from '../../api/admin.api.js';
-import { RefreshCw, CheckCircle2, AlertOctagon, ShieldAlert, Cpu } from 'lucide-react';
+import { RefreshCw, CheckCircle2, AlertOctagon } from 'lucide-react';
 
 export const AdminDlqPage: React.FC = () => {
   const { toastSuccess, toastInfo } = useToast();

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
-import { SearchInput, Select, Modal } from '../../components/ui/index.js';
+import { SearchInput, Select } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
@@ -10,16 +10,10 @@ import {
   RefreshCw,
   DollarSign,
   AlertTriangle,
-  ShieldCheck,
   RotateCcw,
   Download,
   ShieldAlert,
   ArrowUpRight,
-  ArrowDownLeft,
-  CheckCircle,
-  XCircle,
-  PauseCircle,
-  PlayCircle,
   Settings,
   Sliders,
   FileSpreadsheet,
@@ -320,37 +314,37 @@ export const AdminPaymentsPage: React.FC = () => {
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
-          label="Total Inflow"
+          title="Total Inflow"
           value={`GHS ${(((stats?.totalDepositsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="Verified gateway settlements"
+          subvalue="Verified gateway settlements"
           accent="green"
           icon={<TactileIcon icon={DollarSign} color="security" size="sm" />}
         />
         <MetricCard
-          label="Processing Inflows"
+          title="Processing Inflows"
           value={String(stats?.processingPaymentsCount || 0)}
-          helperText={`GHS ${(((stats?.processingPaymentsPesewas || 0) / 100).toFixed(2))} awaiting confirmation`}
+          subvalue={`GHS ${(((stats?.processingPaymentsPesewas || 0) / 100).toFixed(2))} awaiting confirmation`}
           accent="amber"
           icon={<TactileIcon icon={CreditCard} color="orders" size="sm" />}
         />
         <MetricCard
-          label="Failed Payments"
+          title="Failed Payments"
           value={String(stats?.failedPaymentsCount || 0)}
-          helperText={`GHS ${(((stats?.failedPaymentsPesewas || 0) / 100).toFixed(2))} requiring review`}
+          subvalue={`GHS ${(((stats?.failedPaymentsPesewas || 0) / 100).toFixed(2))} requiring review`}
           accent="red"
           icon={<TactileIcon icon={AlertTriangle} color="red" size="sm" />}
         />
         <MetricCard
-          label="Pending Refunds"
+          title="Pending Refunds"
           value={String(stats?.pendingRefundsCount || 0)}
-          helperText={`GHS ${(((stats?.pendingRefundsPesewas || 0) / 100).toFixed(2))} in approval queue`}
+          subvalue={`GHS ${(((stats?.pendingRefundsPesewas || 0) / 100).toFixed(2))} in approval queue`}
           accent="purple"
           icon={<TactileIcon icon={RotateCcw} color="payments" size="sm" />}
         />
         <MetricCard
-          label="Settled Withdrawals"
+          title="Settled Withdrawals"
           value={`GHS ${(((stats?.totalWithdrawalsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="Agent & merchant payouts"
+          subvalue="Agent & merchant payouts"
           accent="blue"
           icon={<TactileIcon icon={ArrowUpRight} color="api" size="sm" />}
         />
@@ -499,36 +493,59 @@ export const AdminPaymentsPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table
-              headers={['Reference', 'Customer / Agent', 'Amount (GHS)', 'Currency', 'Status', 'Timestamp']}
-              data={payments.map((p) => [
-                <div key="ref" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-                    {p.reference}
-                  </span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>ID: {p.id.slice(0, 14)}...</span>
-                </div>,
-                <div key="user" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{p.userName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{p.userEmail || p.userPhone}</span>
-                </div>,
-                <span key="amt" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                  GHS {(p.amountPesewas / 100).toFixed(2)}
-                </span>,
-                <span key="cur" style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{p.currency}</span>,
-                <Badge
-                  key="st"
-                  variant={p.status === 'PAID' ? 'success' : p.status === 'PROCESSING' ? 'warning' : 'danger'}
-                >
-                  {p.status}
-                </Badge>,
-                <span key="ts" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(p.createdAt).toLocaleString()}
-                </span>,
-              ])}
-              loading={isLoading}
-              emptyMessage="No gateway payment transactions found."
-            />
+            <Table headers={['Reference', 'Customer / Agent', 'Amount (GHS)', 'Currency', 'Status', 'Timestamp']}>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                    <span>Loading payment transactions...</span>
+                  </td>
+                </tr>
+              ) : payments.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <span>No gateway payment transactions found.</span>
+                  </td>
+                </tr>
+              ) : (
+                payments.map((p) => (
+                  <tr key={p.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
+                          {p.reference}
+                        </span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>ID: {p.id.slice(0, 14)}...</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{p.userName}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{p.userEmail || p.userPhone}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                        GHS {(p.amountPesewas / 100).toFixed(2)}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{p.currency}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={p.status === 'PAID' ? 'success' : p.status === 'PROCESSING' ? 'warning' : 'danger'}>
+                        {p.status}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                        {new Date(p.createdAt).toLocaleString()}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
 
             <Pagination
               currentPage={payPage}
@@ -575,49 +592,79 @@ export const AdminPaymentsPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table
-              headers={['Order #', 'Customer', 'Amount (GHS)', 'Reason', 'Risk Level', 'Status', 'Requested', 'Action']}
-              data={refunds.map((ref) => [
-                <span key="ord" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-                  {ref.orderPublicId}
-                </span>,
-                <div key="cust" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{ref.customerName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{ref.customerEmail}</span>
-                </div>,
-                <span key="amt" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                  GHS {(ref.amountPesewas / 100).toFixed(2)}
-                </span>,
-                <span key="rsn" style={{ fontSize: 'var(--font-size-xs)', maxWidth: '200px', display: 'block' }}>{ref.reason}</span>,
-                <Badge key="risk" variant={ref.riskLevel === 'HIGH_RISK' ? 'danger' : 'neutral'}>
-                  {ref.riskLevel}
-                </Badge>,
-                <Badge key="st" variant={ref.status === 'COMPLETED' ? 'success' : ref.status === 'REJECTED' ? 'danger' : 'warning'}>
-                  {ref.status}
-                </Badge>,
-                <span key="dt" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(ref.requestedAt).toLocaleString()}
-                </span>,
-                <div key="act" style={{ display: 'flex', gap: '0.35rem' }}>
-                  {ref.status === 'PENDING' || ref.status === 'REQUESTED' ? (
-                    <>
-                      <Button variant="primary" size="sm" onClick={() => handleRefundAction(ref.id, 'APPROVE')}>
-                        Approve Reversal
-                      </Button>
-                      <Button variant="danger" size="sm" onClick={() => handleRefundAction(ref.id, 'REJECT')}>
-                        Reject
-                      </Button>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                      Processed
-                    </span>
-                  )}
-                </div>,
-              ])}
-              loading={isLoading}
-              emptyMessage="No refund requests found."
-            />
+            <Table headers={['Order #', 'Customer', 'Amount (GHS)', 'Reason', 'Risk Level', 'Status', 'Requested', 'Action']}>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                    <span>Loading refund requests...</span>
+                  </td>
+                </tr>
+              ) : refunds.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <span>No refund requests found.</span>
+                  </td>
+                </tr>
+              ) : (
+                refunds.map((ref) => (
+                  <tr key={ref.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
+                        {ref.orderPublicId}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{ref.customerName}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{ref.customerEmail}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                        GHS {(ref.amountPesewas / 100).toFixed(2)}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', maxWidth: '200px', display: 'block' }}>{ref.reason}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={ref.riskLevel === 'HIGH_RISK' ? 'danger' : 'neutral'}>
+                        {ref.riskLevel}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={ref.status === 'COMPLETED' ? 'success' : ref.status === 'REJECTED' ? 'danger' : 'warning'}>
+                        {ref.status}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                        {new Date(ref.requestedAt).toLocaleString()}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        {ref.status === 'PENDING' || ref.status === 'REQUESTED' ? (
+                          <>
+                            <Button variant="primary" size="sm" onClick={() => handleRefundAction(ref.id, 'APPROVE')}>
+                              Approve Reversal
+                            </Button>
+                            <Button variant="danger" size="sm" onClick={() => handleRefundAction(ref.id, 'REJECT')}>
+                              Reject
+                            </Button>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                            Processed
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
 
             <Pagination
               currentPage={refPage}
@@ -633,41 +680,79 @@ export const AdminPaymentsPage: React.FC = () => {
       {activeTab === 'WITHDRAWALS' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <Card accentColor="blue">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 700 }}>Agent Store Payout Administration</h3>
                 <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
                   Direct Mobile Money disbursement & bank payout settlement requests from agent storefronts.
                 </p>
               </div>
+              <div style={{ minWidth: '180px' }}>
+                <Select
+                  value={wdStatus}
+                  onChange={(e) => setWdStatus(e.target.value)}
+                  options={[
+                    { value: 'ALL', label: 'All Statuses' },
+                    { value: 'PENDING', label: 'PENDING' },
+                    { value: 'PAID', label: 'PAID / Settled' },
+                    { value: 'REJECTED', label: 'REJECTED' },
+                  ]}
+                />
+              </div>
             </div>
           </Card>
 
           <Card>
-            <Table
-              headers={['Store Name', 'Agent', 'Amount (GHS)', 'Destination Account', 'Status', 'Requested Date']}
-              data={withdrawals.map((w) => [
-                <span key="st" style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{w.storeName}</span>,
-                <div key="ag" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{w.agentName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{w.agentEmail}</span>
-                </div>,
-                <span key="amt" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                  GHS {(w.amountPesewas / 100).toFixed(2)}
-                </span>,
-                <span key="dst" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-                  {w.destinationProvider}: {w.destinationAccount}
-                </span>,
-                <Badge key="st" variant={w.status === 'PAID' ? 'success' : w.status === 'REJECTED' ? 'danger' : 'warning'}>
-                  {w.status}
-                </Badge>,
-                <span key="dt" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(w.createdAt).toLocaleString()}
-                </span>,
-              ])}
-              loading={isLoading}
-              emptyMessage="No agent store withdrawal records found."
-            />
+            <Table headers={['Store Name', 'Agent', 'Amount (GHS)', 'Destination Account', 'Status', 'Requested Date']}>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                    <span>Loading store withdrawals...</span>
+                  </td>
+                </tr>
+              ) : withdrawals.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <span>No agent store withdrawal records found.</span>
+                  </td>
+                </tr>
+              ) : (
+                withdrawals.map((w) => (
+                  <tr key={w.id || w.storeName} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{w.storeName}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{w.agentName}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{w.agentEmail}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                        GHS {(w.amountPesewas / 100).toFixed(2)}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
+                        {w.destinationProvider}: {w.destinationAccount}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={w.status === 'PAID' ? 'success' : w.status === 'REJECTED' ? 'danger' : 'warning'}>
+                        {w.status}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                        {new Date(w.createdAt).toLocaleString()}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
 
             <Pagination
               currentPage={wdPage}
@@ -846,22 +931,42 @@ export const AdminPaymentsPage: React.FC = () => {
                 </div>
               </div>
 
-              <Table
-                headers={['Order #', 'Carrier / Phone', 'Amount', 'Failure Class', 'Error Details', 'Retry Eligibility']}
-                data={reprocessPreview.eligibleItems.map((item) => [
-                  <span key="ord" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-                    {item.publicId || item.orderId.slice(0, 10)}
-                  </span>,
-                  <span key="ph" style={{ fontSize: 'var(--font-size-xs)' }}>{item.network} ({item.recipientPhone})</span>,
-                  <span key="amt" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>GHS {(item.amountPesewas / 100).toFixed(2)}</span>,
-                  <Badge key="fc" variant="warning">{item.failureClass}</Badge>,
-                  <span key="err" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{item.errorMessage || item.errorCode}</span>,
-                  <Badge key="el" variant={item.eligibleForRetry ? 'success' : 'danger'}>
-                    {item.eligibleForRetry ? 'ELIGIBLE' : 'INELIGIBLE'}
-                  </Badge>,
-                ])}
-                emptyMessage="No pending failed transactions requiring reprocessing."
-              />
+              <Table headers={['Order #', 'Carrier / Phone', 'Amount', 'Failure Class', 'Error Details', 'Retry Eligibility']}>
+                {reprocessPreview.eligibleItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                      <span>No pending failed transactions requiring reprocessing.</span>
+                    </td>
+                  </tr>
+                ) : (
+                  reprocessPreview.eligibleItems.map((item) => (
+                    <tr key={item.orderId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
+                          {item.publicId || item.orderId.slice(0, 10)}
+                        </span>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <span style={{ fontSize: 'var(--font-size-xs)' }}>{item.network} ({item.recipientPhone})</span>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>GHS {(item.amountPesewas / 100).toFixed(2)}</span>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <Badge variant="warning">{item.failureClass}</Badge>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{item.errorMessage || item.errorCode}</span>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <Badge variant={item.eligibleForRetry ? 'success' : 'danger'}>
+                          {item.eligibleForRetry ? 'ELIGIBLE' : 'INELIGIBLE'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </Table>
             </Card>
           )}
         </div>

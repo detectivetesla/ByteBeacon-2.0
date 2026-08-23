@@ -483,7 +483,20 @@ export const AgentCustomersPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedSubAgents.map((agent) => (
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={11} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                        Loading sub-agents...
+                      </td>
+                    </tr>
+                  ) : paginatedSubAgents.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                        No sub-agents found.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedSubAgents.map((agent) => (
                     <tr
                       key={agent.id}
                       style={{
@@ -555,7 +568,7 @@ export const AgentCustomersPage: React.FC = () => {
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                  )))}
                 </tbody>
               </table>
             </div>

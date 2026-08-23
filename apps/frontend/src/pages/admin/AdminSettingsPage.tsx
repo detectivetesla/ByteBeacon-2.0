@@ -9,12 +9,9 @@ import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import {
   adminApi,
-  ConfigRiskLevel,
   ConfigScope,
   ConfigCategory,
   FeatureFlagTargetRole,
-  ConfigurationHealthStatus,
-  PermissionCategory,
   AdminGlobalConfigOverviewDto,
   AdminSystemConfigItemDto,
   AdminConfigVersionItemDto,
@@ -40,19 +37,11 @@ import {
   CheckCircle2,
   RefreshCw,
   Search,
-  ExternalLink,
   Zap,
   Globe,
-  Radio,
-  Server,
-  Layers,
-  Smartphone,
   RotateCcw,
   UserX,
-  Clock,
-  Key,
   ShieldAlert,
-  ShieldCheck,
   UserCheck,
 } from 'lucide-react';
 
@@ -378,7 +367,7 @@ export const AdminSettingsPage: React.FC = () => {
   });
 
   // Filtered permissions
-  const filteredPermissions = (permissionMatrix?.registry || []).filter((p) => {
+  const filteredPermissions = (permissionMatrix?.registry || []).filter((p: any) => {
     if (selectedPermCategory !== 'ALL' && p.category !== selectedPermCategory) {
       return false;
     }
@@ -417,7 +406,7 @@ export const AdminSettingsPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <Button variant="secondary" size="sm" onClick={loadData} disabled={isLoading} icon={RefreshCw}>
+          <Button variant="secondary" size="sm" onClick={loadData} disabled={isLoading} leftIcon={<RefreshCw size={14} />}>
             Refresh Diagnostics
           </Button>
         </div>
@@ -426,34 +415,32 @@ export const AdminSettingsPage: React.FC = () => {
       {/* 2. Top Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
         <MetricCard
-          label="Platform Operating State"
+          title="Platform Operating State"
           value={overview?.platformStatus || 'OPERATIONAL'}
           accent={overview?.platformStatus === 'OPERATIONAL' ? 'green' : 'red'}
           icon={<TactileIcon icon={Activity} color={overview?.platformStatus === 'OPERATIONAL' ? 'security' : 'red'} size="sm" />}
-          change={overview?.platformStatus === 'OPERATIONAL' ? 'Normal checkout live' : 'Maintenance active'}
-          changeDirection={overview?.platformStatus === 'OPERATIONAL' ? 'up' : 'down'}
+          subvalue={overview?.platformStatus === 'OPERATIONAL' ? 'Normal checkout live' : 'Maintenance active'}
         />
         <MetricCard
-          label="Environment & Jurisdiction"
+          title="Environment & Jurisdiction"
           value="Ghana (GHS)"
           accent="blue"
           icon={<TactileIcon icon={Globe} color="orders" size="sm" />}
-          change="Africa/Accra timezone"
+          subvalue="Africa/Accra timezone"
         />
         <MetricCard
-          label="Configuration Health"
+          title="Configuration Health"
           value={overview?.configurationHealth || 'HEALTHY'}
-          accent="emerald"
+          accent="green"
           icon={<TactileIcon icon={CheckCircle2} color="emerald" size="sm" />}
-          change="8/8 Subsystems Checked"
-          changeDirection="up"
+          subvalue="8/8 Subsystems Checked"
         />
         <MetricCard
-          label="Active Feature Flags"
+          title="Active Feature Flags"
           value={`${overview?.activeFeatureFlagsCount || 4} Enabled`}
-          accent="speed"
+          accent="amber"
           icon={<TactileIcon icon={Flag} color="speed" size="sm" />}
-          change={`${overview?.activeSessionsCount || 1} Active Sessions`}
+          subvalue={`${overview?.activeSessionsCount || 1} Active Sessions`}
         />
       </div>
 
@@ -472,7 +459,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'PLATFORM' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('PLATFORM')}
-          icon={Globe}
+          leftIcon={<Globe size={14} />}
         >
           Platform
         </Button>
@@ -480,7 +467,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'SECURITY' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('SECURITY')}
-          icon={Shield}
+          leftIcon={<Shield size={14} />}
         >
           Security & Auth
         </Button>
@@ -488,7 +475,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'PERMISSIONS' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('PERMISSIONS')}
-          icon={Lock}
+          leftIcon={<Lock size={14} />}
         >
           Permissions & RBAC ({permissionMatrix?.totalPermissionsCount || 25})
         </Button>
@@ -496,7 +483,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'SESSIONS' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('SESSIONS')}
-          icon={Users}
+          leftIcon={<Users size={14} />}
         >
           Active Sessions ({activeSessions.length})
         </Button>
@@ -504,7 +491,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'RATE_LIMITS' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('RATE_LIMITS')}
-          icon={Zap}
+          leftIcon={<Zap size={14} />}
         >
           Rate Limits
         </Button>
@@ -512,7 +499,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'PAYMENTS' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('PAYMENTS')}
-          icon={CreditCard}
+          leftIcon={<CreditCard size={14} />}
         >
           Payments & Safety
         </Button>
@@ -520,7 +507,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'TELECOM' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('TELECOM')}
-          icon={Cpu}
+          leftIcon={<Cpu size={14} />}
         >
           Telecom & Routing
         </Button>
@@ -528,7 +515,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'ORDERS' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('ORDERS')}
-          icon={Package}
+          leftIcon={<Package size={14} />}
         >
           Orders & MTN
         </Button>
@@ -536,7 +523,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'AGENTS' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('AGENTS')}
-          icon={Store}
+          leftIcon={<Store size={14} />}
         >
           Agents & Stores
         </Button>
@@ -544,7 +531,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'FEATURE_FLAGS' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('FEATURE_FLAGS')}
-          icon={Flag}
+          leftIcon={<Flag size={14} />}
         >
           Feature Flags ({featureFlags.length})
         </Button>
@@ -552,7 +539,7 @@ export const AdminSettingsPage: React.FC = () => {
           variant={activeTab === 'HISTORY_HEALTH' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveTab('HISTORY_HEALTH')}
-          icon={Activity}
+          leftIcon={<Activity size={14} />}
         >
           Health & Diagnostics
         </Button>
@@ -564,7 +551,7 @@ export const AdminSettingsPage: React.FC = () => {
       {activeTab === 'PERMISSIONS' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           {/* Top RBAC Architecture Banner */}
-          <Card elevated accentColor="indigo" style={{ padding: 'var(--space-6)' }}>
+          <Card elevated accentColor="purple" style={{ padding: 'var(--space-6)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
                 <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
@@ -574,29 +561,56 @@ export const AdminSettingsPage: React.FC = () => {
                   Roles determine potential capabilities; explicit permissions dictate operational access; Fastify backend is the final authority.
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <Badge variant="success" size="sm">
-                  {permissionMatrix?.totalPermissionsCount || 25} Registered Permissions
-                </Badge>
-                <Badge variant="neutral" size="sm">
-                  7 Defined Role Tiers
-                </Badge>
-              </div>
+              <Badge variant="brand" size="md">
+                25 Granular Permissions Defined
+              </Badge>
             </div>
-          </Card>
 
-          {/* User Authorization Simulator Card */}
-          <Card elevated accentColor="blue" style={{ padding: 'var(--space-5)' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            {/* Invariant Note */}
+            <div
+              style={{
+                marginTop: 'var(--space-4)',
+                padding: 'var(--space-3)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--color-bg-base)',
+                border: '1px solid var(--color-border-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+              }}
+            >
+              <ShieldAlert size={16} color="var(--color-primary)" />
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)' }}>
+                <strong>Role Invariants:</strong> SUPER_ADMIN has immutable omni-capabilities (bypass-protected). Customer & Reseller Agents operate with strict scope partitioning.
+              </span>
+            </div>
+
+            {/* Permission Simulator */}
+            <div
+              style={{
+                marginTop: 'var(--space-5)',
+                padding: 'var(--space-4)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-bg-surface-elevated)',
+                border: '1px solid var(--color-border-default)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-3)',
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <div>
-                  <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                    Live User Authorization Simulator & Anti-IDOR Inspector
-                  </h3>
-                  <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.125rem 0 0' }}>
-                    Inspect real-time evaluated effective permissions, tenant ownership scope, MFA enforcement, and Last-Super-Admin protection status for any account.
-                  </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <TactileIcon icon={UserCheck} color="payments" size="sm" />
+                  <div>
+                    <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                      Live User Permission Simulator & Inspector
+                    </h3>
+                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                      Evaluate actual calculated permissions, role assignment, and tenant data bounds for any platform account.
+                    </span>
+                  </div>
                 </div>
+
                 {user?.id && (
                   <Button
                     variant="ghost"
@@ -605,7 +619,7 @@ export const AdminSettingsPage: React.FC = () => {
                       setSimulatorUserId(user.id);
                       handleSimulateUser(user.id);
                     }}
-                    icon={UserCheck}
+                    leftIcon={<UserCheck size={14} />}
                   >
                     Simulate My Account
                   </Button>
@@ -618,7 +632,7 @@ export const AdminSettingsPage: React.FC = () => {
                     placeholder="Enter target User UUID (e.g. 00000000-0000-0000-0000-000000000001)..."
                     value={simulatorUserId}
                     onChange={(e) => setSimulatorUserId(e.target.value)}
-                    icon={Search}
+                    leftIcon={<Search size={14} />}
                   />
                 </div>
                 <Button
@@ -683,7 +697,7 @@ export const AdminSettingsPage: React.FC = () => {
                       Effective Server-Side Permissions ({simulatedUser.effectivePermissions.length}):
                     </span>
                     <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginTop: '0.375rem' }}>
-                      {simulatedUser.effectivePermissions.map((perm) => (
+                      {simulatedUser.effectivePermissions.map((perm: string) => (
                         <code
                           key={perm}
                           style={{
@@ -728,7 +742,7 @@ export const AdminSettingsPage: React.FC = () => {
                 placeholder="Search permissions..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                icon={Search}
+                leftIcon={<Search size={14} />}
               />
             </div>
           </div>
@@ -751,7 +765,7 @@ export const AdminSettingsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredPermissions.map((perm) => (
+                {filteredPermissions.map((perm: any) => (
                   <tr key={perm.permission} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                     <td style={{ padding: '0.625rem' }}>
                       <code style={{ fontWeight: 800, color: 'var(--color-api-bright)' }}>{perm.permission}</code>
@@ -823,7 +837,7 @@ export const AdminSettingsPage: React.FC = () => {
                 placeholder="Search configuration keys..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                icon={Search}
+                leftIcon={<Search size={14} />}
               />
             </div>
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
@@ -926,7 +940,7 @@ export const AdminSettingsPage: React.FC = () => {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleViewVersions(config.configKey)}
-                        icon={History}
+                        leftIcon={<History size={14} />}
                       >
                         History
                       </Button>
@@ -1001,7 +1015,7 @@ export const AdminSettingsPage: React.FC = () => {
                           setRevokeAllForUser(false);
                           setRevokeReason('');
                         }}
-                        icon={UserX}
+                        leftIcon={<UserX size={14} />}
                       >
                         Revoke
                       </Button>
@@ -1078,7 +1092,7 @@ export const AdminSettingsPage: React.FC = () => {
       {/* TAB 10: Health & Subsystem Diagnostics */}
       {activeTab === 'HISTORY_HEALTH' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-          <Card elevated accentColor="emerald" style={{ padding: 'var(--space-6)' }}>
+          <Card elevated accentColor="green" style={{ padding: 'var(--space-6)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
               <div>
                 <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
@@ -1094,7 +1108,7 @@ export const AdminSettingsPage: React.FC = () => {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-3)' }}>
-              {healthDiagnostics?.subsystems.map((sub, idx) => (
+              {healthDiagnostics?.subsystems.map((sub: any, idx: number) => (
                 <div
                   key={idx}
                   style={{
@@ -1280,7 +1294,7 @@ export const AdminSettingsPage: React.FC = () => {
                           setRollbackReason('');
                           setStepUpToken('');
                         }}
-                        icon={RotateCcw}
+                        leftIcon={<RotateCcw size={14} />}
                       >
                         Restore This Version
                       </Button>
@@ -1364,7 +1378,7 @@ export const AdminSettingsPage: React.FC = () => {
             <Select
               label="Target Role Scope"
               value={flagTargetRole}
-              onChange={(val) => setFlagTargetRole(val as FeatureFlagTargetRole)}
+              onChange={(e) => setFlagTargetRole(e.target.value as FeatureFlagTargetRole)}
               options={[
                 { label: 'All Roles (Global)', value: 'ALL' },
                 { label: 'Super Admin Only', value: 'SUPER_ADMIN' },
@@ -1377,7 +1391,7 @@ export const AdminSettingsPage: React.FC = () => {
             <Select
               label="Target Environment"
               value={flagEnvironment}
-              onChange={(val) => setFlagEnvironment(val)}
+              onChange={(e) => setFlagEnvironment(e.target.value)}
               options={[
                 { label: 'All Environments', value: 'ALL' },
                 { label: 'Production Only', value: 'PRODUCTION' },

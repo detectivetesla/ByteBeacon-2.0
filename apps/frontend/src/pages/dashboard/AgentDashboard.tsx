@@ -66,7 +66,7 @@ export const AgentDashboard: React.FC = () => {
           network: o.network,
           dataVolume: `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB`,
           amount: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
-          status: o.orderStatus === OrderStatus.COMPLETED || o.orderStatus === OrderStatus.DELIVERED
+          status: o.orderStatus === OrderStatus.COMPLETED
             ? 'Delivered'
             : o.orderStatus === OrderStatus.FAILED || o.orderStatus === OrderStatus.CANCELLED
             ? 'Failed'
@@ -461,7 +461,11 @@ export const AgentDashboard: React.FC = () => {
           </Button>
         </div>
 
-        {orders.length === 0 ? (
+        {isLoading ? (
+          <div style={{ padding: 'var(--space-8) var(--space-4)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>
+            Loading recent orders...
+          </div>
+        ) : orders.length === 0 ? (
           <div style={{ padding: 'var(--space-10) var(--space-4)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{ padding: '0.75rem', borderRadius: '50%', backgroundColor: 'var(--color-bg-base)', color: 'var(--color-text-muted)' }}>
               <PackageX size={28} />

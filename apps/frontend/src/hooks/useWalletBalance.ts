@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext.js';
-import { walletApi, WalletBalanceDto } from '../api/wallet.api.js';
+import { walletApi } from '../api/wallet.api.js';
 import { apiClient } from '../api/httpClient.js';
 import { UserSummaryDto } from '@bytebeacon/shared';
 

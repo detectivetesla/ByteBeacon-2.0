@@ -15,14 +15,12 @@ import {
   AdminStoreDetail,
   StoreProductAdminDto,
   StoreStatus,
-  StoreApprovalStatus,
   StorePayoutDto,
 } from '../../api/admin.api.js';
 import {
   Store,
   CheckCircle,
   AlertTriangle,
-  XCircle,
   Clock,
   ShieldCheck,
   Search,
@@ -31,14 +29,8 @@ import {
   Download,
   Sliders,
   DollarSign,
-  Layers,
-  Activity,
-  Phone,
-  Mail,
-  Palette,
   Check,
   X,
-  AlertCircle,
 } from 'lucide-react';
 
 export const AdminStoresPage: React.FC = () => {
@@ -354,7 +346,7 @@ export const AdminStoresPage: React.FC = () => {
           value={stats ? stats.pendingReviewStores.toLocaleString() : '—'}
           subvalue="Awaiting Verification"
           accent="amber"
-          icon={<TactileIcon icon={Clock} color="warning" size="sm" />}
+          icon={<TactileIcon icon={Clock} color="amber" size="sm" />}
         />
         <MetricCard
           title="Pending Payouts"
@@ -368,7 +360,7 @@ export const AdminStoresPage: React.FC = () => {
           value={stats ? stats.suspendedStores.toLocaleString() : '—'}
           subvalue="Commerce Frozen"
           accent="red"
-          icon={<TactileIcon icon={AlertTriangle} color="emergency" size="sm" />}
+          icon={<TactileIcon icon={AlertTriangle} color="red" size="sm" />}
         />
         <MetricCard
           title="Gross Store Sales"

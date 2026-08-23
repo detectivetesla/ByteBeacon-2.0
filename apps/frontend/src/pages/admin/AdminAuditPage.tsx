@@ -13,18 +13,11 @@ import {
   RefreshCw,
   Eye,
   AlertTriangle,
-  Lock,
   Download,
-  Terminal,
   Activity,
-  Zap,
   CheckCircle,
   XCircle,
-  Clock,
-  ArrowRight,
   Database,
-  Search,
-  ExternalLink,
   Plus,
   Flame,
 } from 'lucide-react';
@@ -317,10 +310,10 @@ export const AdminAuditPage: React.FC = () => {
     }
   };
 
-  const getSeverityBadgeVariant = (sev: string): 'default' | 'neutral' | 'success' | 'warning' | 'error' | 'info' => {
+  const getSeverityBadgeVariant = (sev: string): 'default' | 'neutral' | 'success' | 'warning' | 'danger' | 'info' => {
     switch (sev) {
       case AuditSeverity.CRITICAL:
-        return 'error';
+        return 'danger';
       case AuditSeverity.HIGH:
         return 'warning';
       case AuditSeverity.WARNING:
@@ -331,12 +324,12 @@ export const AdminAuditPage: React.FC = () => {
     }
   };
 
-  const getResultBadgeVariant = (res: string): 'default' | 'neutral' | 'success' | 'warning' | 'error' | 'info' => {
+  const getResultBadgeVariant = (res: string): 'default' | 'neutral' | 'success' | 'warning' | 'danger' | 'info' => {
     switch (res) {
       case AuditResult.SUCCESS:
         return 'success';
       case AuditResult.FAILURE:
-        return 'error';
+        return 'danger';
       case AuditResult.DENIED:
         return 'warning';
       case AuditResult.CHALLENGED:
@@ -352,12 +345,12 @@ export const AdminAuditPage: React.FC = () => {
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <TactileIcon icon={Shield} color="api" size="lg" />
-          <div>
+      <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-api-bright)' }}>
                 Security & Compliance Control Plane
               </span>
-              <Badge variant={stats.tamperEvidenceStatus === 'VERIFIED' ? 'success' : 'error'} size="sm">
+              <Badge variant={stats.tamperEvidenceStatus === 'VERIFIED' ? 'success' : 'danger'} size="sm">
                 {stats.tamperEvidenceStatus === 'VERIFIED' ? 'Tamper-Evident Chained' : 'Verification Required'}
               </Badge>
             </div>
@@ -370,15 +363,16 @@ export const AdminAuditPage: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+        {/* Verification Status & Manual Trigger */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <Button
             variant="outline"
             size="sm"
-            onClick={handleRunIntegrityCheck}
+            onClick={fetchOverview}
             disabled={isVerifying}
           >
-            <ShieldCheck size={14} style={{ marginRight: '0.35rem', color: 'var(--color-green-400)' }} />
-            {isVerifying ? 'Verifying Hash Chain...' : 'Verify Cryptographic Chain'}
+            <RefreshCw size={14} className={isVerifying ? 'animate-spin' : ''} style={{ marginRight: '0.35rem' }} />
+            Refresh
           </Button>
 
           <Button
@@ -506,8 +500,8 @@ export const AdminAuditPage: React.FC = () => {
                 <SearchInput
                   placeholder="Search by Action, Actor, IP, Correlation ID, Resource..."
                   value={searchQuery}
-                  onChange={(val) => {
-                    setSearchQuery(val);
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
                     setPage(1);
                   }}
                 />
@@ -515,8 +509,8 @@ export const AdminAuditPage: React.FC = () => {
 
               <Select
                 value={categoryFilter}
-                onChange={(val) => {
-                  setCategoryFilter(val);
+                onChange={(e) => {
+                  setCategoryFilter(e.target.value);
                   setPage(1);
                 }}
                 options={[
@@ -533,8 +527,8 @@ export const AdminAuditPage: React.FC = () => {
 
               <Select
                 value={severityFilter}
-                onChange={(val) => {
-                  setSeverityFilter(val);
+                onChange={(e) => {
+                  setSeverityFilter(e.target.value);
                   setPage(1);
                 }}
                 options={[
@@ -548,8 +542,8 @@ export const AdminAuditPage: React.FC = () => {
 
               <Select
                 value={resultFilter}
-                onChange={(val) => {
-                  setResultFilter(val);
+                onChange={(e) => {
+                  setResultFilter(e.target.value);
                   setPage(1);
                 }}
                 options={[
@@ -563,8 +557,8 @@ export const AdminAuditPage: React.FC = () => {
 
               <Select
                 value={roleFilter}
-                onChange={(val) => {
-                  setRoleFilter(val);
+                onChange={(e) => {
+                  setRoleFilter(e.target.value);
                   setPage(1);
                 }}
                 options={[
@@ -583,11 +577,10 @@ export const AdminAuditPage: React.FC = () => {
           {/* Audit Table Card */}
           <Card accentColor="purple">
             <Table
-              isLoading={isLoading}
               columns={[
                 {
                   header: 'Timestamp',
-                  accessor: (row: AdminAuditListItemDto) => (
+                  render: (row: AdminAuditListItemDto) => (
                     <div>
                       <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
                         {new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -600,7 +593,7 @@ export const AdminAuditPage: React.FC = () => {
                 },
                 {
                   header: 'Actor & Role',
-                  accessor: (row: AdminAuditListItemDto) => (
+                  render: (row: AdminAuditListItemDto) => (
                     <div>
                       <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
                         {row.actorName}
@@ -614,7 +607,7 @@ export const AdminAuditPage: React.FC = () => {
                 },
                 {
                   header: 'Action & Category',
-                  accessor: (row: AdminAuditListItemDto) => (
+                  render: (row: AdminAuditListItemDto) => (
                     <div>
                       <div style={{ fontSize: '0.8125rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary-bright)' }}>
                         {row.action}
@@ -627,7 +620,7 @@ export const AdminAuditPage: React.FC = () => {
                 },
                 {
                   header: 'Resource',
-                  accessor: (row: AdminAuditListItemDto) => (
+                  render: (row: AdminAuditListItemDto) => (
                     <div style={{ fontSize: '0.8125rem' }}>
                       <span style={{ fontWeight: 500 }}>{row.resourceType}</span>
                       {row.resourceId && (
@@ -640,7 +633,7 @@ export const AdminAuditPage: React.FC = () => {
                 },
                 {
                   header: 'Result',
-                  accessor: (row: AdminAuditListItemDto) => (
+                  render: (row: AdminAuditListItemDto) => (
                     <Badge variant={getResultBadgeVariant(row.result)} size="sm">
                       {row.result}
                     </Badge>
@@ -648,7 +641,7 @@ export const AdminAuditPage: React.FC = () => {
                 },
                 {
                   header: 'Severity',
-                  accessor: (row: AdminAuditListItemDto) => (
+                  render: (row: AdminAuditListItemDto) => (
                     <Badge variant={getSeverityBadgeVariant(row.severity)} size="sm">
                       {row.severity}
                     </Badge>
@@ -656,7 +649,7 @@ export const AdminAuditPage: React.FC = () => {
                 },
                 {
                   header: 'Event Hash',
-                  accessor: (row: AdminAuditListItemDto) => (
+                  render: (row: AdminAuditListItemDto) => (
                     <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--color-text-muted)' }} title={row.eventHash}>
                       {row.eventHash.slice(0, 8)}...
                     </div>
@@ -664,7 +657,7 @@ export const AdminAuditPage: React.FC = () => {
                 },
                 {
                   header: 'Inspect',
-                  accessor: (row: AdminAuditListItemDto) => (
+                  render: (row: AdminAuditListItemDto) => (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -677,6 +670,7 @@ export const AdminAuditPage: React.FC = () => {
                 },
               ]}
               data={auditLogs}
+              keyExtractor={(row) => row.id}
               emptyMessage="No audit events matched your search or filters."
             />
 
@@ -710,7 +704,7 @@ export const AdminAuditPage: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Select
                   value={incidentStatusFilter}
-                  onChange={setIncidentStatusFilter}
+                  onChange={(e) => setIncidentStatusFilter(e.target.value)}
                   options={[
                     { label: 'All Incident States', value: 'ALL' },
                     { label: 'Open', value: SecurityIncidentStatus.OPEN },
@@ -764,7 +758,7 @@ export const AdminAuditPage: React.FC = () => {
                           <Badge
                             variant={
                               inc.status === SecurityIncidentStatus.OPEN
-                                ? 'error'
+                                ? 'danger'
                                 : inc.status === SecurityIncidentStatus.INVESTIGATING
                                 ? 'warning'
                                 : inc.status === SecurityIncidentStatus.CONTAINED
@@ -922,7 +916,7 @@ export const AdminAuditPage: React.FC = () => {
 
       {/* TAB 4: Event Classification Taxonomy */}
       {activeTab === 'classification' && (
-        <Card accentColor="indigo">
+        <Card accentColor="purple">
           <h3 style={{ fontSize: '1.125rem', fontWeight: 700, margin: '0 0 0.5rem 0', color: 'var(--color-text-primary)' }}>
             Security & Operational Event Classification Catalog
           </h3>
@@ -934,13 +928,13 @@ export const AdminAuditPage: React.FC = () => {
             columns={[
               {
                 header: 'Category',
-                accessor: (row: any) => (
+                render: (row: any) => (
                   <span style={{ fontWeight: 700, color: 'var(--color-primary-bright)' }}>{row.category}</span>
                 ),
               },
               {
                 header: 'Sample Events & Actions',
-                accessor: (row: any) => (
+                render: (row: any) => (
                   <div style={{ fontFamily: 'monospace', fontSize: '0.8125rem', color: 'var(--color-text-primary)' }}>
                     {row.events}
                   </div>
@@ -948,7 +942,7 @@ export const AdminAuditPage: React.FC = () => {
               },
               {
                 header: 'Default Severity',
-                accessor: (row: any) => (
+                render: (row: any) => (
                   <Badge variant={getSeverityBadgeVariant(row.severity)} size="sm">
                     {row.severity}
                   </Badge>
@@ -956,7 +950,7 @@ export const AdminAuditPage: React.FC = () => {
               },
               {
                 header: 'Authoritative Safety Boundary',
-                accessor: (row: any) => (
+                render: (row: any) => (
                   <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)' }}>{row.boundary}</span>
                 ),
               },
@@ -999,6 +993,7 @@ export const AdminAuditPage: React.FC = () => {
                 boundary: 'Background worker execution attribution for explainable order state transitions.',
               },
             ]}
+            keyExtractor={(row) => row.category}
           />
         </Card>
       )}
@@ -1070,7 +1065,7 @@ export const AdminAuditPage: React.FC = () => {
                     <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                       {ctrl.name}
                     </span>
-                    <Badge variant={ctrl.status ? 'error' : 'neutral'} size="sm">
+                    <Badge variant={ctrl.status ? 'danger' : 'neutral'} size="sm">
                       {ctrl.status ? 'ACTIVE (RESTRICTED)' : 'INACTIVE (NORMAL)'}
                     </Badge>
                   </div>
@@ -1120,7 +1115,7 @@ export const AdminAuditPage: React.FC = () => {
               </label>
               <Select
                 value={exportFormat}
-                onChange={(val) => setExportFormat(val as 'CSV' | 'JSON')}
+                onChange={(e) => setExportFormat(e.target.value as 'CSV' | 'JSON')}
                 options={[
                   { label: 'CSV (Spreadsheet / Excel format)', value: 'CSV' },
                   { label: 'JSON (Raw structured event stream)', value: 'JSON' },
@@ -1134,7 +1129,7 @@ export const AdminAuditPage: React.FC = () => {
               </label>
               <Select
                 value={categoryFilter}
-                onChange={setCategoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
                 options={[
                   { label: 'All Categories', value: 'ALL' },
                   { label: 'Authentication', value: AuditCategory.AUTH },
@@ -1151,7 +1146,7 @@ export const AdminAuditPage: React.FC = () => {
               </label>
               <Select
                 value={severityFilter}
-                onChange={setSeverityFilter}
+                onChange={(e) => setSeverityFilter(e.target.value)}
                 options={[
                   { label: 'All Severities', value: 'ALL' },
                   { label: 'Critical & High Only', value: AuditSeverity.HIGH },
@@ -1184,7 +1179,6 @@ export const AdminAuditPage: React.FC = () => {
           setSelectedLogDetail(null);
         }}
         title="Audit Activity Dossier"
-        size="lg"
       >
         {isLoadingDetail || !selectedLogDetail ? (
           <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
@@ -1294,7 +1288,6 @@ export const AdminAuditPage: React.FC = () => {
         isOpen={isCreateIncidentOpen}
         onClose={() => setIsCreateIncidentOpen(false)}
         title="Open Security Incident"
-        size="md"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
@@ -1323,7 +1316,7 @@ export const AdminAuditPage: React.FC = () => {
             </label>
             <Select
               value={newIncidentSeverity}
-              onChange={(val) => setNewIncidentSeverity(val as AuditSeverity)}
+              onChange={(e) => setNewIncidentSeverity(e.target.value as AuditSeverity)}
               options={[
                 { label: 'Critical Incident', value: AuditSeverity.CRITICAL },
                 { label: 'High Severity', value: AuditSeverity.HIGH },
@@ -1370,7 +1363,6 @@ export const AdminAuditPage: React.FC = () => {
         isOpen={Boolean(selectedIncidentForUpdate)}
         onClose={() => setSelectedIncidentForUpdate(null)}
         title={`Manage Incident ${selectedIncidentForUpdate?.incidentNumber || ''}`}
-        size="md"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
@@ -1379,7 +1371,7 @@ export const AdminAuditPage: React.FC = () => {
             </label>
             <Select
               value={updateIncidentStatus}
-              onChange={(val) => setUpdateIncidentStatus(val as SecurityIncidentStatus)}
+              onChange={(e) => setUpdateIncidentStatus(e.target.value as SecurityIncidentStatus)}
               options={[
                 { label: 'OPEN (Active alert)', value: SecurityIncidentStatus.OPEN },
                 { label: 'INVESTIGATING (Forensics in progress)', value: SecurityIncidentStatus.INVESTIGATING },
@@ -1447,7 +1439,6 @@ export const AdminAuditPage: React.FC = () => {
         isOpen={isEmergencyModalOpen}
         onClose={() => setIsEmergencyModalOpen(false)}
         title="⚠️ Super Admin Emergency Kill Switch"
-        size="md"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#f87171', fontSize: '0.875rem' }}>

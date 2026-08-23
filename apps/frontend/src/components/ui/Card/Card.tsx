@@ -146,6 +146,7 @@ export interface MetricCardProps {
   title: string;
   value: string | number;
   subtitle?: string;
+  subvalue?: string;
   trend?: {
     value: string;
     isPositive: boolean;
@@ -160,12 +161,14 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   title,
   value,
   subtitle,
+  subvalue,
   trend,
   icon,
   accent,
   variant = 'default',
   style,
 }) => {
+  const displaySubtitle = subvalue || subtitle;
   const mapAccentToCardAccent = (a?: string): CardAccentColor | undefined => {
     if (!a) return undefined;
     if (a === 'violet') return 'purple';
@@ -212,7 +215,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           {value}
         </div>
 
-        {(subtitle || trend) && (
+        {(displaySubtitle || trend) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 'var(--space-1)' }}>
             {trend && (
               <span
@@ -227,9 +230,9 @@ export const MetricCard: React.FC<MetricCardProps> = ({
                 {trend.isPositive ? '↑' : '↓'} {trend.value}
               </span>
             )}
-            {subtitle && (
+            {displaySubtitle && (
               <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                {subtitle}
+                {displaySubtitle}
               </span>
             )}
           </div>

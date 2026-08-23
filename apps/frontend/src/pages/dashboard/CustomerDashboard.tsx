@@ -62,7 +62,7 @@ export const CustomerDashboard: React.FC = () => {
           dataDisplay: `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB`,
           amountDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
           paymentStatus: o.paymentStatus || PaymentStatus.PENDING,
-          orderStatus: o.orderStatus || OrderStatus.PENDING,
+          orderStatus: o.orderStatus || OrderStatus.PROCESSING,
           dateDisplay: o.createdAt
             ? new Date(o.createdAt).toLocaleDateString([], {
                 month: 'short',
@@ -81,7 +81,7 @@ export const CustomerDashboard: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user, refreshBalance]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -90,10 +90,10 @@ export const CustomerDashboard: React.FC = () => {
   // Derived metrics
   const totalOrders = orders.length;
   const deliveredOrders = orders.filter(
-    (o) => o.orderStatus === OrderStatus.COMPLETED || o.orderStatus === OrderStatus.DELIVERED,
+    (o) => o.orderStatus === OrderStatus.COMPLETED,
   ).length;
   const pendingOrders = orders.filter(
-    (o) => o.orderStatus === OrderStatus.PENDING || o.orderStatus === OrderStatus.PROCESSING,
+    (o) => o.orderStatus === OrderStatus.PROCESSING || o.orderStatus === OrderStatus.SUBMITTED || o.orderStatus === OrderStatus.CREATED,
   ).length;
   const failedOrders = orders.filter(
     (o) => o.orderStatus === OrderStatus.FAILED || o.orderStatus === OrderStatus.CANCELLED,
@@ -267,7 +267,11 @@ export const CustomerDashboard: React.FC = () => {
             </div>
           </div>
 
-          {filteredOrders.length === 0 ? (
+          {isLoading ? (
+            <div style={{ padding: 'var(--space-8) var(--space-4)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>
+              Loading recent orders...
+            </div>
+          ) : filteredOrders.length === 0 ? (
             <div
               style={{
                 padding: 'var(--space-10) var(--space-4)',

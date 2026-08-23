@@ -217,6 +217,28 @@ export class HttpClient {
         });
       }
 
+      if (!response.ok) {
+        let responseBody: any;
+        try {
+          const text = await response.text();
+          responseBody = text ? JSON.parse(text) : {};
+        } catch {
+          responseBody = {};
+        }
+        const errorMessage = responseBody?.error?.message || responseBody?.message || `HTTP error ${response.status}`;
+        const errorCode = responseBody?.error?.code || responseBody?.code || 'API_ERROR';
+        const details = responseBody?.error?.details || responseBody?.details;
+
+        throw new ApiError(errorMessage, response.status, errorCode, details, requestId);
+      }
+
+      if (options.responseType === 'blob') {
+        return (await response.blob()) as unknown as T;
+      }
+      if (options.responseType === 'text') {
+        return (await response.text()) as unknown as T;
+      }
+
       // Parse JSON response
       let responseBody: any;
       const text = await response.text();
@@ -224,14 +246,6 @@ export class HttpClient {
         responseBody = text ? JSON.parse(text) : {};
       } catch {
         responseBody = { rawText: text };
-      }
-
-      if (!response.ok) {
-        const errorMessage = responseBody?.error?.message || responseBody?.message || `HTTP error ${response.status}`;
-        const errorCode = responseBody?.error?.code || responseBody?.code || 'API_ERROR';
-        const details = responseBody?.error?.details || responseBody?.details;
-
-        throw new ApiError(errorMessage, response.status, errorCode, details, requestId);
       }
 
       // If backend returned standardized ApiResponse envelope, extract data

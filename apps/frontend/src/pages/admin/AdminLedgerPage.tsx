@@ -14,17 +14,11 @@ import {
   Layers,
   ArrowUpRight,
   ArrowDownLeft,
-  Search,
   AlertTriangle,
-  FileText,
-  Clock,
   User,
   CheckCircle,
-  XCircle,
   Eye,
   PlusCircle,
-  Download,
-  Activity,
 } from 'lucide-react';
 import {
   adminApi,
@@ -263,58 +257,58 @@ export const AdminLedgerPage: React.FC = () => {
       {/* 12 Core Authoritative Financial KPI Metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
-          label="Total Platform Float"
+          title="Total Platform Float"
           value={`GHS ${(((stats?.totalPlatformBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="Customer + Agent combined reserves"
+          subvalue="Customer + Agent combined reserves"
           accent="green"
           icon={<TactileIcon icon={DollarSign} color="security" size="sm" />}
         />
         <MetricCard
-          label="Customer Float"
+          title="Customer Float"
           value={`GHS ${(((stats?.customerWalletBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="End-user active balances"
+          subvalue="End-user active balances"
           accent="blue"
           icon={<TactileIcon icon={User} color="orders" size="sm" />}
         />
         <MetricCard
-          label="Agent Float"
+          title="Agent Float"
           value={`GHS ${(((stats?.agentWalletBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="Agent & SuperAgent balances"
+          subvalue="Agent & SuperAgent balances"
           accent="orange"
           icon={<TactileIcon icon={Layers} color="speed" size="sm" />}
         />
         <MetricCard
-          label="Lifetime Revenue"
+          title="Lifetime Revenue"
           value={`GHS ${(((stats?.totalRevenuePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="Completed order gross value"
+          subvalue="Completed order gross value"
           accent="green"
           icon={<TactileIcon icon={CreditCard} color="security" size="sm" />}
         />
         <MetricCard
-          label="Total Deposits"
+          title="Total Deposits"
           value={`GHS ${(((stats?.totalDepositsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="Verified external gateway inflows"
+          subvalue="Verified external gateway inflows"
           accent="blue"
           icon={<TactileIcon icon={ArrowDownLeft} color="api" size="sm" />}
         />
         <MetricCard
-          label="Total Withdrawals"
+          title="Total Withdrawals"
           value={`GHS ${(((stats?.totalWithdrawalsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="Settled agent store payouts"
+          subvalue="Settled agent store payouts"
           accent="purple"
           icon={<TactileIcon icon={ArrowUpRight} color="payments" size="sm" />}
         />
         <MetricCard
-          label="Total Refunds"
+          title="Total Refunds"
           value={`GHS ${(((stats?.totalRefundsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
-          helperText="Processed order reversals"
+          subvalue="Processed order reversals"
           accent="amber"
           icon={<TactileIcon icon={AlertTriangle} color="amber" size="sm" />}
         />
         <MetricCard
-          label="Ledger Invariant"
+          title="Ledger Invariant"
           value={stats?.ledgerBalanceStatus === 'BALANCED' ? 'BALANCED' : 'ANOMALY DETECTED'}
-          helperText="Continuous zero-sum verification"
+          subvalue="Continuous zero-sum verification"
           accent={stats?.ledgerBalanceStatus === 'BALANCED' ? 'green' : 'red'}
           icon={<TactileIcon icon={ShieldCheck} color={stats?.ledgerBalanceStatus === 'BALANCED' ? 'security' : 'red'} size="sm" />}
         />
@@ -440,42 +434,69 @@ export const AdminLedgerPage: React.FC = () => {
 
           {/* Transactions Table */}
           <Card>
-            <Table
-              headers={['Reference / ID', 'Type', 'Customer / Agent', 'Amount (GHS)', 'Carrier', 'Status', 'Date', 'Action']}
-              data={transactions.map((tx) => [
-                <div key="ref" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-                    {tx.reference}
-                  </span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>ID: {tx.id.slice(0, 13)}...</span>
-                </div>,
-                <Badge key="type" variant={tx.type === 'DATA_PURCHASE' ? 'primary' : tx.type === 'DEPOSIT' ? 'success' : 'neutral'}>
-                  {tx.type}
-                </Badge>,
-                <div key="user" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{tx.userName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{tx.userEmail || tx.userPhone}</span>
-                </div>,
-                <span key="amt" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                  GHS {(tx.amountPesewas / 100).toFixed(2)}
-                </span>,
-                <span key="net" style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{tx.network || '—'}</span>,
-                <Badge
-                  key="st"
-                  variant={tx.status === 'PAID' ? 'success' : tx.status === 'PROCESSING' ? 'warning' : 'danger'}
-                >
-                  {tx.status}
-                </Badge>,
-                <span key="dt" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(tx.createdAt).toLocaleString()}
-                </span>,
-                <Button key="act" variant="secondary" size="sm" onClick={() => handleOpenTxDetail(tx.id)}>
-                  <Eye size={12} style={{ marginRight: '0.25rem' }} /> Audit
-                </Button>,
-              ])}
-              loading={isLoading}
-              emptyMessage="No financial transactions matching the selected criteria."
-            />
+            <Table headers={['Reference / ID', 'Type', 'Customer / Agent', 'Amount (GHS)', 'Carrier', 'Status', 'Date', 'Action']}>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                    <span>Loading transactions...</span>
+                  </td>
+                </tr>
+              ) : transactions.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <span>No financial transactions matching the selected criteria.</span>
+                  </td>
+                </tr>
+              ) : (
+                transactions.map((tx) => (
+                  <tr key={tx.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
+                          {tx.reference}
+                        </span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>ID: {tx.id.slice(0, 13)}...</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={tx.type === 'DATA_PURCHASE' ? 'brand' : tx.type === 'DEPOSIT' ? 'success' : 'neutral'}>
+                        {tx.type}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{tx.userName}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{tx.userEmail || tx.userPhone}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                        GHS {(tx.amountPesewas / 100).toFixed(2)}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{tx.network || '—'}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={tx.status === 'PAID' ? 'success' : tx.status === 'PROCESSING' ? 'warning' : 'danger'}>
+                        {tx.status}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                        {new Date(tx.createdAt).toLocaleString()}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Button variant="secondary" size="sm" onClick={() => handleOpenTxDetail(tx.id)}>
+                        <Eye size={12} style={{ marginRight: '0.25rem' }} /> Audit
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
 
             <Pagination
               currentPage={txPage}
@@ -487,7 +508,7 @@ export const AdminLedgerPage: React.FC = () => {
         </div>
       )}
 
-      {/* --- TAB 2: GENERAL LEDGER --- */}
+      {/* --- TAB 2: GENERAL LEDGER AUDIT TRAIL --- */}
       {activeTab === 'LEDGER' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           {/* Balance Invariant Notification Bar */}
@@ -524,7 +545,7 @@ export const AdminLedgerPage: React.FC = () => {
           </div>
 
           {/* Ledger Filters */}
-          <Card accentColor="green">
+          <Card accentColor="cyan">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
               <div style={{ minWidth: '180px' }}>
                 <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Entry Type</label>
@@ -533,8 +554,8 @@ export const AdminLedgerPage: React.FC = () => {
                   onChange={(e) => setLedgerEntryType(e.target.value)}
                   options={[
                     { value: 'ALL', label: 'All Entries' },
-                    { value: 'DEBIT', label: 'DEBIT (DR)' },
-                    { value: 'CREDIT', label: 'CREDIT (CR)' },
+                    { value: 'DEBIT', label: 'DEBIT (Asset Outflow / Exp)' },
+                    { value: 'CREDIT', label: 'CREDIT (Inflow / Liability)' },
                   ]}
                 />
               </div>
@@ -558,36 +579,66 @@ export const AdminLedgerPage: React.FC = () => {
 
           {/* Ledger Table */}
           <Card>
-            <Table
-              headers={['Journal ID', 'Entry Type', 'Account', 'Account ID', 'Amount (GHS)', 'Ref Type / ID', 'Description', 'Timestamp']}
-              data={ledgerLines.map((line) => [
-                <span key="jid" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600 }}>
-                  {line.transactionId?.slice(0, 12)}...
-                </span>,
-                <Badge key="et" variant={line.entryType === 'DEBIT' ? 'danger' : 'success'}>
-                  {line.entryType}
-                </Badge>,
-                <span key="ac" style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{line.accountType}</span>,
-                <span key="acid" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                  {line.accountId?.slice(0, 10)}...
-                </span>,
-                <span key="amt" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: line.entryType === 'DEBIT' ? 'var(--color-danger)' : 'var(--color-success)' }}>
-                  {line.entryType === 'DEBIT' ? '-' : '+'} GHS {(line.amountPesewas / 100).toFixed(2)}
-                </span>,
-                <div key="ref" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontSize: '11px' }}>{line.referenceType}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{line.referenceId?.slice(0, 12)}</span>
-                </div>,
-                <span key="desc" style={{ fontSize: 'var(--font-size-xs)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {line.description}
-                </span>,
-                <span key="ts" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(line.createdAt).toLocaleString()}
-                </span>,
-              ])}
-              loading={isLoading}
-              emptyMessage="No ledger journal entries found."
-            />
+            <Table headers={['Journal ID', 'Entry Type', 'Account', 'Account ID', 'Amount (GHS)', 'Ref Type / ID', 'Description', 'Timestamp']}>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                    <span>Loading ledger journal entries...</span>
+                  </td>
+                </tr>
+              ) : ledgerLines.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <span>No ledger journal entries found.</span>
+                  </td>
+                </tr>
+              ) : (
+                ledgerLines.map((line) => (
+                  <tr key={line.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600 }}>
+                        {line.transactionId?.slice(0, 12)}...
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={line.entryType === 'DEBIT' ? 'danger' : 'success'}>
+                        {line.entryType}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{line.accountType}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                        {line.accountId?.slice(0, 10)}...
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: line.entryType === 'DEBIT' ? 'var(--color-danger)' : 'var(--color-success)' }}>
+                        {line.entryType === 'DEBIT' ? '-' : '+'} GHS {(line.amountPesewas / 100).toFixed(2)}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontSize: '11px' }}>{line.referenceType}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{line.referenceId?.slice(0, 12)}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                        {line.description}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                        {new Date(line.createdAt).toLocaleString()}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
 
             <Pagination
               currentPage={ledgerPage}
@@ -617,46 +668,70 @@ export const AdminLedgerPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table
-              headers={['Adjustment #', 'Target User', 'Amount', 'Direction', 'Requested By', 'Reason', 'Status', 'Super Admin Action']}
-              data={adjustments.map((adj) => [
-                <span key="num" style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
-                  {adj.adjustmentNumber}
-                </span>,
-                <div key="user" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{adj.userName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{adj.userEmail} ({adj.userRole})</span>
-                </div>,
-                <span key="amt" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                  GHS {(adj.amountPesewas / 100).toFixed(2)}
-                </span>,
-                <Badge key="dir" variant={adj.direction === 'CREDIT' ? 'success' : 'danger'}>
-                  {adj.direction}
-                </Badge>,
-                <span key="req" style={{ fontSize: 'var(--font-size-xs)' }}>{adj.requestedByName}</span>,
-                <span key="rsn" style={{ fontSize: 'var(--font-size-xs)', maxWidth: '200px', display: 'block' }}>{adj.reason}</span>,
-                <Badge key="st" variant={adj.status === 'APPROVED' ? 'success' : adj.status === 'REJECTED' ? 'danger' : 'warning'}>
-                  {adj.status}
-                </Badge>,
-                <div key="act" style={{ display: 'flex', gap: '0.35rem' }}>
-                  {adj.status === 'PENDING' ? (
-                    <>
-                      <Button variant="primary" size="sm" onClick={() => handleReviewAdjustment(adj.id, 'APPROVE')}>
-                        Approve
-                      </Button>
-                      <Button variant="danger" size="sm" onClick={() => handleReviewAdjustment(adj.id, 'REJECT')}>
-                        Reject
-                      </Button>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                      {adj.status} by {adj.approvedByName || 'Super Admin'}
-                    </span>
-                  )}
-                </div>,
-              ])}
-              emptyMessage="No float adjustment requests in queue."
-            />
+            <Table headers={['Adjustment #', 'Target User', 'Amount', 'Direction', 'Requested By', 'Reason', 'Status', 'Super Admin Action']}>
+              {adjustments.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    <span>No float adjustment requests in queue.</span>
+                  </td>
+                </tr>
+              ) : (
+                adjustments.map((adj) => (
+                  <tr key={adj.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                        {adj.adjustmentNumber}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{adj.userName}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{adj.userEmail} ({adj.userRole})</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                        GHS {(adj.amountPesewas / 100).toFixed(2)}
+                      </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={adj.direction === 'CREDIT' ? 'success' : 'danger'}>
+                        {adj.direction}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)' }}>{adj.requestedByName}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', maxWidth: '200px', display: 'block' }}>{adj.reason}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <Badge variant={adj.status === 'APPROVED' ? 'success' : adj.status === 'REJECTED' ? 'danger' : 'warning'}>
+                        {adj.status}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        {adj.status === 'PENDING' ? (
+                          <>
+                            <Button variant="primary" size="sm" onClick={() => handleReviewAdjustment(adj.id, 'APPROVE')}>
+                              Approve
+                            </Button>
+                            <Button variant="danger" size="sm" onClick={() => handleReviewAdjustment(adj.id, 'REJECT')}>
+                              Reject
+                            </Button>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                            {adj.status} by {adj.approvedByName || 'Super Admin'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
           </Card>
         </div>
       )}

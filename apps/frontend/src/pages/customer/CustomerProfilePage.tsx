@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Input } from '../../components/ui/index.js';
 import {
   User,
@@ -11,7 +10,6 @@ import {
   Settings,
   Mail,
   Phone,
-  Calendar,
   CheckCircle2,
   Lock,
   Headphones,
@@ -67,7 +65,6 @@ export const CustomerProfilePage: React.FC = () => {
   const customerName = user?.fullName || user?.email?.split('@')[0] || 'Customer';
   const customerEmail = user?.email || '—';
   const customerPhone = user?.phone || 'Not linked';
-  const memberSince = 'June 2025';
 
   const handleDeleteAccount = () => {
     if (deleteConfirmationText !== 'DELETE') {

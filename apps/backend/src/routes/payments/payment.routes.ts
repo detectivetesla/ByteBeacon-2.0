@@ -8,6 +8,8 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { RateLimiterService } from '../../core/security/rate-limiter.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createRateLimitPreHandler } from '../../plugins/rate-limit.plugin.js';
+import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
+import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { PaymentMethod, PaymentChannel, UserRole } from '@bytebeacon/shared';
 import { BadRequestError } from '../../core/errors/app-error.js';
 
@@ -29,15 +31,18 @@ export async function paymentRoutes(
     apiKeyService: ApiKeyService;
     rbacService: RbacService;
     rateLimiter: RateLimiterService;
+    featureFlagService?: FeatureFlagService;
   },
 ) {
+  const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(deps.db);
   const authHooks = createAuthHooks(deps.tokenService, deps.apiKeyService, deps.rbacService, deps.db);
   const paymentRateLimit = createRateLimitPreHandler(deps.rateLimiter, 'PAYMENTS');
+  const maintenanceHook = createMaintenanceHook(featureFlagService);
 
   app.post(
     '/payments/initialize',
     {
-      preHandler: [authHooks.authenticate, paymentRateLimit],
+      preHandler: [authHooks.authenticate, paymentRateLimit, maintenanceHook],
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const parsed = initializePaymentSchema.safeParse(req.body);

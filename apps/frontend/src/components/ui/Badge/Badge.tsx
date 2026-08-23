@@ -3,7 +3,7 @@ import { PaymentStatus, OrderStatus, NetworkProvider } from '@bytebeacon/shared'
 
 export interface BadgeProps {
   children?: React.ReactNode;
-  variant?: 'default' | 'success' | 'warning' | 'info' | 'danger' | 'purple' | 'neutral';
+  variant?: 'default' | 'success' | 'warning' | 'info' | 'danger' | 'purple' | 'neutral' | 'brand';
   size?: 'sm' | 'md';
   dot?: boolean;
   className?: string;
@@ -30,7 +30,10 @@ export const Badge: React.FC<BadgeProps> = ({
         return { bg: 'var(--color-danger-surface)', text: 'var(--color-danger)' };
       case 'purple':
         return { bg: 'var(--color-api-surface)', text: 'var(--color-api)' };
+      case 'brand':
+        return { bg: 'rgba(16, 185, 129, 0.12)', text: 'var(--color-brand)' };
       case 'neutral':
+      case 'default':
       default:
         return { bg: 'rgba(167, 175, 183, 0.12)', text: 'var(--color-text-secondary)' };
     }
@@ -108,6 +111,20 @@ export const OrderStatusBadge: React.FC<{ status: OrderStatus | string; size?: '
     default:
       return <Badge variant="neutral" size={size}>{status}</Badge>;
   }
+};
+
+export const ApprovalStatusBadge: React.FC<{ status: string; size?: 'sm' | 'md' }> = ({ status, size = 'md' }) => {
+  const s = String(status || '').toUpperCase();
+  if (s === 'APPROVED' || s === 'COMPLETED' || s === 'VALID') {
+    return <Badge variant="success" size={size} dot>Approved</Badge>;
+  }
+  if (s === 'REJECTED' || s === 'FAILED' || s === 'INVALID') {
+    return <Badge variant="danger" size={size} dot>Rejected</Badge>;
+  }
+  if (s === 'EXPIRED') {
+    return <Badge variant="neutral" size={size} dot>Expired</Badge>;
+  }
+  return <Badge variant="warning" size={size} dot>Pending</Badge>;
 };
 
 export const NetworkBadge: React.FC<{ network: NetworkProvider | string; size?: 'sm' | 'md' }> = ({ network, size = 'md' }) => {

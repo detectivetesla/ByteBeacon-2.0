@@ -17,15 +17,8 @@ import {
   Clock,
   RotateCcw,
   ShieldCheck,
-  Search,
   ExternalLink,
   ChevronRight,
-  User,
-  Store,
-  DollarSign,
-  Layers,
-  History,
-  Info,
   Server,
   Zap,
 } from 'lucide-react';
@@ -34,8 +27,8 @@ import { useToast } from '../../context/ToastContext.js';
 
 export const AdminOrdersPage: React.FC = () => {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { toastSuccess, toastError, toastInfo } = useToast();
+  const [searchParams] = useSearchParams();
+  const { toastSuccess, toastError } = useToast();
 
   // Query state
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
@@ -45,7 +38,7 @@ export const AdminOrdersPage: React.FC = () => {
   const [periodFilter, setPeriodFilter] = useState(searchParams.get('period') || 'ALL');
   const [operationalStateFilter, setOperationalStateFilter] = useState(searchParams.get('state') || 'ALL');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const pageSize = 25;
 
   // Data state
   const [orders, setOrders] = useState<AdminOrderListItem[]>([]);
@@ -266,7 +259,7 @@ export const AdminOrdersPage: React.FC = () => {
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-brand)' }}>
                 Operations Control Plane
               </span>
-              <Badge variant="brand" size="xs">Phase 11.5</Badge>
+              <Badge variant="brand" size="sm">Phase 11.5</Badge>
             </div>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               All System Orders
@@ -541,7 +534,7 @@ export const AdminOrdersPage: React.FC = () => {
                 <td>
                   <Button
                     variant="ghost"
-                    size="xs"
+                    size="sm"
                     onClick={() => setSelectedOrderId(order.id)}
                     style={{ fontSize: 'var(--font-size-2xs)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
                   >
@@ -579,7 +572,6 @@ export const AdminOrdersPage: React.FC = () => {
           isOpen={true}
           onClose={() => setSelectedOrderId(null)}
           title={`Order Control Center — #${selectedOrderId}`}
-          size="lg"
         >
           {isLoadingDetail ? (
             <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
@@ -599,7 +591,7 @@ export const AdminOrdersPage: React.FC = () => {
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <Button
                     variant="outline"
-                    size="xs"
+                    size="sm"
                     onClick={handleReconcileOrder}
                     disabled={isReconciling}
                   >
@@ -610,7 +602,7 @@ export const AdminOrdersPage: React.FC = () => {
                   {orderDetail.order.orderStatus !== 'COMPLETED' && (
                     <Button
                       variant="outline"
-                      size="xs"
+                      size="sm"
                       onClick={handleRetryOrder}
                       disabled={isRetrying}
                     >
@@ -621,8 +613,8 @@ export const AdminOrdersPage: React.FC = () => {
 
                   {orderDetail.order.refundStatus !== 'COMPLETED' && (
                     <Button
-                      variant="destructive"
-                      size="xs"
+                      variant="danger"
+                      size="sm"
                       onClick={() => setIsRefundModalOpen(true)}
                     >
                       <RotateCcw size={12} />
@@ -694,7 +686,7 @@ export const AdminOrdersPage: React.FC = () => {
                         <div><strong>Email:</strong> {orderDetail.customer.email}</div>
                         <Button
                           variant="ghost"
-                          size="xs"
+                          size="sm"
                           onClick={() => navigate(`/admin/users/${orderDetail.customer?.id}`)}
                           style={{ marginTop: '0.25rem', padding: 0, color: 'var(--color-brand)' }}
                         >
@@ -803,7 +795,7 @@ export const AdminOrdersPage: React.FC = () => {
                 Cancel
               </Button>
               <Button
-                variant="destructive"
+                variant="danger"
                 onClick={handleRefundOrder}
                 disabled={isRefunding || refundReason.trim().length < 5}
               >

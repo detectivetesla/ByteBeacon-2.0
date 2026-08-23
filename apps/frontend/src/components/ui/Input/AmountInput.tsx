@@ -3,6 +3,7 @@ import { Input, InputProps } from './Input.js';
 
 export interface AmountInputProps extends Omit<InputProps, 'type' | 'prefixText'> {
   currency?: string;
+  currencyPrefix?: string;
   minAmount?: number;
   maxAmount?: number;
   quickAmounts?: number[];
@@ -13,6 +14,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
   (
     {
       currency = 'GH₵',
+      currencyPrefix,
       minAmount,
       maxAmount,
       quickAmounts,
@@ -25,6 +27,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
     },
     ref,
   ) => {
+    const activeCurrency = currencyPrefix || currency;
     const handleNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value;
       // Allow only numbers and at most one decimal point
@@ -36,11 +39,11 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
     let computedHint = hint;
     if (!computedHint) {
       if (minAmount !== undefined && maxAmount !== undefined) {
-        computedHint = `Min: ${currency} ${minAmount.toFixed(2)} · Max: ${currency} ${maxAmount.toFixed(2)}`;
+        computedHint = `Min: ${activeCurrency} ${minAmount.toFixed(2)} · Max: ${activeCurrency} ${maxAmount.toFixed(2)}`;
       } else if (minAmount !== undefined) {
-        computedHint = `Minimum: ${currency} ${minAmount.toFixed(2)}`;
+        computedHint = `Minimum: ${activeCurrency} ${minAmount.toFixed(2)}`;
       } else if (maxAmount !== undefined) {
-        computedHint = `Maximum: ${currency} ${maxAmount.toFixed(2)}`;
+        computedHint = `Maximum: ${activeCurrency} ${maxAmount.toFixed(2)}`;
       }
     }
 
@@ -50,7 +53,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
           ref={ref}
           type="text"
           inputMode="decimal"
-          prefixText={currency}
+          prefixText={activeCurrency}
           value={value}
           onChange={handleNumberChange}
           placeholder={placeholder}
@@ -91,7 +94,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
                     transition: 'all 120ms ease',
                   }}
                 >
-                  +{currency} {amt}
+                  +{activeCurrency} {amt}
                 </button>
               );
             })}

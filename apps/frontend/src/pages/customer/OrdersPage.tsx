@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { NetworkProvider, OrderStatus, PaymentStatus } from '@bytebeacon/shared';
+import { OrderStatus, PaymentStatus } from '@bytebeacon/shared';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { SearchInput, Select, DateInput } from '../../components/ui/index.js';
@@ -28,7 +28,7 @@ interface OrderRowData extends OrderDetailsItem {}
 
 export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
-  const { toastSuccess, toastInfo, toastError } = useToast();
+  const { toastSuccess, toastInfo } = useToast();
 
   // Filters State
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -72,7 +72,7 @@ export const OrdersPage: React.FC = () => {
           amountDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
           source: (o.paymentMethod || 'Wallet') as any,
           paidDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
-          orderStatus: o.orderStatus || OrderStatus.PENDING,
+          orderStatus: o.orderStatus || OrderStatus.PROCESSING,
           paymentStatus: o.paymentStatus || PaymentStatus.PENDING,
           dateDisplay: o.createdAt
             ? new Date(o.createdAt).toLocaleDateString([], {

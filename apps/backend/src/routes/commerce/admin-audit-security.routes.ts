@@ -876,6 +876,28 @@ export async function adminAuditSecurityRoutes(
         [controlKey, enabled, req.user!.sub, reason.trim()],
       );
 
+      if (controlKey === 'MAINTENANCE_MODE') {
+        await db.query(
+          `UPDATE system_configurations
+           SET value = $1, last_modified_by = $2, last_modified_at = CURRENT_TIMESTAMP
+           WHERE config_key = 'maintenance_mode'`,
+          [JSON.stringify(enabled), req.user!.sub],
+        ).catch(() => {});
+
+        await db.query(
+          `UPDATE platform_feature_flags
+           SET is_enabled = $1, last_toggled_by = $2, last_toggled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE flag_key = 'MAINTENANCE_MODE'`,
+          [enabled, req.user!.sub],
+        ).catch(() => {});
+
+        await db.query(
+          `UPDATE financial_safety_controls
+           SET global_maintenance_mode = $1, updated_at = CURRENT_TIMESTAMP`,
+          [enabled],
+        ).catch(() => {});
+      }
+
       if (auditService) {
         await auditService.logEvent({
           correlationId: req.id,

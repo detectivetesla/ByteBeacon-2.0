@@ -15,7 +15,6 @@ import {
   ProviderIncidentStatus,
 } from '@bytebeacon/shared';
 import { adminApi } from '../../api/admin.api';
-import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { AddProviderWizardModal } from '../../components/admin/telecom/AddProviderWizardModal';
 import { ProviderDossierModal } from '../../components/admin/telecom/ProviderDossierModal';
@@ -280,7 +279,6 @@ const DEFAULT_OVERVIEW: TelecomControlPlaneOverviewDto = {
 };
 
 export const AdminProviderPage: React.FC = () => {
-  const { user: currentUser } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
 
   const [activeTab, setActiveTab] = useState<'networks' | 'providers' | 'health' | 'routing' | 'webhooks' | 'tests' | 'incidents'>('networks');
@@ -637,7 +635,6 @@ export const AdminProviderPage: React.FC = () => {
               {networks.map((net) => {
                 const isMtn = net.code === NetworkProvider.MTN;
                 const isTelecel = net.code === NetworkProvider.TELECEL;
-                const isAt = net.code === NetworkProvider.AIRTELTIGO;
 
                 const borderColor = isMtn ? 'border-amber-500/30' : isTelecel ? 'border-rose-500/30' : 'border-blue-500/30';
                 const badgeColor = isMtn

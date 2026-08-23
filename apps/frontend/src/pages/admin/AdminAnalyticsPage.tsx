@@ -11,9 +11,7 @@ import {
   Package,
   Users,
   DollarSign,
-  Cpu,
   RefreshCw,
-  Calendar,
   Activity,
   PieChart,
 } from 'lucide-react';
@@ -102,7 +100,7 @@ export const AdminAnalyticsPage: React.FC = () => {
         <MetricCard
           title="Period Revenue"
           value={`GH₵ ${monthVolumeGhs}`}
-          subvalue={`Today: GH₵ ${todayVolumeGhs}`}
+          subvalue={`Lifetime: GH₵ ${totalVolumeGhs} • Today: GH₵ ${todayVolumeGhs}`}
           accent="green"
           icon={<TactileIcon icon={DollarSign} color="security" size="sm" />}
         />

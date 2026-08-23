@@ -16,26 +16,24 @@ import {
   Download,
   Phone,
   ShieldCheck,
-  Search,
   ExternalLink,
   ChevronRight,
   Server,
   Zap,
-  RotateCcw,
 } from 'lucide-react';
 import { adminApi, AdminPendingApprovalItem, AdminPendingApprovalStats, AdminPendingApprovalDetail } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
 
 export const AdminPendingApprovalsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { toastSuccess, toastError, toastInfo } = useToast();
+  const { toastSuccess, toastError } = useToast();
 
   // Query State
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [networkFilter, setNetworkFilter] = useState('ALL');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const pageSize = 25;
 
   // Data State
   const [items, setItems] = useState<AdminPendingApprovalItem[]>([]);
@@ -238,7 +236,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-speed-bright)' }}>
                 Telecom Validation Operations
               </span>
-              <Badge variant="brand" size="xs">Phase 11.5</Badge>
+              <Badge variant="brand" size="sm">Phase 11.5</Badge>
             </div>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Pending MTN Approvals
@@ -414,7 +412,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                 <div style={{ display: 'flex', gap: '0.25rem' }}>
                   <Button
                     variant="ghost"
-                    size="xs"
+                    size="sm"
                     onClick={() => handleSyncSingle(item.id)}
                     title="Queue DataHouse Sync"
                   >
@@ -423,7 +421,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   {item.status !== 'VALID' && (
                     <Button
                       variant="outline"
-                      size="xs"
+                      size="sm"
                       onClick={() => handleApprove(item.id)}
                       style={{ color: 'var(--color-success)', borderColor: 'var(--color-success)' }}
                       title="Approve & Release Orders"
@@ -433,7 +431,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   )}
                   <Button
                     variant="ghost"
-                    size="xs"
+                    size="sm"
                     onClick={() => setSelectedId(item.id)}
                   >
                     <ChevronRight size={12} />
@@ -469,7 +467,6 @@ export const AdminPendingApprovalsPage: React.FC = () => {
           isOpen={true}
           onClose={() => setSelectedId(null)}
           title={`Beneficiary Approval Details — ${detail?.record?.phoneNumber || ''}`}
-          size="lg"
         >
           {isLoadingDetail ? (
             <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
@@ -489,7 +486,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <Button
                     variant="outline"
-                    size="xs"
+                    size="sm"
                     onClick={() => handleSyncSingle(detail.record.id)}
                     disabled={isSyncingSingle}
                   >
@@ -500,7 +497,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   {detail.record.status !== 'VALID' && (
                     <Button
                       variant="outline"
-                      size="xs"
+                      size="sm"
                       onClick={() => handleApprove(detail.record.id)}
                       style={{ color: 'var(--color-success)', borderColor: 'var(--color-success)' }}
                     >
@@ -511,8 +508,8 @@ export const AdminPendingApprovalsPage: React.FC = () => {
 
                   {detail.record.status !== 'INVALID' && (
                     <Button
-                      variant="destructive"
-                      size="xs"
+                      variant="danger"
+                      size="sm"
                       onClick={() => setIsRejectModalOpen(true)}
                     >
                       <AlertOctagon size={12} />
@@ -547,7 +544,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>GH₵ {(ord.amountPesewas / 100).toFixed(2)}</span>
                         <Button
                           variant="ghost"
-                          size="xs"
+                          size="sm"
                           onClick={() => {
                             setSelectedId(null);
                             navigate(`/admin/orders?search=${ord.id}`);
@@ -607,7 +604,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                 Cancel
               </Button>
               <Button
-                variant="destructive"
+                variant="danger"
                 onClick={handleReject}
                 disabled={isRejecting}
               >

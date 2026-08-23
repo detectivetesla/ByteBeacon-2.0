@@ -108,12 +108,12 @@ export const ResponsiveForm: React.FC<ResponsiveFormProps> = ({
 };
 
 /* Convenience sub-components */
-export interface FormFieldProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface ResponsiveFormFieldProps extends React.HTMLAttributes<HTMLDivElement> {
   fullWidth?: boolean;
   children: React.ReactNode;
 }
 
-export const FormField: React.FC<FormFieldProps> = ({ fullWidth, className = '', style, children, ...props }) => (
+export const ResponsiveFormField: React.FC<ResponsiveFormFieldProps> = ({ fullWidth, className = '', style, children, ...props }) => (
   <div
     className={`bb-form-field ${className}`}
     style={{

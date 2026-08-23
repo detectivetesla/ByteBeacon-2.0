@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { Button } from '../ui/Button/Button.js';
@@ -16,10 +16,9 @@ import {
   AlertTriangle,
   Lock,
   ExternalLink,
-  CreditCard,
-  Smartphone,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { ordersApi } from '../../api/orders.api.js';
 
 export interface PurchaseModalProps {
@@ -111,6 +110,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
 }) => {
   const navigate = useNavigate();
   const { toastSuccess, toastError, toastInfo } = useToast();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const [step, setStep] = useState<1 | 2 | 3>(initialRecipientPhone || customRecipientSummary ? 2 : 1);
   const [network, setNetwork] = useState<NetworkProvider>(initialNetwork);
   const [selectedBundle, setSelectedBundle] = useState<BundleItem>(
@@ -178,6 +178,10 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   if (!isOpen) return null;
 
   const handleValidateAndContinue = () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
     const cleaned = recipientPhone.replace(/\s+/g, '');
     if (!/^(0|\+?233)[25][0-9]{8}$/.test(cleaned)) {
       setPhoneError('Please enter a valid Ghana 10-digit mobile number (e.g. 0241234567)');
@@ -188,6 +192,10 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   };
 
   const handlePaystackCheckout = async () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
     const cleaned = recipientPhone.replace(/\s+/g, '');
     const payEmail = buyerEmail.trim() || `${cleaned}@customer.bytebeacon.com`;
     const amountPesewas = Math.round(numericPrice * 100);
@@ -261,6 +269,10 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   };
 
   const handleWalletPurchase = async () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
     if (!isSufficient) {
       toastError('Insufficient Balance', `You need GH₵ ${shortfall} more to complete this purchase.`);
       return;
@@ -412,6 +424,30 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
             gap: 'var(--space-5)',
           }}
         >
+          {isMaintenanceMode && (
+            <div
+              role="alert"
+              style={{
+                padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                color: '#FBBF24',
+                fontSize: 'var(--font-size-xs)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.625rem',
+                lineHeight: 1.4,
+              }}
+            >
+              <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+              <div>
+                <strong>Scheduled Maintenance in Progress:</strong>{' '}
+                {maintenanceMessage || 'Telecom fulfillment and checkout are temporarily paused. Please check back shortly.'}
+              </div>
+            </div>
+          )}
+
           {/* Selected Package Summary Card */}
           <div
             style={{
@@ -1023,21 +1059,21 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               <button
                 type="button"
                 onClick={handleValidateAndContinue}
-                disabled={!recipientPhone.trim()}
+                disabled={!recipientPhone.trim() || isMaintenanceMode}
                 style={{
                   padding: '0.45rem 1.25rem',
                   borderRadius: 'var(--radius-md)',
                   border: 'none',
-                  backgroundColor: theme.buttonBg,
-                  color: theme.buttonTextColor,
+                  backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                  color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
                   fontWeight: 800,
                   fontSize: 'var(--font-size-xs)',
-                  cursor: !recipientPhone.trim() ? 'not-allowed' : 'pointer',
-                  opacity: !recipientPhone.trim() ? 0.6 : 1,
-                  boxShadow: `0 2px 8px ${theme.glowColor}`,
+                  cursor: !recipientPhone.trim() || isMaintenanceMode ? 'not-allowed' : 'pointer',
+                  opacity: !recipientPhone.trim() || isMaintenanceMode ? 0.6 : 1,
+                  boxShadow: !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
                 }}
               >
-                Continue to Payment →
+                {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
               </button>
             </>
           )}
@@ -1057,49 +1093,61 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 <button
                   type="button"
                   onClick={handlePaystackCheckout}
-                  disabled={isProcessing}
+                  disabled={isProcessing || isMaintenanceMode}
                   style={{
                     padding: '0.5rem 1.35rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: theme.buttonBg,
-                    color: theme.buttonTextColor,
+                    backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                    color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-xs)',
-                    cursor: isProcessing ? 'wait' : 'pointer',
-                    opacity: isProcessing ? 0.8 : 1,
-                    boxShadow: `0 2px 10px ${theme.glowColor}`,
+                    cursor: isProcessing ? 'wait' : isMaintenanceMode ? 'not-allowed' : 'pointer',
+                    opacity: isProcessing || isMaintenanceMode ? 0.6 : 1,
+                    boxShadow: !isMaintenanceMode ? `0 2px 10px ${theme.glowColor}` : 'none',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.4rem',
                   }}
                 >
                   <Lock size={14} />
-                  <span>{isProcessing ? 'Connecting...' : `Pay ${amountDisplay} via Paystack`}</span>
+                  <span>
+                    {isProcessing
+                      ? 'Connecting...'
+                      : isMaintenanceMode
+                        ? 'Platform in Maintenance'
+                        : `Pay ${amountDisplay} via Paystack`}
+                  </span>
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={handleWalletPurchase}
-                  disabled={isProcessing || !isSufficient}
+                  disabled={isProcessing || !isSufficient || isMaintenanceMode}
                   style={{
                     padding: '0.45rem 1.25rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: isSufficient ? theme.buttonBg : 'var(--color-bg-surface-muted)',
-                    color: isSufficient ? theme.buttonTextColor : 'var(--color-text-muted)',
+                    backgroundColor: isSufficient && !isMaintenanceMode ? theme.buttonBg : 'var(--color-bg-surface-muted)',
+                    color: isSufficient && !isMaintenanceMode ? theme.buttonTextColor : 'var(--color-text-muted)',
                     fontWeight: 800,
                     fontSize: 'var(--font-size-xs)',
-                    cursor: isProcessing ? 'wait' : !isSufficient ? 'not-allowed' : 'pointer',
-                    opacity: isProcessing ? 0.8 : !isSufficient ? 0.6 : 1,
-                    boxShadow: isSufficient ? `0 2px 8px ${theme.glowColor}` : 'none',
+                    cursor: isProcessing ? 'wait' : !isSufficient || isMaintenanceMode ? 'not-allowed' : 'pointer',
+                    opacity: isProcessing ? 0.8 : !isSufficient || isMaintenanceMode ? 0.6 : 1,
+                    boxShadow: isSufficient && !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.35rem',
                   }}
                 >
                   <Zap size={14} />
-                  <span>{isProcessing ? 'Deducting...' : 'Confirm Purchase'}</span>
+                  <span>
+                    {isProcessing
+                      ? 'Deducting...'
+                      : isMaintenanceMode
+                        ? 'Platform in Maintenance'
+                        : 'Confirm Purchase'}
+                  </span>
                 </button>
               )}
             </>

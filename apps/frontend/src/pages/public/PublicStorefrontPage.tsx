@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { PhoneInput, Input } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
+import { MaintenanceBanner } from '../../components/navigation/MaintenanceBanner.js';
 import { storesApi } from '../../api/stores.api.js';
 import { ordersApi } from '../../api/orders.api.js';
 import {
@@ -11,6 +13,7 @@ import {
   Lock,
   MessageSquare,
   ArrowRight,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface PublicBundle {
@@ -42,6 +45,7 @@ const SAMPLE_PUBLIC_BUNDLES: PublicBundle[] = [
 export const PublicStorefrontPage: React.FC = () => {
   const { slug } = useParams<{ slug?: string }>();
   const { toastSuccess, toastError } = useToast();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
   const [activeNetwork, setActiveNetwork] = useState<'MTN' | 'TELECEL' | 'AIRTELTIGO'>('MTN');
   const [selectedBundle, setSelectedBundle] = useState<PublicBundle | null>(null);
@@ -103,6 +107,10 @@ export const PublicStorefrontPage: React.FC = () => {
 
   const handleProcessPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
     if (!recipientPhone || recipientPhone.length < 10) {
       toastError('Invalid Phone', 'Please enter a valid 10-digit Ghanaian mobile number.');
       return;
@@ -146,6 +154,7 @@ export const PublicStorefrontPage: React.FC = () => {
         flexDirection: 'column',
       }}
     >
+      <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
       {/* 1. Header & Store Navigation */}
       <header
         style={{
@@ -447,6 +456,30 @@ export const PublicStorefrontPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleProcessPayment} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              {isMaintenanceMode && (
+                <div
+                  role="alert"
+                  style={{
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    color: '#FBBF24',
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                  <div>
+                    <strong>Scheduled Maintenance:</strong>{' '}
+                    {maintenanceMessage || 'Checkout is temporarily paused. Please check back shortly.'}
+                  </div>
+                </div>
+              )}
+
               <PhoneInput
                 label="Recipient Phone Number"
                 placeholder="0244123456"
@@ -466,26 +499,33 @@ export const PublicStorefrontPage: React.FC = () => {
               <div style={{ marginTop: 'var(--space-3)' }}>
                 <button
                   type="submit"
-                  disabled={isCheckingOut}
+                  disabled={isCheckingOut || isMaintenanceMode}
                   style={{
                     width: '100%',
                     padding: '0.65rem',
                     borderRadius: '8px',
-                    backgroundColor: storeInfo.primaryColor,
-                    color: '#FFFFFF',
+                    backgroundColor: isMaintenanceMode ? '#334155' : storeInfo.primaryColor,
+                    color: isMaintenanceMode ? '#94A3B8' : '#FFFFFF',
                     border: 'none',
                     fontSize: 'var(--font-size-sm)',
                     fontWeight: 800,
-                    cursor: 'pointer',
+                    cursor: isCheckingOut ? 'wait' : isMaintenanceMode ? 'not-allowed' : 'pointer',
+                    opacity: isMaintenanceMode ? 0.65 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.4rem',
-                    boxShadow: '0 4px 14px rgba(0, 102, 255, 0.4)',
+                    boxShadow: !isMaintenanceMode ? '0 4px 14px rgba(0, 102, 255, 0.4)' : 'none',
                   }}
                 >
                   <Lock size={14} />
-                  <span>{isCheckingOut ? 'Securing Transaction...' : `Pay GH₵ ${selectedBundle.priceGhs.toFixed(2)} via Paystack`}</span>
+                  <span>
+                    {isCheckingOut
+                      ? 'Securing Transaction...'
+                      : isMaintenanceMode
+                        ? 'Platform in Maintenance'
+                        : `Pay GH₵ ${selectedBundle.priceGhs.toFixed(2)} via Paystack`}
+                  </span>
                 </button>
               </div>
 

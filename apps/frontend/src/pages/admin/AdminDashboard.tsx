@@ -13,27 +13,20 @@ import { adminApi } from '../../api/admin.api.js';
 import { apiClient } from '../../api/httpClient.js';
 import {
   Activity,
-  Server,
   ShieldCheck,
   AlertTriangle,
   Zap,
   Package,
   Users,
   DollarSign,
-  CreditCard,
-  Database,
   Clock,
   AlertOctagon,
   RefreshCw,
-  TrendingUp,
   Cpu,
   Mail,
   ShoppingBag,
   ExternalLink,
   Shield,
-  Layers,
-  CheckCircle2,
-  XCircle,
   UserPlus,
 } from 'lucide-react';
 
@@ -675,7 +668,7 @@ export const AdminDashboard: React.FC = () => {
               },
             ]}
             data={data?.recentOrders || []}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item: any) => item.id || item.recipientPhone}
             emptyText="No orders recorded yet."
           />
         </Card>
@@ -696,17 +689,17 @@ export const AdminDashboard: React.FC = () => {
               {
                 header: 'User',
                 accessor: 'name',
-                render: (row) => (
+                render: (row: any) => (
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{row.name}</span>
-                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>{row.email}</span>
+                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>{row.email || row.phone || 'User'}</span>
                   </div>
                 ),
               },
               {
                 header: 'Role',
                 accessor: 'role',
-                render: (row) => (
+                render: (row: any) => (
                   <Badge variant={row.role === 'agent' ? 'warning' : row.role === 'admin' ? 'info' : 'neutral'} size="sm">
                     {row.role}
                   </Badge>
@@ -715,7 +708,7 @@ export const AdminDashboard: React.FC = () => {
               {
                 header: 'Action',
                 accessor: 'id',
-                render: (row) => (
+                render: (row: any) => (
                   <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/users/${row.id}`)} style={{ fontSize: 'var(--font-size-2xs)' }}>
                     Dossier
                   </Button>
@@ -723,7 +716,7 @@ export const AdminDashboard: React.FC = () => {
               },
             ]}
             data={data?.recentUsers || []}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item: any) => item.id || item.name}
             emptyText="No users registered yet."
           />
         </Card>
@@ -750,7 +743,7 @@ export const AdminDashboard: React.FC = () => {
                 Cancel
               </Button>
               <Button
-                variant={maintenanceMode ? 'success' : 'danger'}
+                variant={maintenanceMode ? 'primary' : 'danger'}
                 size="sm"
                 onClick={handleToggleMaintenance}
               >

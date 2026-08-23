@@ -7,6 +7,8 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { RateLimiterService } from '../../core/security/rate-limiter.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
+import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
+import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import {
   CreateBulkSubmissionRequest,
   BulkSubmissionDetailsDto,
@@ -22,6 +24,7 @@ export interface BulkOrderRouteDependencies {
   apiKeyService: ApiKeyService;
   rbacService: RbacService;
   rateLimiter: RateLimiterService;
+  featureFlagService?: FeatureFlagService;
 }
 
 export async function bulkOrderRoutes(
@@ -29,8 +32,10 @@ export async function bulkOrderRoutes(
   deps: BulkOrderRouteDependencies,
 ) {
   const { db, bulkOrderService, tokenService, apiKeyService, rbacService, rateLimiter } = deps;
+  const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const bulkRateLimit = createRateLimitHook(rateLimiter, { limit: 10, windowSeconds: 60 });
+  const maintenanceHook = createMaintenanceHook(featureFlagService);
 
   // 1. CREATE BULK SUBMISSION
   app.post<{ Body: CreateBulkSubmissionRequest }>(
@@ -40,6 +45,7 @@ export async function bulkOrderRoutes(
         bulkRateLimit,
         authHooks.authenticateCustomer,
         authHooks.requirePermission(Permission.ORDERS_CREATE),
+        maintenanceHook,
       ],
     },
     async (req: FastifyRequest<{ Body: CreateBulkSubmissionRequest }>, reply: FastifyReply) => {

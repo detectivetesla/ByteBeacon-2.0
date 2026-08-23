@@ -19,15 +19,8 @@ import {
   UserCheck,
   Store,
   Download,
-  Filter,
   CheckSquare,
   Square,
-  AlertTriangle,
-  Mail,
-  Lock,
-  Smartphone,
-  CheckCircle2,
-  XCircle,
 } from 'lucide-react';
 
 export const AdminUsersPage: React.FC = () => {
@@ -346,6 +339,19 @@ export const AdminUsersPage: React.FC = () => {
                   { label: 'All Verification', value: 'ALL' },
                   { label: 'Verified Accounts', value: 'VERIFIED' },
                   { label: 'Unverified Accounts', value: 'UNVERIFIED' },
+                ]}
+              />
+
+              <Select
+                value={mfaFilter}
+                onChange={(e) => {
+                  setMfaFilter(e.target.value);
+                  setPage(1);
+                }}
+                options={[
+                  { label: 'All Security', value: 'ALL' },
+                  { label: 'MFA Enabled', value: 'MFA_ENABLED' },
+                  { label: 'MFA Disabled', value: 'MFA_DISABLED' },
                 ]}
               />
 

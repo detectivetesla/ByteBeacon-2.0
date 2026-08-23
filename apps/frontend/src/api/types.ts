@@ -16,7 +16,8 @@ export interface RequestOptions extends RequestInit {
   idempotencyKey?: string;
   skipAuth?: boolean;
   timeoutMs?: number;
-  params?: Record<string, string | number | boolean | undefined>;
+  params?: Record<string, any>;
+  responseType?: 'json' | 'blob' | 'text';
 }
 
 export class ApiError extends Error {

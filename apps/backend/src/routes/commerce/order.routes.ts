@@ -7,6 +7,8 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { RateLimiterService } from '../../core/security/rate-limiter.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
+import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
+import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BadRequestError } from '../../core/errors/app-error.js';
 import {
   CreateOrderRequest,
@@ -25,6 +27,7 @@ export interface OrderRouteDependencies {
   apiKeyService: ApiKeyService;
   rbacService: RbacService;
   rateLimiter: RateLimiterService;
+  featureFlagService?: FeatureFlagService;
 }
 
 export async function orderRoutes(
@@ -32,8 +35,10 @@ export async function orderRoutes(
   deps: OrderRouteDependencies,
 ) {
   const { db, orderService, tokenService, apiKeyService, rbacService, rateLimiter } = deps;
+  const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const orderRateLimit = createRateLimitHook(rateLimiter, { limit: 120, windowSeconds: 60 });
+  const maintenanceHook = createMaintenanceHook(featureFlagService);
 
   // 1. CREATE ORDER (Returns 202 Accepted)
   app.post<{ Body: CreateOrderRequest }>(
@@ -43,6 +48,7 @@ export async function orderRoutes(
         orderRateLimit,
         authHooks.authenticateCustomer,
         authHooks.requirePermission(Permission.ORDERS_CREATE),
+        maintenanceHook,
       ],
     },
     async (req: FastifyRequest<{ Body: CreateOrderRequest }>, reply: FastifyReply) => {

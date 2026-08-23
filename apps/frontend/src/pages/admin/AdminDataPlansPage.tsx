@@ -7,11 +7,9 @@ import {
   CreateCatalogPlanRequest,
   UpdateCatalogPlanRequest,
   CatalogPlanStatus,
-  CatalogProviderStatus,
   CatalogPricingMode,
   BulkPricingPlanImpact,
   ProviderCatalogSyncBatchDto,
-  UserRole,
 } from '@bytebeacon/shared';
 import { adminApi } from '../../api/admin.api.js';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
@@ -36,26 +34,15 @@ import {
   Edit3,
   TrendingUp,
   Layers,
-  ArrowRight,
-  Clock,
-  Shield,
   Zap,
   Globe,
   Sliders,
-  DollarSign,
-  ChevronDown,
-  ChevronUp,
-  History,
   X,
-  FileText,
-  Radio,
-  Sparkles,
 } from 'lucide-react';
 
 export const AdminDataPlansPage: React.FC = () => {
-  const { user } = useAuth();
+  useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
-  const isSuperAdmin = user?.role === UserRole.SUPER_ADMIN;
 
   // 1. Core State
   const [stats, setStats] = useState<AdminCatalogStats | null>(null);
@@ -78,9 +65,6 @@ export const AdminDataPlansPage: React.FC = () => {
 
   // 3. Selection & Bulk State
   const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([]);
-  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-  const [bulkAction, setBulkAction] = useState<string>('ACTIVATE');
-  const [bulkReason, setBulkReason] = useState('');
   const [bulkProcessing, setBulkProcessing] = useState(false);
 
   // 4. Bulk Pricing State
@@ -133,14 +117,13 @@ export const AdminDataPlansPage: React.FC = () => {
 
   // 7. Plan Dossier Detail Drawer
   const [selectedPlanDetail, setSelectedPlanDetail] = useState<AdminCatalogPlanDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState<'OVERVIEW' | 'ANALYTICS' | 'ORDERS' | 'PRICE_HISTORY'>('OVERVIEW');
 
   // 8. Fetch Stats
   const fetchStats = useCallback(async () => {
     try {
       const res = await adminApi.getCatalogStats();
-      if (res.data) setStats(res.data);
+      if (res) setStats(res);
     } catch {
       // Graceful fallback
     }
@@ -165,13 +148,13 @@ export const AdminDataPlansPage: React.FC = () => {
         maxPrice: maxPrice || undefined,
       });
 
-      if (res.data) {
-        setPlans(res.data.items || []);
-        if (res.data.pagination) {
+      if (res) {
+        setPlans(res.items || []);
+        if (res.pagination) {
           setPagination((prev) => ({
             ...prev,
-            total: res.data.pagination.total,
-            totalPages: res.data.pagination.totalPages,
+            total: res.pagination.total,
+            totalPages: res.pagination.totalPages,
           }));
         }
       }
@@ -206,16 +189,13 @@ export const AdminDataPlansPage: React.FC = () => {
 
   // Handle Inspect Plan Dossier
   const handleInspectPlan = async (id: string) => {
-    setDetailLoading(true);
     try {
       const res = await adminApi.getCatalogPlanDetail(id);
-      if (res.data) {
-        setSelectedPlanDetail(res.data);
+      if (res) {
+        setSelectedPlanDetail(res);
       }
     } catch (err: any) {
       toastError('Failed to load plan details', err.message);
-    } finally {
-      setDetailLoading(false);
     }
   };
 
@@ -387,28 +367,6 @@ export const AdminDataPlansPage: React.FC = () => {
     }
   };
 
-  // Execute Bulk Action
-  const handleExecuteBulkAction = async () => {
-    if (selectedPlanIds.length === 0) return;
-    setBulkProcessing(true);
-    try {
-      await adminApi.executeBulkCatalogAction({
-        planIds: selectedPlanIds,
-        action: bulkAction as any,
-        reason: bulkReason || 'Bulk administrative action',
-      });
-      toastSuccess('Bulk Action Complete', `Applied ${bulkAction} to ${selectedPlanIds.length} plans.`);
-      setSelectedPlanIds([]);
-      setIsBulkModalOpen(false);
-      fetchPlans();
-      fetchStats();
-    } catch (err: any) {
-      toastError('Bulk Action Failed', err.message);
-    } finally {
-      setBulkProcessing(false);
-    }
-  };
-
   // Preview Bulk Pricing
   const handlePreviewBulkPricing = async () => {
     setPreviewLoading(true);
@@ -421,9 +379,9 @@ export const AdminDataPlansPage: React.FC = () => {
         storeMarkupPercent: storeMarkupPct ? parseFloat(storeMarkupPct) : undefined,
       });
 
-      if (res.data) {
-        setBulkPricingPreview(res.data.plans);
-        setBulkPricingDiffTotal(res.data.totalDailyRevenueDiffPesewas);
+      if (res) {
+        setBulkPricingPreview(res.plans);
+        setBulkPricingDiffTotal(res.totalDailyRevenueDiffPesewas);
       }
     } catch (err: any) {
       toastError('Preview Failed', err.message);
@@ -450,7 +408,7 @@ export const AdminDataPlansPage: React.FC = () => {
         reason: bulkPricingReason,
       });
 
-      toastSuccess('Pricing Updated', `Successfully updated pricing on ${res.data?.updatedCount || 0} plans.`);
+      toastSuccess('Pricing Updated', `Successfully updated pricing on ${res?.updatedCount || 0} plans.`);
       setIsBulkPricingOpen(false);
       setBulkPricingPreview(null);
       setBulkPricingReason('');
@@ -472,7 +430,7 @@ export const AdminDataPlansPage: React.FC = () => {
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
       });
 
-      toastSuccess('Sync Complete', `Synchronized DataHouse catalog: ${res.data?.discrepancyCount || 0} discrepancies found.`);
+      toastSuccess('Sync Complete', `Synchronized DataHouse catalog: ${res?.discrepancyCount || 0} discrepancies found.`);
       loadSyncBatches();
     } catch (err: any) {
       toastError('Sync Failed', err.message);
@@ -485,11 +443,11 @@ export const AdminDataPlansPage: React.FC = () => {
   const loadSyncBatches = async () => {
     try {
       const res = await adminApi.getSyncBatches();
-      if (res.data) {
-        setSyncBatches(res.data);
-        if (res.data.length > 0) {
-          const detailRes = await adminApi.getSyncBatchDetail(res.data[0].id);
-          if (detailRes.data) setActiveSyncBatch(detailRes.data);
+      if (res) {
+        setSyncBatches(res);
+        if (res.length > 0) {
+          const detailRes = await adminApi.getSyncBatchDetail(res[0].id);
+          if (detailRes) setActiveSyncBatch(detailRes);
         }
       }
     } catch {
@@ -833,6 +791,22 @@ export const AdminDataPlansPage: React.FC = () => {
                   { value: 'HIDDEN', label: 'Store Hidden' },
                 ]}
               />
+
+              <Input
+                label="Min Price (GHS)"
+                type="number"
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+                placeholder="0.00"
+              />
+
+              <Input
+                label="Max Price (GHS)"
+                type="number"
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+                placeholder="100.00"
+              />
             </div>
           )}
 
@@ -844,8 +818,8 @@ export const AdminDataPlansPage: React.FC = () => {
               </span>
 
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <Button variant="primary" size="sm" onClick={() => setIsBulkModalOpen(true)}>
-                  Bulk Actions
+                <Button variant="primary" size="sm" onClick={() => setIsBulkPricingOpen(true)}>
+                  Bulk Pricing
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setSelectedPlanIds([])}>
                   Clear Selection

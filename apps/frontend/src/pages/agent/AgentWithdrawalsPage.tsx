@@ -70,7 +70,7 @@ export const PayoutStatusBadge: React.FC<{ status: PayoutStatus; size?: 'sm' | '
 
 export const AgentWithdrawalsPage: React.FC = () => {
   const { user } = useAuth();
-  const { balanceGhs, balancePesewas, refresh: refreshBalance } = useWalletBalance();
+  const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
 
   // Authoritative Reseller Financial Balances
@@ -103,7 +103,7 @@ export const AgentWithdrawalsPage: React.FC = () => {
 
   // Payout History & Profit Ledger
   const [payouts, setPayouts] = useState<PayoutRecord[]>([]);
-  const [ledger, setLedger] = useState<ProfitLedgerRecord[]>([]);
+  const [ledger, _setLedger] = useState<ProfitLedgerRecord[]>([]);
 
   const fetchWithdrawalData = useCallback(async () => {
     try {

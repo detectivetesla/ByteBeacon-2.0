@@ -29,20 +29,12 @@ import {
   Download,
   Shield,
   Key,
-  CreditCard,
-  Layers,
-  CheckCircle,
-  AlertTriangle,
-  XCircle,
   Clock,
   Phone,
   Mail,
   UserCheck,
   UserX,
   Sliders,
-  ChevronRight,
-  Sparkles,
-  Lock,
 } from 'lucide-react';
 
 export const AdminAgentsPage: React.FC = () => {
@@ -381,14 +373,14 @@ export const AdminAgentsPage: React.FC = () => {
           value={stats ? stats.suspendedAgents.toLocaleString() : '—'}
           subvalue="Blocked from Commerce"
           accent="red"
-          icon={<TactileIcon icon={UserX} color="emergency" size="sm" />}
+          icon={<TactileIcon icon={UserX} color="red" size="sm" />}
         />
         <MetricCard
           title="Pending Applications"
           value={stats ? stats.pendingAgents.toLocaleString() : '—'}
           subvalue="Awaiting Approval"
           accent="amber"
-          icon={<TactileIcon icon={Clock} color="warning" size="sm" />}
+          icon={<TactileIcon icon={Clock} color="amber" size="sm" />}
         />
         <MetricCard
           title="Agents with Stores"
@@ -497,6 +489,16 @@ export const AdminAgentsPage: React.FC = () => {
                   { value: 'POSITIVE', label: 'Positive Balance' },
                   { value: 'ZERO', label: 'Zero Balance' },
                   { value: 'NEGATIVE', label: 'Negative / Anomaly' },
+                ]}
+              />
+              <Select
+                value={dateRange}
+                onChange={(e) => { setDateRange(e.target.value); setPage(1); }}
+                options={[
+                  { value: 'ALL', label: 'All Registration Dates' },
+                  { value: '7d', label: 'Last 7 Days' },
+                  { value: '30d', label: 'Last 30 Days' },
+                  { value: '90d', label: 'Last 90 Days' },
                 ]}
               />
             </div>

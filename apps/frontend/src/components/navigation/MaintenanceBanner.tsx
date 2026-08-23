@@ -2,15 +2,18 @@ import React from 'react';
 
 export interface MaintenanceBannerProps {
   isMaintenanceMode?: boolean;
+  message?: string;
 }
 
 export const MaintenanceBanner: React.FC<MaintenanceBannerProps> = ({
   isMaintenanceMode = false,
+  message,
 }) => {
   if (!isMaintenanceMode) return null;
 
   return (
     <div
+      role="alert"
       style={{
         backgroundColor: 'rgba(245, 158, 11, 0.15)',
         borderBottom: '1px solid rgba(245, 158, 11, 0.3)',
@@ -23,11 +26,13 @@ export const MaintenanceBanner: React.FC<MaintenanceBannerProps> = ({
         color: '#FBBF24',
         textAlign: 'center',
         zIndex: 'var(--z-sticky)',
+        width: '100%',
       }}
     >
       <span style={{ fontSize: '1rem' }}>⚠️</span>
       <span>
-        <strong>Scheduled Maintenance in Progress:</strong> Telecom fulfillment is temporarily queued. You can still browse bundles, track past orders, and access your account.
+        <strong>Scheduled Maintenance in Progress:</strong>{' '}
+        {message || 'Telecom fulfillment is temporarily queued. You can still browse bundles, track past orders, and access your account.'}
       </span>
     </div>
   );

@@ -57,8 +57,15 @@ export class FeatureFlagService {
     // 3. Check database overrides if available
     if (this.db) {
       try {
-        const res = await this.db.query<{ is_enabled: boolean; allowed_roles: string[] | null }>(
-          'SELECT is_enabled, allowed_roles FROM feature_flags WHERE name = $1 LIMIT 1',
+        const res = await this.db.query<{ is_enabled: boolean; target_role?: string; allowed_roles?: string[] | null }>(
+          `SELECT is_enabled, 
+                  COALESCE(target_role, (allowed_roles)[1], 'ALL') as target_role, 
+                  allowed_roles 
+           FROM (
+             SELECT is_enabled, target_role, NULL::text[] as allowed_roles FROM platform_feature_flags WHERE flag_key = $1
+             UNION ALL
+             SELECT is_enabled, NULL as target_role, allowed_roles FROM feature_flags WHERE name = $1
+           ) flags LIMIT 1`,
           [normalizedName],
         );
         if (res.rows.length > 0) {
@@ -69,7 +76,21 @@ export class FeatureFlagService {
           if (row.allowed_roles && row.allowed_roles.length > 0 && context?.role) {
             return row.allowed_roles.includes(context.role);
           }
+          if (row.target_role && row.target_role !== 'ALL' && context?.role) {
+            return row.target_role.toLowerCase() === context.role.toLowerCase();
+          }
           return row.is_enabled;
+        }
+
+        // Check system_configurations if querying maintenance mode
+        if (normalizedName === 'MAINTENANCE_MODE') {
+          const sysRes = await this.db.query<{ value: any }>(
+            "SELECT value FROM system_configurations WHERE config_key = 'maintenance_mode' LIMIT 1",
+          );
+          if (sysRes.rows.length > 0) {
+            const val = sysRes.rows[0].value;
+            return val === true || val === 'true';
+          }
         }
       } catch (err) {
         logger.warn({ flagName, err }, '[FEATURE_FLAGS] Database lookup failed; falling back to defaults');
@@ -78,6 +99,13 @@ export class FeatureFlagService {
 
     // 4. Fallback to hardcoded safe default
     return FeatureFlagService.DEFAULT_FLAGS[normalizedName] ?? false;
+  }
+
+  /**
+   * Helper to check if emergency maintenance mode is active.
+   */
+  public async isMaintenanceModeActive(): Promise<boolean> {
+    return this.isEnabled('MAINTENANCE_MODE');
   }
 
   /**

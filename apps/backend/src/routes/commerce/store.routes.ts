@@ -5,6 +5,8 @@ import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { AuditService } from '../../core/security/audit.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
+import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
+import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../../core/errors/app-error.js';
 import { IPaymentProvider } from '../../core/payments/payment-provider.interface.js';
 
@@ -15,6 +17,7 @@ export interface StoreRouteDependencies {
   rbacService: RbacService;
   auditService?: AuditService;
   paymentProvider?: IPaymentProvider;
+  featureFlagService?: FeatureFlagService;
 }
 
 export interface StoreDto {
@@ -47,7 +50,9 @@ export async function storeRoutes(
   deps: StoreRouteDependencies,
 ) {
   const { db, tokenService, apiKeyService, rbacService, auditService } = deps;
+  const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
+  const maintenanceHook = createMaintenanceHook(featureFlagService);
 
   // Helper: Require user's store and ensure owner
   async function getAgentStore(userId: string) {
@@ -115,7 +120,7 @@ export async function storeRoutes(
     };
   }>(
     '/stores/setup',
-    { preHandler: [authHooks.authenticateCustomer] },
+    { preHandler: [authHooks.authenticateCustomer, maintenanceHook] },
     async (req, reply) => {
       const { storeName, slug, tagline, description, contactPhone, contactEmail, contactWhatsapp } = req.body || {};
       if (!storeName || !slug) {
@@ -211,7 +216,7 @@ export async function storeRoutes(
   // 3. INITIALIZE STORE ACTIVATION PAYMENT (/stores/payment/initialize)
   app.post(
     '/stores/payment/initialize',
-    { preHandler: [authHooks.authenticateCustomer] },
+    { preHandler: [authHooks.authenticateCustomer, maintenanceHook] },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const store = await getAgentStore(req.user!.sub);
       if (!store) {

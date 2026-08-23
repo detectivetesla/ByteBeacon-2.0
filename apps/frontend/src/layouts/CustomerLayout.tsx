@@ -5,6 +5,8 @@ import { CUSTOMER_NAVIGATION_GROUPS } from '../components/navigation/navigation.
 import { Zap } from 'lucide-react';
 import { PurchaseModal } from '../components/commerce/PurchaseModal.js';
 import { WhatsAppFloat } from '../components/ui/WhatsAppFloat.js';
+import { MaintenanceBanner } from '../components/navigation/MaintenanceBanner.js';
+import { usePlatformStatus } from '../context/PlatformStatusContext.js';
 import { NetworkProvider } from '@bytebeacon/shared';
 
 import { useWalletBalance } from '../hooks/useWalletBalance.js';
@@ -12,9 +14,11 @@ import { useWalletBalance } from '../hooks/useWalletBalance.js';
 export const CustomerLayout: React.FC = () => {
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const { balancePesewas } = useWalletBalance();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
   return (
     <>
+      <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
       <AppShell
         portalTitle="ByteBeacon"
         portalSubtitle="Customer Portal"

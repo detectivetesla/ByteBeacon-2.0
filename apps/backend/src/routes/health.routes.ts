@@ -57,4 +57,37 @@ export async function healthRoutes(fastify: FastifyInstance) {
       timestamp: new Date().toISOString(),
     });
   });
+
+  /**
+   * Platform Operational & Maintenance Status Probe
+   * GET /platform/status & GET /health/status
+   */
+  const handlePlatformStatus = async (_request: any, reply: any) => {
+    let isMaintenance = false;
+    const flagService = (fastify as any).featureFlagService;
+    if (flagService) {
+      try {
+        isMaintenance = await flagService.isMaintenanceModeActive();
+      } catch {
+        isMaintenance = false;
+      }
+    }
+
+    return reply.status(200).send({
+      success: true,
+      data: {
+        isMaintenanceMode: isMaintenance,
+        platformStatus: isMaintenance ? 'MAINTENANCE' : 'OPERATIONAL',
+        environment: process.env.NODE_ENV === 'production' ? 'PRODUCTION' : 'DEVELOPMENT / STAGING',
+        message: isMaintenance
+          ? 'Scheduled Maintenance in Progress: Telecom fulfillment and checkout are temporarily paused. You can still browse bundles, track past orders, and access your account.'
+          : 'All systems operational.',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  };
+
+  fastify.get('/platform/status', handlePlatformStatus);
+  fastify.get('/health/status', handlePlatformStatus);
+  fastify.get('/api/v1/platform/status', handlePlatformStatus);
 }

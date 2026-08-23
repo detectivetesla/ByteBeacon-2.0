@@ -6,6 +6,8 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
 import { IPaymentProvider } from '../../core/payments/payment-provider.interface.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
+import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
+import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BadRequestError, NotFoundError, ConflictError } from '../../core/errors/app-error.js';
 import {
   ApplyAgentRequest,
@@ -24,6 +26,7 @@ export interface AgentRouteDependencies {
   rbacService: RbacService;
   ledgerService?: FinancialLedgerService;
   paymentProvider?: IPaymentProvider;
+  featureFlagService?: FeatureFlagService;
 }
 
 export async function agentRoutes(
@@ -31,7 +34,9 @@ export async function agentRoutes(
   deps: AgentRouteDependencies,
 ) {
   const { db, tokenService, apiKeyService, rbacService, ledgerService, paymentProvider } = deps;
+  const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
+  const maintenanceHook = createMaintenanceHook(featureFlagService);
 
   // 1. GET AGENT PROFILE
   app.get(
@@ -415,7 +420,7 @@ export async function agentRoutes(
     };
   }>(
     '/agents/withdrawals',
-    { preHandler: [authHooks.authenticateCustomer] },
+    { preHandler: [authHooks.authenticateCustomer, maintenanceHook] },
     async (req: FastifyRequest<{
       Body: {
         amountPesewas: number;

@@ -83,6 +83,7 @@ import { datahouseWebhookRoutes } from './routes/fulfillment/datahouse-webhook.r
 import { gmplWebhookRoutes } from './routes/fulfillment/gmpl-webhook.routes.js';
 import { integrationHealthRoutes } from './routes/health/integration-health.routes.js';
 import { TelecomProviderManagementService } from './core/providers/telecom-provider-management.service.js';
+import { FeatureFlagService } from './infrastructure/features/feature-flag.service.js';
 
 export interface AppOptions {
   config?: Env;
@@ -95,6 +96,7 @@ export interface AppOptions {
   rbacService?: RbacService;
   auditService?: AuditService;
   rateLimiter?: RateLimiterService;
+  featureFlagService?: FeatureFlagService;
   catalogService?: CatalogService;
   idempotencyService?: IdempotencyService;
   orderService?: OrderService;
@@ -200,6 +202,7 @@ export function createApp(options: AppOptions = {}) {
   const rbacService = options.rbacService ?? new RbacService(dbPool);
   const auditService = options.auditService ?? new AuditService(dbPool);
   const rateLimiter = options.rateLimiter ?? new RateLimiterService(redisClient);
+  const featureFlagService = options.featureFlagService ?? new FeatureFlagService(dbPool);
 
   const catalogService = options.catalogService ?? new CatalogService(dbPool);
   const idempotencyService =
@@ -317,6 +320,7 @@ export function createApp(options: AppOptions = {}) {
   app.decorate('bulkQueueService', bulkQueueService);
   app.decorate('reconciliationQueueService', reconciliationQueueService);
   app.decorate('providerReconciliationService', providerReconciliationService);
+  app.decorate('featureFlagService', featureFlagService);
 
   // 5. Register Swagger / OpenAPI Documentation & Prometheus Telemetry
   app.register(registerSwagger);
@@ -385,6 +389,7 @@ export function createApp(options: AppOptions = {}) {
         apiKeyService,
         rbacService,
         rateLimiter,
+        featureFlagService,
       });
       await beneficiaryRoutes(commerceSubApp, {
         db: dbPool!,
@@ -400,6 +405,7 @@ export function createApp(options: AppOptions = {}) {
         apiKeyService,
         rbacService,
         rateLimiter,
+        featureFlagService,
       });
       await agentRoutes(commerceSubApp, {
         db: dbPool!,
@@ -408,6 +414,7 @@ export function createApp(options: AppOptions = {}) {
         rbacService,
         ledgerService,
         paymentProvider,
+        featureFlagService,
       });
       await storeRoutes(commerceSubApp, {
         db: dbPool!,
@@ -416,6 +423,7 @@ export function createApp(options: AppOptions = {}) {
         rbacService,
         auditService,
         paymentProvider,
+        featureFlagService,
       });
       await adminOperationsRoutes(commerceSubApp, {
         db: dbPool!,
@@ -579,6 +587,7 @@ export function createApp(options: AppOptions = {}) {
         apiKeyService,
         rbacService,
         rateLimiter,
+        featureFlagService,
       });
       await webhookRoutes(commerceSubApp, {
         webhookService,

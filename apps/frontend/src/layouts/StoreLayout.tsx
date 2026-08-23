@@ -3,6 +3,8 @@ import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import { useTheme } from '../context/ThemeContext.js';
 import { STORE_NAVIGATION_GROUPS } from '../components/navigation/navigation.config.js';
+import { MaintenanceBanner } from '../components/navigation/MaintenanceBanner.js';
+import { usePlatformStatus } from '../context/PlatformStatusContext.js';
 import {
   Store,
   PanelLeftClose,
@@ -21,6 +23,7 @@ import {
 export const StoreLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -274,6 +277,7 @@ export const StoreLayout: React.FC = () => {
 
       {/* 2. Main Content Area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
         {/* Top Navbar */}
         <header
           style={{

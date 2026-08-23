@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Table } from '../../components/ui/Table/Table.js';
 import { Input } from '../../components/ui/Input/Input.js';
 import { Select } from '../../components/ui/Select/Select.js';
 import { Modal } from '../../components/ui/Modal/Modal.js';
@@ -13,10 +12,8 @@ import {
   adminApi,
   UserRole,
   NotificationSeverity,
-  NotificationType,
   AlertStatus,
   AlertSource,
-  NotificationRuleStatus,
   CommunicationChannel,
   CommunicationDeliveryStatus,
   CommunicationTargetType,
@@ -35,19 +32,13 @@ import {
   Shield,
   CheckCircle,
   RefreshCw,
-  Search,
-  Filter,
-  Send,
-  UserCheck,
   Eye,
   Plus,
   Radio,
   Clock,
   Activity,
   Layers,
-  FileText,
   Lock,
-  ChevronRight,
   Sparkles,
 } from 'lucide-react';
 
@@ -97,8 +88,8 @@ export const AdminNotificationsPage: React.FC = () => {
   const [ruleDescription, setRuleDescription] = useState<string>('');
   const [ruleCondition, setRuleCondition] = useState<string>('');
   const [ruleValue, setRuleValue] = useState<string>('');
-  const [ruleRoles, setRuleRoles] = useState<UserRole[]>([UserRole.ADMIN]);
-  const [ruleChannels, setRuleChannels] = useState<CommunicationChannel[]>([CommunicationChannel.IN_APP]);
+  const [ruleRoles] = useState<UserRole[]>([UserRole.ADMIN]);
+  const [ruleChannels] = useState<CommunicationChannel[]>([CommunicationChannel.IN_APP]);
   const [ruleSeverity, setRuleSeverity] = useState<NotificationSeverity>(NotificationSeverity.INFO);
 
   // Emergency broadcast form state
@@ -106,7 +97,7 @@ export const AdminNotificationsPage: React.FC = () => {
   const [emBody, setEmBody] = useState<string>('');
   const [emSeverity, setEmSeverity] = useState<NotificationSeverity>(NotificationSeverity.CRITICAL);
   const [emAudience, setEmAudience] = useState<CommunicationTargetType>(CommunicationTargetType.BROADCAST);
-  const [emChannels, setEmChannels] = useState<CommunicationChannel[]>([CommunicationChannel.IN_APP]);
+  const [emChannels] = useState<CommunicationChannel[]>([CommunicationChannel.IN_APP]);
   const [emJustification, setEmJustification] = useState<string>('');
   const [isSendingEmergency, setIsSendingEmergency] = useState<boolean>(false);
 
@@ -509,25 +500,25 @@ export const AdminNotificationsPage: React.FC = () => {
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
-              label="Total Notifications"
+              title="Total Notifications"
               value={overview?.totalNotifications ?? 0}
               icon={<TactileIcon icon={Bell} color="orders" size="sm" />}
               accent="blue"
             />
             <MetricCard
-              label="Active System Alerts"
+              title="Active System Alerts"
               value={overview?.systemAlerts ?? 0}
               icon={<TactileIcon icon={AlertTriangle} color="speed" size="sm" />}
               accent={overview?.criticalAlerts ? 'red' : 'orange'}
             />
             <MetricCard
-              label="Critical Alerts"
+              title="Critical Alerts"
               value={overview?.criticalAlerts ?? 0}
               icon={<TactileIcon icon={AlertOctagon} color="security" size="sm" />}
               accent="red"
             />
             <MetricCard
-              label="Delivery Success Rate"
+              title="Delivery Success Rate"
               value={`${overview?.deliverySuccessRate ?? 100}%`}
               icon={<TactileIcon icon={CheckCircle} color="analytics" size="sm" />}
               accent="green"
@@ -536,24 +527,28 @@ export const AdminNotificationsPage: React.FC = () => {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <MetricCard
-              label="Failed Deliveries"
+              title="Failed Deliveries"
               value={overview?.failedDeliveries ?? 0}
               accent="red"
             />
             <MetricCard
-              label="Active Notification Rules"
+              title="Active Notification Rules"
               value={overview?.activeNotificationRules ?? 0}
               accent="violet"
             />
             <MetricCard
-              label="Sent Today"
+              title="Sent Today"
               value={overview?.sentToday ?? 0}
               accent="blue"
             />
           </div>
 
           {/* Recent System Events */}
-          <Card title="Recent System Events" subtitle="Real-time event feed from background workers and services">
+          <Card>
+            <div className="mb-4">
+              <h3 className="text-base font-bold text-white">Recent System Events</h3>
+              <p className="text-xs text-gray-400">Real-time event feed from background workers and services</p>
+            </div>
             <div className="divide-y divide-gray-800">
               {overview?.recentSystemEvents && overview.recentSystemEvents.length > 0 ? (
                 overview.recentSystemEvents.map((evt) => (
@@ -640,7 +635,11 @@ export const AdminNotificationsPage: React.FC = () => {
           </Card>
 
           {/* Alerts Table */}
-          <Card title="System Alerts" subtitle={`${alerts.length} alerts loaded`}>
+          <Card>
+            <div className="mb-4">
+              <h3 className="text-base font-bold text-white">System Alerts</h3>
+              <p className="text-xs text-gray-400">{alerts.length} alerts loaded</p>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-gray-300">
                 <thead className="bg-gray-800/60 text-xs text-gray-400 uppercase tracking-wider">
@@ -752,28 +751,32 @@ export const AdminNotificationsPage: React.FC = () => {
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
-              label="Lifetime Sent"
+              title="Lifetime Sent"
               value={analytics?.sent ?? 0}
               accent="blue"
             />
             <MetricCard
-              label="Delivered"
+              title="Delivered"
               value={analytics?.delivered ?? 0}
               accent="green"
             />
             <MetricCard
-              label="Failed Deliveries"
+              title="Failed Deliveries"
               value={analytics?.failed ?? 0}
               accent="red"
             />
             <MetricCard
-              label="Avg Delivery Latency"
+              title="Avg Delivery Latency"
               value={`${analytics?.avgLatencyMs ?? 0}ms`}
               accent="violet"
             />
           </div>
 
-          <Card title="Channel Performance Matrix" subtitle="Delivery rates across active delivery channels">
+          <Card>
+            <div className="mb-4">
+              <h3 className="text-base font-bold text-white">Channel Performance Matrix</h3>
+              <p className="text-xs text-gray-400">Delivery rates across active delivery channels</p>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
               {analytics?.byChannel && analytics.byChannel.length > 0 ? (
                 analytics.byChannel.map((ch) => (
@@ -835,7 +838,11 @@ export const AdminNotificationsPage: React.FC = () => {
             </div>
           </Card>
 
-          <Card title="Notification Delivery Logs" subtitle={`${history.length} records loaded`}>
+          <Card>
+            <div className="mb-4">
+              <h3 className="text-base font-bold text-white">Notification Delivery Logs</h3>
+              <p className="text-xs text-gray-400">{history.length} records loaded</p>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-gray-300">
                 <thead className="bg-gray-800/60 text-xs text-gray-400 uppercase tracking-wider">
@@ -899,7 +906,11 @@ export const AdminNotificationsPage: React.FC = () => {
 
       {/* TAB 6: EMERGENCY BROADCAST (SUPER ADMIN ONLY) */}
       {activeTab === 'emergency' && isSuperAdmin && (
-        <Card title="Emergency System Broadcast" subtitle="Broadcast system-wide communications with strict authorization controls">
+        <Card>
+          <div className="mb-4">
+            <h3 className="text-base font-bold text-white">Emergency System Broadcast</h3>
+            <p className="text-xs text-gray-400">Broadcast system-wide communications with strict authorization controls</p>
+          </div>
           <div className="space-y-4 max-w-2xl">
             <div className="bg-red-950/30 border border-red-800 p-4 rounded-xl text-xs text-red-300 flex items-start gap-3">
               <Lock size={16} className="text-red-400 shrink-0 mt-0.5" />
@@ -1004,7 +1015,7 @@ export const AdminNotificationsPage: React.FC = () => {
 
               <div className="flex flex-wrap gap-2">
                 {(selectedAlert.status === AlertStatus.OPEN || selectedAlert.status === AlertStatus.REOPENED || selectedAlert.status === AlertStatus.DETECTED) && (
-                  <Button size="sm" variant="warning" onClick={() => handleAcknowledge(selectedAlert.id)}>
+                  <Button size="sm" variant="outline" onClick={() => handleAcknowledge(selectedAlert.id)}>
                     Acknowledge Alert
                   </Button>
                 )}
@@ -1040,7 +1051,7 @@ export const AdminNotificationsPage: React.FC = () => {
                     placeholder="Describe how the underlying issue was resolved..."
                     className="w-full rounded bg-gray-900 border border-gray-800 p-2 text-xs text-white focus:outline-none focus:border-green-500"
                   />
-                  <Button size="sm" variant="success" onClick={() => handleResolve(selectedAlert.id)}>
+                  <Button size="sm" variant="primary" onClick={() => handleResolve(selectedAlert.id)}>
                     Resolve Alert
                   </Button>
                 </div>

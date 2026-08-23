@@ -59,6 +59,8 @@ import {
   FinancialSafetySettingsDto,
   UpdateFinancialSafetySettingsRequest,
   ReprocessEligibleItemDto,
+  ReprocessPreviewDto,
+  ReprocessExecuteRequest,
   ApiKeyEnvironment,
   ApiKeyStatus,
   Permission,
@@ -161,6 +163,7 @@ import {
   AdminNotificationAnalyticsDto,
   AdminEmergencyBroadcastRequest,
   AdminNotificationHistoryItemDto,
+  AdminNotificationDeliveryDetailDto,
   UserNotificationItemDto,
   UserNotificationCountsDto,
   TelecomControlPlaneOverviewDto,
@@ -242,6 +245,13 @@ export {
   AlertStatus,
   AlertSource,
   NotificationRuleStatus,
+  TelecomProviderType,
+  TelecomProviderStatus,
+  TelecomEnvironment,
+  ProviderAuthMethod,
+  ProviderCapabilityType,
+  ProviderIncidentSeverity,
+  ProviderIncidentStatus,
 };
 
 export type {
@@ -1788,4 +1798,22 @@ export const adminApi = {
     return apiClient.get<ProviderHealthMetricDto>(`/admin/telecom/providers/${providerId}/health`);
   },
 };
+
+export type {
+  AdminGlobalConfigOverviewDto,
+  AdminSystemConfigItemDto,
+  AdminUpdateSystemConfigRequest,
+  AdminConfigVersionItemDto,
+  AdminRollbackConfigRequest,
+  AdminFeatureFlagItemDto,
+  AdminUpdateFeatureFlagRequest,
+  AdminActiveSessionDto,
+  AdminRevokeSessionRequest,
+  AdminSystemHealthDiagnosticDto,
+  AdminSubsystemHealthItemDto,
+  PermissionMatrixEntryDto,
+  AdminRolePermissionMatrixDto,
+  AdminUserEffectiveAuthorizationDto,
+};
+
 

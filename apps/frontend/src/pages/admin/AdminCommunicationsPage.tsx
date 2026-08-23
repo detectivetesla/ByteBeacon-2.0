@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -12,9 +12,7 @@ import {
   adminApi,
   CommunicationChannel,
   CommunicationPriority,
-  CommunicationDeliveryStatus,
   CommunicationTargetType,
-  CampaignStatus,
   NotificationCategory,
   AdminCommunicationOverviewStats,
   AdminCampaignListItemDto,
@@ -24,23 +22,16 @@ import {
 import {
   Mail,
   Send,
-  Users,
   CheckCircle,
   Clock,
   RefreshCw,
   Radio,
-  Bell,
   MessageSquare,
   Shield,
-  AlertTriangle,
   FileText,
   Calendar,
   Layers,
   Search,
-  Check,
-  X,
-  Smartphone,
-  ExternalLink,
   ChevronRight,
   Eye,
   Settings,
@@ -97,12 +88,12 @@ export const AdminCommunicationsPage: React.FC = () => {
   // Campaign Form State
   const [campaignTitle, setCampaignTitle] = useState<string>('');
   const [campaignDescription, setCampaignDescription] = useState<string>('');
-  const [campaignChannels, setCampaignChannels] = useState<CommunicationChannel[]>([CommunicationChannel.IN_APP, CommunicationChannel.EMAIL]);
-  const [campaignTarget, setCampaignTarget] = useState<CommunicationTargetType>(CommunicationTargetType.ROLE);
-  const [campaignSegment, setCampaignSegment] = useState<string>('ALL');
+  const [campaignChannels] = useState<CommunicationChannel[]>([CommunicationChannel.IN_APP, CommunicationChannel.EMAIL]);
+  const [campaignTarget] = useState<CommunicationTargetType>(CommunicationTargetType.ROLE);
+  const [campaignSegment] = useState<string>('ALL');
   const [campaignSubject, setCampaignSubject] = useState<string>('');
   const [campaignBody, setCampaignBody] = useState<string>('');
-  const [campaignPriority, setCampaignPriority] = useState<CommunicationPriority>(CommunicationPriority.NORMAL);
+  const [campaignPriority] = useState<CommunicationPriority>(CommunicationPriority.NORMAL);
   const [campaignScheduledAt, setCampaignScheduledAt] = useState<string>('');
   const [campaignStepUpConfirmed, setCampaignStepUpConfirmed] = useState<boolean>(false);
   const [isCreatingCampaign, setIsCreatingCampaign] = useState<boolean>(false);
@@ -111,7 +102,7 @@ export const AdminCommunicationsPage: React.FC = () => {
   const [templateSlug, setTemplateSlug] = useState<string>('');
   const [templateName, setTemplateName] = useState<string>('');
   const [templateCategory, setTemplateCategory] = useState<NotificationCategory>(NotificationCategory.SYSTEM);
-  const [templateChannels, setTemplateChannels] = useState<CommunicationChannel[]>([CommunicationChannel.IN_APP]);
+  const [templateChannels] = useState<CommunicationChannel[]>([CommunicationChannel.IN_APP]);
   const [templateSubject, setTemplateSubject] = useState<string>('');
   const [templateBody, setTemplateBody] = useState<string>('');
   const [templateActionUrl, setTemplateActionUrl] = useState<string>('');
@@ -324,9 +315,9 @@ export const AdminCommunicationsPage: React.FC = () => {
       case CommunicationPriority.HIGH:
         return <Badge variant="warning">HIGH</Badge>;
       case CommunicationPriority.LOW:
-        return <Badge variant="secondary">LOW</Badge>;
+        return <Badge variant="neutral">LOW</Badge>;
       default:
-        return <Badge variant="primary">NORMAL</Badge>;
+        return <Badge variant="brand">NORMAL</Badge>;
     }
   };
 
@@ -345,7 +336,7 @@ export const AdminCommunicationsPage: React.FC = () => {
       case 'CANCELLED':
         return <Badge variant="danger">{status}</Badge>;
       default:
-        return <Badge variant="secondary">{status}</Badge>;
+        return <Badge variant="neutral">{status}</Badge>;
     }
   };
 
@@ -392,30 +383,30 @@ export const AdminCommunicationsPage: React.FC = () => {
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
         <MetricCard
-          label="Total Dispatches"
+          title="Total Dispatches"
           value={overview?.totalMessages?.toLocaleString() || '1,420'}
-          subtext="Lifetime communications sent"
+          subvalue="Lifetime communications sent"
           accent="blue"
           icon={<TactileIcon icon={MessageSquare} color="speed" size="sm" />}
         />
         <MetricCard
-          label="Today's Volume"
+          title="Today's Volume"
           value={overview?.todayMessages?.toLocaleString() || '128'}
-          subtext="Dispatched last 24 hours"
+          subvalue="Dispatched last 24 hours"
           accent="cyan"
           icon={<TactileIcon icon={Radio} color="cyan" size="sm" />}
         />
         <MetricCard
-          label="Scheduled Campaigns"
+          title="Scheduled Campaigns"
           value={overview?.scheduledCount || '0'}
-          subtext="Pending queued executions"
+          subvalue="Pending queued executions"
           accent="amber"
-          icon={<TactileIcon icon={Clock} color="warning" size="sm" />}
+          icon={<TactileIcon icon={Clock} color="amber" size="sm" />}
         />
         <MetricCard
-          label="Delivered Rate"
+          title="Delivered Rate"
           value={`${overview?.inAppDeliveryRate || 100}%`}
-          subtext="In-App & Email reliable fulfillment"
+          subvalue="In-App & Email reliable fulfillment"
           accent="green"
           icon={<TactileIcon icon={CheckCircle} color="security" size="sm" />}
         />
@@ -466,7 +457,7 @@ export const AdminCommunicationsPage: React.FC = () => {
       {activeTab === 'overview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           {/* Channels Matrix */}
-          <Card accentColor="emerald">
+          <Card accentColor="green">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
@@ -506,7 +497,7 @@ export const AdminCommunicationsPage: React.FC = () => {
                     {ch.status === 'OPERATIONAL' ? (
                       <Badge variant="success">OPERATIONAL</Badge>
                     ) : (
-                      <Badge variant="secondary">NOT CONFIGURED</Badge>
+                      <Badge variant="neutral">NOT CONFIGURED</Badge>
                     )}
                   </div>
 
@@ -529,7 +520,7 @@ export const AdminCommunicationsPage: React.FC = () => {
             <Card accentColor="blue">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h4 style={{ margin: 0, fontWeight: 700 }}>Recent Broadcast Campaigns</h4>
-                <Button variant="ghost" size="xs" onClick={() => setActiveTab('campaigns')}>
+                <Button variant="ghost" size="sm" onClick={() => setActiveTab('campaigns')}>
                   View All <ChevronRight size={12} />
                 </Button>
               </div>
@@ -568,7 +559,7 @@ export const AdminCommunicationsPage: React.FC = () => {
             <Card accentColor="purple">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h4 style={{ margin: 0, fontWeight: 700 }}>Live Delivery Stream</h4>
-                <Button variant="ghost" size="xs" onClick={() => setActiveTab('delivery')}>
+                <Button variant="ghost" size="sm" onClick={() => setActiveTab('delivery')}>
                   View Logs <ChevronRight size={12} />
                 </Button>
               </div>
@@ -610,7 +601,7 @@ export const AdminCommunicationsPage: React.FC = () => {
       {activeTab === 'compose' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(400px, 1fr) minmax(320px, 420px)', gap: 'var(--space-6)' }}>
           {/* Composer Form */}
-          <Card accentColor="emerald">
+          <Card accentColor="green">
             <h3 style={{ margin: '0 0 1rem 0', fontWeight: 700 }}>Direct Message Composer</h3>
             <form onSubmit={handleSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {/* Delivery Channels */}
@@ -833,7 +824,7 @@ export const AdminCommunicationsPage: React.FC = () => {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Badge variant="primary">IN-APP NOTIFICATION</Badge>
+                <Badge variant="brand">IN-APP NOTIFICATION</Badge>
                 {renderPriorityBadge(composePriority)}
               </div>
               <div style={{ fontWeight: 700, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
@@ -879,54 +870,55 @@ export const AdminCommunicationsPage: React.FC = () => {
             </div>
           </div>
 
-          <Table
-            headers={['Campaign Title', 'Audience & Target', 'Channels', 'Priority', 'Status', 'Delivered / Failed', 'Scheduled / Sent', 'Actions']}
-            rows={campaigns.map((cmp) => [
-              <div>
-                <div style={{ fontWeight: 600 }}>{cmp.title}</div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>{cmp.subject}</div>
-              </div>,
-              <div>
-                <div>{cmp.audienceCount?.toLocaleString()} Users</div>
-                <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>{cmp.targetType} {cmp.segment ? `(${cmp.segment})` : ''}</div>
-              </div>,
-              <div>
-                {cmp.channels.map((ch) => (
-                  <Badge key={ch} variant="secondary" style={{ marginRight: '0.25rem' }}>
-                    {ch}
-                  </Badge>
-                ))}
-              </div>,
-              renderPriorityBadge(cmp.priority),
-              renderStatusBadge(cmp.status),
-              <div>
-                <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>{cmp.deliveredCount}</span> /{' '}
-                <span style={{ color: cmp.failedCount > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>{cmp.failedCount}</span>
-              </div>,
-              <div>
-                {cmp.scheduledAt ? (
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)' }}>
-                    Sched: {new Date(cmp.scheduledAt).toLocaleString()}
-                  </div>
-                ) : cmp.sentAt ? (
-                  <div style={{ fontSize: 'var(--font-size-xs)' }}>Sent: {new Date(cmp.sentAt).toLocaleString()}</div>
-                ) : (
-                  '—'
-                )}
-              </div>,
-              <div>
-                {cmp.status === 'SCHEDULED' ? (
-                  <Button variant="danger" size="xs" onClick={() => handleCancelCampaign(cmp.id)}>
-                    Cancel
-                  </Button>
-                ) : (
-                  <Button variant="ghost" size="xs" disabled>
-                    View
-                  </Button>
-                )}
-              </div>,
-            ])}
-          />
+          <Table headers={['Campaign Title', 'Audience & Target', 'Channels', 'Priority', 'Status', 'Delivered / Failed', 'Scheduled / Sent', 'Actions']}>
+            {campaigns.map((cmp) => (
+              <tr key={cmp.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                <td style={{ padding: 'var(--space-3)' }}>
+                  <div style={{ fontWeight: 600 }}>{cmp.title}</div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>{cmp.subject}</div>
+                </td>
+                <td style={{ padding: 'var(--space-3)' }}>
+                  <div>{cmp.audienceCount?.toLocaleString()} Users</div>
+                  <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>{cmp.targetType} {cmp.segment ? `(${cmp.segment})` : ''}</div>
+                </td>
+                <td style={{ padding: 'var(--space-3)' }}>
+                  {cmp.channels.map((ch) => (
+                    <Badge key={ch} variant="neutral" style={{ marginRight: '0.25rem' }}>
+                      {ch}
+                    </Badge>
+                  ))}
+                </td>
+                <td style={{ padding: 'var(--space-3)' }}>{renderPriorityBadge(cmp.priority)}</td>
+                <td style={{ padding: 'var(--space-3)' }}>{renderStatusBadge(cmp.status)}</td>
+                <td style={{ padding: 'var(--space-3)' }}>
+                  <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>{cmp.deliveredCount}</span> /{' '}
+                  <span style={{ color: cmp.failedCount > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>{cmp.failedCount}</span>
+                </td>
+                <td style={{ padding: 'var(--space-3)' }}>
+                  {cmp.scheduledAt ? (
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)' }}>
+                      Sched: {new Date(cmp.scheduledAt).toLocaleString()}
+                    </div>
+                  ) : cmp.sentAt ? (
+                    <div style={{ fontSize: 'var(--font-size-xs)' }}>Sent: {new Date(cmp.sentAt).toLocaleString()}</div>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td style={{ padding: 'var(--space-3)' }}>
+                  {cmp.status === 'SCHEDULED' ? (
+                    <Button variant="danger" size="sm" onClick={() => handleCancelCampaign(cmp.id)}>
+                      Cancel
+                    </Button>
+                  ) : (
+                    <Button variant="ghost" size="sm" disabled>
+                      View
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </Table>
           {campaigns.length === 0 && (
             <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
               No campaigns found matching filter.
@@ -951,11 +943,11 @@ export const AdminCommunicationsPage: React.FC = () => {
                 onChange={(e) => setTemplateCategoryFilter(e.target.value)}
                 options={[
                   { value: 'ALL', label: 'All Categories' },
-                  { value: 'ORDERS', label: 'Orders' },
-                  { value: 'WALLET', label: 'Wallet & Payments' },
-                  { value: 'AUTH', label: 'Authentication & Security' },
-                  { value: 'STORE', label: 'Agent Stores' },
-                  { value: 'SYSTEM', label: 'System & Platform' },
+                  { value: 'SYSTEM', label: 'System' },
+                  { value: 'FINANCIAL', label: 'Financial' },
+                  { value: 'TELECOM', label: 'Telecom' },
+                  { value: 'SECURITY', label: 'Security' },
+                  { value: 'MARKETING', label: 'Marketing' },
                 ]}
               />
               <Button variant="primary" size="sm" onClick={() => setIsTemplateModalOpen(true)}>
@@ -965,7 +957,7 @@ export const AdminCommunicationsPage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '1rem' }}>
             {templates.map((tpl) => (
               <div
                 key={tpl.id}
@@ -987,7 +979,7 @@ export const AdminCommunicationsPage: React.FC = () => {
                     <code style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-brand-bright)' }}>{tpl.slug}</code>
                   </div>
                   <div style={{ display: 'flex', gap: '0.25rem' }}>
-                    <Badge variant="secondary">v{tpl.version}</Badge>
+                    <Badge variant="neutral">v{tpl.version}</Badge>
                     {tpl.isSystemCritical && <Badge variant="danger">CRITICAL</Badge>}
                   </div>
                 </div>
@@ -1016,8 +1008,8 @@ export const AdminCommunicationsPage: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '0.5rem' }}>
-                  <Badge variant="primary">{tpl.category}</Badge>
-                  <Button variant="ghost" size="xs" onClick={() => setPreviewTemplate(tpl)}>
+                  <Badge variant="brand">{tpl.category}</Badge>
+                  <Button variant="ghost" size="sm" onClick={() => setPreviewTemplate(tpl)}>
                     <Eye size={12} style={{ marginRight: '0.2rem' }} /> Full Preview
                   </Button>
                 </div>
@@ -1039,24 +1031,27 @@ export const AdminCommunicationsPage: React.FC = () => {
             </div>
           </div>
 
-          <Table
-            headers={['Campaign / Message', 'Target Audience', 'Channels', 'Scheduled Timestamp', 'Status', 'Actions']}
-            rows={campaigns
+          <Table headers={['Campaign / Message', 'Target Audience', 'Channels', 'Scheduled Timestamp', 'Status', 'Actions']}>
+            {campaigns
               .filter((c) => c.status === 'SCHEDULED')
-              .map((cmp) => [
-                <div>
-                  <div style={{ fontWeight: 600 }}>{cmp.title}</div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>{cmp.subject}</div>
-                </div>,
-                <div>{cmp.audienceCount?.toLocaleString()} recipients ({cmp.targetType})</div>,
-                <div>{cmp.channels.join(', ')}</div>,
-                <div>{cmp.scheduledAt ? new Date(cmp.scheduledAt).toLocaleString() : '—'}</div>,
-                <Badge variant="warning">SCHEDULED</Badge>,
-                <Button variant="danger" size="xs" onClick={() => handleCancelCampaign(cmp.id)}>
-                  Cancel Execution
-                </Button>,
-              ])}
-          />
+              .map((cmp) => (
+                <tr key={cmp.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ fontWeight: 600 }}>{cmp.title}</div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>{cmp.subject}</div>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>{cmp.audienceCount?.toLocaleString()} recipients ({cmp.targetType})</td>
+                  <td style={{ padding: 'var(--space-3)' }}>{cmp.channels.join(', ')}</td>
+                  <td style={{ padding: 'var(--space-3)' }}>{cmp.scheduledAt ? new Date(cmp.scheduledAt).toLocaleString() : '—'}</td>
+                  <td style={{ padding: 'var(--space-3)' }}><Badge variant="warning">SCHEDULED</Badge></td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Button variant="danger" size="sm" onClick={() => handleCancelCampaign(cmp.id)}>
+                      Cancel Execution
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+          </Table>
           {campaigns.filter((c) => c.status === 'SCHEDULED').length === 0 && (
             <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
               No messages currently scheduled in the queue.
@@ -1109,26 +1104,27 @@ export const AdminCommunicationsPage: React.FC = () => {
             </div>
           </div>
 
-          <Table
-            headers={['Recipient (Redacted)', 'Channel', 'Subject & Preview', 'Priority', 'Status', 'Attempts', 'Delivered At']}
-            rows={deliveryLogs.map((log) => [
-              <div>
-                <div style={{ fontWeight: 600 }}>{log.recipientName}</div>
-                <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                  {log.recipientEmailRedacted} • {log.recipientRole}
-                </div>
-              </div>,
-              <Badge variant="secondary">{log.channel}</Badge>,
-              <div>
-                <div style={{ fontWeight: 600 }}>{log.subject}</div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>{log.bodyPreview}</div>
-              </div>,
-              renderPriorityBadge(log.priority),
-              renderStatusBadge(log.status),
-              log.attempts,
-              log.deliveredAt ? new Date(log.deliveredAt).toLocaleTimeString() : '—',
-            ])}
-          />
+          <Table headers={['Recipient (Redacted)', 'Channel', 'Subject & Preview', 'Priority', 'Status', 'Attempts', 'Delivered At']}>
+            {deliveryLogs.map((log) => (
+              <tr key={log.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                <td style={{ padding: 'var(--space-3)' }}>
+                  <div style={{ fontWeight: 600 }}>{log.recipientName}</div>
+                  <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                    {log.recipientEmailRedacted} • {log.recipientRole}
+                  </div>
+                </td>
+                <td style={{ padding: 'var(--space-3)' }}><Badge variant="neutral">{log.channel}</Badge></td>
+                <td style={{ padding: 'var(--space-3)' }}>
+                  <div style={{ fontWeight: 600 }}>{log.subject}</div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>{log.bodyPreview}</div>
+                </td>
+                <td style={{ padding: 'var(--space-3)' }}>{renderPriorityBadge(log.priority)}</td>
+                <td style={{ padding: 'var(--space-3)' }}>{renderStatusBadge(log.status)}</td>
+                <td style={{ padding: 'var(--space-3)' }}>{log.attempts}</td>
+                <td style={{ padding: 'var(--space-3)' }}>{log.deliveredAt ? new Date(log.deliveredAt).toLocaleTimeString() : '—'}</td>
+              </tr>
+            ))}
+          </Table>
 
           {/* Pagination */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--color-border)' }}>
@@ -1138,7 +1134,7 @@ export const AdminCommunicationsPage: React.FC = () => {
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <Button
                 variant="outline"
-                size="xs"
+                size="sm"
                 disabled={deliveryPagination.page <= 1}
                 onClick={() => fetchDeliveryLogs(deliveryPagination.page - 1)}
               >
@@ -1146,7 +1142,7 @@ export const AdminCommunicationsPage: React.FC = () => {
               </Button>
               <Button
                 variant="outline"
-                size="xs"
+                size="sm"
                 disabled={deliveryPagination.page >= deliveryPagination.totalPages}
                 onClick={() => fetchDeliveryLogs(deliveryPagination.page + 1)}
               >
@@ -1160,7 +1156,7 @@ export const AdminCommunicationsPage: React.FC = () => {
       {/* TAB 7: SYSTEM EVENT CATALOG */}
       {activeTab === 'system-events' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-          <Card accentColor="emerald">
+          <Card accentColor="green">
             <h3 style={{ margin: '0 0 0.5rem 0', fontWeight: 700 }}>Authoritative System Event Triggers & Business Safety Invariants</h3>
             <p style={{ margin: '0 0 1.25rem 0', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
               ByteBeacon 2.0 maintains strict transactional and telecom boundaries. System notifications are generated exclusively from verified server-side ledger and telecom fulfillment states.
@@ -1200,7 +1196,7 @@ export const AdminCommunicationsPage: React.FC = () => {
 
       {/* TAB 8: DIAGNOSTICS */}
       {activeTab === 'diagnostics' && (
-        <Card accentColor="indigo">
+        <Card accentColor="purple">
           <h3 style={{ margin: '0 0 1rem 0', fontWeight: 700 }}>Communication Subsystem Health & Diagnostics</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
             <div style={{ padding: '1rem', borderRadius: 'var(--radius-sm)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
@@ -1236,7 +1232,7 @@ export const AdminCommunicationsPage: React.FC = () => {
             <div style={{ padding: '1rem', borderRadius: 'var(--radius-sm)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: 600 }}>SMS Carrier Gateway</span>
-                <Badge variant="secondary">NOT CONFIGURED</Badge>
+                <Badge variant="neutral">NOT CONFIGURED</Badge>
               </div>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
                 SMS provider integration pending API key setup
@@ -1508,7 +1504,7 @@ export const AdminCommunicationsPage: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <code>{previewTemplate.slug}</code>
-              <Badge variant="primary">Version {previewTemplate.version}</Badge>
+              <Badge variant="brand">Version {previewTemplate.version}</Badge>
             </div>
 
             <div style={{ padding: '1rem', borderRadius: 'var(--radius-sm)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>

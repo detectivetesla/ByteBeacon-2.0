@@ -6,7 +6,7 @@ import { Modal } from '../../components/ui/Modal/Modal.js';
 import { Input } from '../../components/ui/index.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
-import { apiKeysApi, ApiKeyItem as RemoteApiKeyItem } from '../../api/apiKeys.api.js';
+import { apiKeysApi } from '../../api/apiKeys.api.js';
 import { Key, Copy, Check, Eye, EyeOff, RefreshCw, Plus, Trash2, ShieldAlert } from 'lucide-react';
 
 interface ApiKeyItem {
@@ -146,13 +146,22 @@ export const AgentApiPage: React.FC = () => {
 
       {/* Keys List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        {apiKeys.map((key) => {
-          const isRevealed = !!revealedKeyIds[key.id];
-          const displayPrefix = isRevealed
-            ? key.prefix
-            : `${key.prefix.substring(0, 10)}••••••••••••••••••••`;
+        {isLoading ? (
+          <Card style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+            Loading API keys...
+          </Card>
+        ) : apiKeys.length === 0 ? (
+          <Card style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+            No API keys provisioned yet. Click "Create API Key" above to generate your first integration credential.
+          </Card>
+        ) : (
+          apiKeys.map((key) => {
+            const isRevealed = !!revealedKeyIds[key.id];
+            const displayPrefix = isRevealed
+              ? key.prefix
+              : `${key.prefix.substring(0, 10)}••••••••••••••••••••`;
 
-          return (
+            return (
             <Card
               key={key.id}
               style={{
@@ -227,7 +236,7 @@ export const AgentApiPage: React.FC = () => {
               </div>
             </Card>
           );
-        })}
+        }))}
       </div>
 
       {/* Security Best Practices Card */}
@@ -307,11 +316,11 @@ export const AgentApiPage: React.FC = () => {
                   LIVE (Production)
                 </Button>
                 <Button
-                  variant={newKeyEnv === 'TEST' ? 'primary' : 'outline'}
+                  variant={newKeyEnv === 'SANDBOX' ? 'primary' : 'outline'}
                   size="sm"
-                  onClick={() => setNewKeyEnv('TEST')}
+                  onClick={() => setNewKeyEnv('SANDBOX')}
                 >
-                  TEST (Sandbox)
+                  SANDBOX (Test)
                 </Button>
               </div>
             </div>
@@ -320,8 +329,8 @@ export const AgentApiPage: React.FC = () => {
               <Button variant="ghost" size="sm" onClick={() => setCreateModalOpen(false)}>
                 Cancel
               </Button>
-              <Button variant="primary" size="sm" onClick={handleGenerateKey}>
-                Generate Key
+              <Button variant="primary" size="sm" onClick={handleGenerateKey} disabled={isSubmitting}>
+                {isSubmitting ? 'Generating...' : 'Generate Key'}
               </Button>
             </div>
           </div>

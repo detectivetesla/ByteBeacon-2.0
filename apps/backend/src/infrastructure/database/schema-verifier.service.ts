@@ -124,6 +124,7 @@ export class ProductionSchemaVerifier {
     'ledger_entries',
     'feature_flags',
     'beneficiary_records',
+    'financial_safety_controls',
   ];
 
   /**

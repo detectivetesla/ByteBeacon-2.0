@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
-import { SearchInput, Select, Modal } from '../../components/ui/index.js';
+import { SearchInput, Select, Modal, Input } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
@@ -9,25 +9,17 @@ import {
   Key,
   Shield,
   ShieldAlert,
-  ShieldCheck,
   RefreshCw,
-  Cpu,
   Layers,
   Activity,
   Zap,
-  Lock,
-  Globe,
   Radio,
   Sliders,
-  AlertTriangle,
-  FileCode,
-  CheckCircle,
   Copy,
   Eye,
   RotateCw,
   Trash2,
   Send,
-  SlidersHorizontal,
   Server,
   Terminal,
   Users,
@@ -45,7 +37,6 @@ import {
   AdminApiConsumerDto,
   AdminStructuredHealthDto,
   ApiKeyEnvironment,
-  ApiKeyStatus,
   Permission,
 } from '../../api/admin.api.js';
 
@@ -107,12 +98,10 @@ export const AdminApiManagementPage: React.FC = () => {
 
   // --- Webhooks Tab State ---
   const [webhooks, setWebhooks] = useState<AdminWebhookListItemDto[]>([]);
-  const [webhookPage, setWebhookPage] = useState(1);
 
   // --- Security Tab State ---
   const [securityEvents, setSecurityEvents] = useState<AdminApiSecurityEventDto[]>([]);
   const [secSeverityFilter, setSecSeverityFilter] = useState('ALL');
-  const [secPage, setSecPage] = useState(1);
 
   // --- Provider Connections State ---
   const [providers, setProviders] = useState<AdminProviderConnectionDto[]>([]);
@@ -128,6 +117,7 @@ export const AdminApiManagementPage: React.FC = () => {
 
   // 1. Fetch Overview Stats & Structured Health
   const fetchOverview = useCallback(async () => {
+    setIsLoading(true);
     try {
       const [ovRes, hlRes] = await Promise.all([
         adminApi.getApiOverview(),
@@ -137,54 +127,50 @@ export const AdminApiManagementPage: React.FC = () => {
       if (hlRes) setStructuredHealth(hlRes);
     } catch {
       // Fallback
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
   // 1b. Fetch API Consumers List
   const fetchConsumers = useCallback(async () => {
-    setIsLoading(true);
     try {
       const res = await adminApi.getApiConsumers({
+        search: consumerSearch || undefined,
+        environment: consumerEnvFilter !== 'ALL' ? (consumerEnvFilter as any) : undefined,
+        status: consumerStatusFilter !== 'ALL' ? (consumerStatusFilter as any) : undefined,
         page: consumerPage,
         limit: 20,
-        search: consumerSearch || undefined,
-        environment: consumerEnvFilter !== 'ALL' ? consumerEnvFilter : undefined,
-        status: consumerStatusFilter !== 'ALL' ? consumerStatusFilter : undefined,
       });
       if (res && Array.isArray(res.items)) {
         setConsumers(res.items);
         setConsumerTotalPages(res.pagination?.totalPages || 1);
-        setConsumerTotal(res.pagination?.total || res.items.length);
+        setConsumerTotal(res.pagination?.total || 0);
       }
     } catch {
       setConsumers([]);
-    } finally {
-      setIsLoading(false);
     }
-  }, [consumerPage, consumerSearch, consumerEnvFilter, consumerStatusFilter]);
+  }, [consumerSearch, consumerEnvFilter, consumerStatusFilter, consumerPage]);
 
-  // 2. Fetch Keys List
+  // 2. Fetch API Keys List
   const fetchKeys = useCallback(async () => {
-    setIsLoading(true);
     try {
       const res = await adminApi.getApiKeys({
+        search: keySearch || undefined,
+        environment: keyEnvFilter !== 'ALL' ? (keyEnvFilter as any) : undefined,
+        status: keyStatusFilter !== 'ALL' ? (keyStatusFilter as any) : undefined,
         page: keyPage,
         limit: 20,
-        search: keySearch || undefined,
-        environment: keyEnvFilter !== 'ALL' ? keyEnvFilter : undefined,
-        status: keyStatusFilter !== 'ALL' ? keyStatusFilter : undefined,
       });
       if (res && Array.isArray(res.items)) {
         setKeys(res.items);
         setKeyTotalPages(res.pagination?.totalPages || 1);
-        setKeyTotal(res.pagination?.total || res.items.length);
+        setKeyTotal(res.pagination?.total || 0);
       }
     } catch {
       setKeys([]);
-    } finally {
-      setIsLoading(false);
     }
-  }, [keyPage, keySearch, keyEnvFilter, keyStatusFilter]);
+  }, [keySearch, keyEnvFilter, keyStatusFilter, keyPage]);
 
   // 3. Fetch Usage Analytics
   const fetchUsage = useCallback(async () => {
@@ -199,20 +185,20 @@ export const AdminApiManagementPage: React.FC = () => {
   // 4. Fetch Webhooks
   const fetchWebhooks = useCallback(async () => {
     try {
-      const res = await adminApi.getAdminWebhooks({ page: webhookPage });
+      const res = await adminApi.getAdminWebhooks({ page: 1 });
       if (res && Array.isArray(res.items)) {
         setWebhooks(res.items);
       }
     } catch {
       setWebhooks([]);
     }
-  }, [webhookPage]);
+  }, []);
 
   // 5. Fetch Security Events
   const fetchSecurityEvents = useCallback(async () => {
     try {
       const res = await adminApi.getApiSecurityEvents({
-        page: secPage,
+        page: 1,
         severity: secSeverityFilter !== 'ALL' ? secSeverityFilter : undefined,
       });
       if (res && Array.isArray(res.items)) {
@@ -221,7 +207,7 @@ export const AdminApiManagementPage: React.FC = () => {
     } catch {
       setSecurityEvents([]);
     }
-  }, [secPage, secSeverityFilter]);
+  }, [secSeverityFilter]);
 
   // 6. Fetch Providers
   const fetchProviders = useCallback(async () => {
@@ -274,7 +260,7 @@ export const AdminApiManagementPage: React.FC = () => {
         scopes: newKeyScopes,
         expiresInDays: parseInt(newKeyExpiryDays, 10) || 90,
         rateLimitPerMinute: parseInt(newKeyRateLimit, 10) || 300,
-        ipRestrictions: newKeyIpRestrictions.split(',').map((s) => s.trim()).filter(Boolean),
+        ipRestrictions: newKeyIpRestrictions.split(',').map((s: string) => s.trim()).filter(Boolean),
       });
 
       setCreatedSecretResult({
@@ -344,7 +330,6 @@ export const AdminApiManagementPage: React.FC = () => {
       await adminApi.switchAuthoritativeProvider({
         newProvider: targetSwitchProvider,
         reason: switchReason.trim(),
-        runPreFlightHealthCheck: true,
       });
       alert(`Authoritative telecom fulfillment migrated to ${targetSwitchProvider} successfully.`);
       setIsSwitchModalOpen(false);
@@ -458,8 +443,8 @@ export const AdminApiManagementPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button variant="secondary" size="sm" onClick={() => { fetchOverview(); fetchKeys(); fetchConsumers(); fetchUsage(); }}>
-            <RefreshCw size={14} style={{ marginRight: '0.35rem' }} /> Refresh
+          <Button variant="secondary" size="sm" onClick={() => { fetchOverview(); fetchKeys(); fetchConsumers(); fetchUsage(); }} disabled={isLoading}>
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} style={{ marginRight: '0.35rem' }} /> Refresh
           </Button>
           <Button variant="primary" size="sm" onClick={() => { setCreatedSecretResult(null); setIsCreateModalOpen(true); }}>
             <Key size={14} style={{ marginRight: '0.35rem' }} /> Generate API Key
@@ -479,30 +464,30 @@ export const AdminApiManagementPage: React.FC = () => {
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
-          label="Active API Keys"
+          title="Active API Keys"
           value={String(overview?.activeKeys || 0)}
-          helperText={`${overview?.totalKeys || 0} total (${overview?.productionKeys || 0} prod, ${overview?.testKeys || 0} sandbox)`}
+          subvalue={`${overview?.totalKeys || 0} total (${overview?.productionKeys || 0} prod, ${overview?.testKeys || 0} sandbox)`}
           accent="blue"
           icon={<TactileIcon icon={Key} color="api" size="sm" />}
         />
         <MetricCard
-          label="Requests Today"
+          title="Requests Today"
           value={(overview?.requestsToday || 0).toLocaleString()}
-          helperText={`${overview?.failedRequestsToday || 0} failed (${overview?.rateLimitEventsToday || 0} rate-limited)`}
+          subvalue={`${overview?.failedRequestsToday || 0} failed (${overview?.rateLimitEventsToday || 0} rate-limited)`}
           accent="green"
           icon={<TactileIcon icon={Activity} color="speed" size="sm" />}
         />
         <MetricCard
-          label="P95 Latency"
+          title="P95 Latency"
           value={`${overview?.p95LatencyMs || 88}ms`}
-          helperText={`Avg: ${overview?.avgLatencyMs || 42}ms | P99: ${overview?.p99LatencyMs || 165}ms`}
-          accent="indigo"
+          subvalue={`Avg: ${overview?.avgLatencyMs || 42}ms | P99: ${overview?.p99LatencyMs || 165}ms`}
+          accent="purple"
           icon={<TactileIcon icon={Zap} color="security" size="sm" />}
         />
         <MetricCard
-          label="Security Events"
+          title="Security Events"
           value={String(overview?.authFailuresToday || 0)}
-          helperText="Authentication & scope violations"
+          subvalue="Authentication & scope violations"
           accent={overview?.authFailuresToday ? 'amber' : 'green'}
           icon={<TactileIcon icon={ShieldAlert} color={overview?.authFailuresToday ? 'amber' : 'security'} size="sm" />}
         />
@@ -562,31 +547,42 @@ export const AdminApiManagementPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table
-              headers={['API Service / Rail', 'Environment', 'Health Status', '24h Volume', 'Error Rate', 'Avg Latency']}
-              data={(overview?.servicesHealth || []).map((srv) => [
-                <span key="name" style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>
-                  {srv.name}
-                </span>,
-                <Badge key="env" variant={srv.environment === 'LIVE' ? 'success' : 'neutral'}>
-                  {srv.environment}
-                </Badge>,
-                <Badge key="st" variant={srv.status === 'HEALTHY' ? 'success' : srv.status === 'DEGRADED' ? 'warning' : 'danger'}>
-                  {srv.status}
-                </Badge>,
-                <span key="req" style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                  {srv.requests24h.toLocaleString()} reqs
-                </span>,
-                <span key="err" style={{ fontSize: 'var(--font-size-xs)', color: srv.errorRatePercent > 1 ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>
-                  {srv.errorRatePercent}%
-                </span>,
-                <span key="lat" style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                  {srv.avgLatencyMs} ms
-                </span>,
-              ])}
-              loading={isLoading}
-              emptyMessage="No service health telemetry available."
-            />
+            <Table headers={['API Service / Rail', 'Environment', 'Health Status', '24h Volume', 'Error Rate', 'Avg Latency']}>
+              {(overview?.servicesHealth || []).map((srv) => (
+                <tr key={srv.name} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>
+                      {srv.name}
+                    </span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Badge variant={srv.environment === 'LIVE' ? 'success' : 'neutral'}>
+                      {srv.environment}
+                    </Badge>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Badge variant={srv.status === 'HEALTHY' ? 'success' : srv.status === 'DEGRADED' ? 'warning' : 'danger'}>
+                      {srv.status}
+                    </Badge>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                      {srv.requests24h.toLocaleString()} reqs
+                    </span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: srv.errorRatePercent > 1 ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>
+                      {srv.errorRatePercent}%
+                    </span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                      {srv.avgLatencyMs} ms
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </Table>
           </Card>
 
           {/* Structured Platform Infrastructure Health */}
@@ -671,45 +667,60 @@ export const AdminApiManagementPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table
-              headers={['Consumer Application', 'Owner Account', 'Environment', 'Status', 'API Keys', '24h Requests', 'Last Activity', 'Actions']}
-              data={consumers.map((c) => [
-                <div key="name" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{c.name}</span>
-                  {c.description && <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{c.description}</span>}
-                </div>,
-                <div key="own" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{c.ownerName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{c.ownerEmail}</span>
-                </div>,
-                <Badge key="env" variant={c.environment === 'LIVE' ? 'success' : 'neutral'}>
-                  {c.environment}
-                </Badge>,
-                <Badge key="st" variant={c.status === 'ACTIVE' ? 'success' : c.status === 'SUSPENDED' ? 'warning' : 'danger'}>
-                  {c.status}
-                </Badge>,
-                <span key="kc" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                  {c.keyCount} keys
-                </span>,
-                <span key="rq" style={{ fontFamily: 'var(--font-mono)' }}>
-                  {c.requestCount24h.toLocaleString()}
-                </span>,
-                <span key="act" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                  {c.lastActivityAt ? new Date(c.lastActivityAt).toLocaleTimeString() : 'Never'}
-                </span>,
-                <div key="actions" style={{ display: 'flex', gap: '0.35rem' }}>
-                  <Button
-                    variant={c.status === 'ACTIVE' ? 'warning' : 'secondary'}
-                    size="sm"
-                    onClick={() => handleToggleConsumerStatus(c.id, c.name, c.status)}
-                  >
-                    {c.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
-                  </Button>
-                </div>,
-              ])}
-              loading={isLoading}
-              emptyMessage="No API consumers registered."
-            />
+            <Table headers={['Consumer Application', 'Owner Account', 'Environment', 'Status', 'API Keys', '24h Requests', 'Last Activity', 'Actions']}>
+              {consumers.map((c) => (
+                <tr key={c.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{c.name}</span>
+                      {c.description && <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{c.description}</span>}
+                    </div>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{c.ownerName}</span>
+                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{c.ownerEmail}</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Badge variant={c.environment === 'LIVE' ? 'success' : 'neutral'}>
+                      {c.environment}
+                    </Badge>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Badge variant={c.status === 'ACTIVE' ? 'success' : c.status === 'SUSPENDED' ? 'warning' : 'danger'}>
+                      {c.status}
+                    </Badge>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                      {c.keyCount} keys
+                    </span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)' }}>
+                      {c.requestCount24h.toLocaleString()}
+                    </span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                      {c.lastActivityAt ? new Date(c.lastActivityAt).toLocaleTimeString() : 'Never'}
+                    </span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <Button
+                        variant={c.status === 'ACTIVE' ? 'outline' : 'secondary'}
+                        size="sm"
+                        onClick={() => handleToggleConsumerStatus(c.id, c.name, c.status)}
+                      >
+                        {c.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </Table>
 
             <Pagination
               currentPage={consumerPage}
@@ -724,7 +735,7 @@ export const AdminApiManagementPage: React.FC = () => {
       {/* --- TAB 2: API KEYS --- */}
       {activeTab === 'KEYS' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <Card accentColor="indigo">
+          <Card accentColor="purple">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
               <div style={{ flex: 1, minWidth: '240px' }}>
                 <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Search API Keys</label>
@@ -765,63 +776,78 @@ export const AdminApiManagementPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table
-              headers={['Key Identifier', 'Owner / Account', 'Environment', 'Status', 'Permitted Scopes', 'Rate Limit', 'Created', 'Actions']}
-              data={keys.map((k) => [
-                <div key="key" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{k.name}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                    {k.keyPrefix}••••••••
-                  </span>
-                </div>,
-                <div key="own" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{k.ownerName}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{k.ownerEmail} ({k.ownerRole})</span>
-                </div>,
-                <Badge key="env" variant={k.environment === 'LIVE' ? 'success' : 'neutral'}>
-                  {k.environment}
-                </Badge>,
-                <Badge key="st" variant={k.status === 'ACTIVE' ? 'success' : k.status === 'REVOKED' ? 'danger' : 'warning'}>
-                  {k.status}
-                </Badge>,
-                <div key="sc" style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', maxWidth: '200px' }}>
-                  {k.scopes.slice(0, 2).map((s) => (
-                    <span key={s} style={{ fontSize: '10px', padding: '1px 4px', backgroundColor: 'var(--color-surface-sunken)', borderRadius: '3px' }}>
-                      {s}
+            <Table headers={['Key Identifier', 'Owner / Account', 'Environment', 'Status', 'Permitted Scopes', 'Rate Limit', 'Created', 'Actions']}>
+              {keys.map((k) => (
+                <tr key={k.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{k.name}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                        {k.keyPrefix}••••••••
+                      </span>
+                    </div>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{k.ownerName}</span>
+                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{k.ownerEmail} ({k.ownerRole})</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Badge variant={k.environment === 'LIVE' ? 'success' : 'neutral'}>
+                      {k.environment}
+                    </Badge>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Badge variant={k.status === 'ACTIVE' ? 'success' : k.status === 'REVOKED' ? 'danger' : 'warning'}>
+                      {k.status}
+                    </Badge>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', maxWidth: '200px' }}>
+                      {k.scopes.slice(0, 2).map((s) => (
+                        <span key={s} style={{ fontSize: '10px', padding: '1px 4px', backgroundColor: 'var(--color-surface-sunken)', borderRadius: '3px' }}>
+                          {s}
+                        </span>
+                      ))}
+                      {k.scopes.length > 2 && (
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>+{k.scopes.length - 2} more</span>
+                      )}
+                    </div>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
+                      {k.rateLimitPerMinute} / min
                     </span>
-                  ))}
-                  {k.scopes.length > 2 && (
-                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>+{k.scopes.length - 2} more</span>
-                  )}
-                </div>,
-                <span key="rl" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-                  {k.rateLimitPerMinute} / min
-                </span>,
-                <span key="cr" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(k.createdAt).toLocaleDateString()}
-                </span>,
-                <div key="act" style={{ display: 'flex', gap: '0.35rem' }}>
-                  <Button variant="secondary" size="sm" onClick={async () => {
-                    const res = await adminApi.getApiKeyDetail(k.id);
-                    setSelectedKeyDetail(res);
-                  }}>
-                    <Eye size={12} style={{ marginRight: '0.2rem' }} /> Dossier
-                  </Button>
-                  {k.status === 'ACTIVE' && (
-                    <>
-                      <Button variant="secondary" size="sm" onClick={() => { setRotateKeyId(k.id); setRotateReason(''); setRotatedSecretResult(null); }}>
-                        <RotateCw size={12} style={{ marginRight: '0.2rem' }} /> Rotate
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                      {new Date(k.createdAt).toLocaleDateString()}
+                    </span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <Button variant="secondary" size="sm" onClick={async () => {
+                        const res = await adminApi.getApiKeyDetail(k.id);
+                        setSelectedKeyDetail(res);
+                      }}>
+                        <Eye size={12} style={{ marginRight: '0.2rem' }} /> Dossier
                       </Button>
-                      <Button variant="danger" size="sm" onClick={() => handleRevokeKey(k.id, k.name)}>
-                        <Trash2 size={12} />
-                      </Button>
-                    </>
-                  )}
-                </div>,
-              ])}
-              loading={isLoading}
-              emptyMessage="No API keys found matching search criteria."
-            />
+                      {k.status === 'ACTIVE' && (
+                        <>
+                          <Button variant="secondary" size="sm" onClick={() => { setRotateKeyId(k.id); setRotateReason(''); setRotatedSecretResult(null); }}>
+                            <RotateCw size={12} style={{ marginRight: '0.2rem' }} /> Rotate
+                          </Button>
+                          <Button variant="danger" size="sm" onClick={() => handleRevokeKey(k.id, k.name)}>
+                            <Trash2 size={12} />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </Table>
 
             <Pagination
               currentPage={keyPage}
@@ -851,43 +877,63 @@ export const AdminApiManagementPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-3)' }}>
-            <MetricCard label="Total Requests" value={(usageData?.totalRequests || 0).toLocaleString()} accent="blue" />
-            <MetricCard label="Success (2xx)" value={(usageData?.successRequests || 0).toLocaleString()} accent="green" />
-            <MetricCard label="Client Errors (4xx)" value={(usageData?.clientErrors || 0).toLocaleString()} accent="amber" />
-            <MetricCard label="Server Errors (5xx)" value={(usageData?.serverErrors || 0).toLocaleString()} accent="red" />
-            <MetricCard label="429 Rate Limits" value={String(usageData?.rateLimitEvents || 0)} accent="purple" />
+            <MetricCard title="Total Requests" value={(usageData?.totalRequests || 0).toLocaleString()} accent="blue" />
+            <MetricCard title="Success (2xx)" value={(usageData?.successRequests || 0).toLocaleString()} accent="green" />
+            <MetricCard title="Client Errors (4xx)" value={(usageData?.clientErrors || 0).toLocaleString()} accent="amber" />
+            <MetricCard title="Server Errors (5xx)" value={(usageData?.serverErrors || 0).toLocaleString()} accent="red" />
+            <MetricCard title="429 Rate Limits" value={String(usageData?.rateLimitEvents || 0)} accent="purple" />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 'var(--space-4)' }}>
             {/* Top Endpoints */}
             <Card>
               <h4 style={{ margin: '0 0 1rem 0', fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>Top Requested Endpoints</h4>
-              <Table
-                headers={['Endpoint', 'Method', 'Requests', 'Error %', 'P95 Latency']}
-                data={(usageData?.topEndpoints || []).map((ep) => [
-                  <span key="ep" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600 }}>{ep.endpoint}</span>,
-                  <Badge key="m" variant="primary">{ep.method}</Badge>,
-                  <span key="r" style={{ fontWeight: 700 }}>{ep.requests.toLocaleString()}</span>,
-                  <span key="e" style={{ color: ep.errorRatePercent > 1 ? 'var(--color-danger)' : 'inherit' }}>{ep.errorRatePercent}%</span>,
-                  <span key="p" style={{ fontFamily: 'var(--font-mono)' }}>{ep.p95LatencyMs}ms</span>,
-                ])}
-              />
+              <Table headers={['Endpoint', 'Method', 'Requests', 'Error %', 'P95 Latency']}>
+                {(usageData?.topEndpoints || []).map((ep) => (
+                  <tr key={ep.endpoint} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600 }}>{ep.endpoint}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <Badge variant="brand">{ep.method}</Badge>
+                    </td>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <span style={{ fontWeight: 700 }}>{ep.requests.toLocaleString()}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <span style={{ color: ep.errorRatePercent > 1 ? 'var(--color-danger)' : 'inherit' }}>{ep.errorRatePercent}%</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)' }}>{ep.p95LatencyMs}ms</span>
+                    </td>
+                  </tr>
+                ))}
+              </Table>
             </Card>
 
             {/* Top Agents */}
             <Card>
               <h4 style={{ margin: '0 0 1rem 0', fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>Top Consuming Resellers & Developers</h4>
-              <Table
-                headers={['Agent / Developer', 'Total Requests', 'Error Count', 'Last Activity']}
-                data={(usageData?.agentUsage || []).map((ag) => [
-                  <span key="n" style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{ag.agentName}</span>,
-                  <span key="r" style={{ fontWeight: 700 }}>{ag.requests.toLocaleString()}</span>,
-                  <span key="e" style={{ color: ag.errors > 0 ? 'var(--color-danger)' : 'inherit' }}>{ag.errors}</span>,
-                  <span key="l" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                    {ag.lastUsedAt ? new Date(ag.lastUsedAt).toLocaleTimeString() : 'Never'}
-                  </span>,
-                ])}
-              />
+              <Table headers={['Agent / Developer', 'Total Requests', 'Error Count', 'Last Activity']}>
+                {(usageData?.agentUsage || []).map((ag) => (
+                  <tr key={ag.agentId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{ag.agentName}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <span style={{ fontWeight: 700 }}>{ag.requests.toLocaleString()}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <span style={{ color: ag.errors > 0 ? 'var(--color-danger)' : 'inherit' }}>{ag.errors}</span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3)' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                        {ag.lastUsedAt ? new Date(ag.lastUsedAt).toLocaleTimeString() : 'Never'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </Table>
             </Card>
           </div>
         </div>
@@ -897,17 +943,56 @@ export const AdminApiManagementPage: React.FC = () => {
       {activeTab === 'ENDPOINTS' && (
         <Card accentColor="cyan">
           <h3 style={{ margin: '0 0 1rem 0', fontWeight: 700 }}>API Endpoints Catalog & Performance</h3>
-          <Table
-            headers={['HTTP Method', 'Path', 'Authentication', 'Required Scope', 'Rate Limit Tier', 'Status']}
-            data={[
-              [<Badge key="m1" variant="success">POST</Badge>, '/api/v1/orders', 'Bearer API Key', 'orders.create', 'AGENT (300/min)', <Badge key="s1" variant="success">HEALTHY</Badge>],
-              [<Badge key="m2" variant="primary">GET</Badge>, '/api/v1/orders/:id', 'Bearer API Key', 'orders.read', 'AGENT (300/min)', <Badge key="s2" variant="success">HEALTHY</Badge>],
-              [<Badge key="m3" variant="primary">GET</Badge>, '/api/v1/catalog/bundles', 'Public / None', 'None', 'CUSTOMER (120/min)', <Badge key="s3" variant="success">HEALTHY</Badge>],
-              [<Badge key="m4" variant="success">POST</Badge>, '/api/v1/bulk-orders', 'Bearer API Key', 'orders.create', 'CUSTOM (60/min)', <Badge key="s4" variant="success">HEALTHY</Badge>],
-              [<Badge key="m5" variant="warning">POST</Badge>, '/api/v1/orders/:id/refund', 'Bearer Token', 'orders.refund', 'ADMIN (600/min)', <Badge key="s5" variant="success">HEALTHY</Badge>],
-              [<Badge key="m6" variant="primary">GET</Badge>, '/api/v1/agents/wallet/balance', 'Bearer API Key', 'wallet.read', 'AGENT (300/min)', <Badge key="s6" variant="success">HEALTHY</Badge>],
-            ]}
-          />
+          <Table headers={['HTTP Method', 'Path', 'Authentication', 'Required Scope', 'Rate Limit Tier', 'Status']}>
+            <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="success">POST</Badge></td>
+              <td style={{ padding: 'var(--space-3)' }}>/api/v1/orders</td>
+              <td style={{ padding: 'var(--space-3)' }}>Bearer API Key</td>
+              <td style={{ padding: 'var(--space-3)' }}>orders.create</td>
+              <td style={{ padding: 'var(--space-3)' }}>AGENT (300/min)</td>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="success">HEALTHY</Badge></td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="brand">GET</Badge></td>
+              <td style={{ padding: 'var(--space-3)' }}>/api/v1/orders/:id</td>
+              <td style={{ padding: 'var(--space-3)' }}>Bearer API Key</td>
+              <td style={{ padding: 'var(--space-3)' }}>orders.read</td>
+              <td style={{ padding: 'var(--space-3)' }}>AGENT (300/min)</td>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="success">HEALTHY</Badge></td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="brand">GET</Badge></td>
+              <td style={{ padding: 'var(--space-3)' }}>/api/v1/catalog/bundles</td>
+              <td style={{ padding: 'var(--space-3)' }}>Public / None</td>
+              <td style={{ padding: 'var(--space-3)' }}>None</td>
+              <td style={{ padding: 'var(--space-3)' }}>CUSTOMER (120/min)</td>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="success">HEALTHY</Badge></td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="success">POST</Badge></td>
+              <td style={{ padding: 'var(--space-3)' }}>/api/v1/bulk-orders</td>
+              <td style={{ padding: 'var(--space-3)' }}>Bearer API Key</td>
+              <td style={{ padding: 'var(--space-3)' }}>orders.create</td>
+              <td style={{ padding: 'var(--space-3)' }}>CUSTOM (60/min)</td>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="success">HEALTHY</Badge></td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="warning">POST</Badge></td>
+              <td style={{ padding: 'var(--space-3)' }}>/api/v1/orders/:id/refund</td>
+              <td style={{ padding: 'var(--space-3)' }}>Bearer Token</td>
+              <td style={{ padding: 'var(--space-3)' }}>orders.refund</td>
+              <td style={{ padding: 'var(--space-3)' }}>ADMIN (600/min)</td>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="success">HEALTHY</Badge></td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="brand">GET</Badge></td>
+              <td style={{ padding: 'var(--space-3)' }}>/api/v1/agents/wallet/balance</td>
+              <td style={{ padding: 'var(--space-3)' }}>Bearer API Key</td>
+              <td style={{ padding: 'var(--space-3)' }}>wallet.read</td>
+              <td style={{ padding: 'var(--space-3)' }}>AGENT (300/min)</td>
+              <td style={{ padding: 'var(--space-3)' }}><Badge variant="success">HEALTHY</Badge></td>
+            </tr>
+          </Table>
         </Card>
       )}
 
@@ -926,29 +1011,43 @@ export const AdminApiManagementPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table
-              headers={['Agent / Reseller', 'Webhook URL', 'Subscribed Events', 'Status', 'Failure Count', 'Last Delivery', 'Actions']}
-              data={webhooks.map((w) => [
-                <span key="a" style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{w.agentName}</span>,
-                <span key="u" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>{w.url}</span>,
-                <div key="e" style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap' }}>
-                  {w.events.map((evt) => (
-                    <span key={evt} style={{ fontSize: '10px', padding: '1px 4px', backgroundColor: 'var(--color-surface-sunken)', borderRadius: '3px' }}>
-                      {evt}
+            <Table headers={['Agent / Reseller', 'Webhook URL', 'Subscribed Events', 'Status', 'Failure Count', 'Last Delivery', 'Actions']}>
+              {webhooks.map((w) => (
+                <tr key={w.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{w.agentName}</span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>{w.url}</span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap' }}>
+                      {w.events.map((evt) => (
+                        <span key={evt} style={{ fontSize: '10px', padding: '1px 4px', backgroundColor: 'var(--color-surface-sunken)', borderRadius: '3px' }}>
+                          {evt}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Badge variant={w.status === 'ACTIVE' ? 'success' : 'danger'}>{w.status}</Badge>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ color: w.failureCount > 0 ? 'var(--color-danger)' : 'inherit' }}>{w.failureCount}</span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                      {w.lastDeliveryAt ? `${new Date(w.lastDeliveryAt).toLocaleTimeString()} (${w.lastDeliveryStatus})` : 'None'}
                     </span>
-                  ))}
-                </div>,
-                <Badge key="s" variant={w.status === 'ACTIVE' ? 'success' : 'danger'}>{w.status}</Badge>,
-                <span key="f" style={{ color: w.failureCount > 0 ? 'var(--color-danger)' : 'inherit' }}>{w.failureCount}</span>,
-                <span key="l" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                  {w.lastDeliveryAt ? `${new Date(w.lastDeliveryAt).toLocaleTimeString()} (${w.lastDeliveryStatus})` : 'None'}
-                </span>,
-                <Button key="act" variant="secondary" size="sm" onClick={() => handleTestWebhook(w.id)}>
-                  <Send size={12} style={{ marginRight: '0.2rem' }} /> Test Ping
-                </Button>,
-              ])}
-              emptyMessage="No agent webhooks configured."
-            />
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Button variant="secondary" size="sm" onClick={() => handleTestWebhook(w.id)}>
+                      <Send size={12} style={{ marginRight: '0.2rem' }} /> Test Ping
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </Table>
           </Card>
         </div>
       )}
@@ -982,22 +1081,34 @@ export const AdminApiManagementPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table
-              headers={['Event Type', 'Severity', 'Caller IP', 'Target Endpoint', 'Associated Key', 'Timestamp']}
-              data={securityEvents.map((evt) => [
-                <span key="t" style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{evt.eventType}</span>,
-                <Badge key="s" variant={evt.severity === 'CRITICAL' || evt.severity === 'HIGH' ? 'danger' : 'warning'}>
-                  {evt.severity}
-                </Badge>,
-                <span key="ip" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>{evt.ipAddress}</span>,
-                <span key="ep" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>{evt.endpoint}</span>,
-                <span key="k" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{evt.keyPrefix || 'None'}</span>,
-                <span key="dt" style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                  {new Date(evt.timestamp).toLocaleString()}
-                </span>,
-              ])}
-              emptyMessage="No security violations recorded."
-            />
+            <Table headers={['Event Type', 'Severity', 'Caller IP', 'Target Endpoint', 'Associated Key', 'Timestamp']}>
+              {securityEvents.map((evt) => (
+                <tr key={evt.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{evt.eventType}</span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <Badge variant={evt.severity === 'CRITICAL' || evt.severity === 'HIGH' ? 'danger' : 'warning'}>
+                      {evt.severity}
+                    </Badge>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>{evt.ipAddress}</span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>{evt.endpoint}</span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{evt.keyPrefix || 'None'}</span>
+                  </td>
+                  <td style={{ padding: 'var(--space-3)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                      {new Date(evt.timestamp).toLocaleString()}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </Table>
           </Card>
         </div>
       )}
@@ -1297,6 +1408,32 @@ export const AdminApiManagementPage: React.FC = () => {
                       { value: '180', label: '180 Days' },
                       { value: '365', label: '1 Year' },
                     ]}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, display: 'block', marginBottom: '0.25rem' }}>
+                    Rate Limit (Req / Min)
+                  </label>
+                  <Input
+                    type="number"
+                    value={newKeyRateLimit}
+                    onChange={(e) => setNewKeyRateLimit(e.target.value)}
+                    placeholder="300"
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, display: 'block', marginBottom: '0.25rem' }}>
+                    IP Restrictions (Optional)
+                  </label>
+                  <Input
+                    type="text"
+                    value={newKeyIpRestrictions}
+                    onChange={(e) => setNewKeyIpRestrictions(e.target.value)}
+                    placeholder="e.g. 192.168.1.1, 10.0.0.1"
                   />
                 </div>
               </div>
@@ -1605,7 +1742,7 @@ export const AdminApiManagementPage: React.FC = () => {
               <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>Permitted Scopes</span>
               <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                 {selectedKeyDetail.scopes.map((s) => (
-                  <Badge key={s} variant="primary">{s}</Badge>
+                  <Badge key={s} variant="brand">{s}</Badge>
                 ))}
               </div>
             </div>

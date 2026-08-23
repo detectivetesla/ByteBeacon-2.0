@@ -169,66 +169,80 @@ export const StoreProductsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.map((p) => {
-                const retailPrice = p.baseCostGhs + p.markupGhs;
-                return (
-                  <tr key={p.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      {p.network === 'MTN' ? (
-                        <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#FFCC00', color: '#000000', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>MTN</span>
-                      ) : p.network === 'TELECEL' ? (
-                        <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#E11D48', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>TELECEL</span>
-                      ) : (
-                        <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#2563EB', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>AT</span>
-                      )}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                      {p.bundleName}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', color: 'var(--color-text-secondary)' }}>
-                      GH₵ {p.baseCostGhs.toFixed(2)}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>+GH₵</span>
-                        <Input
-                          type="number"
-                          value={p.markupGhs}
-                          onChange={(e) => handleMarkupChange(p.id, parseFloat(e.target.value) || 0)}
-                          step="0.5"
-                          min="0"
-                          style={{ width: '65px', fontWeight: 800, fontFamily: 'var(--font-data)' }}
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    Loading store products...
+                  </td>
+                </tr>
+              ) : filteredProducts.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No products configured for this network filter.
+                  </td>
+                </tr>
+              ) : (
+                filteredProducts.map((p) => {
+                  const retailPrice = p.baseCostGhs + p.markupGhs;
+                  return (
+                    <tr key={p.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        {p.network === 'MTN' ? (
+                          <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#FFCC00', color: '#000000', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>MTN</span>
+                        ) : p.network === 'TELECEL' ? (
+                          <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#E11D48', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>TELECEL</span>
+                        ) : (
+                          <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#2563EB', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>AT</span>
+                        )}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        {p.bundleName}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', color: 'var(--color-text-secondary)' }}>
+                        GH₵ {p.baseCostGhs.toFixed(2)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>+GH₵</span>
+                          <Input
+                            type="number"
+                            value={p.markupGhs}
+                            onChange={(e) => handleMarkupChange(p.id, parseFloat(e.target.value) || 0)}
+                            step="0.5"
+                            min="0"
+                            style={{ width: '65px', fontWeight: 800, fontFamily: 'var(--font-data)' }}
+                          />
+                        </div>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 900, color: '#10B981', fontSize: 'var(--font-size-sm)' }}>
+                        GH₵ {retailPrice.toFixed(2)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <Checkbox
+                          checked={p.isAvailable}
+                          onChange={() => toggleAvailability(p.id)}
                         />
-                      </div>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 900, color: '#10B981', fontSize: 'var(--font-size-sm)' }}>
-                      GH₵ {retailPrice.toFixed(2)}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <Checkbox
-                        checked={p.isAvailable}
-                        onChange={() => toggleAvailability(p.id)}
-                      />
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <button
-                        type="button"
-                        onClick={() => toggleVisibility(p.id)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: p.isVisible ? '#3B82F6' : 'var(--color-text-muted)',
-                          padding: '4px',
-                        }}
-                        title={p.isVisible ? 'Visible in store' : 'Hidden in store'}
-                      >
-                        {p.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <button
+                          type="button"
+                          onClick={() => toggleVisibility(p.id)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: p.isVisible ? '#3B82F6' : 'var(--color-text-muted)',
+                            padding: '4px',
+                          }}
+                          title={p.isVisible ? 'Visible in store' : 'Hidden in store'}
+                        >
+                          {p.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

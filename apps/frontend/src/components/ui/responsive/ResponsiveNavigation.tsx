@@ -9,7 +9,6 @@ import {
   Bell,
   Menu,
   Store,
-  CreditCard,
   Zap,
 } from 'lucide-react';
 

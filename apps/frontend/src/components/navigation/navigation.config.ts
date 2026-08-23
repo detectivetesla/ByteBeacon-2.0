@@ -32,7 +32,6 @@ import {
   Palette,
   DollarSign,
   Mail,
-  ShieldCheck,
 } from 'lucide-react';
 
 export interface NavItemConfig {

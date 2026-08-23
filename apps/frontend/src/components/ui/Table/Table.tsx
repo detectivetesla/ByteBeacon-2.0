@@ -1,7 +1,7 @@
 import React from 'react';
 
 export interface Column<T> {
-  header: string;
+  header: string | React.ReactNode;
   accessor?: keyof T;
   render?: (row: T) => React.ReactNode;
   width?: string;
@@ -21,9 +21,10 @@ export type TableProps<T = any> =
       style?: React.CSSProperties;
       enableCardView?: boolean;
       emptyMessage?: string;
+      emptyText?: string;
     }
   | {
-      headers: string[];
+      headers: (string | React.ReactNode)[];
       children: React.ReactNode;
       columns?: never;
       data?: never;
@@ -32,6 +33,7 @@ export type TableProps<T = any> =
       style?: React.CSSProperties;
       enableCardView?: boolean;
       emptyMessage?: string;
+      emptyText?: string;
     };
 
 export function Table<T = any>(props: TableProps<T>) {
@@ -73,7 +75,8 @@ export function Table<T = any>(props: TableProps<T>) {
     );
   }
 
-  const { columns, data, keyExtractor, onRowClick, style, enableCardView = true, emptyMessage = 'No records found' } = props;
+  const { columns, data, keyExtractor, onRowClick, style, enableCardView = true, emptyMessage, emptyText } = props;
+  const resolvedEmpty = emptyText || emptyMessage || 'No records found';
 
   if (data.length === 0) {
     return (
@@ -89,7 +92,7 @@ export function Table<T = any>(props: TableProps<T>) {
           ...style,
         }}
       >
-        {emptyMessage}
+        {resolvedEmpty}
       </div>
     );
   }

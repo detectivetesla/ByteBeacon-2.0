@@ -1204,6 +1204,30 @@ export async function adminFinanceRoutes(
         ],
       );
 
+      if (settings.globalMaintenanceMode !== undefined) {
+        const isEnabled = Boolean(settings.globalMaintenanceMode);
+        await db.query(
+          `UPDATE system_configurations
+           SET value = $1, last_modified_by = $2, last_modified_at = CURRENT_TIMESTAMP
+           WHERE config_key = 'maintenance_mode'`,
+          [JSON.stringify(isEnabled), req.user!.sub],
+        ).catch(() => {});
+
+        await db.query(
+          `UPDATE platform_feature_flags
+           SET is_enabled = $1, last_toggled_by = $2, last_toggled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE flag_key = 'MAINTENANCE_MODE'`,
+          [isEnabled, req.user!.sub],
+        ).catch(() => {});
+
+        await db.query(
+          `INSERT INTO emergency_system_controls (control_key, name, description, is_enabled, last_toggled_by, last_toggled_at, updated_at)
+           VALUES ('MAINTENANCE_MODE', 'Platform Maintenance Mode', 'System maintenance switch', $1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (control_key) DO UPDATE SET is_enabled = EXCLUDED.is_enabled, last_toggled_by = EXCLUDED.last_toggled_by, last_toggled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP`,
+          [isEnabled, req.user!.sub],
+        ).catch(() => {});
+      }
+
       if (auditService) {
         await auditService.logEvent({
           correlationId: req.id,

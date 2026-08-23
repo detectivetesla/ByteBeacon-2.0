@@ -4,7 +4,7 @@
 -- ==============================================================================
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-    -- 1. Ensure user compatibility columns exist
+    -- 1. Ensure user compatibility columns and financial/beneficiary columns exist
     DO $$
     BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'uuid') THEN
@@ -23,6 +23,19 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'email_verified') THEN
             ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT TRUE;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'financial_ledger' AND column_name = 'metadata') THEN
+            ALTER TABLE financial_ledger ADD COLUMN metadata JSONB NOT NULL DEFAULT '{}';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'beneficiary_validation' AND column_name = 'account_name') THEN
+            ALTER TABLE beneficiary_validation ADD COLUMN account_name VARCHAR(255);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'beneficiary_validation' AND column_name = 'is_valid') THEN
+            ALTER TABLE beneficiary_validation ADD COLUMN is_valid BOOLEAN NOT NULL DEFAULT TRUE;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'beneficiary_validation' AND column_name = 'raw_response') THEN
+            ALTER TABLE beneficiary_validation ADD COLUMN raw_response JSONB NOT NULL DEFAULT '{}';
         END IF;
     END $$;
 
@@ -221,3 +234,21 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
         created_at,
         updated_at
     FROM beneficiary_validation;
+
+    CREATE OR REPLACE VIEW financial_safety_controls AS
+    SELECT 
+        id,
+        emergency_payments_disabled,
+        emergency_withdrawals_disabled,
+        emergency_refunds_disabled,
+        wallet_operations_frozen,
+        agent_purchases_frozen,
+        global_maintenance_mode,
+        provider_disabled,
+        max_single_transaction_pesewas,
+        max_daily_withdrawal_pesewas,
+        max_daily_deposit_pesewas,
+        suspicious_velocity_threshold,
+        updated_by,
+        updated_at
+    FROM financial_safety_settings;

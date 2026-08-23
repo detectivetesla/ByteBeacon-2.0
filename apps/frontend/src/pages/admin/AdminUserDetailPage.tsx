@@ -19,28 +19,18 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle,
-  XCircle,
   RefreshCw,
   LogOut,
   PlusCircle,
   MinusCircle,
   Key,
   Lock,
-  Mail,
-  Smartphone,
   Store,
-  Clock,
   Send,
   Edit3,
-  FileText,
   ShieldCheck,
   Download,
   CreditCard,
-  Layers,
-  ChevronRight,
-  RotateCw,
-  Trash2,
-  ExternalLink,
 } from 'lucide-react';
 
 export const AdminUserDetailPage: React.FC = () => {
@@ -228,10 +218,10 @@ export const AdminUserDetailPage: React.FC = () => {
     setIsReconciling(true);
     try {
       const res = await adminApi.reconcileUserWallet(id);
-      if (res?.data?.status === 'RECONCILED') {
+      if (res?.status === 'RECONCILED' || res?.discrepancyPesewas === 0) {
         toastSuccess('Reconciliation Passed', 'Wallet projection matches financial ledger entries.');
       } else {
-        toastError('Discrepancy Detected', `Wallet balance differs by GH₵ ${(res.data.discrepancyPesewas / 100).toFixed(2)}.`);
+        toastError('Discrepancy Detected', `Wallet balance differs by GH₵ ${(((res as any)?.discrepancyPesewas || 0) / 100).toFixed(2)}.`);
       }
       fetchUser();
     } catch (err: any) {
@@ -449,7 +439,7 @@ export const AdminUserDetailPage: React.FC = () => {
               </Button>
             )}
             <Button
-              variant={u?.status === 'ACTIVE' ? 'danger' : 'success'}
+              variant={u?.status === 'ACTIVE' ? 'danger' : 'primary'}
               size="sm"
               onClick={handleToggleSuspend}
             >

@@ -7,16 +7,11 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import {
   RefreshCw,
-  CheckCircle,
   ShieldCheck,
-  AlertOctagon,
   AlertTriangle,
-  Layers,
-  ArrowRight,
   Database,
   CreditCard,
   Radio,
-  FileSpreadsheet,
   Download,
   Eye,
   Check,
@@ -197,7 +192,7 @@ export const AdminReconciliationPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button variant="secondary" size="sm" onClick={() => { fetchDashboard(); fetchCases(); }}>
+          <Button variant="secondary" size="sm" onClick={() => { fetchDashboard(); fetchCases(); }} isLoading={dashboardLoading}>
             <RefreshCw size={14} style={{ marginRight: '0.35rem' }} /> Refresh
           </Button>
           <Button variant="secondary" size="sm" onClick={handleTriggerPaystack} disabled={auditRunning !== null}>
@@ -218,30 +213,30 @@ export const AdminReconciliationPage: React.FC = () => {
       {/* Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
-          label="Paystack Rails"
+          title="Paystack Rails"
           value={`${dashboard?.paystackMetrics.matchRatePercent || 100}%`}
-          helperText={`${dashboard?.paystackMetrics.recordsChecked || 0} checked | ${dashboard?.paystackMetrics.mismatched || 0} discrepancies`}
+          subvalue={`${dashboard?.paystackMetrics.recordsChecked || 0} checked | ${dashboard?.paystackMetrics.mismatched || 0} discrepancies`}
           accent={dashboard?.paystackMetrics.mismatched ? 'amber' : 'green'}
           icon={<TactileIcon icon={CreditCard} color="payments" size="sm" />}
         />
         <MetricCard
-          label="DataHouse Carriers"
+          title="DataHouse Carriers"
           value={`${dashboard?.datahouseMetrics.matchRatePercent || 100}%`}
-          helperText={`${dashboard?.datahouseMetrics.recordsChecked || 0} orders synced with telecom gateways`}
+          subvalue={`${dashboard?.datahouseMetrics.recordsChecked || 0} orders synced with telecom gateways`}
           accent={dashboard?.datahouseMetrics.mismatched ? 'amber' : 'green'}
           icon={<TactileIcon icon={Radio} color="orders" size="sm" />}
         />
         <MetricCard
-          label="Ledger Integrity"
+          title="Ledger Integrity"
           value={`${dashboard?.ledgerMetrics.integrityPercent || 100}%`}
-          helperText={`${dashboard?.ledgerMetrics.balancedJournals || 0} balanced double-entry journals`}
+          subvalue={`${dashboard?.ledgerMetrics.balancedJournals || 0} balanced double-entry journals`}
           accent={dashboard?.ledgerMetrics.anomaliesCount ? 'red' : 'green'}
           icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
         />
         <MetricCard
-          label="Active Cases"
+          title="Active Cases"
           value={String(dashboard?.openCasesCount || 0)}
-          helperText={`${dashboard?.criticalCasesCount || 0} critical cases requiring review`}
+          subvalue={`${dashboard?.criticalCasesCount || 0} critical cases requiring review`}
           accent={dashboard?.criticalCasesCount ? 'red' : 'blue'}
           icon={<TactileIcon icon={AlertTriangle} color={dashboard?.criticalCasesCount ? 'red' : 'api'} size="sm" />}
         />
@@ -308,37 +303,67 @@ export const AdminReconciliationPage: React.FC = () => {
 
       {/* Cases Table */}
       <Card>
-        <Table
-          headers={['Case #', 'Severity', 'Source', 'Account / Entity', 'Discrepancy (GHS)', 'Status', 'Detected Date', 'Action']}
-          data={cases.map((c) => [
-            <span key="num" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-              {c.caseNumber}
-            </span>,
-            <Badge key="sev" variant={c.severity === 'CRITICAL' || c.severity === 'HIGH' ? 'danger' : c.severity === 'MEDIUM' ? 'warning' : 'neutral'}>
-              {c.severity}
-            </Badge>,
-            <Badge key="src" variant="primary">
-              {c.source}
-            </Badge>,
-            <span key="acc" style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>
-              {c.accountName || c.accountId.slice(0, 14)}
-            </span>,
-            <span key="amt" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-              GHS {(c.amountPesewas / 100).toFixed(2)}
-            </span>,
-            <Badge key="st" variant={c.status === 'RESOLVED' ? 'success' : c.status === 'ESCALATED' ? 'danger' : c.status === 'INVESTIGATING' ? 'warning' : 'neutral'}>
-              {c.status}
-            </Badge>,
-            <span key="dt" style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-              {new Date(c.createdAt).toLocaleString()}
-            </span>,
-            <Button key="act" variant="secondary" size="sm" onClick={() => { setSelectedCase(c); setResolutionNotes(c.resolutionNotes || ''); }}>
-              <Eye size={12} style={{ marginRight: '0.25rem' }} /> Manage
-            </Button>,
-          ])}
-          loading={casesLoading}
-          emptyMessage="No active reconciliation discrepancy cases found."
-        />
+        <Table headers={['Case #', 'Severity', 'Source', 'Account / Entity', 'Discrepancy (GHS)', 'Status', 'Detected Date', 'Action']}>
+          {casesLoading ? (
+            <tr>
+              <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                <span>Loading reconciliation discrepancy cases...</span>
+              </td>
+            </tr>
+          ) : cases.length === 0 ? (
+            <tr>
+              <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                <span>No active reconciliation discrepancy cases found.</span>
+              </td>
+            </tr>
+          ) : (
+            cases.map((c) => (
+              <tr key={c.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
+                    {c.caseNumber}
+                  </span>
+                </td>
+                <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                  <Badge variant={c.severity === 'CRITICAL' || c.severity === 'HIGH' ? 'danger' : c.severity === 'MEDIUM' ? 'warning' : 'neutral'}>
+                    {c.severity}
+                  </Badge>
+                </td>
+                <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                  <Badge variant="brand">
+                    {c.source}
+                  </Badge>
+                </td>
+                <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>
+                    {c.accountName || c.accountId.slice(0, 14)}
+                  </span>
+                </td>
+                <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                    GHS {(c.amountPesewas / 100).toFixed(2)}
+                  </span>
+                </td>
+                <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                  <Badge variant={c.status === 'RESOLVED' ? 'success' : c.status === 'ESCALATED' ? 'danger' : c.status === 'INVESTIGATING' ? 'warning' : 'neutral'}>
+                    {c.status}
+                  </Badge>
+                </td>
+                <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                    {new Date(c.createdAt).toLocaleString()}
+                  </span>
+                </td>
+                <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                  <Button variant="secondary" size="sm" onClick={() => { setSelectedCase(c); setResolutionNotes(c.resolutionNotes || ''); }}>
+                    <Eye size={12} style={{ marginRight: '0.25rem' }} /> Manage
+                  </Button>
+                </td>
+              </tr>
+            ))
+          )}
+        </Table>
 
         <Pagination
           currentPage={page}

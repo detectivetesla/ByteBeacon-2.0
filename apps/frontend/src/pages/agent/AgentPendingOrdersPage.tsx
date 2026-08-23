@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { NetworkProvider, OrderStatus } from '@bytebeacon/shared';
+import React, { useState, useMemo, useEffect } from 'react';
+import { NetworkProvider } from '@bytebeacon/shared';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { SearchInput, Select } from '../../components/ui/index.js';
-import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
+import { NetworkBadge, ApprovalStatusBadge } from '../../components/ui/Badge/Badge.js';
 import {
   Clock,
   RefreshCw,
@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
-import { ordersApi } from '../../api/orders.api.js';
+import { adminApi } from '../../api/admin.api.js';
 
 export type ApprovalStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED';
 export type DetectedChannel = 'Web' | 'API' | 'Single Order' | 'Bulk Order' | 'Excel Upload' | 'Paste/Bulk Entry';
@@ -35,21 +35,6 @@ export interface PendingMtnApprovalItem {
   timestamp: string;
   rawDate: string;
 }
-
-const renderStatusBadge = (status: ApprovalStatus) => {
-  switch (status) {
-    case 'PENDING':
-      return <Badge variant="warning" size="sm" dot>Pending Approval</Badge>;
-    case 'PROCESSING':
-      return <Badge variant="neutral" size="sm" dot>Processing</Badge>;
-    case 'APPROVED':
-      return <Badge variant="success" size="sm" dot>Approved</Badge>;
-    case 'REJECTED':
-      return <Badge variant="danger" size="sm" dot>Rejected</Badge>;
-    default:
-      return <Badge variant="neutral" size="sm">{status}</Badge>;
-  }
-};
 
 export const DetectedFromIndicator: React.FC<{ source: DetectedChannel }> = ({ source }) => {
   let Icon = Globe;
@@ -81,7 +66,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
   const { user } = useAuth();
   const { toastSuccess, toastInfo } = useToast();
 
-  const [records, setRecords] = useState<PendingMtnApprovalItem[]>(SAMPLE_MTN_APPROVALS);
+  const [records, setRecords] = useState<PendingMtnApprovalItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [dateFilter, setDateFilter] = useState<string>('30d');
   const [searchQuery, setSearchQuery] = useState('');
@@ -175,11 +160,15 @@ export const AgentPendingOrdersPage: React.FC = () => {
         return;
       }
     } catch {
-      // Retain existing dataset
+      // Handle network error
     } finally {
       setIsRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    fetchApprovals();
+  }, [statusFilter]);
 
   const handleRefresh = () => {
     fetchApprovals();

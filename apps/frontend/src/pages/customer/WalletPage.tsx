@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
-import { Input, AmountInput } from '../../components/ui/index.js';
+import { AmountInput } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { walletApi, WalletTransactionDto } from '../../api/wallet.api.js';
@@ -15,7 +15,6 @@ import {
   Plus,
   X,
   CreditCard,
-  CheckCircle2,
   RefreshCw,
 } from 'lucide-react';
 

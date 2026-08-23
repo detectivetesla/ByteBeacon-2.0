@@ -21,8 +21,6 @@ import { AdminStoresPage } from '../pages/admin/AdminStoresPage.js';
 import { AdminDataPlansPage } from '../pages/admin/AdminDataPlansPage.js';
 import { AdminPendingApprovalsPage } from '../pages/admin/AdminPendingApprovalsPage.js';
 import { AdminNotificationsPage } from '../pages/admin/AdminNotificationsPage.js';
-import { AgentPendingOrdersPage } from '../pages/agent/AgentPendingOrdersPage.js';
-import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
 
 export const adminRoutes: RouteObject[] = [
   {

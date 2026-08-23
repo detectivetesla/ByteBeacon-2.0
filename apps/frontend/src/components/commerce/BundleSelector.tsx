@@ -123,12 +123,13 @@ export const BundleSelector: React.FC<BundleSelectorProps> = ({
     setInternalLoading(true);
     catalogApi
       .getBundles(network, channel)
-      .then((res) => {
-        if (isMounted && res.data && res.data.length > 0) {
-          const mapped: BundleItem[] = res.data.map((p) => ({
+      .then((items) => {
+        const productList = Array.isArray(items) ? items : [];
+        if (isMounted && productList.length > 0) {
+          const mapped: BundleItem[] = productList.map((p) => ({
             id: p.id,
             sku: p.sku,
-            network: p.network,
+            network: p.network as NetworkProvider,
             dataAmountMb: p.dataAmountMb,
             dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
             pricePesewas: p.basePricePesewas,
@@ -141,7 +142,7 @@ export const BundleSelector: React.FC<BundleSelectorProps> = ({
         }
       })
       .catch(() => {
-        // Fallback to static sample bundles if offline
+        if (isMounted) setLiveBundles([]);
       })
       .finally(() => {
         if (isMounted) setInternalLoading(false);
@@ -155,9 +156,7 @@ export const BundleSelector: React.FC<BundleSelectorProps> = ({
   const allBundles =
     bundles && bundles.length > 0
       ? bundles
-      : liveBundles.length > 0
-      ? liveBundles
-      : SAMPLE_BUNDLES[network] || [];
+      : liveBundles;
 
   const theme = NETWORK_THEMES[network] || NETWORK_THEMES[NetworkProvider.MTN];
   const isLoading = externalLoading || (internalLoading && allBundles.length === 0);

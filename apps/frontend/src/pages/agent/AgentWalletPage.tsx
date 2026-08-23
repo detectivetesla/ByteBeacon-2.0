@@ -165,7 +165,6 @@ export const AgentWalletPage: React.FC = () => {
   const fetchTransactions = useCallback(async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
       const params = new URLSearchParams({
         type: typeFilter,
         status: statusFilter,

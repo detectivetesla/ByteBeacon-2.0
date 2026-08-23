@@ -1,7 +1,3 @@
-/**
- * @vitest-environment jsdom
- */
-import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../test-setup.js';
@@ -25,7 +21,6 @@ import {
   ResponsiveTable,
   ResponsiveChart,
 } from '../index.js';
-import { LayoutDashboard, Package, Users } from 'lucide-react';
 
 describe('ByteBeacon 2.0 — Phase 11.16 Responsive Primitives Suite', () => {
   // 1. ResponsiveNavigation
