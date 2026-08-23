@@ -69,6 +69,16 @@ import {
   AlertStatus,
   AlertSource,
   NotificationRuleStatus,
+  TelecomProviderType,
+  TelecomProviderStatus,
+  TelecomEnvironment,
+  ProviderAuthMethod,
+  ProviderCapabilityType,
+  ProviderTestType,
+  ProviderIncidentStatus,
+  ProviderIncidentSeverity,
+  NetworkProviderMappingRole,
+  ConnectionDiagnosticCategory,
 } from '../enums/index.js';
 
 export interface ApiResponse<T> {
@@ -2353,3 +2363,309 @@ export interface UserNotificationCountsDto {
   total: number;
   unread: number;
 }
+
+// =========================================================================
+// Phase 11.9: Network & Telecom Provider Management DTOs
+// =========================================================================
+
+export interface ProviderTestRunItemDto {
+  id: string;
+  providerId: string;
+  providerName: string;
+  testType: ProviderTestType | string;
+  environment: TelecomEnvironment | string;
+  result: 'PASSED' | 'FAILED' | 'DEGRADED';
+  durationMs: number;
+  stepsJson: Array<{ step: string; status: string; latencyMs: number }>;
+  providerReference?: string;
+  errorCategory?: ConnectionDiagnosticCategory | string;
+  errorMessage?: string;
+  createdAt: string;
+}
+
+export interface TelecomNetworkDto {
+  id: string;
+  code: NetworkProvider;
+  name: string;
+  slug: string;
+  status: TelecomProviderStatus | string;
+  isActive: boolean;
+  primaryProviderId?: string | null;
+  primaryProviderName?: string | null;
+  fallbackProviderId?: string | null;
+  fallbackProviderName?: string | null;
+  providersCount: number;
+  endpointUrl?: string | null;
+  webhookUrl?: string | null;
+  dailyVolumeLimitMb: number;
+  dailyOrderLimit: number;
+  minBundleMb: number;
+  maxBundleMb: number;
+  uptimePercentage: number;
+  latencyMs: number;
+  successRatePercent: number;
+  associatedProviders: Array<{
+    providerId: string;
+    providerName: string;
+    role: NetworkProviderMappingRole | string;
+    priority: number;
+    status: string;
+    latencyMs?: number;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateTelecomNetworkRequest {
+  status?: TelecomProviderStatus | string;
+  isActive?: boolean;
+  primaryProviderId?: string;
+  fallbackProviderId?: string;
+  endpointUrl?: string;
+  webhookUrl?: string;
+  dailyVolumeLimitMb?: number;
+  dailyOrderLimit?: number;
+  minBundleMb?: number;
+  maxBundleMb?: number;
+}
+
+export interface TelecomProviderDetailDto {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  providerType: TelecomProviderType | string;
+  environment: TelecomEnvironment | string;
+  status: TelecomProviderStatus | string;
+  isAuthoritative: boolean;
+  supportedNetworks: NetworkProvider[];
+  apiBaseUrl: string;
+  apiVersion: string;
+  authMethod: ProviderAuthMethod | string;
+  webhookSupport: boolean;
+  webhookUrl?: string | null;
+  sandboxSupport: boolean;
+  sandboxBaseUrl?: string | null;
+  hasCredentials: {
+    sandbox: boolean;
+    production: boolean;
+  };
+  credentialsMasked: {
+    apiKeyMasked?: string | null;
+    webhookSecretMasked?: string | null;
+    status?: string;
+  };
+  lastHealthCheck: string | null;
+  lastSuccessfulRequest: string | null;
+  lastFailure: string | null;
+  lastError: string | null;
+  avgLatencyMs: number;
+  p95LatencyMs: number;
+  successRate: number;
+  totalRequestsCount: number;
+  failedRequestsCount: number;
+  capabilities: Record<ProviderCapabilityType | string, boolean>;
+  networkMappings: Array<{
+    networkCode: NetworkProvider;
+    role: NetworkProviderMappingRole | string;
+    priority: number;
+    weightPercent: number;
+    status: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTelecomProviderRequest {
+  name: string;
+  slug: string;
+  description?: string;
+  providerType: TelecomProviderType | string;
+  environment?: TelecomEnvironment | string;
+  status?: TelecomProviderStatus | string;
+  isAuthoritative?: boolean;
+  supportedNetworks: NetworkProvider[];
+  apiBaseUrl: string;
+  apiVersion?: string;
+  authMethod: ProviderAuthMethod | string;
+  webhookSupport?: boolean;
+  webhookUrl?: string;
+  sandboxSupport?: boolean;
+  sandboxBaseUrl?: string;
+  apiKey?: string;
+  apiSecret?: string;
+  webhookSecret?: string;
+  capabilities?: Record<string, boolean>;
+}
+
+export interface UpdateTelecomProviderRequest {
+  name?: string;
+  slug?: string;
+  description?: string;
+  providerType?: TelecomProviderType | string;
+  environment?: TelecomEnvironment | string;
+  status?: TelecomProviderStatus | string;
+  supportedNetworks?: NetworkProvider[];
+  apiBaseUrl?: string;
+  apiVersion?: string;
+  authMethod?: ProviderAuthMethod | string;
+  webhookSupport?: boolean;
+  webhookUrl?: string;
+  sandboxSupport?: boolean;
+  sandboxBaseUrl?: string;
+  capabilities?: Record<string, boolean>;
+}
+
+export interface ProviderCredentialDto {
+  id: string;
+  providerId: string;
+  providerName?: string;
+  environment: TelecomEnvironment | string;
+  apiKeyMasked: string;
+  webhookSecretMasked?: string | null;
+  status: 'ACTIVE' | 'ROTATED' | 'REVOKED' | 'EXPIRED' | string;
+  lastTestedAt?: string | null;
+  lastTestResult?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProviderCredentialRequest {
+  environment: TelecomEnvironment | string;
+  apiKey: string;
+  apiSecret?: string;
+  webhookSecret?: string;
+}
+
+export interface RotateProviderCredentialRequest {
+  environment: TelecomEnvironment | string;
+  newApiKey: string;
+  newApiSecret?: string;
+  newWebhookSecret?: string;
+  reason: string;
+  expiresOldInHours?: number;
+}
+
+export interface ProviderIncidentDto {
+  id: string;
+  providerId: string;
+  providerName: string;
+  title: string;
+  severity: ProviderIncidentSeverity | string;
+  status: ProviderIncidentStatus | string;
+  affectedNetwork: string; // 'MTN' | 'TELECEL' | 'AIRTELTIGO' | 'ALL'
+  failureRatePercent: number;
+  startedAt: string;
+  resolvedAt?: string | null;
+  summary: string;
+  mitigationNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProviderIncidentRequest {
+  providerId: string;
+  title: string;
+  severity: ProviderIncidentSeverity | string;
+  status?: ProviderIncidentStatus | string;
+  affectedNetwork?: string;
+  failureRatePercent?: number;
+  summary: string;
+  mitigationNotes?: string;
+}
+
+export interface UpdateProviderIncidentRequest {
+  title?: string;
+  severity?: ProviderIncidentSeverity | string;
+  status?: ProviderIncidentStatus | string;
+  affectedNetwork?: string;
+  failureRatePercent?: number;
+  summary?: string;
+  mitigationNotes?: string;
+}
+
+export interface NetworkProviderMappingDto {
+  networkCode: NetworkProvider;
+  primaryProvider: string;
+  primaryProviderId?: string;
+  fallbackProvider?: string | null;
+  fallbackProviderId?: string | null;
+  status: string;
+  availableProviders: Array<{
+    id: string;
+    name: string;
+    role: NetworkProviderMappingRole | string;
+    priority: number;
+    latencyMs: number;
+    successRate: number;
+  }>;
+}
+
+export interface UpdateNetworkRoutingRequest {
+  network: NetworkProvider;
+  primaryProvider: string;
+  fallbackProvider?: string;
+  reason?: string;
+}
+
+export interface AuthoritativeSwitchValidationItem {
+  check: string;
+  passed: boolean;
+  message: string;
+}
+
+export interface AuthoritativeSwitchValidationResult {
+  canSwitch: boolean;
+  targetProvider: string;
+  currentProvider: string;
+  checks: AuthoritativeSwitchValidationItem[];
+  timestamp: string;
+}
+
+export interface SwitchAuthoritativeProviderRequest {
+  newProvider: string;
+  reason: string;
+  stepUpPassword?: string;
+  forceSwitch?: boolean;
+}
+
+export interface TelecomControlPlaneOverviewDto {
+  totalNetworks: number;
+  activeNetworks: number;
+  totalProviders: number;
+  activeProviders: number;
+  authoritativeProvider: string;
+  systemAvailabilityPercent: number;
+  averageLatencyMs: number;
+  totalRequests24h: number;
+  totalFailures24h: number;
+  openIncidentsCount: number;
+  networks: TelecomNetworkDto[];
+  providers: TelecomProviderDetailDto[];
+}
+
+export interface ProviderHealthMetricDto {
+  providerId: string;
+  providerName: string;
+  environment: string;
+  status: string;
+  latencyMs: number;
+  uptimePercent: number;
+  successRate: number;
+  requestsCount: number;
+  failuresCount: number;
+  httpStatusDistribution: {
+    status2xx: number;
+    status4xx: number;
+    status5xx: number;
+  };
+  failureBreakdown: {
+    authFailures: number;
+    webhookFailures: number;
+    orderSubmissionFailures: number;
+    reconciliationFailures: number;
+    timeouts: number;
+  };
+  lastCheck: string;
+}
+

@@ -748,3 +748,87 @@ export enum NotificationRuleStatus {
   DISABLED = 'DISABLED',
   ARCHIVED = 'ARCHIVED',
 }
+
+// =========================================================================
+// Phase 11.9: Network & Telecom Provider Management Enums
+// =========================================================================
+
+export enum TelecomProviderType {
+  AGGREGATOR = 'AGGREGATOR',
+  DIRECT_MNO = 'DIRECT_MNO',
+  CUSTOM_HTTP = 'CUSTOM_HTTP',
+  MOCK = 'MOCK',
+}
+
+export enum TelecomProviderStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+  DEGRADED = 'DEGRADED',
+  ERROR = 'ERROR',
+  MAINTENANCE = 'MAINTENANCE',
+}
+
+export enum TelecomEnvironment {
+  SANDBOX = 'SANDBOX',
+  PRODUCTION = 'PRODUCTION',
+}
+
+export enum ProviderAuthMethod {
+  API_KEY = 'API_KEY',
+  BEARER = 'BEARER',
+  BASIC = 'BASIC',
+  HMAC_SHA256 = 'HMAC_SHA256',
+}
+
+export enum ProviderCapabilityType {
+  NETWORKS = 'NETWORKS',
+  CATALOG = 'CATALOG',
+  BENEFICIARY_VALIDATION = 'BENEFICIARY_VALIDATION',
+  SINGLE_ORDERS = 'SINGLE_ORDERS',
+  BULK_ORDERS = 'BULK_ORDERS',
+  ORDER_STATUS = 'ORDER_STATUS',
+  WEBHOOKS = 'WEBHOOKS',
+  RECONCILIATION = 'RECONCILIATION',
+  REFUNDS = 'REFUNDS',
+  SANDBOX = 'SANDBOX',
+  PRECHECK = 'PRECHECK',
+  WALLET_BALANCE = 'WALLET_BALANCE',
+}
+
+export enum ProviderTestType {
+  CONNECTION_TEST = 'CONNECTION_TEST',
+  CAPABILITY_TEST = 'CAPABILITY_TEST',
+  SANDBOX_TRANSACTION_TEST = 'SANDBOX_TRANSACTION_TEST',
+}
+
+export enum ProviderIncidentStatus {
+  INVESTIGATING = 'INVESTIGATING',
+  IDENTIFIED = 'IDENTIFIED',
+  MONITORING = 'MONITORING',
+  RESOLVED = 'RESOLVED',
+}
+
+export enum ProviderIncidentSeverity {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
+export enum NetworkProviderMappingRole {
+  PRIMARY = 'PRIMARY',
+  FALLBACK = 'FALLBACK',
+  AVAILABLE = 'AVAILABLE',
+  DISABLED = 'DISABLED',
+}
+
+export enum ConnectionDiagnosticCategory {
+  NONE = 'NONE',
+  DNS_FAILURE = 'DNS_FAILURE',
+  TLS_FAILURE = 'TLS_FAILURE',
+  ENDPOINT_UNREACHABLE = 'ENDPOINT_UNREACHABLE',
+  AUTHENTICATION_FAILURE = 'AUTHENTICATION_FAILURE',
+  TIMEOUT = 'TIMEOUT',
+  UNKNOWN = 'UNKNOWN',
+}
+

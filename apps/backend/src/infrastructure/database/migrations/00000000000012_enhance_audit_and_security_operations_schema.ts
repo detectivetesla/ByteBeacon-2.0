@@ -31,12 +31,12 @@ export const migration00000000000012: MigrationFile = {
         status VARCHAR(30) NOT NULL DEFAULT 'OPEN'
             CHECK (status IN ('OPEN', 'INVESTIGATING', 'CONTAINED', 'RESOLVED', 'FALSE_POSITIVE')),
         triggering_event_id UUID REFERENCES audit_logs(id) ON DELETE SET NULL,
-        assigned_admin_id UUID REFERENCES users(uuid) ON DELETE SET NULL,
-        affected_user_id UUID REFERENCES users(uuid) ON DELETE SET NULL,
+        assigned_admin_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        affected_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
         timeline JSONB NOT NULL DEFAULT '[]',
         investigation_notes TEXT NOT NULL DEFAULT '',
         resolution TEXT,
-        resolved_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+        resolved_by UUID REFERENCES users(id) ON DELETE SET NULL,
         resolved_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -53,7 +53,7 @@ export const migration00000000000012: MigrationFile = {
         name VARCHAR(255) NOT NULL,
         description TEXT,
         is_enabled BOOLEAN NOT NULL DEFAULT false,
-        last_toggled_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+        last_toggled_by UUID REFERENCES users(id) ON DELETE SET NULL,
         last_toggled_at TIMESTAMPTZ,
         last_justification TEXT,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP

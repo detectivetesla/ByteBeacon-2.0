@@ -52,5 +52,16 @@ describe('Integration Health Reporting API', () => {
     expect(body.integrations.database.status).toBe('UP');
     expect(body.integrations.redis.status).toBe('UP');
     expect(body.timestamp).toBeDefined();
+
+    // Verify /api/v1/health/integrations also resolves with 200 (fixes frontend client routing)
+    const apiV1Response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/health/integrations',
+    });
+
+    expect(apiV1Response.statusCode).toBe(200);
+    const apiV1Body = JSON.parse(apiV1Response.body);
+    expect(apiV1Body.status).toBe('HEALTHY');
+    expect(apiV1Body.integrations.database.status).toBe('UP');
   });
 });

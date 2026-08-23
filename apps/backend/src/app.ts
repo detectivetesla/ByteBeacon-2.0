@@ -71,6 +71,7 @@ import { adminSettingsRoutes } from './routes/commerce/admin-settings.routes.js'
 import { adminPermissionsRoutes } from './routes/commerce/admin-permissions.routes.js';
 import { adminNotificationsRoutes } from './routes/commerce/admin-notifications.routes.js';
 import { adminAlertsRoutes } from './routes/commerce/admin-alerts.routes.js';
+import { adminTelecomRoutes } from './routes/commerce/admin-telecom.routes.js';
 import { userNotificationsRoutes } from './routes/commerce/user-notifications.routes.js';
 import { developerSandboxRoutes } from './routes/commerce/developer-sandbox.routes.js';
 import { registerSwagger } from './plugins/swagger.plugin.js';
@@ -81,6 +82,7 @@ import { refundRoutes } from './routes/payments/refund.routes.js';
 import { datahouseWebhookRoutes } from './routes/fulfillment/datahouse-webhook.routes.js';
 import { gmplWebhookRoutes } from './routes/fulfillment/gmpl-webhook.routes.js';
 import { integrationHealthRoutes } from './routes/health/integration-health.routes.js';
+import { TelecomProviderManagementService } from './core/providers/telecom-provider-management.service.js';
 
 export interface AppOptions {
   config?: Env;
@@ -115,7 +117,9 @@ export interface AppOptions {
   datahouseWebhookService?: DataHouseWebhookService;
   gmplWebhookService?: GmplWebhookService;
   providerReconciliationService?: ProviderReconciliationService;
+  telecomProviderManagementService?: TelecomProviderManagementService;
 }
+
 
 export function createApp(options: AppOptions = {}) {
   const config = options.config ?? getConfig();
@@ -301,8 +305,13 @@ export function createApp(options: AppOptions = {}) {
     options.gmplWebhookService ??
     new GmplWebhookService(dbPool, redisClient, telecomProvider);
 
+  const telecomProviderManagementService =
+    options.telecomProviderManagementService ??
+    new TelecomProviderManagementService(dbPool, providerRegistry, auditService);
+
   app.decorate('telecomProvider', telecomProvider);
   app.decorate('datahouseAdapter', datahouseAdapter);
+  app.decorate('telecomProviderManagementService', telecomProviderManagementService);
   app.decorate('queueManager', queueManager);
   app.decorate('fulfillmentWorker', fulfillmentWorker);
   app.decorate('bulkQueueService', bulkQueueService);
@@ -542,6 +551,14 @@ export function createApp(options: AppOptions = {}) {
         rbacService,
         auditService,
       });
+      await adminTelecomRoutes(commerceSubApp, {
+        db: dbPool!,
+        telecomService: telecomProviderManagementService,
+        apiKeyService,
+        tokenService,
+        rbacService,
+        auditService,
+      });
       await userNotificationsRoutes(commerceSubApp, {
         db: dbPool!,
         apiKeyService,
@@ -579,6 +596,12 @@ export function createApp(options: AppOptions = {}) {
       });
       await gmplWebhookRoutes(commerceSubApp, {
         webhookService: gmplWebhookService,
+      });
+      await integrationHealthRoutes(commerceSubApp, {
+        db: dbPool!,
+        redis: redisClient,
+        telecomProvider,
+        paymentProvider,
       });
     },
     { prefix: '/api/v1' },

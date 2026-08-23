@@ -3,6 +3,9 @@ import { getConfig } from './config/env.js';
 import { logger } from './core/logging/logger.js';
 import { createDatabasePool, closeDatabasePool } from './infrastructure/database/pool.js';
 import { createRedisClient, closeRedisClient } from './infrastructure/redis/client.js';
+import { DatabaseMigrator } from './infrastructure/database/migrator.js';
+import { allMigrations } from './infrastructure/database/migrations.registry.js';
+import { ProductionSchemaVerifier } from './infrastructure/database/schema-verifier.service.js';
 
 let isShuttingDown = false;
 
@@ -11,8 +14,30 @@ export async function startServer() {
     const config = getConfig();
 
     // Initialize infrastructure clients
-    createDatabasePool({ connectionString: config.DATABASE_URL });
+    const dbPool = createDatabasePool({ connectionString: config.DATABASE_URL });
     createRedisClient({ url: config.REDIS_URL });
+
+    // Safe, non-destructive migration execution on startup
+    try {
+      logger.info('[STARTUP] Executing authoritative database migrations...');
+      const migrator = new DatabaseMigrator(dbPool);
+      const applied = await migrator.runPendingMigrations(allMigrations);
+      logger.info({ appliedCount: applied.length, applied }, '[STARTUP] Database migrations evaluated successfully.');
+    } catch (migErr) {
+      logger.error({ err: migErr }, '[STARTUP] Warning: Migration check encountered error; proceeding to schema verification');
+    }
+
+    // Production schema verification
+    const schemaReport = await ProductionSchemaVerifier.verifyRequiredSchema(dbPool);
+    if (!schemaReport.isComplete) {
+      logger.warn(
+        {
+          missingCount: schemaReport.missingRelations.length,
+          missing: schemaReport.missingRelations,
+        },
+        '[STARTUP] Schema verification incomplete — some relations missing',
+      );
+    }
 
     const app = createApp({ config });
 

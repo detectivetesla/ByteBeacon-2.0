@@ -11,6 +11,7 @@ export interface ReleaseGateInputs {
   datahouseInvariantViolations: number;
   unhandledCriticalErrors: number;
   migrationSafetyVerified: boolean;
+  schemaIntegrityVerified?: boolean;
   smokeTestsPassed: boolean;
 }
 
@@ -66,6 +67,10 @@ export class ProductionReleaseGateService {
 
     if (!inputs.migrationSafetyVerified) {
       reasons.push('Database migration is not verified as non-destructive or backward-compatible');
+    }
+
+    if (inputs.schemaIntegrityVerified === false) {
+      reasons.push('Database schema integrity check failed — required tables or views missing');
     }
 
     if (!inputs.smokeTestsPassed) {

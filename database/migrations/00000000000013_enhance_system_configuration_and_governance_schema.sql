@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS system_configurations (
     requires_step_up BOOLEAN NOT NULL DEFAULT false,
     description TEXT,
     version INT NOT NULL DEFAULT 1,
-    last_modified_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+    last_modified_by UUID REFERENCES users(id) ON DELETE SET NULL,
     last_modified_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS configuration_versions (
     previous_value JSONB,
     new_value JSONB NOT NULL,
     change_reason TEXT NOT NULL,
-    changed_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+    changed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     changed_by_name VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS platform_feature_flags (
         CHECK (target_role IN ('ALL', 'SUPER_ADMIN', 'ADMIN', 'AGENT', 'CUSTOMER')),
     environment VARCHAR(50) NOT NULL DEFAULT 'ALL'
         CHECK (environment IN ('ALL', 'PRODUCTION', 'STAGING', 'DEVELOPMENT', 'SANDBOX')),
-    last_toggled_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+    last_toggled_by UUID REFERENCES users(id) ON DELETE SET NULL,
     last_toggled_at TIMESTAMPTZ,
     reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

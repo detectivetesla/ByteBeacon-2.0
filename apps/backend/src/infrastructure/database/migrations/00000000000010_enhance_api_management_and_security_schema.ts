@@ -11,7 +11,7 @@ export const migration00000000000010: MigrationFile = {
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         name VARCHAR(100) NOT NULL,
         description TEXT,
-        owner_user_id UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+        owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         environment VARCHAR(20) NOT NULL DEFAULT 'LIVE',
         status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE'
             CHECK (status IN ('ACTIVE', 'SUSPENDED', 'REVOKED')),
@@ -24,13 +24,13 @@ export const migration00000000000010: MigrationFile = {
 
     -- 2. Extend api_keys table with developer management columns
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS consumer_id UUID REFERENCES api_consumers(id) ON DELETE SET NULL;
-    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS owner_user_id UUID REFERENCES users(uuid) ON DELETE SET NULL;
+    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS owner_user_id UUID REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS ip_restrictions TEXT[] NOT NULL DEFAULT '{}';
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS rate_limit_per_minute INT NOT NULL DEFAULT 300;
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_request_ip VARCHAR(45);
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_request_endpoint VARCHAR(255);
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
-    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS revoked_by UUID REFERENCES users(uuid) ON DELETE SET NULL;
+    ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS revoked_by UUID REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS revocation_reason TEXT;
     ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS rotation_of_key_id UUID REFERENCES api_keys(id) ON DELETE SET NULL;
 
@@ -42,7 +42,7 @@ export const migration00000000000010: MigrationFile = {
     CREATE TABLE IF NOT EXISTS api_usage_metrics (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         key_id UUID REFERENCES api_keys(id) ON DELETE SET NULL,
-        user_id UUID REFERENCES users(uuid) ON DELETE SET NULL,
+        user_id UUID REFERENCES users(id) ON DELETE SET NULL,
         environment VARCHAR(20) NOT NULL DEFAULT 'LIVE',
         endpoint VARCHAR(255) NOT NULL,
         method VARCHAR(10) NOT NULL,
@@ -64,7 +64,7 @@ export const migration00000000000010: MigrationFile = {
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         key_id UUID REFERENCES api_keys(id) ON DELETE SET NULL,
         key_prefix VARCHAR(50),
-        user_id UUID REFERENCES users(uuid) ON DELETE SET NULL,
+        user_id UUID REFERENCES users(id) ON DELETE SET NULL,
         event_type VARCHAR(50) NOT NULL,
         severity VARCHAR(20) NOT NULL DEFAULT 'MEDIUM' CHECK (severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
         ip_address VARCHAR(45),
@@ -80,7 +80,7 @@ export const migration00000000000010: MigrationFile = {
     -- 4. Create agent_webhooks table for developer webhook dispatching
     CREATE TABLE IF NOT EXISTS agent_webhooks (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        agent_id UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+        agent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         url TEXT NOT NULL,
         secret_hash VARCHAR(255) NOT NULL,
         events TEXT[] NOT NULL DEFAULT '{}',
@@ -143,7 +143,7 @@ export const migration00000000000010: MigrationFile = {
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         previous_provider VARCHAR(50) NOT NULL,
         new_provider VARCHAR(50) NOT NULL,
-        switched_by UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+        switched_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         switch_reason TEXT NOT NULL,
         health_check_passed BOOLEAN NOT NULL DEFAULT TRUE,
         verification_details JSONB NOT NULL DEFAULT '{}',

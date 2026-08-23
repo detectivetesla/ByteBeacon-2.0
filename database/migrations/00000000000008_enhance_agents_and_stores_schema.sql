@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS store_payouts (
     status VARCHAR(30) NOT NULL DEFAULT 'PENDING'
         CHECK (status IN ('PENDING', 'PROCESSING', 'PAID', 'HELD', 'REJECTED', 'FAILED')),
     admin_notes TEXT,
-    reviewed_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     reviewed_at TIMESTAMPTZ,
     paid_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -67,7 +67,7 @@ CREATE INDEX IF NOT EXISTS idx_store_payouts_status ON store_payouts(status);
 CREATE TABLE IF NOT EXISTS agent_customers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    customer_id UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+    customer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_agent_customer UNIQUE (agent_id, customer_id)

@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS stores (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     agent_id UUID REFERENCES agents(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     store_name VARCHAR(255) NOT NULL,
     slug VARCHAR(255) UNIQUE NOT NULL,
     tagline TEXT,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS stores (
     activation_fee_pesewas BIGINT NOT NULL DEFAULT 50000,
     paystack_reference VARCHAR(255),
     admin_notes TEXT,
-    approved_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
     approved_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP

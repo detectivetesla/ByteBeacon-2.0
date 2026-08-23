@@ -214,3 +214,76 @@ export interface DataHouseWalletLedgerDto {
   page: number;
   limit: number;
 }
+
+// =========================================================================
+// Phase 11.9 Provider Diagnostic & Capability Contracts
+// =========================================================================
+
+export interface ProviderConnectionTestStep {
+  name: string; // 'DNS Resolution' | 'TLS Connection' | 'Endpoint Reachability' | 'Authentication' | 'Provider Health'
+  status: 'PASSED' | 'FAILED' | 'SKIPPED';
+  latencyMs: number;
+  details?: string;
+  httpStatus?: number;
+}
+
+export interface ProviderConnectionTestResult {
+  providerId: string;
+  providerName: string;
+  environment: 'SANDBOX' | 'PRODUCTION' | string;
+  result: 'PASSED' | 'FAILED' | 'DEGRADED';
+  totalLatencyMs: number;
+  steps: ProviderConnectionTestStep[];
+  httpStatus?: number;
+  errorCategory?: string; // 'NONE' | 'AUTHENTICATION_FAILURE' | 'DNS_FAILURE' | 'TLS_FAILURE' | 'ENDPOINT_UNREACHABLE' | 'TIMEOUT' | 'UNKNOWN'
+  errorMessage?: string;
+  timestamp: string;
+}
+
+export interface ProviderCapabilityTestResult {
+  providerId: string;
+  providerName: string;
+  capabilities: Record<string, { supported: boolean; details?: string }>;
+  timestamp: string;
+}
+
+export interface SandboxTransactionTestInput {
+  providerId?: string;
+  providerName?: string;
+  network: NetworkProvider;
+  recipientPhone: string;
+  dataAmountMb: number;
+  bundleName?: string;
+}
+
+export interface SandboxTransactionTestResult {
+  providerId: string;
+  providerName: string;
+  providerReference: string;
+  network: NetworkProvider;
+  recipientPhone: string;
+  dataAmountMb: number;
+  durationMs: number;
+  result: 'PASSED' | 'FAILED';
+  steps: Array<{
+    step: string;
+    status: 'PASSED' | 'FAILED';
+    latencyMs: number;
+    details?: string;
+  }>;
+  responsePayload?: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface ProviderBundleDto {
+  id: string;
+  name: string;
+  network: NetworkProvider;
+  dataAmountMb: number;
+  dataSizeGb?: number;
+  pricePesewas: number;
+  validityDays: number;
+  isActive: boolean;
+  type?: string;
+}
+

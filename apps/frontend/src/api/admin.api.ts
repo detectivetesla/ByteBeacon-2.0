@@ -161,10 +161,37 @@ import {
   AdminNotificationAnalyticsDto,
   AdminEmergencyBroadcastRequest,
   AdminNotificationHistoryItemDto,
-  AdminNotificationDeliveryDetailDto,
   UserNotificationItemDto,
   UserNotificationCountsDto,
+  TelecomControlPlaneOverviewDto,
+  TelecomNetworkDto,
+  UpdateTelecomNetworkRequest,
+  TelecomProviderDetailDto,
+  CreateTelecomProviderRequest,
+  UpdateTelecomProviderRequest,
+  ProviderCredentialDto,
+  CreateProviderCredentialRequest,
+  RotateProviderCredentialRequest,
+  ProviderIncidentDto,
+  CreateProviderIncidentRequest,
+  UpdateProviderIncidentRequest,
+  NetworkProviderMappingDto,
+  UpdateNetworkRoutingRequest,
+  AuthoritativeSwitchValidationResult,
+  SwitchAuthoritativeProviderRequest,
+  ProviderHealthMetricDto,
+  ProviderConnectionTestResult,
+  SandboxTransactionTestInput,
+  SandboxTransactionTestResult,
+  TelecomProviderType,
+  TelecomProviderStatus,
+  TelecomEnvironment,
+  ProviderAuthMethod,
+  ProviderCapabilityType,
+  ProviderIncidentSeverity,
+  ProviderIncidentStatus,
 } from '@bytebeacon/shared';
+
 
 export {
   UserRole,
@@ -1421,9 +1448,10 @@ export const adminApi = {
     return apiClient.get<AdminProviderConnectionDto[]>('/admin/api/providers');
   },
 
-  switchAuthoritativeProvider: async (data: AdminSwitchAuthoritativeProviderRequest) => {
+  switchApiAuthoritativeProvider: async (data: AdminSwitchAuthoritativeProviderRequest) => {
     return apiClient.post('/admin/api/providers/switch', data);
   },
+
 
   getApiPolicies: async (): Promise<AdminApiPolicyConfigDto> => {
     return apiClient.get<AdminApiPolicyConfigDto>('/admin/api/policies');
@@ -1659,4 +1687,105 @@ export const adminApi = {
   markAllNotificationsRead: async () => {
     return apiClient.post('/notifications/read-all');
   },
+
+  // =========================================================================
+  // Phase 11.9: Telecom Provider & Networks Control Plane APIs
+  // =========================================================================
+
+  getTelecomOverview: async (): Promise<TelecomControlPlaneOverviewDto> => {
+    return apiClient.get<TelecomControlPlaneOverviewDto>('/admin/telecom/overview');
+  },
+
+  getTelecomNetworks: async (): Promise<TelecomNetworkDto[]> => {
+    return apiClient.get<TelecomNetworkDto[]>('/admin/telecom/networks');
+  },
+
+  updateTelecomNetwork: async (code: string, data: UpdateTelecomNetworkRequest): Promise<TelecomNetworkDto> => {
+    return apiClient.patch<TelecomNetworkDto>(`/admin/telecom/networks/${code}`, data);
+  },
+
+  toggleTelecomNetwork: async (code: string): Promise<{ code: string; isActive: boolean; status: string }> => {
+    return apiClient.post<{ code: string; isActive: boolean; status: string }>(`/admin/telecom/networks/${code}/toggle`);
+  },
+
+  getTelecomProviders: async (): Promise<TelecomProviderDetailDto[]> => {
+    return apiClient.get<TelecomProviderDetailDto[]>('/admin/telecom/providers');
+  },
+
+  getTelecomProviderDetail: async (id: string): Promise<TelecomProviderDetailDto> => {
+    return apiClient.get<TelecomProviderDetailDto>(`/admin/telecom/providers/${id}`);
+  },
+
+  createTelecomProvider: async (data: CreateTelecomProviderRequest): Promise<TelecomProviderDetailDto> => {
+    return apiClient.post<TelecomProviderDetailDto>('/admin/telecom/providers', data);
+  },
+
+  updateTelecomProvider: async (id: string, data: UpdateTelecomProviderRequest): Promise<TelecomProviderDetailDto> => {
+    return apiClient.patch<TelecomProviderDetailDto>(`/admin/telecom/providers/${id}`, data);
+  },
+
+  updateTelecomProviderStatus: async (id: string, status: string, reason?: string): Promise<{ id: string; status: string }> => {
+    return apiClient.post<{ id: string; status: string }>(`/admin/telecom/providers/${id}/status`, { status, reason });
+  },
+
+  getProviderCredentials: async (providerId: string): Promise<ProviderCredentialDto[]> => {
+    return apiClient.get<ProviderCredentialDto[]>(`/admin/telecom/providers/${providerId}/credentials`);
+  },
+
+  createProviderCredential: async (providerId: string, data: CreateProviderCredentialRequest): Promise<ProviderCredentialDto> => {
+    return apiClient.post<ProviderCredentialDto>(`/admin/telecom/providers/${providerId}/credentials`, data);
+  },
+
+  rotateProviderCredential: async (providerId: string, data: RotateProviderCredentialRequest): Promise<ProviderCredentialDto> => {
+    return apiClient.post<ProviderCredentialDto>(`/admin/telecom/providers/${providerId}/credentials/rotate`, data);
+  },
+
+  revokeProviderCredential: async (providerId: string, credId: string, reason: string): Promise<{ id: string; status: string }> => {
+    return apiClient.post<{ id: string; status: string }>(`/admin/telecom/providers/${providerId}/credentials/${credId}/revoke`, { reason });
+  },
+
+  testProviderConnection: async (providerId: string, environment: string = 'SANDBOX'): Promise<ProviderConnectionTestResult> => {
+    return apiClient.post<ProviderConnectionTestResult>(`/admin/telecom/providers/${providerId}/test-connection`, { environment });
+  },
+
+  testProviderCapabilities: async (providerId: string): Promise<Record<string, boolean>> => {
+    return apiClient.post<Record<string, boolean>>(`/admin/telecom/providers/${providerId}/test-capabilities`);
+  },
+
+  testProviderSandboxTransaction: async (providerId: string, input: SandboxTransactionTestInput): Promise<SandboxTransactionTestResult> => {
+    return apiClient.post<SandboxTransactionTestResult>(`/admin/telecom/providers/${providerId}/test-sandbox`, input);
+  },
+
+  getTelecomRoutingMatrix: async (): Promise<NetworkProviderMappingDto[]> => {
+    return apiClient.get<NetworkProviderMappingDto[]>('/admin/telecom/routing');
+  },
+
+  updateTelecomRouting: async (data: UpdateNetworkRoutingRequest): Promise<NetworkProviderMappingDto> => {
+    return apiClient.post<NetworkProviderMappingDto>('/admin/telecom/routing', data);
+  },
+
+  validateAuthoritativeSwitch: async (targetProvider: string): Promise<AuthoritativeSwitchValidationResult> => {
+    return apiClient.get<AuthoritativeSwitchValidationResult>('/admin/telecom/authoritative-switch/validate', { params: { targetProvider } });
+  },
+
+  switchAuthoritativeProvider: async (data: SwitchAuthoritativeProviderRequest): Promise<{ previousProvider: string; currentAuthoritativeProvider: string; switchedAt: string }> => {
+    return apiClient.post<{ previousProvider: string; currentAuthoritativeProvider: string; switchedAt: string }>('/admin/telecom/authoritative-switch', data);
+  },
+
+  getProviderIncidents: async (params: { status?: string; severity?: string } = {}): Promise<ProviderIncidentDto[]> => {
+    return apiClient.get<ProviderIncidentDto[]>('/admin/telecom/incidents', { params });
+  },
+
+  createProviderIncident: async (data: CreateProviderIncidentRequest): Promise<ProviderIncidentDto> => {
+    return apiClient.post<ProviderIncidentDto>('/admin/telecom/incidents', data);
+  },
+
+  updateProviderIncident: async (id: string, data: UpdateProviderIncidentRequest): Promise<ProviderIncidentDto> => {
+    return apiClient.patch<ProviderIncidentDto>(`/admin/telecom/incidents/${id}`, data);
+  },
+
+  getProviderHealthMetrics: async (providerId: string): Promise<ProviderHealthMetricDto> => {
+    return apiClient.get<ProviderHealthMetricDto>(`/admin/telecom/providers/${providerId}/health`);
+  },
 };
+

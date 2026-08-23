@@ -27,7 +27,7 @@ export const migration00000000000011: MigrationFile = {
         sent_at TIMESTAMPTZ,
         delivered_count INT NOT NULL DEFAULT 0,
         failed_count INT NOT NULL DEFAULT 0,
-        created_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -52,7 +52,7 @@ export const migration00000000000011: MigrationFile = {
         status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE'
             CHECK (status IN ('ACTIVE', 'DRAFT', 'ARCHIVED')),
         is_system_critical BOOLEAN NOT NULL DEFAULT false,
-        created_by UUID REFERENCES users(uuid) ON DELETE SET NULL,
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -66,7 +66,7 @@ export const migration00000000000011: MigrationFile = {
         message_id VARCHAR(100) NOT NULL,
         campaign_id UUID REFERENCES communication_campaigns(id) ON DELETE SET NULL,
         template_id UUID REFERENCES notification_templates(id) ON DELETE SET NULL,
-        recipient_user_id UUID REFERENCES users(uuid) ON DELETE SET NULL,
+        recipient_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
         recipient_email VARCHAR(255),
         recipient_phone VARCHAR(50),
         channel VARCHAR(30) NOT NULL DEFAULT 'IN_APP'
@@ -93,7 +93,7 @@ export const migration00000000000011: MigrationFile = {
     -- 4. Create user_notification_preferences table
     CREATE TABLE IF NOT EXISTS user_notification_preferences (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        user_id UUID NOT NULL REFERENCES users(uuid) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         email_order_updates BOOLEAN NOT NULL DEFAULT true,
         email_account_alerts BOOLEAN NOT NULL DEFAULT true,
         email_marketing BOOLEAN NOT NULL DEFAULT false,
