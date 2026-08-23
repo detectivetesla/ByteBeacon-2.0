@@ -1,3 +1,4 @@
+import type pg from 'pg';
 import { ITelecomProvider } from './telecom/telecom-provider.interface.js';
 import {
   SubmitOrderInput,
@@ -20,6 +21,8 @@ import {
   SandboxTransactionTestResult,
 } from '@bytebeacon/shared';
 import { logger } from '../logging/logger.js';
+import { DynamicHttpTelecomAdapter, DynamicHttpProviderConfig } from './dynamic-http/dynamic-http.adapter.js';
+import { IProviderCredentialStore } from './credentials/credential-store.interface.js';
 
 export interface ProviderRegistrationOptions {
   isAuthoritative?: boolean;
@@ -44,7 +47,7 @@ export interface NetworkCarrierRouting {
 /**
  * Dynamic Telecom Provider Registry for ByteBeacon 2.0.
  * Decouples commerce and fulfillment workflows from specific telecom APIs (e.g. DataHouse).
- * Enables runtime provider switching, multi-carrier failover, and sandbox testing.
+ * Enables runtime provider switching, multi-carrier failover, dynamic custom REST provider creation via UI, and sandbox testing.
  */
 export class TelecomProviderRegistry implements ITelecomProvider {
   private readonly providers: Map<string, RegisteredProviderEntry> = new Map();
@@ -53,7 +56,7 @@ export class TelecomProviderRegistry implements ITelecomProvider {
     ['TELECEL', { primary: 'datahouse', fallback: 'gmpl' }],
     ['AIRTELTIGO', { primary: 'datahouse', fallback: 'gmpl' }],
   ]);
-  private activeProviderName: string = 'DataHouse';
+  private activeProviderName = 'DataHouse';
 
   constructor(initialProviders?: Record<string, ITelecomProvider>) {
     if (initialProviders) {
@@ -85,6 +88,66 @@ export class TelecomProviderRegistry implements ITelecomProvider {
       { providerName: name, isAuthoritative: isAuth, environment: options.environment ?? 'LIVE' },
       '[TELECOM_REGISTRY] Registered telecom provider adapter',
     );
+  }
+
+  public registerDynamicCustomProvider(
+    config: DynamicHttpProviderConfig,
+    options: ProviderRegistrationOptions = {},
+  ): ITelecomProvider {
+    const adapter = new DynamicHttpTelecomAdapter(config);
+    this.registerProvider(config.providerName, adapter, options);
+    return adapter;
+  }
+
+  /**
+   * Initializes and syncs dynamic custom providers from the database on startup.
+   */
+  public async loadProvidersFromDatabase(db: pg.Pool, credentialStore?: IProviderCredentialStore): Promise<void> {
+    try {
+      const provRes = await db.query(`
+        SELECT id, name, slug, api_base_url as "apiBaseUrl", api_version as "apiVersion",
+               auth_method as "authMethod", webhook_url as "webhookUrl", environment,
+               is_authoritative as "isAuthoritative", supported_networks as "supportedNetworks"
+        FROM telecom_providers
+        WHERE status = 'ACTIVE'
+      `);
+
+      for (const row of provRes.rows) {
+        const key = row.name.toLowerCase();
+        // If already registered statically (e.g. DataHouse, GMPL), skip recreating
+        if (this.providers.has(key)) {
+          if (row.isAuthoritative) {
+            this.setActiveProvider(row.name);
+          }
+          continue;
+        }
+
+        let secrets: any = null;
+        if (credentialStore) {
+          secrets = await credentialStore.getSecrets(row.id, row.environment).catch(() => null);
+        }
+
+        this.registerDynamicCustomProvider({
+          providerName: row.name,
+          providerSlug: row.slug,
+          apiBaseUrl: row.apiBaseUrl,
+          apiVersion: row.apiVersion,
+          authMethod: row.authMethod,
+          environment: row.environment,
+          apiKey: secrets?.apiKey || '',
+          apiSecret: secrets?.apiSecret || '',
+          webhookSecret: secrets?.webhookSecret || '',
+          supportedNetworks: row.supportedNetworks,
+        }, {
+          isAuthoritative: Boolean(row.isAuthoritative),
+          supportedNetworks: row.supportedNetworks,
+        });
+      }
+
+      logger.info({ totalLoaded: this.providers.size }, '[TELECOM_REGISTRY] Dynamic providers loaded from database');
+    } catch (err: any) {
+      logger.warn({ err: err.message }, '[TELECOM_REGISTRY] Could not load providers from database; using static fallback registry');
+    }
   }
 
   public setActiveProvider(name: string): void {
@@ -335,4 +398,3 @@ export class TelecomProviderRegistry implements ITelecomProvider {
     return this.getActiveProvider().verifyWebhookSignature(rawBody, signature);
   }
 }
-

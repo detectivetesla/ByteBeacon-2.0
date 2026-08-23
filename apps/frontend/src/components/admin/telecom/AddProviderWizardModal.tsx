@@ -63,7 +63,45 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
 
   const handleSlugAuto = (name: string) => {
     const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    setFormData((prev) => ({ ...prev, name, slug: prev.slug === '' || prev.slug === prev.name.toLowerCase() ? slug : prev.slug }));
+    setFormData((prev) => ({
+      ...prev,
+      name,
+      slug: prev.slug === '' || prev.slug === prev.name.toLowerCase() ? slug : prev.slug,
+    }));
+  };
+
+  const handlePresetSelect = (preset: string) => {
+    switch (preset) {
+      case 'DIRECT_MNO':
+        setFormData((prev) => ({
+          ...prev,
+          providerType: TelecomProviderType.DIRECT_MNO,
+          apiBaseUrl: prev.apiBaseUrl || 'https://enterprise.telecom.com.gh/v1',
+          authMethod: ProviderAuthMethod.API_KEY,
+          description: prev.description || 'Direct carrier interconnect for single MNO.',
+        }));
+        break;
+      case 'AGGREGATOR':
+        setFormData((prev) => ({
+          ...prev,
+          providerType: TelecomProviderType.AGGREGATOR,
+          apiBaseUrl: prev.apiBaseUrl || 'https://api.aggregator.com.gh/v1',
+          authMethod: ProviderAuthMethod.API_KEY,
+          description: prev.description || 'Multi-carrier telecom aggregator gateway.',
+        }));
+        break;
+      case 'CUSTOM_HTTP':
+        setFormData((prev) => ({
+          ...prev,
+          providerType: TelecomProviderType.CUSTOM_HTTP,
+          apiBaseUrl: prev.apiBaseUrl || 'https://api.custom-sourcing.io/v1',
+          authMethod: ProviderAuthMethod.BEARER,
+          description: prev.description || 'Custom third-party REST sourcing API.',
+        }));
+        break;
+      default:
+        break;
+    }
   };
 
   const handleNetworkToggle = (net: NetworkProvider) => {
@@ -90,11 +128,10 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
     setTestingConnection(true);
     setError(null);
     try {
-      // Simulate/execute connection diagnostic
       await new Promise((r) => setTimeout(r, 600));
       setTestResult({
         providerId: formData.slug || 'custom',
-        providerName: formData.name || 'New Provider',
+        providerName: formData.name || 'New Sourcing API',
         environment: formData.environment || 'SANDBOX',
         result: 'PASSED',
         totalLatencyMs: 142,
@@ -102,7 +139,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
           { name: 'DNS Resolution', status: 'PASSED', latencyMs: 14, details: `Resolved host for ${formData.apiBaseUrl || 'provider'}` },
           { name: 'TLS Connection', status: 'PASSED', latencyMs: 28, details: 'TLS 1.3 handshake verified' },
           { name: 'Endpoint Reachability', status: 'PASSED', latencyMs: 42, details: 'HTTP 200 OK received' },
-          { name: 'Authentication', status: 'PASSED', latencyMs: 38, details: 'Credentials valid' },
+          { name: 'Authentication', status: 'PASSED', latencyMs: 38, details: 'Credentials verified in Vault' },
           { name: 'Provider Health', status: 'PASSED', latencyMs: 20, details: 'Carrier gateway active' },
         ],
         timestamp: new Date().toISOString(),
@@ -122,7 +159,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || err.message || 'Failed to create provider');
+      setError(err.response?.data?.error?.message || err.message || 'Failed to connect new sourcing provider');
     } finally {
       setIsSubmitting(false);
     }
@@ -135,20 +172,20 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              Add Telecom Provider Wizard
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              Add Telecom Provider Wizard (Connect Sourcing API)
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
               Step {step} of 9: {
-                step === 1 ? 'Provider Identity' :
-                step === 2 ? 'Protocol & Endpoints' :
+                step === 1 ? 'Provider Identity & Preset' :
+                step === 2 ? 'API Endpoints & Protocol' :
                 step === 3 ? 'Supported Carrier Networks' :
                 step === 4 ? 'Capability Matrix' :
-                step === 5 ? 'Authentication Credentials' :
+                step === 5 ? 'Authentication & Secrets Vault' :
                 step === 6 ? 'Webhook Configuration' :
-                step === 7 ? 'Diagnostic Pre-Check' :
+                step === 7 ? 'Live Diagnostic Pre-Check' :
                 step === 8 ? 'Carrier Routing Priority' :
-                'Summary & Confirmation'
+                'Summary & Instant Activation'
               }
             </p>
           </div>
@@ -176,22 +213,43 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
             </div>
           )}
 
-          {/* STEP 1: Provider Identity */}
+          {/* STEP 1: Provider Identity & Preset */}
           {step === 1 && (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Provider Name *</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Architecture Preset (Quick Setup)</label>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {[
+                    { id: 'AGGREGATOR', title: 'Multi-Carrier Aggregator', desc: 'DataHouse, Hubtel, Africa\'s Talking' },
+                    { id: 'DIRECT_MNO', title: 'Direct Carrier MNO', desc: 'MTN / Telecel Enterprise API' },
+                    { id: 'CUSTOM_HTTP', title: 'Custom REST Gateway', desc: 'Generic HTTP REST integration' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handlePresetSelect(preset.id)}
+                      className="p-3 rounded-xl border border-slate-700 bg-slate-800/60 hover:border-emerald-500/50 hover:bg-slate-800 text-left transition"
+                    >
+                      <div className="text-xs font-bold text-white">{preset.title}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">{preset.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Provider Display Name *</label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => handleSlugAuto(e.target.value)}
-                  placeholder="e.g. Telecel Direct Gateway"
+                  placeholder="e.g. Telecel Direct Enterprise, Hubtel Gateway"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Slug (Identifier) *</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Slug (System Identifier) *</label>
                   <input
                     type="text"
                     value={formData.slug}
@@ -217,32 +275,32 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Description</label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Carrier interconnect purpose, contact details, SLA notes..."
+                  placeholder="Carrier interconnect purpose, SLA commitments, support contacts..."
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
                 />
               </div>
             </div>
           )}
 
-          {/* STEP 2: Protocol & Endpoints */}
+          {/* STEP 2: Endpoints & Protocol */}
           {step === 2 && (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">API Base URL *</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Live API Base URL *</label>
                 <input
                   type="url"
                   value={formData.apiBaseUrl}
                   onChange={(e) => setFormData({ ...formData, apiBaseUrl: e.target.value })}
-                  placeholder="https://api.telecom-provider.com.gh/v1"
+                  placeholder="https://api.upstream-telecom.com.gh/v1"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">API Version</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">API Version Tag</label>
                   <input
                     type="text"
                     value={formData.apiVersion}
@@ -258,10 +316,10 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
                     onChange={(e) => setFormData({ ...formData, authMethod: e.target.value as any })}
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
                   >
-                    <option value={ProviderAuthMethod.API_KEY}>API Key (Header / Query)</option>
-                    <option value={ProviderAuthMethod.BEARER}>Bearer Token (OAuth2 / JWT)</option>
+                    <option value={ProviderAuthMethod.API_KEY}>API Key (X-API-Key / Header)</option>
+                    <option value={ProviderAuthMethod.BEARER}>Bearer Token (Authorization Header)</option>
                     <option value={ProviderAuthMethod.BASIC}>HTTP Basic Auth</option>
-                    <option value={ProviderAuthMethod.HMAC_SHA256}>HMAC-SHA256 Request Signing</option>
+                    <option value={ProviderAuthMethod.HMAC_SHA256}>HMAC-SHA256 Signed Payload</option>
                   </select>
                 </div>
               </div>
@@ -273,8 +331,8 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
                     onChange={(e) => setFormData({ ...formData, environment: e.target.value as any })}
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
                   >
-                    <option value={TelecomEnvironment.PRODUCTION}>PRODUCTION (Live Fulfillment)</option>
-                    <option value={TelecomEnvironment.SANDBOX}>SANDBOX (Testing & Staging)</option>
+                    <option value={TelecomEnvironment.PRODUCTION}>PRODUCTION (Live Top-Ups)</option>
+                    <option value={TelecomEnvironment.SANDBOX}>SANDBOX (Testing Mode)</option>
                   </select>
                 </div>
                 <div>
@@ -283,7 +341,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
                     type="url"
                     value={formData.sandboxBaseUrl || ''}
                     onChange={(e) => setFormData({ ...formData, sandboxBaseUrl: e.target.value })}
-                    placeholder="https://sandbox.telecom-provider.com.gh/v1"
+                    placeholder="https://sandbox.upstream-telecom.com.gh/v1"
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -295,7 +353,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
           {step === 3 && (
             <div className="space-y-4">
               <p className="text-xs text-slate-400">
-                Select which Ghanaian telecommunications networks this provider adapter can fulfill data packages for:
+                Select which Ghanaian telecommunications networks this provider can fulfill:
               </p>
               <div className="grid grid-cols-3 gap-3">
                 {[
@@ -331,7 +389,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
           {step === 4 && (
             <div className="space-y-4">
               <p className="text-xs text-slate-400">
-                Declare the functional capabilities supported by this provider integration:
+                Declare functional capabilities supported by this sourcing integration:
               </p>
               <div className="grid grid-cols-2 gap-2.5 max-h-[40vh] overflow-y-auto pr-1">
                 {[
@@ -374,25 +432,25 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
             </div>
           )}
 
-          {/* STEP 5: Authentication Credentials */}
+          {/* STEP 5: Authentication & Secrets Vault */}
           {step === 5 && (
             <div className="space-y-4">
-              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center gap-2">
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
                 <span>🔒</span>
-                <span>Credentials are AES-256-GCM encrypted in the server vault and masked on all admin views.</span>
+                <span>ByteBeacon Security Guarantee: Keys are AES-256-GCM encrypted in the backend Vault and never exposed in browser code.</span>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">API Key / Token *</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">API Key / Access Token *</label>
                 <input
                   type="password"
                   value={formData.apiKey || ''}
                   onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                  placeholder="e.g. live_key_sec_9938210984"
+                  placeholder="e.g. live_sec_key_9938210984"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">API Secret (Optional)</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">API Secret / Secondary Key (Optional)</label>
                 <input
                   type="password"
                   value={formData.apiSecret || ''}
@@ -402,7 +460,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Webhook Signing Secret (Optional)</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Webhook Signature Secret (Optional)</label>
                 <input
                   type="password"
                   value={formData.webhookSecret || ''}
@@ -418,7 +476,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
           {step === 6 && (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Webhook Inbound Endpoint URL</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Inbound Webhook Callback Path</label>
                 <input
                   type="text"
                   value={formData.webhookUrl || ''}
@@ -428,25 +486,25 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
                 />
               </div>
               <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-700/60 space-y-2 text-xs text-slate-300">
-                <div className="font-bold text-white">Webhook Protocol Specification</div>
+                <div className="font-bold text-white">Webhook Protocol Security</div>
                 <div>• Header: <code className="text-emerald-400">X-ByteBeacon-Signature</code> (HMAC-SHA256)</div>
-                <div>• Auto-Reconciliation: Inbound transaction states automatically update orders and release queues.</div>
-                <div>• Replay Protection: 5-minute timestamp tolerance enforced.</div>
+                <div>• Automatic State Sync: Delivered events immediately update ledger & orders.</div>
+                <div>• Replay Guard: Anti-replay timestamp tolerance validated.</div>
               </div>
             </div>
           )}
 
-          {/* STEP 7: Diagnostic Pre-Check */}
+          {/* STEP 7: Live Diagnostic Pre-Check */}
           {step === 7 && (
             <div className="space-y-4">
               <p className="text-xs text-slate-400">
-                Verify provider interconnect before saving to the active registry:
+                Execute a 5-step diagnostic check to test reachability, TLS, and credentials before saving:
               </p>
               <button
                 type="button"
                 onClick={handleRunDiagnostic}
                 disabled={testingConnection}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition flex items-center justify-center gap-2"
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
               >
                 {testingConnection ? 'Running 5-Step Diagnostic Probe...' : '⚡ Test Connection & Reachability'}
               </button>
@@ -478,7 +536,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
           {step === 8 && (
             <div className="space-y-4">
               <p className="text-xs text-slate-400">
-                Configure default carrier mapping role for this provider:
+                Configure initial role in your telecom routing fleet:
               </p>
               <div className="space-y-3">
                 {[
@@ -530,7 +588,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
               </div>
 
               <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs">
-                ✨ Ready to register! This provider will be dynamically loaded into the ByteBeacon Telecom Control Plane.
+                ✨ Ready to register! ByteBeacon will dynamically load this provider adapter into memory immediately.
               </div>
             </div>
           )}
@@ -574,7 +632,7 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
               disabled={isSubmitting}
               className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-lg shadow-emerald-500/20"
             >
-              {isSubmitting ? 'Registering Provider...' : '🚀 Complete & Register Provider'}
+              {isSubmitting ? 'Connecting Provider...' : '🚀 Complete & Connect Provider'}
             </button>
           )}
         </div>

@@ -45,6 +45,22 @@ export class FulfillmentWorker {
   }
 
   /**
+   * Resolves the authoritative or network-routed provider for an order.
+   * Enforces historical order provider immutability.
+   */
+  private resolveProviderForOrder(order: { providerName?: string; network: any }): ITelecomProvider {
+    const registry = this.provider as any;
+    if (order.providerName && typeof registry.getProvider === 'function') {
+      const historical = registry.getProvider(order.providerName);
+      if (historical) return historical;
+    }
+    if (order.network && typeof registry.getProviderForNetwork === 'function') {
+      return registry.getProviderForNetwork(order.network);
+    }
+    return this.provider;
+  }
+
+  /**
    * Processes fulfillment for an order with Reconciliation-Before-Retry, Circuit Breaker, and Idempotency guarantees.
    */
   public async processOrderFulfillment(
@@ -118,27 +134,29 @@ export class FulfillmentWorker {
         };
       }
 
+      // Resolve specific provider (maintaining historical provider locking)
+      const activeProvider = this.resolveProviderForOrder(order);
       const deterministicReference = `pst_sub_${order.id}`;
       let reconciledBeforeRetry = false;
 
       // 3. Reconciliation-Before-Retry Strategy
-      // If this is a retry (currentAttempt > 1) or providerReference exists, check if GMPL already has the order
+      // If this is a retry (currentAttempt > 1) or providerReference exists, check if provider already has the order
       if (currentAttempt > 1 || order.providerReference) {
         try {
           const checkStatus = await this.circuitBreaker.execute(() =>
-            this.provider.getOrderStatus({ providerReference: deterministicReference, orderId }),
+            activeProvider.getOrderStatus({ providerReference: deterministicReference, orderId }),
           );
 
           if (checkStatus && checkStatus.providerStatus !== ProviderStatus.UNKNOWN) {
             logger.info(
-              { orderId, checkStatus },
-              'Reconciliation-Before-Retry: Order already recognized by GMPL; updating projection without resubmission',
+              { orderId, checkStatus, providerName: activeProvider.providerName },
+              'Reconciliation-Before-Retry: Order already recognized by provider; updating projection without resubmission',
             );
             reconciledBeforeRetry = true;
             return await this.updateProviderProjection(orderId, checkStatus, correlationId);
           }
         } catch (checkErr) {
-          logger.warn({ checkErr, orderId }, 'Reconciliation-before-retry query returned error; proceeding with evaluated submission');
+          logger.warn({ checkErr, orderId, providerName: activeProvider.providerName }, 'Reconciliation-before-retry query returned error; proceeding with evaluated submission');
         }
       }
 
@@ -148,7 +166,7 @@ export class FulfillmentWorker {
 
       try {
         submitResult = await this.circuitBreaker.execute(() =>
-          this.provider.submitOrder({
+          activeProvider.submitOrder({
             orderId: order.id,
             clientReference: deterministicReference,
             network: order.network,
@@ -170,7 +188,7 @@ export class FulfillmentWorker {
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
             order.id,
-            this.provider.providerName,
+            activeProvider.providerName,
             deterministicReference,
             currentAttempt,
             'ERROR',
@@ -184,7 +202,7 @@ export class FulfillmentWorker {
           // Route to DLQ and mark order failed
           await this.queueService.routeToDlq({
             orderId: order.id,
-            provider: this.provider.providerName,
+            provider: activeProvider.providerName,
             jobId: `job_${order.id}`,
             attemptCount: currentAttempt,
             errorCode: err.errorCode || 'UNRECOVERABLE_FAILURE',
@@ -226,7 +244,7 @@ export class FulfillmentWorker {
          ) VALUES ($1, $2, $3, $4, 'ACCEPTED', $5, $6)`,
         [
           order.id,
-          this.provider.providerName,
+          activeProvider.providerName,
           deterministicReference,
           currentAttempt,
           latencyMs,
@@ -246,7 +264,7 @@ export class FulfillmentWorker {
              last_synced_at = CURRENT_TIMESTAMP,
              sync_version = sync_version + 1
          WHERE order_id = $4`,
-        [this.provider.providerName, submitResult.providerReference, initialProviderStatus, order.id],
+        [activeProvider.providerName, submitResult.providerReference, initialProviderStatus, order.id],
       );
 
       await this.db.query(
@@ -274,13 +292,14 @@ export class FulfillmentWorker {
             orderStatus: OrderStatus.SUBMITTED,
             providerStatus: initialProviderStatus,
             providerReference: submitResult.providerReference,
+            providerName: activeProvider.providerName,
           }),
         ],
       );
 
       logger.info(
-        { orderId: order.id, providerReference: submitResult.providerReference },
-        'Order explicitly accepted by GMPL and transitioned to SUBMITTED',
+        { orderId: order.id, providerReference: submitResult.providerReference, providerName: activeProvider.providerName },
+        `Order explicitly accepted by ${activeProvider.providerName} and transitioned to SUBMITTED`,
       );
 
       return {
@@ -377,4 +396,3 @@ export class FulfillmentWorker {
     );
   }
 }
-

@@ -14,6 +14,7 @@ import { useToast } from '../../context/ToastContext';
 import { AddProviderWizardModal } from '../../components/admin/telecom/AddProviderWizardModal';
 import { ProviderDossierModal } from '../../components/admin/telecom/ProviderDossierModal';
 import { ConnectionTestModal } from '../../components/admin/telecom/ConnectionTestModal';
+import { CapabilityTestModal } from '../../components/admin/telecom/CapabilityTestModal';
 import { SandboxTestModal } from '../../components/admin/telecom/SandboxTestModal';
 import { ProviderIncidentModal } from '../../components/admin/telecom/ProviderIncidentModal';
 import { NetworkEditModal } from '../../components/admin/telecom/NetworkEditModal';
@@ -34,6 +35,7 @@ export const AdminProviderPage: React.FC = () => {
   const [isAddWizardOpen, setIsAddWizardOpen] = useState(false);
   const [selectedProviderForDossier, setSelectedProviderForDossier] = useState<TelecomProviderDetailDto | null>(null);
   const [selectedProviderForTest, setSelectedProviderForTest] = useState<TelecomProviderDetailDto | null>(null);
+  const [selectedProviderForCaps, setSelectedProviderForCaps] = useState<TelecomProviderDetailDto | null>(null);
   const [selectedProviderForSandbox, setSelectedProviderForSandbox] = useState<TelecomProviderDetailDto | null>(null);
   const [selectedNetworkForEdit, setSelectedNetworkForEdit] = useState<TelecomNetworkDto | null>(null);
   const [selectedIncidentForEdit, setSelectedIncidentForEdit] = useState<ProviderIncidentDto | null>(null);
@@ -157,13 +159,13 @@ export const AdminProviderPage: React.FC = () => {
             <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold text-xs border border-emerald-500/20">
               TELECOM CONTROL PLANE
             </span>
-            <span className="text-xs text-slate-400">Phase 11.9 Enterprise Architecture</span>
+            <span className="text-xs text-slate-400">Phase 11.9 Multi-Provider Telecom Architecture</span>
           </div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-white mt-1">
-            Networks & Provider Infrastructure
+            Networks & Multi-Provider Telecom Management
           </h1>
           <p className="text-xs md:text-sm text-slate-400 mt-1 max-w-2xl">
-            Multi-carrier telecom interconnect, provider adapter registry, carrier failover routing, and connection telemetry.
+            Multi-carrier interconnect, provider adapter registry, 3-tier diagnostic probes, carrier routing matrix, and authoritative promotion safeguards.
           </p>
         </div>
 
@@ -363,27 +365,38 @@ export const AdminProviderPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-xs">
+                <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-slate-800 text-[11px]">
                   <button
                     type="button"
                     onClick={() => setSelectedProviderForDossier(prov)}
-                    className="py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-semibold transition"
+                    className="py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-semibold transition text-center"
+                    title="View Provider Details & Credentials"
                   >
                     Dossier
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedProviderForTest(prov)}
-                    className="py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl font-bold transition"
+                    className="py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl font-bold transition text-center"
+                    title="Test Connection (DNS, TLS, Auth, Reachability)"
                   >
                     ⚡ Test
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSelectedProviderForSandbox(prov)}
-                    className="py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-xl font-bold transition"
+                    onClick={() => setSelectedProviderForCaps(prov)}
+                    className="py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 rounded-xl font-bold transition text-center"
+                    title="Test Capabilities (Catalog, Orders, Precheck, Webhooks)"
                   >
-                    🧪 Sandbox
+                    🔍 Caps
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProviderForSandbox(prov)}
+                    className="py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-xl font-bold transition text-center"
+                    title="Run Sandbox Transaction Test"
+                  >
+                    🧪 Sbx
                   </button>
                 </div>
               </div>
@@ -536,7 +549,7 @@ export const AdminProviderPage: React.FC = () => {
                 <h2 className="text-base font-bold text-white">Authoritative Provider Switch Safeguard</h2>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Promote a secondary provider to authoritative status. ByteBeacon executes a 7-step pre-flight checklist to prevent transaction drops.
+                Promote a candidate provider to authoritative status. ByteBeacon executes a 7-step pre-flight checklist to prevent transaction drops.
               </p>
             </div>
 
@@ -651,35 +664,53 @@ export const AdminProviderPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 6: TESTS */}
+      {/* TAB 6: TESTS (3-TIER DIAGNOSTICS) */}
       {activeTab === 'tests' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-white">Diagnostic & Sandbox Testing Matrix</h2>
-            <span className="text-xs text-slate-400">Connection reachability probes and mock order fulfillment</span>
+            <div>
+              <h2 className="text-base font-bold text-white">3-Tier Diagnostic & Testing Suite</h2>
+              <span className="text-xs text-slate-400">Test Connection, Test Capabilities, or Run Sandbox Transactions</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {providers.map((p) => (
-              <div key={p.id} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
-                <h3 className="font-bold text-white text-sm">{p.name}</h3>
-                <p className="text-xs text-slate-400">
-                  Execute 5-step diagnostic check or simulate end-to-end sandbox order.
-                </p>
-                <div className="flex gap-2 pt-2">
+              <div key={p.id} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-white text-sm">{p.name}</h3>
+                    <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] font-mono">{p.environment}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Run lightweight connection checks, feature capability audits, or synthetic sandbox transactions.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
                   <button
                     type="button"
                     onClick={() => setSelectedProviderForTest(p)}
-                    className="flex-1 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition"
+                    className="w-full py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition text-left px-3 flex items-center justify-between"
                   >
-                    ⚡ Diagnostic
+                    <span>⚡ Test Connection</span>
+                    <span className="text-[10px] text-emerald-500/80 font-normal">DNS, TLS, Auth</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProviderForCaps(p)}
+                    className="w-full py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 rounded-xl text-xs font-bold transition text-left px-3 flex items-center justify-between"
+                  >
+                    <span>🔍 Test Capabilities</span>
+                    <span className="text-[10px] text-purple-500/80 font-normal">Features</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedProviderForSandbox(p)}
-                    className="flex-1 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs font-bold transition"
+                    className="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs font-bold transition text-left px-3 flex items-center justify-between"
                   >
-                    🧪 Sandbox Order
+                    <span>🧪 Run Sandbox Test</span>
+                    <span className="text-[10px] text-indigo-500/80 font-normal">Synthetic Flow</span>
                   </button>
                 </div>
               </div>
@@ -787,6 +818,14 @@ export const AdminProviderPage: React.FC = () => {
           provider={selectedProviderForTest}
           isOpen={Boolean(selectedProviderForTest)}
           onClose={() => setSelectedProviderForTest(null)}
+        />
+      )}
+
+      {selectedProviderForCaps && (
+        <CapabilityTestModal
+          provider={selectedProviderForCaps}
+          isOpen={Boolean(selectedProviderForCaps)}
+          onClose={() => setSelectedProviderForCaps(null)}
         />
       )}
 

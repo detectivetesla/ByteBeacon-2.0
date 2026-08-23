@@ -1,5 +1,4 @@
 import type pg from 'pg';
-import crypto from 'node:crypto';
 import {
   NetworkProvider,
   TelecomProviderType,
@@ -33,66 +32,25 @@ import {
 import { TelecomProviderRegistry } from './telecom-provider.registry.js';
 import { AuditService } from '../security/audit.service.js';
 import { BadRequestError, NotFoundError } from '../errors/app-error.js';
-
-
-// Server-side encryption key for provider credentials (derived from env or fallback salt)
-const CRED_ENCRYPTION_KEY = crypto
-  .createHash('sha256')
-  .update(process.env.JWT_SECRET || process.env.DATAHOUSE_API_KEY || 'bytebeacon_telecom_secret_master_key_2026')
-  .digest();
-
-function encryptSecret(plainText: string): string {
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', CRED_ENCRYPTION_KEY, iv);
-  let encrypted = cipher.update(plainText, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag().toString('hex');
-  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
-}
-
-export function decryptSecret(cipherText: string): string {
-  try {
-    const parts = cipherText.split(':');
-    if (parts.length !== 3) return cipherText;
-    const [ivHex, tagHex, encryptedHex] = parts;
-    const decipher = crypto.createDecipheriv(
-      'aes-256-gcm',
-      CRED_ENCRYPTION_KEY,
-      Buffer.from(ivHex, 'hex'),
-    );
-    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch {
-    return '[ENCRYPTED_SECRET]';
-  }
-}
-
-function maskSecret(secret: string, visibleSuffix: number = 4): string {
-  if (!secret) return '••••••••••••••••';
-  const clean = secret.trim();
-  if (clean.length <= visibleSuffix) {
-    return '••••••••••••••••';
-  }
-  const prefix = clean.substring(0, Math.min(4, clean.indexOf('_') + 1 || 4));
-  const suffix = clean.slice(-visibleSuffix);
-  return `${prefix}••••••••${suffix}`;
-}
+import { IProviderCredentialStore } from './credentials/credential-store.interface.js';
+import { SupabaseVaultCredentialStore } from './credentials/supabase-vault-credential-store.js';
 
 export class TelecomProviderManagementService {
   private readonly db: pg.Pool;
   private readonly registry: TelecomProviderRegistry;
   private readonly auditService?: AuditService;
+  private readonly credentialStore: IProviderCredentialStore;
 
   constructor(
     db: pg.Pool,
     registry: TelecomProviderRegistry,
     auditService?: AuditService,
+    credentialStore?: IProviderCredentialStore,
   ) {
     this.db = db;
     this.registry = registry;
     this.auditService = auditService;
+    this.credentialStore = credentialStore || new SupabaseVaultCredentialStore(db, auditService);
   }
 
   // =========================================================================
@@ -725,33 +683,6 @@ export class TelecomProviderManagementService {
         );
       }
 
-      // Store encrypted credentials if supplied
-      if (apiKey) {
-        const keyEncrypted = encryptSecret(apiKey);
-        const keyMasked = maskSecret(apiKey);
-        const secretEncrypted = apiSecret ? encryptSecret(apiSecret) : null;
-        const whSecretEncrypted = webhookSecret ? encryptSecret(webhookSecret) : null;
-        const whSecretMasked = webhookSecret ? maskSecret(webhookSecret) : null;
-
-        await client.query(
-          `INSERT INTO provider_credentials (
-             provider_id, environment, api_key_masked, api_key_encrypted,
-             api_secret_encrypted, webhook_secret_encrypted, webhook_secret_masked, status, created_by
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', $8)`,
-          [
-            createdId,
-            environment,
-            keyMasked,
-            keyEncrypted,
-            secretEncrypted,
-            whSecretEncrypted,
-            whSecretMasked,
-            actorId || null,
-          ],
-        );
-      }
-
       // Default network mapping
       const networks = supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO];
       for (const net of networks) {
@@ -770,6 +701,37 @@ export class TelecomProviderManagementService {
     } finally {
       client.release();
     }
+
+    // Store credentials via neutral credential store if provided
+    if (apiKey) {
+      await this.credentialStore.storeCredentials(
+        createdId,
+        environment,
+        {
+          apiKey,
+          apiSecret,
+          webhookSecret,
+        },
+        actorId,
+      );
+    }
+
+    // Immediately register in runtime registry so it is ready for instant test and fulfillment
+    this.registry.registerDynamicCustomProvider({
+      providerName: name.trim(),
+      providerSlug: slug.trim().toLowerCase(),
+      apiBaseUrl: apiBaseUrl.trim(),
+      apiVersion,
+      authMethod,
+      environment,
+      apiKey: apiKey || '',
+      apiSecret: apiSecret || '',
+      webhookSecret: webhookSecret || '',
+      supportedNetworks: supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+    }, {
+      isAuthoritative: Boolean(isAuthoritative),
+      supportedNetworks: supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+    });
 
     if (this.auditService && actorId) {
       await this.auditService.logEvent({
@@ -918,41 +880,24 @@ export class TelecomProviderManagementService {
   }
 
   // =========================================================================
-  // 3. Provider Credentials Management (Server-Side Vault)
+  // 3. Provider Credentials Management (Neutral Credential Store)
   // =========================================================================
 
   public async getCredentials(providerId: string): Promise<ProviderCredentialDto[]> {
-    const res = await this.db.query(`
-      SELECT 
-        c.id,
-        c.provider_id as "providerId",
-        tp.name as "providerName",
-        c.environment,
-        c.api_key_masked as "apiKeyMasked",
-        c.webhook_secret_masked as "webhookSecretMasked",
-        c.status,
-        c.last_tested_at as "lastTestedAt",
-        c.last_test_result as "lastTestResult",
-        c.created_at as "createdAt",
-        c.updated_at as "updatedAt"
-      FROM provider_credentials c
-      JOIN telecom_providers tp ON c.provider_id = tp.id
-      WHERE c.provider_id = $1
-      ORDER BY c.created_at DESC
-    `, [providerId]).catch(() => ({ rows: [] }));
-
-    return res.rows.map((row: any) => ({
-      id: row.id,
-      providerId: row.providerId,
-      providerName: row.providerName,
-      environment: row.environment,
-      apiKeyMasked: row.apiKeyMasked,
-      webhookSecretMasked: row.webhookSecretMasked,
-      status: row.status,
-      lastTestedAt: row.lastTestedAt ? new Date(row.lastTestedAt).toISOString() : null,
-      lastTestResult: row.lastTestResult,
-      createdAt: new Date(row.createdAt).toISOString(),
-      updatedAt: new Date(row.updatedAt).toISOString(),
+    const provider = await this.getProvider(providerId);
+    const masked = await this.credentialStore.listMaskedCredentials(provider.id);
+    return masked.map((m) => ({
+      id: m.id,
+      providerId: m.providerId,
+      providerName: provider.name,
+      environment: m.environment,
+      apiKeyMasked: m.apiKeyMasked,
+      webhookSecretMasked: m.webhookSecretMasked,
+      status: m.status,
+      lastTestedAt: m.lastTestedAt,
+      lastTestResult: m.lastTestResult,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
     }));
   }
 
@@ -963,64 +908,39 @@ export class TelecomProviderManagementService {
     correlationId?: string,
   ): Promise<ProviderCredentialDto> {
     const provider = await this.getProvider(providerId);
-
-    const apiKeyEncrypted = encryptSecret(data.apiKey);
-    const apiKeyMasked = maskSecret(data.apiKey);
-    const apiSecretEncrypted = data.apiSecret ? encryptSecret(data.apiSecret) : null;
-    const webhookSecretEncrypted = data.webhookSecret ? encryptSecret(data.webhookSecret) : null;
-    const webhookSecretMasked = data.webhookSecret ? maskSecret(data.webhookSecret) : null;
-
-    // Archive existing active credential for this environment
-    await this.db.query(
-      `UPDATE provider_credentials 
-       SET status = 'ROTATED', updated_at = CURRENT_TIMESTAMP 
-       WHERE provider_id = $1 AND environment = $2 AND status = 'ACTIVE'`,
-      [provider.id, data.environment],
+    const stored = await this.credentialStore.storeCredentials(
+      provider.id,
+      data.environment,
+      {
+        apiKey: data.apiKey,
+        apiSecret: data.apiSecret,
+        webhookSecret: data.webhookSecret,
+      },
+      actorId,
     );
-
-    const insertRes = await this.db.query(
-      `INSERT INTO provider_credentials (
-         provider_id, environment, api_key_masked, api_key_encrypted,
-         api_secret_encrypted, webhook_secret_encrypted, webhook_secret_masked, status, created_by
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', $8)
-       RETURNING id, provider_id as "providerId", environment, api_key_masked as "apiKeyMasked", webhook_secret_masked as "webhookSecretMasked", status, created_at as "createdAt", updated_at as "updatedAt"`,
-      [
-        provider.id,
-        data.environment,
-        apiKeyMasked,
-        apiKeyEncrypted,
-        apiSecretEncrypted,
-        webhookSecretEncrypted,
-        webhookSecretMasked,
-        actorId || null,
-      ],
-    );
-
-    const created = insertRes.rows[0];
 
     if (this.auditService && actorId) {
       await this.auditService.logEvent({
-        correlationId: correlationId || `prov_cred_${Date.now()}`,
+        correlationId: correlationId || `prov_cred_set_${Date.now()}`,
         actorId,
         actorType: 'ADMIN',
-        action: 'PROVIDER_CREDENTIAL_CREATED',
-        resourceType: 'provider_credentials',
-        resourceId: created.id,
-        metadata: { providerId: provider.id, providerName: provider.name, environment: data.environment },
+        action: 'PROVIDER_CREDENTIALS_SET',
+        resourceType: 'telecom_provider_credentials',
+        resourceId: stored.id,
+        metadata: { providerId: provider.id, environment: data.environment },
       });
     }
 
     return {
-      id: created.id,
-      providerId: created.providerId,
+      id: stored.id,
+      providerId: stored.providerId,
       providerName: provider.name,
-      environment: created.environment,
-      apiKeyMasked: created.apiKeyMasked,
-      webhookSecretMasked: created.webhookSecretMasked,
-      status: created.status,
-      createdAt: new Date(created.createdAt).toISOString(),
-      updatedAt: new Date(created.updatedAt).toISOString(),
+      environment: stored.environment,
+      apiKeyMasked: stored.apiKeyMasked,
+      webhookSecretMasked: stored.webhookSecretMasked,
+      status: stored.status,
+      createdAt: stored.createdAt,
+      updatedAt: stored.updatedAt,
     };
   }
 
@@ -1031,55 +951,27 @@ export class TelecomProviderManagementService {
     correlationId?: string,
   ): Promise<ProviderCredentialDto> {
     const provider = await this.getProvider(providerId);
-
-    if (!data.reason || data.reason.trim().length === 0) {
-      throw new BadRequestError('A justification reason is mandatory for credential rotation');
-    }
-
-    const apiKeyEncrypted = encryptSecret(data.newApiKey);
-    const apiKeyMasked = maskSecret(data.newApiKey);
-    const apiSecretEncrypted = data.newApiSecret ? encryptSecret(data.newApiSecret) : null;
-    const webhookSecretEncrypted = data.newWebhookSecret ? encryptSecret(data.newWebhookSecret) : null;
-    const webhookSecretMasked = data.newWebhookSecret ? maskSecret(data.newWebhookSecret) : null;
-
-    // Mark previous active credentials as ROTATED
-    await this.db.query(
-      `UPDATE provider_credentials 
-       SET status = 'ROTATED', updated_at = CURRENT_TIMESTAMP 
-       WHERE provider_id = $1 AND environment = $2 AND status = 'ACTIVE'`,
-      [provider.id, data.environment],
+    const rotated = await this.credentialStore.rotateCredentials(
+      provider.id,
+      data.environment,
+      {
+        newApiKey: data.newApiKey,
+        newApiSecret: data.newApiSecret,
+        newWebhookSecret: data.newWebhookSecret,
+      },
+      data.reason,
+      actorId,
     );
-
-    const insertRes = await this.db.query(
-      `INSERT INTO provider_credentials (
-         provider_id, environment, api_key_masked, api_key_encrypted,
-         api_secret_encrypted, webhook_secret_encrypted, webhook_secret_masked, status, created_by
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', $8)
-       RETURNING id, provider_id as "providerId", environment, api_key_masked as "apiKeyMasked", webhook_secret_masked as "webhookSecretMasked", status, created_at as "createdAt", updated_at as "updatedAt"`,
-      [
-        provider.id,
-        data.environment,
-        apiKeyMasked,
-        apiKeyEncrypted,
-        apiSecretEncrypted,
-        webhookSecretEncrypted,
-        webhookSecretMasked,
-        actorId || null,
-      ],
-    );
-
-    const rotated = insertRes.rows[0];
 
     if (this.auditService && actorId) {
       await this.auditService.logEvent({
-        correlationId: correlationId || `prov_rot_${Date.now()}`,
+        correlationId: correlationId || `prov_cred_rot_${Date.now()}`,
         actorId,
         actorType: 'ADMIN',
-        action: 'PROVIDER_CREDENTIAL_ROTATED',
-        resourceType: 'provider_credentials',
+        action: 'PROVIDER_CREDENTIALS_ROTATED',
+        resourceType: 'telecom_provider_credentials',
         resourceId: rotated.id,
-        metadata: { providerId: provider.id, providerName: provider.name, environment: data.environment, reason: data.reason },
+        metadata: { providerId: provider.id, environment: data.environment, reason: data.reason },
       });
     }
 
@@ -1091,8 +983,8 @@ export class TelecomProviderManagementService {
       apiKeyMasked: rotated.apiKeyMasked,
       webhookSecretMasked: rotated.webhookSecretMasked,
       status: rotated.status,
-      createdAt: new Date(rotated.createdAt).toISOString(),
-      updatedAt: new Date(rotated.updatedAt).toISOString(),
+      createdAt: rotated.createdAt,
+      updatedAt: rotated.updatedAt,
     };
   }
 
@@ -1103,35 +995,22 @@ export class TelecomProviderManagementService {
     actorId?: string,
     correlationId?: string,
   ): Promise<{ id: string; status: string }> {
-    if (!reason) {
-      throw new BadRequestError('Reason is required to revoke provider credential');
-    }
-
-    const res = await this.db.query(
-      `UPDATE provider_credentials 
-       SET status = 'REVOKED', revoked_at = CURRENT_TIMESTAMP, revocation_reason = $2, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $1 AND provider_id = $3
-       RETURNING id`,
-      [credentialId, reason, providerId],
-    );
-
-    if (res.rows.length === 0) {
-      throw new NotFoundError(`Credential not found for provider ${providerId}`);
-    }
+    const provider = await this.getProvider(providerId);
+    const result = await this.credentialStore.revokeCredential(provider.id, credentialId, reason, actorId);
 
     if (this.auditService && actorId) {
       await this.auditService.logEvent({
-        correlationId: correlationId || `prov_rev_${Date.now()}`,
+        correlationId: correlationId || `prov_cred_rev_${Date.now()}`,
         actorId,
         actorType: 'ADMIN',
-        action: 'PROVIDER_CREDENTIAL_REVOKED',
-        resourceType: 'provider_credentials',
+        action: 'PROVIDER_CREDENTIALS_REVOKED',
+        resourceType: 'telecom_provider_credentials',
         resourceId: credentialId,
-        metadata: { providerId, reason },
+        metadata: { providerId: provider.id, reason },
       });
     }
 
-    return { id: credentialId, status: 'REVOKED' };
+    return result;
   }
 
   // =========================================================================

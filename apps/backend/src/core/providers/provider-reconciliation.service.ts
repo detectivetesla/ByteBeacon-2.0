@@ -28,7 +28,20 @@ export class ProviderReconciliationService {
   }
 
   /**
-   * Reconciles stale processing orders by querying the authoritative GMPL status.
+   * Resolves the provider instance for a specific historical order.
+   */
+  private resolveProviderForRecord(providerName?: string): ITelecomProvider {
+    const registry = this.provider as any;
+    if (providerName && typeof registry.getProvider === 'function') {
+      const historical = registry.getProvider(providerName);
+      if (historical) return historical;
+    }
+    return this.provider;
+  }
+
+  /**
+   * Reconciles stale processing orders by querying authoritative provider status.
+   * Resolves historical provider for each order to guarantee historical fidelity.
    */
   public async reconcileStaleOrders(
     reconciliationDate: string,
@@ -54,8 +67,10 @@ export class ProviderReconciliationService {
     for (const row of ordersRes.rows) {
       if (!row.providerReference) continue;
 
+      const orderProvider = this.resolveProviderForRecord(row.providerName);
+
       try {
-        const actualStatus = await this.provider.getOrderStatus({
+        const actualStatus = await orderProvider.getOrderStatus({
           providerReference: row.providerReference,
           orderId: row.orderId,
         });
@@ -63,7 +78,7 @@ export class ProviderReconciliationService {
         if (actualStatus.providerStatus === row.providerStatus) {
           matchedCount++;
         } else {
-          // Discrepancy found! Authoritative GMPL status has changed
+          // Discrepancy found! Authoritative provider status has changed
           const isCompleted = actualStatus.providerStatus === ProviderStatus.COMPLETED;
           const isFailed = actualStatus.providerStatus === ProviderStatus.FAILED || actualStatus.providerStatus === ProviderStatus.REJECTED;
 
@@ -109,11 +124,11 @@ export class ProviderReconciliationService {
             providerReference: row.providerReference,
             localStatus: row.providerStatus,
             actualProviderStatus: actualStatus.providerStatus,
-            actionTaken: `Updated local status from ${row.providerStatus} to ${actualStatus.providerStatus}`,
+            actionTaken: `Updated local status from ${row.providerStatus} to ${actualStatus.providerStatus} via ${orderProvider.providerName}`,
           });
         }
       } catch (err) {
-        logger.error({ err, orderId: row.orderId }, 'Error polling provider during reconciliation');
+        logger.error({ err, orderId: row.orderId, providerName: orderProvider.providerName }, 'Error polling provider during reconciliation');
       }
     }
 
@@ -181,4 +196,3 @@ export class ProviderReconciliationService {
     };
   }
 }
-
