@@ -4,6 +4,7 @@ import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { PasswordInput, Button } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { authApi } from '../../api/auth.api.js';
+import { validatePassword } from '../../utils/password.js';
 import { ArrowRight, CheckCircle2 } from 'lucide-react';
 
 export const ResetPasswordPage: React.FC = () => {
@@ -23,8 +24,9 @@ export const ResetPasswordPage: React.FC = () => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!newPassword || newPassword.length < 8) {
-      setErrorMsg('Password must be at least 8 characters');
+    const passValidation = validatePassword(newPassword);
+    if (!passValidation.isValid) {
+      setErrorMsg(passValidation.error || 'Password does not meet complexity requirements');
       return;
     }
 
@@ -101,11 +103,12 @@ export const ResetPasswordPage: React.FC = () => {
         <PasswordInput
           id="new-password"
           label="New Password"
-          placeholder="minimum 8 characters"
+          placeholder="Create new password"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           disabled={isLoading}
           showStrengthMeter
+          showRequirements
           required
         />
 

@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Input, PasswordInput, PhoneInput, Switch } from '../../components/ui/index.js';
+import { validatePassword } from '../../utils/password.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useTheme } from '../../context/ThemeContext.js';
 import {
@@ -100,8 +101,9 @@ export const AgentSettingsPage: React.FC = () => {
       toastError('Validation Error', 'Please enter your current password.');
       return;
     }
-    if (newPassword.length < 8) {
-      toastError('Weak Password', 'New password must be at least 8 characters long.');
+    const passValidation = validatePassword(newPassword);
+    if (!passValidation.isValid) {
+      toastError('Weak Password', passValidation.error || 'Password does not meet complexity requirements.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -428,8 +430,9 @@ export const AgentSettingsPage: React.FC = () => {
                 label="New Password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min 8 characters"
+                placeholder="Create strong password"
                 showStrengthMeter
+                showRequirements
                 required
               />
 

@@ -98,6 +98,40 @@ describe('ByteBeacon 2.0 UI Components Suite', () => {
     expect(input.type).toBe('password');
   });
 
+  it('renders PasswordInput with requirements checklist and strength meter', () => {
+    const { rerender } = render(
+      <PasswordInput
+        label="Create Password"
+        placeholder="Enter password"
+        showStrengthMeter
+        showRequirements
+        value=""
+        onChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Password requirements:')).toBeInTheDocument();
+    expect(screen.getByText('At least 8 characters')).toBeInTheDocument();
+    expect(screen.getByText('Uppercase letter (A-Z)')).toBeInTheDocument();
+    expect(screen.getByText('Lowercase letter (a-z)')).toBeInTheDocument();
+    expect(screen.getByText('Number (0-9)')).toBeInTheDocument();
+    expect(screen.getByText('Special symbol (!@#$%...)')).toBeInTheDocument();
+
+    rerender(
+      <PasswordInput
+        label="Create Password"
+        placeholder="Enter password"
+        showStrengthMeter
+        showRequirements
+        value="StrongP@ss123"
+        onChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Strong & secure')).toBeInTheDocument();
+    expect(screen.getByText('5/5 criteria met')).toBeInTheDocument();
+  });
+
   it('renders SocialAuthButton for Google and Apple', () => {
     const handleGoogle = vi.fn();
     render(<SocialAuthButton provider="google" onClick={handleGoogle} />);

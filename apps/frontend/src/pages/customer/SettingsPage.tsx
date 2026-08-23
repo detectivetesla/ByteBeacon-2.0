@@ -3,6 +3,7 @@ import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Input, PhoneInput, PasswordInput, Switch } from '../../components/ui/index.js';
+import { validatePassword } from '../../utils/password.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useTheme } from '../../context/ThemeContext.js';
@@ -108,8 +109,9 @@ export const SettingsPage: React.FC = () => {
       toastError('Password Mismatch', 'New password and confirmation do not match.');
       return;
     }
-    if (newPassword.length < 8) {
-      toastError('Password Too Short', 'Password must be at least 8 characters long.');
+    const passValidation = validatePassword(newPassword);
+    if (!passValidation.isValid) {
+      toastError('Weak Password', passValidation.error || 'Password does not meet complexity requirements.');
       return;
     }
 
@@ -343,8 +345,9 @@ export const SettingsPage: React.FC = () => {
                 label="New Password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Minimum 8 characters with numbers & symbols"
+                placeholder="Create new password"
                 showStrengthMeter
+                showRequirements
                 required
               />
 

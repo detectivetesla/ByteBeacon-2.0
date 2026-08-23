@@ -1,15 +1,29 @@
 import React, { useState } from 'react';
 import { Input, InputProps } from './Input.js';
-import { Eye, EyeOff, Lock, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, Lock, AlertTriangle, Check, ShieldCheck } from 'lucide-react';
+import { validatePassword } from '../../../utils/password.js';
 import styles from './Input.module.css';
 
 export interface PasswordInputProps extends Omit<InputProps, 'type' | 'leftIcon' | 'rightIcon'> {
   showStrengthMeter?: boolean;
   showIcon?: boolean;
+  showRequirements?: boolean;
+  requirementsTitle?: string;
 }
 
 export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
-  ({ showStrengthMeter = false, showIcon = true, value, onChange, ...props }, ref) => {
+  (
+    {
+      showStrengthMeter = false,
+      showIcon = true,
+      showRequirements = false,
+      requirementsTitle = 'Password requirements:',
+      value,
+      onChange,
+      ...props
+    },
+    ref,
+  ) => {
     const [showPassword, setShowPassword] = useState(false);
     const [capsLockActive, setCapsLockActive] = useState(false);
 
@@ -28,22 +42,9 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
       props.onKeyUp?.(e);
     };
 
-    // Calculate password strength
+    // Calculate password validation & strength
     const passwordStr = typeof value === 'string' ? value : '';
-    let strengthScore = 0;
-    if (passwordStr.length >= 8) strengthScore++;
-    if (/[A-Z]/.test(passwordStr)) strengthScore++;
-    if (/[0-9]/.test(passwordStr)) strengthScore++;
-    if (/[^A-Za-z0-9]/.test(passwordStr)) strengthScore++;
-
-    const getStrengthLabel = (score: number) => {
-      if (score <= 1) return { label: 'Weak', color: 'var(--color-danger)' };
-      if (score === 2) return { label: 'Fair', color: '#F59E0B' };
-      if (score === 3) return { label: 'Good', color: '#3B82F6' };
-      return { label: 'Strong password', color: 'var(--color-success)' };
-    };
-
-    const strength = getStrengthLabel(strengthScore);
+    const { score, strength, rules } = validatePassword(passwordStr);
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
@@ -93,7 +94,7 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
         {showStrengthMeter && passwordStr.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '2px' }}>
             <div style={{ display: 'flex', gap: '3px', width: '100%', height: '4px' }}>
-              {[1, 2, 3, 4].map((step) => (
+              {[1, 2, 3, 4, 5].map((step) => (
                 <div
                   key={step}
                   style={{
@@ -101,15 +102,99 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
                     height: '100%',
                     borderRadius: '2px',
                     backgroundColor:
-                      strengthScore >= step ? strength.color : 'var(--color-bg-surface-elevated)',
+                      score >= step ? strength.color : 'var(--color-bg-surface-elevated)',
                     transition: 'background-color 150ms ease',
                   }}
                 />
               ))}
             </div>
-            <span style={{ fontSize: '10px', color: strength.color, fontWeight: 700 }}>
-              {strength.label}
-            </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', color: strength.color, fontWeight: 700 }}>
+                {strength.label}
+              </span>
+              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                {score}/5 criteria met
+              </span>
+            </div>
+          </div>
+        )}
+
+        {showRequirements && (
+          <div
+            style={{
+              marginTop: '4px',
+              padding: '8px 10px',
+              borderRadius: 'var(--radius-sm, 6px)',
+              backgroundColor: 'var(--color-bg-surface-elevated)',
+              border: '1px solid var(--color-border-default)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '11px',
+                fontWeight: 700,
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              <ShieldCheck size={13} color="var(--color-primary)" />
+              <span>{requirementsTitle}</span>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
+                gap: '4px 8px',
+              }}
+            >
+              {rules.map((rule) => {
+                const isPassed = rule.passed;
+                const isTyping = passwordStr.length > 0;
+
+                return (
+                  <div
+                    key={rule.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '11px',
+                      color: isPassed
+                        ? 'var(--color-success)'
+                        : isTyping
+                        ? 'var(--color-text-muted)'
+                        : 'var(--color-text-secondary)',
+                      fontWeight: isPassed ? 600 : 500,
+                      transition: 'color 150ms ease',
+                    }}
+                  >
+                    {isPassed ? (
+                      <Check size={12} strokeWidth={3} color="var(--color-success)" style={{ flexShrink: 0 }} />
+                    ) : (
+                      <div
+                        style={{
+                          width: '5px',
+                          height: '5px',
+                          borderRadius: '50%',
+                          backgroundColor: 'var(--color-text-muted)',
+                          opacity: 0.6,
+                          marginLeft: '3px',
+                          marginRight: '4px',
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                    <span>{rule.label}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

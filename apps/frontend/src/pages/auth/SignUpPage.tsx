@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { authApi } from '../../api/auth.api.js';
 import { promptGoogleSignIn } from '../../utils/googleAuth.js';
+import { validatePassword } from '../../utils/password.js';
 import { ArrowRight, User, Mail } from 'lucide-react';
 
 export const SignUpPage: React.FC = () => {
@@ -57,7 +58,8 @@ export const SignUpPage: React.FC = () => {
     if (!fullName.trim()) errors.fullName = 'Full name is required';
     if (!email.trim() || !email.includes('@')) errors.email = 'Valid email address is required';
     if (!phone.trim() || phone.trim().length < 10) errors.phone = 'Valid phone number (e.g. 0241234567) is required';
-    if (!password || password.length < 8) errors.password = 'Password must be at least 8 characters';
+    const passValidation = validatePassword(password);
+    if (!passValidation.isValid) errors.password = passValidation.error || 'Password does not meet requirements';
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -163,13 +165,14 @@ export const SignUpPage: React.FC = () => {
         {/* Password */}
         <PasswordInput
           id="signup-password"
-          label="Password (min. 8 characters)"
+          label="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="••••••••••••"
           error={fieldErrors.password}
           disabled={isLoading}
           showStrengthMeter
+          showRequirements
           required
         />
 

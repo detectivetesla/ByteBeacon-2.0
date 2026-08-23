@@ -5,6 +5,7 @@ import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/in
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { authApi } from '../../api/auth.api.js';
+import { validatePassword } from '../../utils/password.js';
 import { Store, ArrowRight, User, Mail } from 'lucide-react';
 
 export const AgentSignUpPage: React.FC = () => {
@@ -29,7 +30,8 @@ export const AgentSignUpPage: React.FC = () => {
     if (!fullName.trim()) errors.fullName = 'Full legal name is required';
     if (!email.trim() || !email.includes('@')) errors.email = 'Valid business email is required';
     if (!phone.trim() || phone.trim().length < 10) errors.phone = 'Valid 10-digit mobile money phone is required';
-    if (!password || password.length < 8) errors.password = 'Password must be at least 8 characters';
+    const passValidation = validatePassword(password);
+    if (!passValidation.isValid) errors.password = passValidation.error || 'Password does not meet requirements';
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -143,13 +145,14 @@ export const AgentSignUpPage: React.FC = () => {
         {/* Password */}
         <PasswordInput
           id="agent-password"
-          label="Account Password (min. 8 characters)"
-          placeholder="minimum 8 characters"
+          label="Account Password"
+          placeholder="Create strong password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           error={fieldErrors.password}
           disabled={isLoading}
           showStrengthMeter
+          showRequirements
           required
         />
 
