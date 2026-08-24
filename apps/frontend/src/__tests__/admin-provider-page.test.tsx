@@ -8,9 +8,11 @@ import { NetworkProvider } from '@bytebeacon/shared';
 const mockToastSuccess = vi.fn();
 const mockToastError = vi.fn();
 
+let mockCurrentUser = { sub: 'u1', email: 'admin@bytebeacon.com', role: 'super_admin' };
+
 vi.mock('../context/AuthContext.js', () => ({
   useAuth: () => ({
-    user: { sub: 'u1', email: 'admin@bytebeacon.com', role: 'super_admin' },
+    user: mockCurrentUser,
     isAuthenticated: true,
   }),
 }));
@@ -35,7 +37,10 @@ vi.mock('../api/admin.api.js', () => ({
     validateAuthoritativeSwitch: vi.fn(),
     switchAuthoritativeProvider: vi.fn(),
     testProviderConnection: vi.fn(),
+    testProviderCapabilities: vi.fn(),
     testProviderSandboxTransaction: vi.fn(),
+    getProviderCredentials: vi.fn(),
+    rotateProviderCredential: vi.fn(),
   },
 }));
 
@@ -180,6 +185,7 @@ describe('Phase 11.9: AdminProviderPage 7-Tab Telecom Control Plane', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCurrentUser = { sub: 'u1', email: 'admin@bytebeacon.com', role: 'super_admin' };
     (adminApi.getTelecomOverview as any).mockResolvedValue(mockOverview);
     (adminApi.getTelecomNetworks as any).mockResolvedValue(mockNetworks);
     (adminApi.getTelecomProviders as any).mockResolvedValue(mockProviders);
@@ -215,6 +221,26 @@ describe('Phase 11.9: AdminProviderPage 7-Tab Telecom Control Plane', () => {
 
     expect(await screen.findByText('Carrier Fulfillment Routing Rules')).toBeDefined();
     expect(await screen.findByText('Authoritative Provider Switch Safeguard')).toBeDefined();
+
+    // Click Health tab
+    const healthTab = await screen.findByRole('button', { name: /Provider Health & Telemetry/i });
+    fireEvent.click(healthTab);
+    expect(await screen.findByText('Provider Telemetry & Health Monitoring')).toBeDefined();
+
+    // Click Webhooks tab
+    const webhooksTab = await screen.findByRole('button', { name: /Webhooks & Callbacks/i });
+    fireEvent.click(webhooksTab);
+    expect(await screen.findByText('Inbound Webhooks & Delivery Endpoints')).toBeDefined();
+
+    // Click Diagnostics tab
+    const testsTab = await screen.findByRole('button', { name: /Diagnostics & Sandbox/i });
+    fireEvent.click(testsTab);
+    expect(await screen.findByText('3-Tier Diagnostic & Testing Suite')).toBeDefined();
+
+    // Click Incidents tab
+    const incidentsTab = await screen.findByRole('button', { name: /Incidents & Status/i });
+    fireEvent.click(incidentsTab);
+    expect(await screen.findByText('Provider Incidents & Outage Log')).toBeDefined();
   });
 
   it('opens Add Telecom Provider 9-step wizard modal', async () => {
@@ -226,6 +252,7 @@ describe('Phase 11.9: AdminProviderPage 7-Tab Telecom Control Plane', () => {
     fireEvent.click(addBtn);
 
     expect(await screen.findByText(/Add Telecom Provider Wizard/)).toBeDefined();
+    expect(await screen.findByText(/Architecture Preset/)).toBeDefined();
   });
 
   it('toggles network active state when button is clicked', async () => {
@@ -248,5 +275,31 @@ describe('Phase 11.9: AdminProviderPage 7-Tab Telecom Control Plane', () => {
       expect(adminApi.toggleTelecomNetwork).toHaveBeenCalledWith('MTN');
     });
   });
-});
 
+  it('runs pre-flight authoritative switch validation', async () => {
+    (adminApi.validateAuthoritativeSwitch as any).mockResolvedValue({
+      canSwitch: true,
+      targetProvider: 'GMPL',
+      currentProvider: 'DataHouse',
+      checks: [
+        { check: 'Target is not currently authoritative', passed: true, message: 'Ready' },
+        { check: 'Credentials valid & configured', passed: true, message: 'Active' },
+      ],
+      timestamp: new Date().toISOString(),
+    });
+
+    render(<AdminProviderPage />);
+
+    const routingTab = await screen.findByRole('button', { name: /Routing & Authoritative Switch/i });
+    fireEvent.click(routingTab);
+
+    const validateBtn = await screen.findByRole('button', { name: /Run Pre-Flight Validation/i });
+    fireEvent.click(validateBtn);
+
+    await waitFor(() => {
+      expect(adminApi.validateAuthoritativeSwitch).toHaveBeenCalledWith('GMPL');
+    });
+
+    expect(await screen.findByText('ALL CHECKS PASSED')).toBeDefined();
+  });
+});

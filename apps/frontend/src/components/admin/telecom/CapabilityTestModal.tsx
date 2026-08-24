@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { TelecomProviderDetailDto } from '@bytebeacon/shared';
-import { adminApi } from '../../../api/admin.api';
+import { adminApi } from '../../../api/admin.api.js';
+import { Modal } from '../../ui/Modal/Modal.js';
+import { Button } from '../../ui/Button/Button.js';
+import { Badge } from '../../ui/Badge/Badge.js';
+import { Sliders, CheckCircle2, XCircle } from 'lucide-react';
 
 interface CapabilityTestModalProps {
   provider: TelecomProviderDetailDto;
@@ -51,87 +55,78 @@ export const CapabilityTestModal: React.FC<CapabilityTestModalProps> = ({
   const entries = capabilities ? Object.entries(capabilities) : Object.entries(provider.capabilities || {});
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span>🔍</span> Capability Inspection: {provider.name}
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Inspects upstream telecom feature availability and carrier API capabilities.
-            </p>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Capability Inspection: ${provider.name}`}
+      subtitle="Inspects upstream telecom feature availability and carrier API capabilities."
+      maxWidth="640px"
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+            Provider: <strong style={{ color: 'var(--color-text-primary)' }}>{provider.name}</strong> ({provider.slug})
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition">
-            ✕
-          </button>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={handleRunCapabilityTest}
+            disabled={isRunning}
+            leftIcon={<Sliders size={14} />}
+          >
+            {isRunning ? 'Probing Capabilities...' : 'Probe Upstream Capabilities'}
+          </Button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-slate-300">
-              Provider: <span className="font-bold text-white">{provider.name}</span> ({provider.slug})
-            </div>
-            <button
-              type="button"
-              onClick={handleRunCapabilityTest}
-              disabled={isRunning}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-lg shadow-indigo-500/20"
-            >
-              {isRunning ? 'Probing Capabilities...' : '🔍 Probe Upstream Capabilities'}
-            </button>
+        {error && (
+          <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-surface)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)' }}>
+            {error}
           </div>
+        )}
 
-          {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-            {entries.map(([key, isSupported]) => (
-              <div
-                key={key}
-                className="p-3 bg-slate-800/40 border border-slate-700/60 rounded-xl flex items-center justify-between text-xs"
-              >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '340px', overflowY: 'auto' }}>
+          {entries.map(([key, isSupported]) => (
+            <div
+              key={key}
+              style={{
+                padding: '0.625rem 0.75rem',
+                backgroundColor: 'var(--color-bg-surface-elevated)',
+                border: '1px solid var(--color-border-default)',
+                borderRadius: 'var(--radius-md)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 'var(--font-size-xs)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {isSupported ? (
+                  <CheckCircle2 size={16} color="var(--color-success)" />
+                ) : (
+                  <XCircle size={16} color="var(--color-text-muted)" />
+                )}
                 <div>
-                  <div className="font-bold text-white flex items-center gap-2">
-                    <span className={isSupported ? 'text-emerald-400 font-bold' : 'text-slate-500 font-bold'}>
-                      {isSupported ? '✓' : '✕'}
-                    </span>
+                  <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
                     {key.replace(/_/g, ' ')}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
+                  <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
                     {capabilityDescriptions[key] || 'Telecom provider capability module'}
                   </div>
                 </div>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                    isSupported
-                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                      : 'bg-slate-700/60 text-slate-400'
-                  }`}
-                >
-                  {isSupported ? 'SUPPORTED' : 'UNSUPPORTED'}
-                </span>
               </div>
-            ))}
-          </div>
+              <Badge variant={isSupported ? 'success' : 'neutral'}>
+                {isSupported ? 'SUPPORTED' : 'UNSUPPORTED'}
+              </Badge>
+            </div>
+          ))}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end px-6 py-4 border-t border-slate-800 bg-slate-900/50">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl transition"
-          >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

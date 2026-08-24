@@ -5,7 +5,10 @@ import {
   ProviderIncidentStatus,
   ProviderIncidentDto,
 } from '@bytebeacon/shared';
-import { adminApi } from '../../../api/admin.api';
+import { adminApi } from '../../../api/admin.api.js';
+import { Modal } from '../../ui/Modal/Modal.js';
+import { Button } from '../../ui/Button/Button.js';
+import { AlertTriangle } from 'lucide-react';
 
 interface ProviderIncidentModalProps {
   providers: TelecomProviderDetailDto[];
@@ -76,144 +79,149 @@ export const ProviderIncidentModal: React.FC<ProviderIncidentModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <span>🚨</span> {incident ? 'Update Provider Incident' : 'Report Provider Incident'}
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition">
-            ✕
-          </button>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={incident ? 'Update Provider Incident' : 'Report Provider Incident'}
+      subtitle="Log carrier degradation, latency spikes, and track operational NOC mitigations."
+      maxWidth="600px"
+    >
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        {error && (
+          <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-surface)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)' }}>
+            {error}
+          </div>
+        )}
+
+        {!incident && (
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Affected Provider *
+            </label>
+            <select
+              value={providerId}
+              onChange={(e) => setProviderId(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+            >
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({p.providerType})</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+            Incident Title *
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. MTN Top-up Gateway Timeouts"
+            style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs">
-              {error}
-            </div>
-          )}
-
-          {!incident && (
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Affected Provider *</label>
-              <select
-                value={providerId}
-                onChange={(e) => setProviderId(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
-              >
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.providerType})</option>
-                ))}
-              </select>
-            </div>
-          )}
-
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-2)' }}>
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Incident Title *</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. MTN Top-up Gateway Timeouts"
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
-            />
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Severity</label>
-              <select
-                value={severity}
-                onChange={(e) => setSeverity(e.target.value as any)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
-              >
-                <option value={ProviderIncidentSeverity.LOW}>LOW</option>
-                <option value={ProviderIncidentSeverity.MEDIUM}>MEDIUM</option>
-                <option value={ProviderIncidentSeverity.HIGH}>HIGH</option>
-                <option value={ProviderIncidentSeverity.CRITICAL}>CRITICAL</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as any)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
-              >
-                <option value={ProviderIncidentStatus.INVESTIGATING}>INVESTIGATING</option>
-                <option value={ProviderIncidentStatus.IDENTIFIED}>IDENTIFIED</option>
-                <option value={ProviderIncidentStatus.MONITORING}>MONITORING</option>
-                <option value={ProviderIncidentStatus.RESOLVED}>RESOLVED</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Carrier Impact</label>
-              <select
-                value={affectedNetwork}
-                onChange={(e) => setAffectedNetwork(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
-              >
-                <option value="ALL">ALL NETWORKS</option>
-                <option value="MTN">MTN ONLY</option>
-                <option value="TELECEL">TELECEL ONLY</option>
-                <option value="AIRTELTIGO">AIRTELTIGO ONLY</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Failure Rate (%)</label>
-            <input
-              type="number"
-              value={failureRatePercent}
-              onChange={(e) => setFailureRatePercent(Number(e.target.value))}
-              min={0}
-              max={100}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Summary / Symptoms *</label>
-            <textarea
-              rows={2}
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              placeholder="Describe failure rate spikes, HTTP 504 gateway timeouts..."
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Mitigation & Action Notes</label>
-            <textarea
-              rows={2}
-              value={mitigationNotes}
-              onChange={(e) => setMitigationNotes(e.target.value)}
-              placeholder="Traffic rerouted to secondary provider; ticket #991 raised with aggregator NOC."
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition"
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Severity
+            </label>
+            <select
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value as any)}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
             >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition"
-            >
-              {isSubmitting ? 'Saving...' : incident ? 'Update Incident' : 'Report Incident'}
-            </button>
+              <option value={ProviderIncidentSeverity.LOW}>LOW</option>
+              <option value={ProviderIncidentSeverity.MEDIUM}>MEDIUM</option>
+              <option value={ProviderIncidentSeverity.HIGH}>HIGH</option>
+              <option value={ProviderIncidentSeverity.CRITICAL}>CRITICAL</option>
+            </select>
           </div>
-        </form>
-      </div>
-    </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Status
+            </label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as any)}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+            >
+              <option value={ProviderIncidentStatus.INVESTIGATING}>INVESTIGATING</option>
+              <option value={ProviderIncidentStatus.IDENTIFIED}>IDENTIFIED</option>
+              <option value={ProviderIncidentStatus.MONITORING}>MONITORING</option>
+              <option value={ProviderIncidentStatus.RESOLVED}>RESOLVED</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Carrier Impact
+            </label>
+            <select
+              value={affectedNetwork}
+              onChange={(e) => setAffectedNetwork(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+            >
+              <option value="ALL">ALL NETWORKS</option>
+              <option value="MTN">MTN ONLY</option>
+              <option value="TELECEL">TELECEL ONLY</option>
+              <option value="AIRTELTIGO">AIRTELTIGO ONLY</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+            Failure Rate (%)
+          </label>
+          <input
+            type="number"
+            value={failureRatePercent}
+            onChange={(e) => setFailureRatePercent(Number(e.target.value))}
+            min={0}
+            max={100}
+            style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+            Summary / Symptoms *
+          </label>
+          <textarea
+            rows={2}
+            value={summary}
+            onChange={(e) => setSummary(e.target.value)}
+            placeholder="Describe failure rate spikes, HTTP 504 gateway timeouts..."
+            style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+          />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+            Mitigation & Action Notes
+          </label>
+          <textarea
+            rows={2}
+            value={mitigationNotes}
+            onChange={(e) => setMitigationNotes(e.target.value)}
+            placeholder="Traffic rerouted to secondary provider; ticket raised with upstream carrier NOC."
+            style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="danger" size="sm" disabled={isSubmitting} leftIcon={<AlertTriangle size={14} />}>
+            {isSubmitting ? 'Saving...' : incident ? 'Update Incident' : 'Report Incident'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 };

@@ -7,7 +7,12 @@ import {
   CreateTelecomProviderRequest,
   ProviderConnectionTestResult,
 } from '@bytebeacon/shared';
-import { adminApi } from '../../../api/admin.api';
+import { adminApi } from '../../../api/admin.api.js';
+import { Modal } from '../../ui/Modal/Modal.js';
+import { Button } from '../../ui/Button/Button.js';
+import { Badge, NetworkBadge } from '../../ui/Badge/Badge.js';
+import { Card } from '../../ui/Card/Card.js';
+import { CheckCircle2, ShieldCheck, Zap, Lock, Radio, Server, Sliders } from 'lucide-react';
 
 interface AddProviderWizardModalProps {
   isOpen: boolean;
@@ -165,450 +170,532 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Add Telecom Provider Wizard (Connect Sourcing API)
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Step {step} of 9: {
-                step === 1 ? 'Provider Identity & Preset' :
-                step === 2 ? 'API Endpoints & Protocol' :
-                step === 3 ? 'Supported Carrier Networks' :
-                step === 4 ? 'Capability Matrix' :
-                step === 5 ? 'Authentication & Secrets Vault' :
-                step === 6 ? 'Webhook Configuration' :
-                step === 7 ? 'Live Diagnostic Pre-Check' :
-                step === 8 ? 'Carrier Routing Priority' :
-                'Summary & Instant Activation'
-              }
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition"
-          >
-            ✕
-          </button>
-        </div>
+  const stepTitles = [
+    'Provider Identity & Preset',
+    'API Endpoints & Protocol',
+    'Supported Carrier Networks',
+    'Capability Matrix',
+    'Authentication & Secrets Vault',
+    'Webhook Configuration',
+    'Live Diagnostic Pre-Check',
+    'Carrier Routing Priority',
+    'Summary & Instant Activation',
+  ];
 
-        {/* Progress Bar */}
-        <div className="w-full bg-slate-800 h-1.5">
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Add Telecom Provider Wizard"
+      subtitle={`Step ${step} of 9: ${stepTitles[step - 1]}`}
+      maxWidth="680px"
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        {/* Step Progress Bar */}
+        <div style={{ width: '100%', height: '6px', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
           <div
-            className="bg-emerald-500 h-1.5 transition-all duration-300"
-            style={{ width: `${(step / 9) * 100}%` }}
+            style={{
+              width: `${(step / 9) * 100}%`,
+              height: '100%',
+              backgroundColor: 'var(--color-brand)',
+              transition: 'width var(--transition-normal)',
+            }}
           />
         </div>
 
-        {/* Body Content */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-4">
-          {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm">
-              {error}
-            </div>
-          )}
+        {error && (
+          <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-surface)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)' }}>
+            {error}
+          </div>
+        )}
 
-          {/* STEP 1: Provider Identity & Preset */}
-          {step === 1 && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Architecture Preset (Quick Setup)</label>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  {[
-                    { id: 'AGGREGATOR', title: 'Multi-Carrier Aggregator', desc: 'DataHouse, Hubtel, Africa\'s Talking' },
-                    { id: 'DIRECT_MNO', title: 'Direct Carrier MNO', desc: 'MTN / Telecel Enterprise API' },
-                    { id: 'CUSTOM_HTTP', title: 'Custom REST Gateway', desc: 'Generic HTTP REST integration' },
-                  ].map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => handlePresetSelect(preset.id)}
-                      className="p-3 rounded-xl border border-slate-700 bg-slate-800/60 hover:border-emerald-500/50 hover:bg-slate-800 text-left transition"
-                    >
-                      <div className="text-xs font-bold text-white">{preset.title}</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">{preset.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Provider Display Name *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => handleSlugAuto(e.target.value)}
-                  placeholder="e.g. Telecel Direct Enterprise, Hubtel Gateway"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Slug (System Identifier) *</label>
-                  <input
-                    type="text"
-                    value={formData.slug}
-                    onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                    placeholder="e.g. telecel-direct"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Provider Type</label>
-                  <select
-                    value={formData.providerType}
-                    onChange={(e) => setFormData({ ...formData, providerType: e.target.value as any })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value={TelecomProviderType.AGGREGATOR}>AGGREGATOR (Multi-Carrier)</option>
-                    <option value={TelecomProviderType.DIRECT_MNO}>DIRECT MNO (Single Carrier Direct)</option>
-                    <option value={TelecomProviderType.CUSTOM_HTTP}>CUSTOM HTTP (REST Gateway)</option>
-                    <option value={TelecomProviderType.MOCK}>MOCK / SIMULATOR</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Description</label>
-                <textarea
-                  rows={2}
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Carrier interconnect purpose, SLA commitments, support contacts..."
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* STEP 2: Endpoints & Protocol */}
-          {step === 2 && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Live API Base URL *</label>
-                <input
-                  type="url"
-                  value={formData.apiBaseUrl}
-                  onChange={(e) => setFormData({ ...formData, apiBaseUrl: e.target.value })}
-                  placeholder="https://api.upstream-telecom.com.gh/v1"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">API Version Tag</label>
-                  <input
-                    type="text"
-                    value={formData.apiVersion}
-                    onChange={(e) => setFormData({ ...formData, apiVersion: e.target.value })}
-                    placeholder="v1"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Authentication Method</label>
-                  <select
-                    value={formData.authMethod}
-                    onChange={(e) => setFormData({ ...formData, authMethod: e.target.value as any })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value={ProviderAuthMethod.API_KEY}>API Key (X-API-Key / Header)</option>
-                    <option value={ProviderAuthMethod.BEARER}>Bearer Token (Authorization Header)</option>
-                    <option value={ProviderAuthMethod.BASIC}>HTTP Basic Auth</option>
-                    <option value={ProviderAuthMethod.HMAC_SHA256}>HMAC-SHA256 Signed Payload</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Default Environment</label>
-                  <select
-                    value={formData.environment}
-                    onChange={(e) => setFormData({ ...formData, environment: e.target.value as any })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value={TelecomEnvironment.PRODUCTION}>PRODUCTION (Live Top-Ups)</option>
-                    <option value={TelecomEnvironment.SANDBOX}>SANDBOX (Testing Mode)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Sandbox Base URL (Optional)</label>
-                  <input
-                    type="url"
-                    value={formData.sandboxBaseUrl || ''}
-                    onChange={(e) => setFormData({ ...formData, sandboxBaseUrl: e.target.value })}
-                    placeholder="https://sandbox.upstream-telecom.com.gh/v1"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: Supported Carrier Networks */}
-          {step === 3 && (
-            <div className="space-y-4">
-              <p className="text-xs text-slate-400">
-                Select which Ghanaian telecommunications networks this provider can fulfill:
-              </p>
-              <div className="grid grid-cols-3 gap-3">
+        {/* STEP 1 */}
+        {step === 1 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
+                Architecture Preset (Quick Setup)
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
                 {[
-                  { code: NetworkProvider.MTN, label: 'MTN Ghana', color: 'border-yellow-500/40 bg-yellow-500/5 text-yellow-400' },
-                  { code: NetworkProvider.TELECEL, label: 'Telecel Ghana', color: 'border-red-500/40 bg-red-500/5 text-red-400' },
-                  { code: NetworkProvider.AIRTELTIGO, label: 'AirtelTigo (AT)', color: 'border-blue-500/40 bg-blue-500/5 text-blue-400' },
-                ].map((net) => {
-                  const isChecked = (formData.supportedNetworks || []).includes(net.code);
-                  return (
-                    <div
-                      key={net.code}
-                      onClick={() => handleNetworkToggle(net.code)}
-                      className={`cursor-pointer p-4 rounded-xl border flex flex-col items-center justify-center gap-2 transition ${
-                        isChecked ? `${net.color} border-2` : 'border-slate-800 bg-slate-800/40 text-slate-400 opacity-60'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {}}
-                        className="rounded border-slate-700 text-emerald-500 focus:ring-0"
-                      />
-                      <span className="font-bold text-sm">{net.label}</span>
-                      <span className="text-xs font-mono">{net.code}</span>
+                  { id: 'AGGREGATOR', title: 'Multi-Carrier Aggregator', desc: 'DataHouse, Hubtel' },
+                  { id: 'DIRECT_MNO', title: 'Direct Carrier MNO', desc: 'MTN / Telecel Direct' },
+                  { id: 'CUSTOM_HTTP', title: 'Custom REST Gateway', desc: 'Generic HTTP Gateway' },
+                ].map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => handlePresetSelect(preset.id)}
+                    style={{
+                      padding: '0.75rem',
+                      backgroundColor: 'var(--color-bg-surface-elevated)',
+                      border: '1px solid var(--color-border-default)',
+                      borderRadius: 'var(--radius-md)',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      transition: 'border-color var(--transition-fast)',
+                    }}
+                  >
+                    <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                      {preset.title}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* STEP 4: Capability Matrix */}
-          {step === 4 && (
-            <div className="space-y-4">
-              <p className="text-xs text-slate-400">
-                Declare functional capabilities supported by this sourcing integration:
-              </p>
-              <div className="grid grid-cols-2 gap-2.5 max-h-[40vh] overflow-y-auto pr-1">
-                {[
-                  { key: 'NETWORKS', label: 'Network Discovery', desc: 'Queries supported network carrier list' },
-                  { key: 'CATALOG', label: 'Bundle Catalog Sync', desc: 'Syncs dynamic bundle definitions' },
-                  { key: 'BENEFICIARY_VALIDATION', label: 'Beneficiary Pre-Check', desc: 'Validates MSISDN carrier formatting' },
-                  { key: 'SINGLE_ORDERS', label: 'Single Instant Orders', desc: 'Direct single phone top-up dispatch' },
-                  { key: 'BULK_ORDERS', label: 'Bulk Order Batches', desc: 'Multi-recipient parallel fulfillment' },
-                  { key: 'ORDER_STATUS', label: 'Order Status Query', desc: 'Polls real-time transaction state' },
-                  { key: 'WEBHOOKS', label: 'Inbound Webhooks', desc: 'Receives signed async fulfillment callbacks' },
-                  { key: 'RECONCILIATION', label: 'Ledger Reconciliation', desc: 'End-of-day discrepancy verification' },
-                  { key: 'REFUNDS', label: 'Provider Refunds', desc: 'Automated credit return API' },
-                  { key: 'SANDBOX', label: 'Sandbox Isolation', desc: 'Mock test transaction support' },
-                  { key: 'PRECHECK', label: 'Batch MSISDN Precheck', desc: 'Mass recipient number validation' },
-                  { key: 'WALLET_BALANCE', label: 'Wallet Balance Check', desc: 'Aggregator float/overdraft query' },
-                ].map((cap) => {
-                  const isChecked = formData.capabilities?.[cap.key] ?? true;
-                  return (
-                    <div
-                      key={cap.key}
-                      onClick={() => handleCapabilityToggle(cap.key)}
-                      className={`cursor-pointer p-3 rounded-xl border flex items-start gap-3 transition ${
-                        isChecked ? 'border-emerald-500/40 bg-emerald-500/5 text-slate-200' : 'border-slate-800 bg-slate-850 text-slate-500'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {}}
-                        className="mt-1 rounded border-slate-700 text-emerald-500 focus:ring-0"
-                      />
-                      <div>
-                        <div className="text-xs font-bold">{cap.label}</div>
-                        <div className="text-[11px] text-slate-400">{cap.desc}</div>
-                      </div>
+                    <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                      {preset.desc}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* STEP 5: Authentication & Secrets Vault */}
-          {step === 5 && (
-            <div className="space-y-4">
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
-                <span>🔒</span>
-                <span>ByteBeacon Security Guarantee: Keys are AES-256-GCM encrypted in the backend Vault and never exposed in browser code.</span>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">API Key / Access Token *</label>
-                <input
-                  type="password"
-                  value={formData.apiKey || ''}
-                  onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                  placeholder="e.g. live_sec_key_9938210984"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">API Secret / Secondary Key (Optional)</label>
-                <input
-                  type="password"
-                  value={formData.apiSecret || ''}
-                  onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })}
-                  placeholder="e.g. sec_xyz_88219"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Webhook Signature Secret (Optional)</label>
-                <input
-                  type="password"
-                  value={formData.webhookSecret || ''}
-                  onChange={(e) => setFormData({ ...formData, webhookSecret: e.target.value })}
-                  placeholder="e.g. whsec_772183921"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* STEP 6: Webhook Configuration */}
-          {step === 6 && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Inbound Webhook Callback Path</label>
-                <input
-                  type="text"
-                  value={formData.webhookUrl || ''}
-                  onChange={(e) => setFormData({ ...formData, webhookUrl: e.target.value })}
-                  placeholder={`/api/v1/fulfillment/${formData.slug || 'provider'}/webhook`}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-700/60 space-y-2 text-xs text-slate-300">
-                <div className="font-bold text-white">Webhook Protocol Security</div>
-                <div>• Header: <code className="text-emerald-400">X-ByteBeacon-Signature</code> (HMAC-SHA256)</div>
-                <div>• Automatic State Sync: Delivered events immediately update ledger & orders.</div>
-                <div>• Replay Guard: Anti-replay timestamp tolerance validated.</div>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 7: Live Diagnostic Pre-Check */}
-          {step === 7 && (
-            <div className="space-y-4">
-              <p className="text-xs text-slate-400">
-                Execute a 5-step diagnostic check to test reachability, TLS, and credentials before saving:
-              </p>
-              <button
-                type="button"
-                onClick={handleRunDiagnostic}
-                disabled={testingConnection}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
-              >
-                {testingConnection ? 'Running 5-Step Diagnostic Probe...' : '⚡ Test Connection & Reachability'}
-              </button>
-
-              {testResult && (
-                <div className="p-4 bg-slate-800/60 border border-slate-700 rounded-xl space-y-2.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-300 font-bold">Diagnostic Status</span>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[11px]">
-                      {testResult.result} ({testResult.totalLatencyMs}ms)
-                    </span>
-                  </div>
-                  <div className="space-y-1.5 pt-2">
-                    {testResult.steps.map((st, i) => (
-                      <div key={i} className="flex items-center justify-between text-xs p-2 bg-slate-900/60 rounded-lg">
-                        <span className="text-slate-300 flex items-center gap-2">
-                          <span className="text-emerald-400">✓</span> {st.name}
-                        </span>
-                        <span className="text-slate-400 font-mono text-[11px]">{st.latencyMs}ms</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* STEP 8: Carrier Routing Priority */}
-          {step === 8 && (
-            <div className="space-y-4">
-              <p className="text-xs text-slate-400">
-                Configure initial role in your telecom routing fleet:
-              </p>
-              <div className="space-y-3">
-                {[
-                  { role: 'AVAILABLE', title: 'Available in Fleet (Standby)', desc: 'Registered and verified, but not actively routing traffic unless selected.' },
-                  { role: 'FALLBACK', title: 'Secondary Fallback Provider', desc: 'Will receive traffic if the primary provider experiences timeout/downtime.' },
-                  { role: 'PRIMARY', title: 'Primary Carrier Provider', desc: 'Promoted as the main dispatch gateway for supported networks.' },
-                ].map((r, i) => (
-                  <label key={i} className="flex items-start gap-3 p-3.5 bg-slate-800/40 border border-slate-700 rounded-xl cursor-pointer hover:border-slate-600 transition">
-                    <input type="radio" name="init_role" defaultChecked={i === 0} className="mt-1 text-emerald-500 focus:ring-0" />
-                    <div>
-                      <div className="text-xs font-bold text-white">{r.title}</div>
-                      <div className="text-[11px] text-slate-400">{r.desc}</div>
-                    </div>
-                  </label>
+                  </button>
                 ))}
               </div>
             </div>
-          )}
 
-          {/* STEP 9: Summary & Confirmation */}
-          {step === 9 && (
-            <div className="space-y-4">
-              <div className="p-4 bg-slate-800/60 rounded-xl border border-slate-700 space-y-2 text-xs">
-                <div className="text-sm font-bold text-white mb-2">Provider Summary</div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">Name</span>
-                  <span className="text-white font-bold">{formData.name}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">Slug</span>
-                  <span className="text-white font-mono">{formData.slug}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">Type</span>
-                  <span className="text-white">{formData.providerType}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">Base URL</span>
-                  <span className="text-white font-mono">{formData.apiBaseUrl}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">Supported Networks</span>
-                  <span className="text-emerald-400 font-bold">{(formData.supportedNetworks || []).join(', ')}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Environment</span>
-                  <span className="text-white">{formData.environment}</span>
-                </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                Provider Display Name *
+              </label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => handleSlugAuto(e.target.value)}
+                placeholder="e.g. Telecel Direct Enterprise, Hubtel Gateway"
+                style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Slug (Identifier) *
+                </label>
+                <input
+                  type="text"
+                  value={formData.slug}
+                  onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+                  placeholder="e.g. telecel-direct"
+                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)' }}
+                />
               </div>
 
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs">
-                ✨ Ready to register! ByteBeacon will dynamically load this provider adapter into memory immediately.
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Provider Type
+                </label>
+                <select
+                  value={formData.providerType}
+                  onChange={(e) => setFormData({ ...formData, providerType: e.target.value as any })}
+                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}
+                >
+                  <option value={TelecomProviderType.AGGREGATOR}>AGGREGATOR (Multi-Carrier)</option>
+                  <option value={TelecomProviderType.DIRECT_MNO}>DIRECT MNO (Single Carrier)</option>
+                  <option value={TelecomProviderType.CUSTOM_HTTP}>CUSTOM HTTP (REST Gateway)</option>
+                  <option value={TelecomProviderType.MOCK}>MOCK / SIMULATOR</option>
+                </select>
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-900/50">
-          {step > 1 ? (
-            <button
-              type="button"
-              onClick={() => setStep(step - 1)}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition"
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                Description
+              </label>
+              <textarea
+                rows={2}
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Carrier interconnect purpose, SLA commitments..."
+                style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* STEP 2 */}
+        {step === 2 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                Live API Base URL *
+              </label>
+              <input
+                type="url"
+                value={formData.apiBaseUrl}
+                onChange={(e) => setFormData({ ...formData, apiBaseUrl: e.target.value })}
+                placeholder="https://api.upstream-telecom.com.gh/v1"
+                style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)' }}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  API Version Tag
+                </label>
+                <input
+                  type="text"
+                  value={formData.apiVersion}
+                  onChange={(e) => setFormData({ ...formData, apiVersion: e.target.value })}
+                  placeholder="v1"
+                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Authentication Method
+                </label>
+                <select
+                  value={formData.authMethod}
+                  onChange={(e) => setFormData({ ...formData, authMethod: e.target.value as any })}
+                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}
+                >
+                  <option value={ProviderAuthMethod.API_KEY}>API Key (X-API-Key Header)</option>
+                  <option value={ProviderAuthMethod.BEARER}>Bearer Token</option>
+                  <option value={ProviderAuthMethod.BASIC}>HTTP Basic Auth</option>
+                  <option value={ProviderAuthMethod.HMAC_SHA256}>HMAC-SHA256 Signed Payload</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Environment
+                </label>
+                <select
+                  value={formData.environment}
+                  onChange={(e) => setFormData({ ...formData, environment: e.target.value as any })}
+                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}
+                >
+                  <option value={TelecomEnvironment.PRODUCTION}>PRODUCTION (Live)</option>
+                  <option value={TelecomEnvironment.SANDBOX}>SANDBOX (Testing)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Sandbox Base URL (Optional)
+                </label>
+                <input
+                  type="url"
+                  value={formData.sandboxBaseUrl || ''}
+                  onChange={(e) => setFormData({ ...formData, sandboxBaseUrl: e.target.value })}
+                  placeholder="https://sandbox.upstream-telecom.com.gh/v1"
+                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)' }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 3 */}
+        {step === 3 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+              Select which Ghanaian mobile carriers this provider adapter can fulfill:
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)' }}>
+              {[
+                { code: NetworkProvider.MTN, label: 'MTN Ghana', color: 'amber' as const },
+                { code: NetworkProvider.TELECEL, label: 'Telecel Ghana', color: 'red' as const },
+                { code: NetworkProvider.AIRTELTIGO, label: 'AirtelTigo (AT)', color: 'blue' as const },
+              ].map((net) => {
+                const isChecked = (formData.supportedNetworks || []).includes(net.code);
+                return (
+                  <Card
+                    key={net.code}
+                    elevated
+                    accentColor={isChecked ? net.color : undefined}
+                    onClick={() => handleNetworkToggle(net.code)}
+                    style={{
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      textAlign: 'center',
+                      opacity: isChecked ? 1 : 0.6,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {}}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <NetworkBadge network={net.code} size="md" />
+                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>{net.label}</span>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* STEP 4 */}
+        {step === 4 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+              Declare capabilities supported by this upstream integration:
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', maxHeight: '320px', overflowY: 'auto' }}>
+              {[
+                { key: 'NETWORKS', label: 'Network Discovery', desc: 'Queries carrier lists' },
+                { key: 'CATALOG', label: 'Catalog Sync', desc: 'Syncs live bundle definitions' },
+                { key: 'BENEFICIARY_VALIDATION', label: 'Beneficiary Pre-Check', desc: 'Validates MSISDN carriers' },
+                { key: 'SINGLE_ORDERS', label: 'Single Orders', desc: 'Instant single phone top-ups' },
+                { key: 'BULK_ORDERS', label: 'Bulk Orders', desc: 'Multi-recipient parallel orders' },
+                { key: 'ORDER_STATUS', label: 'Order Status Query', desc: 'Polls fulfillment state' },
+                { key: 'WEBHOOKS', label: 'Inbound Webhooks', desc: 'Receives signed callbacks' },
+                { key: 'RECONCILIATION', label: 'Ledger Reconciliation', desc: 'EOD discrepancy audits' },
+                { key: 'REFUNDS', label: 'Native Refunds', desc: 'Automated carrier credit return' },
+                { key: 'SANDBOX', label: 'Sandbox Isolation', desc: 'Mock test transactions' },
+                { key: 'PRECHECK', label: 'MSISDN Precheck', desc: 'Mass recipient screening' },
+                { key: 'WALLET_BALANCE', label: 'Wallet Balance Check', desc: 'Aggregator float queries' },
+              ].map((cap) => {
+                const isChecked = formData.capabilities?.[cap.key] ?? true;
+                return (
+                  <div
+                    key={cap.key}
+                    onClick={() => handleCapabilityToggle(cap.key)}
+                    style={{
+                      padding: '0.625rem',
+                      backgroundColor: 'var(--color-bg-surface-elevated)',
+                      border: isChecked ? '1px solid var(--color-brand)' : '1px solid var(--color-border-default)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.5rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {}}
+                      style={{ marginTop: '0.125rem' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        {cap.label}
+                      </div>
+                      <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                        {cap.desc}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* STEP 5 */}
+        {step === 5 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-brand-surface)', border: '1px solid var(--color-brand-border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', color: 'var(--color-brand)' }}>
+              <ShieldCheck size={18} />
+              <span>ByteBeacon Security Guarantee: Keys are AES-256-GCM encrypted in the Vault and never exposed in browser code.</span>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                API Key / Access Token *
+              </label>
+              <input
+                type="password"
+                value={formData.apiKey || ''}
+                onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+                placeholder="e.g. live_sec_key_9938210984"
+                style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                API Secret / Secondary Key (Optional)
+              </label>
+              <input
+                type="password"
+                value={formData.apiSecret || ''}
+                onChange={(e) => setFormData({ ...formData, apiSecret: e.target.value })}
+                placeholder="e.g. sec_xyz_88219"
+                style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                Webhook Signature Secret (Optional)
+              </label>
+              <input
+                type="password"
+                value={formData.webhookSecret || ''}
+                onChange={(e) => setFormData({ ...formData, webhookSecret: e.target.value })}
+                placeholder="e.g. whsec_772183921"
+                style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* STEP 6 */}
+        {step === 6 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                Inbound Webhook Callback Path
+              </label>
+              <input
+                type="text"
+                value={formData.webhookUrl || ''}
+                onChange={(e) => setFormData({ ...formData, webhookUrl: e.target.value })}
+                placeholder={`/api/v1/fulfillment/${formData.slug || 'provider'}/webhook`}
+                style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)' }}
+              />
+            </div>
+
+            <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-default)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+              <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>Webhook Signature Standard</div>
+              <div>• Signature Header: <code style={{ color: 'var(--color-brand)' }}>X-ByteBeacon-Signature</code> (HMAC-SHA256)</div>
+              <div>• Async State Sync: Automatic ledger update on event arrival.</div>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 7 */}
+        {step === 7 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+              Execute 5-step diagnostic probes to test DNS, TLS, and credentials before saving:
+            </p>
+
+            <Button
+              variant="primary"
+              onClick={handleRunDiagnostic}
+              disabled={testingConnection}
+              leftIcon={<Zap size={14} />}
+              style={{ width: '100%' }}
             >
+              {testingConnection ? 'Probing Connection & TLS...' : 'Execute 5-Step Diagnostic Probe'}
+            </Button>
+
+            {testResult && (
+              <div style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-default)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'var(--font-size-xs)' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>Diagnostic Outcome</span>
+                  <Badge variant="success">{testResult.result} ({testResult.totalLatencyMs}ms)</Badge>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', marginTop: '0.25rem' }}>
+                  {testResult.steps.map((st, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '0.5rem 0.75rem',
+                        backgroundColor: 'var(--color-bg-surface)',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: 'var(--font-size-xs)',
+                        border: '1px solid var(--color-border-subtle)',
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-primary)' }}>
+                        <CheckCircle2 size={16} color="var(--color-success)" />
+                        {st.name}
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
+                        {st.latencyMs}ms
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP 8 */}
+        {step === 8 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+              Configure initial routing priority for this provider:
+            </p>
+            {[
+              { role: 'AVAILABLE', title: 'Available in Fleet (Standby)', desc: 'Registered and verified, but not actively routing traffic unless selected.' },
+              { role: 'FALLBACK', title: 'Secondary Fallback Provider', desc: 'Will receive traffic if the primary provider experiences timeout/downtime.' },
+              { role: 'PRIMARY', title: 'Primary Carrier Provider', desc: 'Promoted as the main dispatch gateway for supported networks.' },
+            ].map((r, i) => (
+              <label
+                key={i}
+                style={{
+                  padding: '0.75rem',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  border: '1px solid var(--color-border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.75rem',
+                  cursor: 'pointer',
+                }}
+              >
+                <input type="radio" name="init_role" defaultChecked={i === 0} style={{ marginTop: '0.25rem' }} />
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {r.title}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', marginTop: '0.125rem' }}>
+                    {r.desc}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {/* STEP 9 */}
+        {step === 9 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-default)', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+              <div style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>Provider Registration Summary</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.375rem' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Name</span>
+                <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{formData.name}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.375rem' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Slug</span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>{formData.slug}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.375rem' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Type</span>
+                <span style={{ color: 'var(--color-text-primary)' }}>{formData.providerType}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.375rem' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Base URL</span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>{formData.apiBaseUrl}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Supported Carriers</span>
+                <span style={{ fontWeight: 700, color: 'var(--color-brand)' }}>{(formData.supportedNetworks || []).join(', ')}</span>
+              </div>
+            </div>
+
+            <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-brand-surface)', border: '1px solid var(--color-brand-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-brand)', fontSize: 'var(--font-size-xs)' }}>
+              ✨ Ready to register! ByteBeacon will dynamically load this provider adapter into memory immediately.
+            </div>
+          </div>
+        )}
+
+        {/* Footer Navigation */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--color-border-default)' }}>
+          {step > 1 ? (
+            <Button variant="ghost" size="sm" onClick={() => setStep(step - 1)}>
               ← Back
-            </button>
+            </Button>
           ) : <div />}
 
           {step < 9 ? (
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => {
                 if (step === 1 && (!formData.name || !formData.slug)) {
                   setError('Provider name and slug are required');
@@ -621,22 +708,22 @@ export const AddProviderWizardModal: React.FC<AddProviderWizardModalProps> = ({
                 setError(null);
                 setStep(step + 1);
               }}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
             >
               Continue →
-            </button>
+            </Button>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+              leftIcon={<Zap size={14} />}
             >
               {isSubmitting ? 'Connecting Provider...' : '🚀 Complete & Connect Provider'}
-            </button>
+            </Button>
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

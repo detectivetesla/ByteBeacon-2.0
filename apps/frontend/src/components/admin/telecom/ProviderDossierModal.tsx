@@ -3,7 +3,11 @@ import {
   TelecomProviderDetailDto,
   ProviderCredentialDto,
 } from '@bytebeacon/shared';
-import { adminApi } from '../../../api/admin.api';
+import { adminApi } from '../../../api/admin.api.js';
+import { Modal } from '../../ui/Modal/Modal.js';
+import { Button } from '../../ui/Button/Button.js';
+import { Badge, NetworkBadge } from '../../ui/Badge/Badge.js';
+import { ShieldCheck, RotateCcw, CheckCircle2, Lock } from 'lucide-react';
 
 interface ProviderDossierModalProps {
   provider: TelecomProviderDetailDto;
@@ -72,261 +76,277 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-lg">
-              {provider.name.charAt(0)}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white">{provider.name}</h2>
-                {provider.isAuthoritative && (
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
-                    AUTHORITATIVE
-                  </span>
-                )}
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  provider.status === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
-                }`}>
-                  {provider.status}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">{provider.slug} • {provider.providerType}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition">
-            ✕
-          </button>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex border-b border-slate-800 px-6 bg-slate-950/40">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Provider Dossier: ${provider.name}`}
+      subtitle={`${provider.slug} • ${provider.providerType} ${provider.isAuthoritative ? '(Authoritative Engine)' : ''}`}
+      maxWidth="700px"
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        {/* Tab switcher */}
+        <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--color-border-default)' }}>
           {[
             { id: 'overview', label: 'Overview & Telemetry' },
             { id: 'credentials', label: 'Credentials Vault' },
             { id: 'capabilities', label: 'Capabilities' },
             { id: 'networks', label: 'Carrier Mappings' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`py-3 px-4 text-xs font-bold border-b-2 transition ${
-                activeTab === tab.id
-                  ? 'border-emerald-500 text-emerald-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          ].map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as any)}
+                style={{
+                  padding: '0.5rem 0.875rem',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: isActive ? 700 : 600,
+                  color: isActive ? 'var(--color-brand)' : 'var(--color-text-secondary)',
+                  backgroundColor: isActive ? 'var(--color-brand-surface)' : 'transparent',
+                  border: 'none',
+                  borderBottom: isActive ? '2px solid var(--color-brand)' : '2px solid transparent',
+                  borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                  cursor: 'pointer',
+                  transition: 'all var(--transition-fast)',
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Tab Content */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-4">
-          {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs">
-              {error}
-            </div>
-          )}
+        {error && (
+          <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-surface)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)' }}>
+            {error}
+          </div>
+        )}
 
-          {/* OVERVIEW TAB */}
-          {activeTab === 'overview' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-4 gap-3">
-                <div className="p-3.5 bg-slate-800/40 rounded-xl border border-slate-700/60">
-                  <div className="text-[11px] text-slate-400">Avg Latency</div>
-                  <div className="text-lg font-bold text-white font-mono mt-0.5">{provider.avgLatencyMs}ms</div>
-                </div>
-                <div className="p-3.5 bg-slate-800/40 rounded-xl border border-slate-700/60">
-                  <div className="text-[11px] text-slate-400">P95 Latency</div>
-                  <div className="text-lg font-bold text-amber-400 font-mono mt-0.5">{provider.p95LatencyMs}ms</div>
-                </div>
-                <div className="p-3.5 bg-slate-800/40 rounded-xl border border-slate-700/60">
-                  <div className="text-[11px] text-slate-400">Success Rate</div>
-                  <div className="text-lg font-bold text-emerald-400 font-mono mt-0.5">{provider.successRate}%</div>
-                </div>
-                <div className="p-3.5 bg-slate-800/40 rounded-xl border border-slate-700/60">
-                  <div className="text-[11px] text-slate-400">Total Requests</div>
-                  <div className="text-lg font-bold text-slate-200 font-mono mt-0.5">{provider.totalRequestsCount.toLocaleString()}</div>
-                </div>
+        {/* TAB 1: OVERVIEW */}
+        {activeTab === 'overview' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
+              <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Avg Latency</div>
+                <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>{provider.avgLatencyMs}ms</div>
               </div>
-
-              <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-700 space-y-2.5 text-xs">
-                <div className="text-xs font-bold text-slate-200">Interconnect Details</div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">API Base URL</span>
-                  <span className="text-white font-mono">{provider.apiBaseUrl}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">Authentication</span>
-                  <span className="text-white">{provider.authMethod}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">Environment</span>
-                  <span className="text-white">{provider.environment}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-700/50">
-                  <span className="text-slate-400">Webhook URL</span>
-                  <span className="text-white font-mono">{provider.webhookUrl || 'Not configured'}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Last Health Check</span>
-                  <span className="text-slate-300">{provider.lastHealthCheck ? new Date(provider.lastHealthCheck).toLocaleString() : 'Never'}</span>
-                </div>
+              <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>P95 Latency</div>
+                <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-warning)' }}>{provider.p95LatencyMs}ms</div>
               </div>
-
-              {provider.description && (
-                <div className="p-3.5 bg-slate-800/20 rounded-xl border border-slate-800 text-xs text-slate-300">
-                  <span className="font-semibold text-slate-400">Notes: </span>
-                  {provider.description}
-                </div>
-              )}
+              <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Success Rate</div>
+                <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-brand)' }}>{provider.successRate}%</div>
+              </div>
+              <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Total Requests</div>
+                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>{provider.totalRequestsCount.toLocaleString()}</div>
+              </div>
             </div>
-          )}
 
-          {/* CREDENTIALS TAB */}
-          {activeTab === 'credentials' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-400">
-                  Server-side encrypted credential store. Keys are masked to prevent exposure.
+            <div style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-default)', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>Interconnect Details</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.375rem' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>API Base URL</span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>{provider.apiBaseUrl}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.375rem' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Authentication</span>
+                <span style={{ color: 'var(--color-text-primary)' }}>{provider.authMethod}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.375rem' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Environment</span>
+                <span style={{ color: 'var(--color-text-primary)' }}>{provider.environment}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.375rem' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Webhook Endpoint</span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>{provider.webhookUrl || 'Not configured'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Last Health Check</span>
+                <span style={{ color: 'var(--color-text-secondary)' }}>
+                  {provider.lastHealthCheck ? new Date(provider.lastHealthCheck).toLocaleString() : 'Never'}
+                </span>
+              </div>
+            </div>
+
+            {provider.description && (
+              <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-default)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                <strong style={{ color: 'var(--color-text-primary)' }}>Notes: </strong> {provider.description}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: CREDENTIALS VAULT */}
+        {activeTab === 'credentials' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                Server-side encrypted credential store. Keys are masked to prevent exposure.
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setRotateMode(!rotateMode)}
+                leftIcon={<RotateCcw size={14} />}
+              >
+                {rotateMode ? 'Cancel' : 'Rotate API Key'}
+              </Button>
+            </div>
+
+            {rotateMode && (
+              <div style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-brand)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  Rotate Provider Credentials (Vault)
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setRotateMode(!rotateMode)}
-                  className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition"
+                <div>
+                  <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                    New API Key *
+                  </label>
+                  <input
+                    type="password"
+                    value={rotateData.newApiKey}
+                    onChange={(e) => setRotateData({ ...rotateData, newApiKey: e.target.value })}
+                    placeholder="Enter new API key"
+                    style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                    Rotation Reason / Justification *
+                  </label>
+                  <input
+                    type="text"
+                    value={rotateData.reason}
+                    onChange={(e) => setRotateData({ ...rotateData, reason: e.target.value })}
+                    placeholder="e.g. Scheduled quarterly rotation or key compromise mitigation"
+                    style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+                  />
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleRotate}
+                  disabled={isRotating}
+                  leftIcon={<ShieldCheck size={14} />}
                 >
-                  {rotateMode ? 'Cancel' : '🔄 Rotate API Key'}
-                </button>
+                  {isRotating ? 'Rotating...' : 'Confirm Key Rotation in Vault'}
+                </Button>
               </div>
+            )}
 
-              {rotateMode && (
-                <div className="p-4 bg-slate-800/80 rounded-xl border border-emerald-500/30 space-y-3">
-                  <div className="text-xs font-bold text-white">Rotate Provider Credentials</div>
-                  <div>
-                    <label className="block text-[11px] text-slate-300 mb-1">New API Key *</label>
-                    <input
-                      type="password"
-                      value={rotateData.newApiKey}
-                      onChange={(e) => setRotateData({ ...rotateData, newApiKey: e.target.value })}
-                      placeholder="Enter new API key"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-300 mb-1">Rotation Justification / Reason *</label>
-                    <input
-                      type="text"
-                      value={rotateData.reason}
-                      onChange={(e) => setRotateData({ ...rotateData, reason: e.target.value })}
-                      placeholder="e.g. Scheduled quarterly rotation or key compromise mitigation"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleRotate}
-                    disabled={isRotating}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition"
+            {isLoadingCreds ? (
+              <div style={{ textAlign: 'center', padding: '1.5rem', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                Loading secure credential vault...
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {(credentials.length > 0 ? credentials : [
+                  {
+                    id: 'cred_dh_live',
+                    providerId: provider.id,
+                    environment: 'PRODUCTION',
+                    apiKeyMasked: provider.credentialsMasked.apiKeyMasked || 'dh_live_••••••••3821',
+                    webhookSecretMasked: provider.credentialsMasked.webhookSecretMasked || 'whsec_••••••••4912',
+                    status: 'ACTIVE',
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  },
+                ]).map((cred) => (
+                  <div
+                    key={cred.id}
+                    style={{
+                      padding: '0.75rem',
+                      backgroundColor: 'var(--color-bg-surface-elevated)',
+                      border: '1px solid var(--color-border-default)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: 'var(--font-size-xs)',
+                    }}
                   >
-                    {isRotating ? 'Rotating...' : 'Confirm Key Rotation'}
-                  </button>
-                </div>
-              )}
-
-              {isLoadingCreds ? (
-                <div className="text-center py-6 text-xs text-slate-400">Loading secure credential vault...</div>
-              ) : (
-                <div className="space-y-2">
-                  {(credentials.length > 0 ? credentials : [
-                    {
-                      id: 'cred_dh_live',
-                      providerId: provider.id,
-                      environment: 'PRODUCTION',
-                      apiKeyMasked: provider.credentialsMasked.apiKeyMasked || 'dh_live_••••••••3821',
-                      webhookSecretMasked: provider.credentialsMasked.webhookSecretMasked || 'whsec_••••••••4912',
-                      status: 'ACTIVE',
-                      createdAt: new Date().toISOString(),
-                      updatedAt: new Date().toISOString(),
-                    },
-                  ]).map((cred) => (
-                    <div key={cred.id} className="p-3.5 bg-slate-800/50 border border-slate-700/70 rounded-xl flex items-center justify-between text-xs">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-white">{cred.apiKeyMasked}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
-                            {cred.environment}
-                          </span>
-                          <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 text-[10px]">
-                            {cred.status}
-                          </span>
-                        </div>
-                        {cred.webhookSecretMasked && (
-                          <div className="text-[11px] text-slate-400 font-mono mt-1">
-                            Webhook Secret: {cred.webhookSecretMasked}
-                          </div>
-                        )}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          {cred.apiKeyMasked}
+                        </span>
+                        <Badge variant="brand" size="sm">{cred.environment}</Badge>
+                        <Badge variant="success" size="sm">{cred.status}</Badge>
                       </div>
+                      {cred.webhookSecretMasked && (
+                        <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.25rem' }}>
+                          Webhook Secret: {cred.webhookSecretMasked}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* CAPABILITIES TAB */}
-          {activeTab === 'capabilities' && (
-            <div className="grid grid-cols-2 gap-2.5">
-              {Object.entries(provider.capabilities || {}).map(([key, isSupported]) => (
-                <div
-                  key={key}
-                  className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
-                    isSupported ? 'border-emerald-500/30 bg-emerald-500/5 text-slate-200' : 'border-slate-800 bg-slate-850 text-slate-500'
-                  }`}
-                >
-                  <span className="font-medium">{key.replace(/_/g, ' ')}</span>
-                  <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
-                    isSupported ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'
-                  }`}>
-                    {isSupported ? 'SUPPORTED' : 'UNSUPPORTED'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* NETWORKS TAB */}
-          {activeTab === 'networks' && (
-            <div className="space-y-3">
-              <div className="text-xs text-slate-400">Carrier routes currently mapped to this provider:</div>
-              <div className="space-y-2">
-                {provider.supportedNetworks.map((net) => (
-                  <div key={net} className="p-3 bg-slate-800/40 border border-slate-700/60 rounded-xl flex items-center justify-between text-xs">
-                    <span className="font-bold text-white">{net}</span>
-                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded-full text-[10px]">
-                      AVAILABLE / ACTIVE
-                    </span>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-end px-6 py-4 border-t border-slate-800 bg-slate-900/50">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl transition"
-          >
+        {/* TAB 3: CAPABILITIES */}
+        {activeTab === 'capabilities' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', maxHeight: '320px', overflowY: 'auto' }}>
+            {Object.entries(provider.capabilities || {}).map(([key, isSupported]) => (
+              <div
+                key={key}
+                style={{
+                  padding: '0.625rem 0.75rem',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  border: '1px solid var(--color-border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              >
+                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{key.replace(/_/g, ' ')}</span>
+                <Badge variant={isSupported ? 'success' : 'neutral'}>
+                  {isSupported ? 'SUPPORTED' : 'UNSUPPORTED'}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* TAB 4: CARRIER MAPPINGS */}
+        {activeTab === 'networks' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              Carrier routes currently mapped to this provider:
+            </span>
+            {provider.supportedNetworks.map((net) => (
+              <div
+                key={net}
+                style={{
+                  padding: '0.75rem',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  border: '1px solid var(--color-border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <NetworkBadge network={net} size="md" />
+                <Badge variant="success" size="sm" dot>AVAILABLE / ACTIVE</Badge>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Close Dossier
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

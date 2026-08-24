@@ -3,7 +3,11 @@ import {
   TelecomProviderDetailDto,
   ProviderConnectionTestResult,
 } from '@bytebeacon/shared';
-import { adminApi } from '../../../api/admin.api';
+import { adminApi } from '../../../api/admin.api.js';
+import { Modal } from '../../ui/Modal/Modal.js';
+import { Button } from '../../ui/Button/Button.js';
+import { Badge } from '../../ui/Badge/Badge.js';
+import { CheckCircle2, XCircle, Zap } from 'lucide-react';
 
 interface ConnectionTestModalProps {
   provider: TelecomProviderDetailDto;
@@ -38,112 +42,124 @@ export const ConnectionTestModal: React.FC<ConnectionTestModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span>⚡</span> Connection Diagnostic: {provider.name}
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Live multi-stage DNS, TLS, reachability, authentication, and health check.
-            </p>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Connection Diagnostic: ${provider.name}`}
+      subtitle="Live multi-stage DNS, TLS, reachability, authentication, and carrier health check."
+      maxWidth="600px"
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        {/* Controls */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+              Environment:
+            </span>
+            {(['SANDBOX', 'PRODUCTION'] as const).map((env) => (
+              <button
+                key={env}
+                type="button"
+                onClick={() => setEnvironment(env)}
+                style={{
+                  padding: '0.25rem 0.625rem',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: 'var(--font-size-2xs)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: '1px solid var(--color-border-default)',
+                  backgroundColor: environment === env ? 'var(--color-brand)' : 'var(--color-bg-surface-elevated)',
+                  color: environment === env ? '#FFFFFF' : 'var(--color-text-secondary)',
+                  transition: 'all var(--transition-fast)',
+                }}
+              >
+                {env}
+              </button>
+            ))}
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition">
-            ✕
-          </button>
+
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={handleRunTest}
+            disabled={isRunning}
+            leftIcon={<Zap size={14} />}
+          >
+            {isRunning ? 'Running Probes...' : 'Execute Diagnostic'}
+          </Button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-4">
-          <div className="flex items-center gap-4">
-            <label className="text-xs font-semibold text-slate-300">Environment:</label>
-            <div className="flex gap-2">
-              {(['SANDBOX', 'PRODUCTION'] as const).map((env) => (
-                <button
-                  key={env}
-                  type="button"
-                  onClick={() => setEnvironment(env)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                    environment === env
-                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
+        {error && (
+          <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-surface)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)' }}>
+            {error}
+          </div>
+        )}
+
+        {result && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-default)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  Diagnostic Outcome: {result.environment}
+                </div>
+                <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', marginTop: '0.125rem', fontFamily: 'var(--font-mono)' }}>
+                  {provider.apiBaseUrl}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <Badge variant={result.result === 'PASSED' ? 'success' : 'danger'}>
+                  {result.result}
+                </Badge>
+                <div style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
+                  {result.totalLatencyMs}ms total
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                Pipeline Stages
+              </span>
+              {result.steps.map((st, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: 'var(--font-size-xs)',
+                    border: '1px solid var(--color-border-subtle)',
+                  }}
                 >
-                  {env}
-                </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {st.status === 'PASSED' ? (
+                      <CheckCircle2 size={16} color="var(--color-success)" />
+                    ) : (
+                      <XCircle size={16} color="var(--color-danger)" />
+                    )}
+                    <div>
+                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{st.name}</div>
+                      {st.details && <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>{st.details}</div>}
+                    </div>
+                  </div>
+                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
+                    {st.latencyMs}ms
+                  </span>
+                </div>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={handleRunTest}
-              disabled={isRunning}
-              className="ml-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-lg shadow-emerald-500/20"
-            >
-              {isRunning ? 'Running Diagnostic Probe...' : '⚡ Execute Diagnostic'}
-            </button>
           </div>
+        )}
 
-          {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs">
-              {error}
-            </div>
-          )}
-
-          {result && (
-            <div className="space-y-3 pt-2">
-              <div className="p-4 bg-slate-800/60 rounded-xl border border-slate-700 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-white">Overall Diagnostic Outcome</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    Target: {provider.apiBaseUrl} • Environment: {result.environment}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                    result.result === 'PASSED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                  }`}>
-                    {result.result}
-                  </span>
-                  <div className="text-[11px] font-mono text-slate-300 mt-1">{result.totalLatencyMs}ms total</div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-xs font-bold text-slate-300 px-1">Pipeline Stages</div>
-                {result.steps.map((st, i) => (
-                  <div key={i} className="p-3 bg-slate-800/40 border border-slate-700/60 rounded-xl flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2.5">
-                      <span className={st.status === 'PASSED' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                        {st.status === 'PASSED' ? '✓' : '✗'}
-                      </span>
-                      <div>
-                        <div className="font-bold text-white">{st.name}</div>
-                        {st.details && <div className="text-[11px] text-slate-400">{st.details}</div>}
-                      </div>
-                    </div>
-                    <div className="font-mono text-slate-400 text-right">
-                      {st.latencyMs}ms
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end px-6 py-4 border-t border-slate-800 bg-slate-900/50">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl transition"
-          >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

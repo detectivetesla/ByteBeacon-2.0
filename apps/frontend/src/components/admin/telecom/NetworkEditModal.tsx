@@ -4,7 +4,10 @@ import {
   TelecomProviderStatus,
   UpdateTelecomNetworkRequest,
 } from '@bytebeacon/shared';
-import { adminApi } from '../../../api/admin.api';
+import { adminApi } from '../../../api/admin.api.js';
+import { Modal } from '../../ui/Modal/Modal.js';
+import { Button } from '../../ui/Button/Button.js';
+import { NetworkBadge } from '../../ui/Badge/Badge.js';
 
 interface NetworkEditModalProps {
   network: TelecomNetworkDto;
@@ -50,134 +53,141 @@ export const NetworkEditModal: React.FC<NetworkEditModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <span>📡</span> Edit Carrier Network: {network.name} ({network.code})
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition">
-            ✕
-          </button>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Configure Carrier: ${network.name}`}
+      subtitle="Preserve and customize carrier interconnect routing, endpoints, and capacity quotas."
+      maxWidth="580px"
+    >
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        {error && (
+          <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-danger-surface)', border: '1px solid var(--color-danger-border)', borderRadius: 'var(--radius-md)', color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)' }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Status
+            </label>
+            <select
+              value={formData.status}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+            >
+              <option value={TelecomProviderStatus.ACTIVE}>ACTIVE</option>
+              <option value={TelecomProviderStatus.INACTIVE}>INACTIVE</option>
+              <option value={TelecomProviderStatus.DEGRADED}>DEGRADED</option>
+              <option value={TelecomProviderStatus.MAINTENANCE}>MAINTENANCE</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Traffic Routing
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formData.isActive}
+                onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+              />
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', fontWeight: 600 }}>
+                Enable Live Carrier Routing
+              </span>
+            </label>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs">
-              {error}
-            </div>
-          )}
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+            Carrier Direct Endpoint URL
+          </label>
+          <input
+            type="url"
+            value={formData.endpointUrl || ''}
+            onChange={(e) => setFormData({ ...formData, endpointUrl: e.target.value })}
+            placeholder="https://api.provider.com/v1/carrier"
+            style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+          />
+        </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Status</label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
-              >
-                <option value={TelecomProviderStatus.ACTIVE}>ACTIVE</option>
-                <option value={TelecomProviderStatus.INACTIVE}>INACTIVE</option>
-                <option value={TelecomProviderStatus.DEGRADED}>DEGRADED</option>
-                <option value={TelecomProviderStatus.MAINTENANCE}>MAINTENANCE</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Active Status</label>
-              <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.isActive}
-                  onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                  className="rounded border-slate-700 text-emerald-500 focus:ring-0"
-                />
-                <span className="text-xs text-white">Enable Traffic Routing</span>
-              </label>
-            </div>
-          </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+            Carrier Webhook Endpoint
+          </label>
+          <input
+            type="text"
+            value={formData.webhookUrl || ''}
+            onChange={(e) => setFormData({ ...formData, webhookUrl: e.target.value })}
+            placeholder="/api/v1/fulfillment/webhook"
+            style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+          />
+        </div>
 
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Carrier Direct Endpoint URL</label>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Daily Volume Limit (MB)
+            </label>
             <input
-              type="url"
-              value={formData.endpointUrl || ''}
-              onChange={(e) => setFormData({ ...formData, endpointUrl: e.target.value })}
-              placeholder="https://api.provider.com/v1/carrier"
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono"
+              type="number"
+              value={formData.dailyVolumeLimitMb}
+              onChange={(e) => setFormData({ ...formData, dailyVolumeLimitMb: Number(e.target.value) })}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Carrier Webhook Endpoint</label>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Daily Order Limit
+            </label>
             <input
-              type="text"
-              value={formData.webhookUrl || ''}
-              onChange={(e) => setFormData({ ...formData, webhookUrl: e.target.value })}
-              placeholder="/api/v1/fulfillment/webhook"
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono"
+              type="number"
+              value={formData.dailyOrderLimit}
+              onChange={(e) => setFormData({ ...formData, dailyOrderLimit: Number(e.target.value) })}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Min Bundle (MB)
+            </label>
+            <input
+              type="number"
+              value={formData.minBundleMb}
+              onChange={(e) => setFormData({ ...formData, minBundleMb: Number(e.target.value) })}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Daily Volume Limit (MB)</label>
-              <input
-                type="number"
-                value={formData.dailyVolumeLimitMb}
-                onChange={(e) => setFormData({ ...formData, dailyVolumeLimitMb: Number(e.target.value) })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Daily Order Limit</label>
-              <input
-                type="number"
-                value={formData.dailyOrderLimit}
-                onChange={(e) => setFormData({ ...formData, dailyOrderLimit: Number(e.target.value) })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono"
-              />
-            </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+              Max Bundle (MB)
+            </label>
+            <input
+              type="number"
+              value={formData.maxBundleMb}
+              onChange={(e) => setFormData({ ...formData, maxBundleMb: Number(e.target.value) })}
+              style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+            />
           </div>
+        </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Min Bundle (MB)</label>
-              <input
-                type="number"
-                value={formData.minBundleMb}
-                onChange={(e) => setFormData({ ...formData, minBundleMb: Number(e.target.value) })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Max Bundle (MB)</label>
-              <input
-                type="number"
-                value={formData.maxBundleMb}
-                onChange={(e) => setFormData({ ...formData, maxBundleMb: Number(e.target.value) })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition"
-            >
-              {isSubmitting ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" size="sm" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 };

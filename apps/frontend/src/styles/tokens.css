@@ -246,6 +246,13 @@
   --color-bg-surface-glass: rgba(255, 255, 255, 0.75);
   --color-bg-hero: #080D1A;
 
+  /* Aliases */
+  --color-surface: var(--color-bg-surface);
+  --color-surface-elevated: var(--color-bg-surface-elevated);
+  --color-surface-muted: var(--color-bg-surface-muted);
+  --color-background: var(--color-bg-base);
+  --color-border: var(--color-border-default);
+
   /* Text & Content */
   --color-text-primary: #101828;
   --color-text-secondary: #475467;
@@ -291,6 +298,13 @@ body.dark,
   --color-bg-surface-muted: #0D121B;
   --color-bg-surface-glass: rgba(16, 21, 31, 0.78);
   --color-bg-hero: #05080F;
+
+  /* Aliases */
+  --color-surface: var(--color-bg-surface);
+  --color-surface-elevated: var(--color-bg-surface-elevated);
+  --color-surface-muted: var(--color-bg-surface-muted);
+  --color-background: var(--color-bg-base);
+  --color-border: var(--color-border-default);
 
   /* Text & Content */
   --color-text-primary: #F5F7FA;

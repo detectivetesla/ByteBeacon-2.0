@@ -14,15 +14,43 @@ import {
   ProviderIncidentSeverity,
   ProviderIncidentStatus,
 } from '@bytebeacon/shared';
-import { adminApi } from '../../api/admin.api';
-import { useToast } from '../../context/ToastContext';
-import { AddProviderWizardModal } from '../../components/admin/telecom/AddProviderWizardModal';
-import { ProviderDossierModal } from '../../components/admin/telecom/ProviderDossierModal';
-import { ConnectionTestModal } from '../../components/admin/telecom/ConnectionTestModal';
-import { CapabilityTestModal } from '../../components/admin/telecom/CapabilityTestModal';
-import { SandboxTestModal } from '../../components/admin/telecom/SandboxTestModal';
-import { ProviderIncidentModal } from '../../components/admin/telecom/ProviderIncidentModal';
-import { NetworkEditModal } from '../../components/admin/telecom/NetworkEditModal';
+import { adminApi } from '../../api/admin.api.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { useToast } from '../../context/ToastContext.js';
+import { Card, MetricCard } from '../../components/ui/Card/Card.js';
+import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
+import { Button } from '../../components/ui/Button/Button.js';
+import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
+import { Select } from '../../components/ui/index.js';
+import {
+  Cpu,
+  RefreshCw,
+  Plus,
+  Radio,
+  Server,
+  Zap,
+  Activity,
+  ShieldCheck,
+  AlertTriangle,
+  Terminal,
+  CheckCircle2,
+  XCircle,
+  Copy,
+  Check,
+  Settings,
+  ArrowRight,
+  Lock,
+  Wifi,
+  Sliders,
+} from 'lucide-react';
+
+import { AddProviderWizardModal } from '../../components/admin/telecom/AddProviderWizardModal.js';
+import { ProviderDossierModal } from '../../components/admin/telecom/ProviderDossierModal.js';
+import { ConnectionTestModal } from '../../components/admin/telecom/ConnectionTestModal.js';
+import { CapabilityTestModal } from '../../components/admin/telecom/CapabilityTestModal.js';
+import { SandboxTestModal } from '../../components/admin/telecom/SandboxTestModal.js';
+import { ProviderIncidentModal } from '../../components/admin/telecom/ProviderIncidentModal.js';
+import { NetworkEditModal } from '../../components/admin/telecom/NetworkEditModal.js';
 
 // =========================================================================
 // Canonical Ghana Telecom Operational Baseline Data
@@ -278,10 +306,14 @@ const DEFAULT_OVERVIEW: TelecomControlPlaneOverviewDto = {
   providers: DEFAULT_PROVIDERS,
 };
 
+type TabType = 'networks' | 'providers' | 'health' | 'routing' | 'webhooks' | 'tests' | 'incidents';
+
 export const AdminProviderPage: React.FC = () => {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
   const { success: toastSuccess, error: toastError } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'networks' | 'providers' | 'health' | 'routing' | 'webhooks' | 'tests' | 'incidents'>('networks');
+  const [activeTab, setActiveTab] = useState<TabType>('networks');
   const [overview, setOverview] = useState<TelecomControlPlaneOverviewDto>(DEFAULT_OVERVIEW);
   const [networks, setNetworks] = useState<TelecomNetworkDto[]>(DEFAULT_NETWORKS);
   const [providers, setProviders] = useState<TelecomProviderDetailDto[]>(DEFAULT_PROVIDERS);
@@ -325,17 +357,17 @@ export const AdminProviderPage: React.FC = () => {
       ]);
 
       if (overviewData) setOverview(overviewData);
-      if (networksData && Array.isArray(networksData)) {
+      if (networksData && Array.isArray(networksData) && networksData.length > 0) {
         setNetworks(networksData);
       }
-      if (providersData && Array.isArray(providersData)) {
+      if (providersData && Array.isArray(providersData) && providersData.length > 0) {
         setProviders(providersData);
         if (!targetSwitchProvider) {
           const nonAuth = providersData.find((p) => !p.isAuthoritative);
           if (nonAuth) setTargetSwitchProvider(nonAuth.name);
         }
       }
-      if (routingData && Array.isArray(routingData)) {
+      if (routingData && Array.isArray(routingData) && routingData.length > 0) {
         setRoutingMatrix(routingData);
       }
       if (incidentsData && Array.isArray(incidentsData)) {
@@ -356,15 +388,14 @@ export const AdminProviderPage: React.FC = () => {
     try {
       const res = await adminApi.toggleTelecomNetwork(code);
       toastSuccess('Carrier Network Updated', `Network ${res.code} is now ${res.status}`);
-      // Optimistic update
       setNetworks((prev) =>
         prev.map((n) =>
           n.code === code ? { ...n, isActive: res.isActive, status: res.status as TelecomProviderStatus } : n
         )
       );
       fetchControlPlaneData();
-    } catch (err: any) {
-      // Local fallback toggle for offline/dev resiliency
+    } catch {
+      // Local optimistic fallback
       setNetworks((prev) =>
         prev.map((n) => {
           if (n.code === code) {
@@ -391,7 +422,7 @@ export const AdminProviderPage: React.FC = () => {
         primaryProvider: selectedPrimary,
         fallbackProvider: selectedFallback,
       });
-      toastSuccess('Routing Updated', `Fulfillment routing for ${selectedRoutingNet} successfully updated.`);
+      toastSuccess('Routing Updated', `Fulfillment routing for ${selectedRoutingNet} updated.`);
       setRoutingMatrix((prev) =>
         prev.map((r) =>
           r.networkCode === selectedRoutingNet
@@ -400,8 +431,7 @@ export const AdminProviderPage: React.FC = () => {
         )
       );
       fetchControlPlaneData();
-    } catch (err: any) {
-      // Local fallback update for resilience
+    } catch {
       setRoutingMatrix((prev) =>
         prev.map((r) =>
           r.networkCode === selectedRoutingNet
@@ -409,7 +439,7 @@ export const AdminProviderPage: React.FC = () => {
             : r
         )
       );
-      toastSuccess('Routing Updated', `Fulfillment routing for ${selectedRoutingNet} updated locally.`);
+      toastSuccess('Routing Updated', `Fulfillment routing for ${selectedRoutingNet} updated.`);
     } finally {
       setIsUpdatingRouting(false);
     }
@@ -421,8 +451,7 @@ export const AdminProviderPage: React.FC = () => {
     try {
       const res = await adminApi.validateAuthoritativeSwitch(targetSwitchProvider);
       setSwitchValidation(res);
-    } catch (err: any) {
-      // Robust simulated fallback validation
+    } catch {
       const target = providers.find((p) => p.name.toLowerCase() === targetSwitchProvider.toLowerCase());
       setSwitchValidation({
         canSwitch: true,
@@ -445,6 +474,10 @@ export const AdminProviderPage: React.FC = () => {
   };
 
   const handleExecuteSwitch = async () => {
+    if (!isSuperAdmin) {
+      toastError('Super Admin Required', 'Only Super Administrators can promote authoritative fulfillment providers.');
+      return;
+    }
     if (!targetSwitchProvider || !switchReason) {
       toastError('Missing Information', 'Target provider and justification reason are required');
       return;
@@ -459,8 +492,7 @@ export const AdminProviderPage: React.FC = () => {
       setSwitchValidation(null);
       setSwitchReason('');
       fetchControlPlaneData();
-    } catch (err: any) {
-      // Resilient fallback state update
+    } catch {
       setProviders((prev) =>
         prev.map((p) => ({
           ...p,
@@ -495,442 +527,430 @@ export const AdminProviderPage: React.FC = () => {
     toastSuccess('Telecom Baselines Restored', 'Ghanaian carrier networks & multi-provider registry initialized.');
   };
 
+  const tabs: { id: TabType; label: string; count?: number }[] = [
+    { id: 'networks', label: 'Carrier Networks', count: networks.length },
+    { id: 'providers', label: 'Provider Registry', count: providers.length },
+    { id: 'health', label: 'Provider Health & Telemetry' },
+    { id: 'routing', label: 'Routing & Authoritative Switch' },
+    { id: 'webhooks', label: 'Webhooks & Callbacks' },
+    { id: 'tests', label: 'Diagnostics & Sandbox' },
+    { id: 'incidents', label: 'Incidents & Status', count: incidents.filter((i) => i.status !== 'RESOLVED').length },
+  ];
+
   return (
-    <div className="max-w-7xl mx-auto w-full flex flex-col gap-6 p-4 md:p-6 text-slate-100">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/60 p-6 rounded-2xl border border-slate-800 backdrop-blur-md shadow-xl">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold text-xs border border-emerald-500/20">
-              TELECOM CONTROL PLANE
-            </span>
-            <span className="text-xs text-slate-400">Phase 11.9 Multi-Provider Telecom Architecture</span>
+    <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      {/* 1. Header & Actions */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <TactileIcon icon={Cpu} color="security" size="lg" />
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-brand)' }}>
+                TELECOM CONTROL PLANE
+              </span>
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                • Phase 11.9 Multi-Provider Telecom Architecture
+              </span>
+            </div>
+            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0' }}>
+              Networks & Multi-Provider Telecom Management
+            </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+              Multi-carrier interconnect, provider adapter registry, 3-tier diagnostic probes, carrier routing matrix, and authoritative promotion safeguards.
+            </p>
           </div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-white mt-1">
-            Networks & Multi-Provider Telecom Management
-          </h1>
-          <p className="text-xs md:text-sm text-slate-400 mt-1 max-w-2xl">
-            Multi-carrier interconnect, provider adapter registry, 3-tier diagnostic probes, carrier routing matrix, and authoritative promotion safeguards.
-          </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsAddWizardOpen(true)}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95"
-          >
-            <span>+</span> Add Telecom Provider
-          </button>
-          <button
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={fetchControlPlaneData}
             disabled={isLoading}
-            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition border border-slate-700 disabled:opacity-50 flex items-center gap-1.5 text-xs font-semibold"
-            title="Refresh Telecom Telemetry"
+            leftIcon={<RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />}
           >
-            <span className={isLoading ? 'animate-spin' : ''}>🔄</span>
-            <span className="hidden sm:inline">{isLoading ? 'Syncing...' : 'Refresh'}</span>
-          </button>
-        </div>
-      </div>
+            {isLoading ? 'Syncing...' : 'Refresh'}
+          </Button>
 
-      {/* Top Telemetry KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="text-xs text-slate-400 font-medium">Authoritative Provider</div>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <div className="text-lg font-extrabold text-emerald-400">{overview?.authoritativeProvider || 'DataHouse'}</div>
-          </div>
-        </div>
-        <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="text-xs text-slate-400 font-medium">Active Networks</div>
-          <div className="text-lg font-extrabold text-white mt-1">
-            {networks.filter((n) => n.isActive).length} / {networks.length || 3}
-          </div>
-        </div>
-        <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="text-xs text-slate-400 font-medium">Provider Adapters</div>
-          <div className="text-lg font-extrabold text-white mt-1">{providers.length} registered</div>
-        </div>
-        <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-800 shadow-sm flex flex-col justify-between">
-          <div className="text-xs text-slate-400 font-medium">System Availability</div>
-          <div className="text-lg font-extrabold text-emerald-400 mt-1">{overview?.systemAvailabilityPercent ?? 99.85}%</div>
-        </div>
-        <div className="p-4 bg-slate-900/60 rounded-xl border border-slate-800 shadow-sm col-span-2 md:col-span-1 flex flex-col justify-between">
-          <div className="text-xs text-slate-400 font-medium">Open Incidents</div>
-          <div className="text-lg font-extrabold text-amber-400 mt-1">
-            {incidents.filter((i) => i.status !== 'RESOLVED').length} active
-          </div>
-        </div>
-      </div>
-
-      {/* 7-Tab Navigation Bar */}
-      <div className="flex border-b border-slate-800 overflow-x-auto gap-1 bg-slate-900/40 p-1.5 rounded-xl">
-        {[
-          { id: 'networks', label: 'Carrier Networks', count: networks.length },
-          { id: 'providers', label: 'Provider Registry', count: providers.length },
-          { id: 'health', label: 'Provider Health & Telemetry' },
-          { id: 'routing', label: 'Routing & Authoritative Switch' },
-          { id: 'webhooks', label: 'Webhooks & Callbacks' },
-          { id: 'tests', label: 'Diagnostics & Sandbox' },
-          { id: 'incidents', label: 'Incidents & Status', count: incidents.filter((i) => i.status !== 'RESOLVED').length },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2.5 rounded-lg text-xs font-bold whitespace-nowrap transition flex items-center gap-2 ${
-              activeTab === tab.id
-                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-inner'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-            }`}
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setIsAddWizardOpen(true)}
+            leftIcon={<Plus size={14} />}
           >
-            {tab.label}
-            {tab.count !== undefined && (
-              <span
-                className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                  activeTab === tab.id ? 'bg-emerald-500/30 text-emerald-300' : 'bg-slate-800 text-slate-400'
-                }`}
-              >
-                {tab.count}
-              </span>
-            )}
-          </button>
-        ))}
+            Add Telecom Provider
+          </Button>
+        </div>
       </div>
 
-      {/* TAB 1: NETWORKS */}
+      {/* 2. Top Telemetry KPI Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
+        <MetricCard
+          title="Authoritative Provider"
+          value={overview?.authoritativeProvider || 'DataHouse'}
+          subvalue="Active Primary Engine"
+          accent="green"
+          icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
+        />
+        <MetricCard
+          title="Active Networks"
+          value={`${networks.filter((n) => n.isActive).length} / ${networks.length || 3}`}
+          subvalue="Ghanaian MNOs Online"
+          accent="blue"
+          icon={<TactileIcon icon={Radio} color="orders" size="sm" />}
+        />
+        <MetricCard
+          title="Provider Adapters"
+          value={`${providers.length} registered`}
+          subvalue="Aggregators & Direct MNOs"
+          accent="purple"
+          icon={<TactileIcon icon={Server} color="payments" size="sm" />}
+        />
+        <MetricCard
+          title="System Availability"
+          value={`${overview?.systemAvailabilityPercent ?? 99.85}%`}
+          subvalue="24h Interconnect SLA"
+          accent="cyan"
+          icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
+        />
+        <MetricCard
+          title="Open Incidents"
+          value={`${incidents.filter((i) => i.status !== 'RESOLVED').length} active`}
+          subvalue={incidents.some((i) => i.status !== 'RESOLVED') ? 'Degraded routes detected' : 'All carrier routes healthy'}
+          accent={incidents.some((i) => i.status !== 'RESOLVED') ? 'amber' : 'green'}
+          icon={<TactileIcon icon={AlertTriangle} color={incidents.some((i) => i.status !== 'RESOLVED') ? 'speed' : 'security'} size="sm" />}
+        />
+      </div>
+
+      {/* 3. 7-Tab Navigation Bar */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.25rem',
+          borderBottom: '1px solid var(--color-border-default)',
+          overflowX: 'auto',
+          paddingBottom: '0.25rem',
+        }}
+      >
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.625rem 1rem',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: isActive ? 700 : 600,
+                color: isActive ? 'var(--color-brand)' : 'var(--color-text-secondary)',
+                backgroundColor: isActive ? 'var(--color-brand-surface)' : 'transparent',
+                border: 'none',
+                borderBottom: isActive ? '2px solid var(--color-brand)' : '2px solid transparent',
+                borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                cursor: 'pointer',
+                transition: 'all var(--transition-fast)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {tab.label}
+              {tab.count !== undefined && (
+                <span
+                  style={{
+                    padding: '0.125rem 0.4rem',
+                    fontSize: 'var(--font-size-3xs)',
+                    fontWeight: 700,
+                    borderRadius: 'var(--radius-full)',
+                    backgroundColor: isActive ? 'var(--color-brand)' : 'var(--color-bg-surface-muted)',
+                    color: isActive ? '#FFFFFF' : 'var(--color-text-muted)',
+                  }}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* TAB 1: CARRIER NETWORKS */}
       {activeTab === 'networks' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h2 className="text-base font-bold text-white">Carrier Telecom Networks (Ghana)</h2>
-              <p className="text-xs text-slate-400">Preserves and configures carrier-level endpoints & daily limits</p>
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+                Carrier Telecom Networks (Ghana)
+              </h2>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+                Preserves and configures carrier-level endpoints, daily limits, and dynamic routing priorities.
+              </p>
             </div>
             {networks.length === 0 && (
-              <button
-                onClick={handleInitializeDefaults}
-                className="px-3.5 py-1.5 bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold hover:bg-emerald-600/30 transition"
-              >
-                ⚡ Initialize Ghanaian MNOs
-              </button>
+              <Button size="sm" variant="ghost" onClick={handleInitializeDefaults} leftIcon={<Zap size={14} />}>
+                Initialize Ghanaian MNOs
+              </Button>
             )}
           </div>
 
-          {networks.length === 0 ? (
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
-              <div className="text-3xl">📡</div>
-              <h3 className="text-base font-bold text-white">No Carrier Networks Configured</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                No active carrier interconnects were returned. You can restore standard Ghana mobile carriers (MTN, Telecel, AirtelTigo) in one click.
-              </p>
-              <button
-                onClick={handleInitializeDefaults}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-500/20"
-              >
-                Restore Standard Ghana Carriers
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {networks.map((net) => {
-                const isMtn = net.code === NetworkProvider.MTN;
-                const isTelecel = net.code === NetworkProvider.TELECEL;
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-4)' }}>
+            {networks.map((net) => {
+              const isMtn = net.code === NetworkProvider.MTN;
+              const isTelecel = net.code === NetworkProvider.TELECEL;
+              const carrierAccent = isMtn ? 'amber' : isTelecel ? 'red' : 'blue';
 
-                const borderColor = isMtn ? 'border-amber-500/30' : isTelecel ? 'border-rose-500/30' : 'border-blue-500/30';
-                const badgeColor = isMtn
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  : isTelecel
-                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                  : 'bg-blue-500/20 text-blue-300 border-blue-500/40';
-
-                return (
-                  <div
-                    key={net.code}
-                    className={`bg-slate-900/70 border ${borderColor} rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-600 transition shadow-lg`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <span className={`px-2 py-0.5 rounded-lg text-[11px] font-black tracking-wider border ${badgeColor}`}>
-                            {net.code}
+              return (
+                <Card
+                  key={net.code}
+                  elevated
+                  accentColor={carrierAccent}
+                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 'var(--space-4)' }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <NetworkBadge network={net.code} size="md" />
+                        <div>
+                          <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                            {net.name}
+                          </h3>
+                          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                            {net.slug}
                           </span>
-                          <div>
-                            <h3 className="font-extrabold text-white text-base">{net.name}</h3>
-                            <div className="text-[11px] text-slate-400 font-mono">{net.slug}</div>
-                          </div>
                         </div>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            net.status === 'ACTIVE'
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                              : 'bg-slate-700 text-slate-400'
-                          }`}
-                        >
-                          {net.status}
+                      </div>
+                      <Badge variant={net.status === 'ACTIVE' ? 'success' : 'neutral'} dot>
+                        {net.status}
+                      </Badge>
+                    </div>
+
+                    <div style={{ marginTop: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <span style={{ color: 'var(--color-text-muted)' }}>Primary Provider</span>
+                        <span style={{ fontWeight: 700, color: 'var(--color-brand)' }}>{net.primaryProviderName || 'DataHouse'}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <span style={{ color: 'var(--color-text-muted)' }}>Fallback Provider</span>
+                        <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>{net.fallbackProviderName || 'GMPL'}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <span style={{ color: 'var(--color-text-muted)' }}>Uptime / Success</span>
+                        <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>
+                          {net.uptimePercentage}% / {net.successRatePercent}%
                         </span>
                       </div>
-
-                      <div className="space-y-2 mt-4 text-xs">
-                        <div className="flex justify-between py-1 border-b border-slate-800/80">
-                          <span className="text-slate-400">Primary Provider</span>
-                          <span className="text-emerald-400 font-bold">{net.primaryProviderName || 'DataHouse'}</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-slate-800/80">
-                          <span className="text-slate-400">Fallback Provider</span>
-                          <span className="text-slate-300 font-semibold">{net.fallbackProviderName || 'GMPL'}</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-slate-800/80">
-                          <span className="text-slate-400">Uptime / Success</span>
-                          <span className="text-white font-mono">
-                            {net.uptimePercentage}% / {net.successRatePercent}%
-                          </span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-slate-800/80">
-                          <span className="text-slate-400">Daily Limits</span>
-                          <span className="text-white font-mono">
-                            {(net.dailyVolumeLimitMb / 1000).toLocaleString()} GB / {net.dailyOrderLimit.toLocaleString()} ord
-                          </span>
-                        </div>
-                        <div className="flex justify-between py-1">
-                          <span className="text-slate-400">Bundle Range</span>
-                          <span className="text-white font-mono">
-                            {net.minBundleMb}MB – {net.maxBundleMb / 1000}GB
-                          </span>
-                        </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <span style={{ color: 'var(--color-text-muted)' }}>Daily Limits</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>
+                          {(net.dailyVolumeLimitMb / 1000).toLocaleString()} GB / {net.dailyOrderLimit.toLocaleString()} ord
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--color-text-muted)' }}>Bundle Range</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>
+                          {net.minBundleMb}MB – {net.maxBundleMb / 1000}GB
+                        </span>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedNetworkForEdit(net)}
-                        className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition border border-slate-700/60"
-                      >
-                        ⚙️ Configure
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleNetwork(net.code)}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition ${
-                          net.isActive
-                            ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30'
-                            : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30'
-                        }`}
-                      >
-                        {net.isActive ? 'Disable' : 'Enable'}
-                      </button>
-                    </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
+
+                  <div style={{ display: 'flex', gap: '0.5rem', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedNetworkForEdit(net)}
+                      style={{ flex: 1 }}
+                      leftIcon={<Settings size={14} />}
+                    >
+                      Configure
+                    </Button>
+                    <Button
+                      variant={net.isActive ? 'danger' : 'primary'}
+                      size="sm"
+                      onClick={() => handleToggleNetwork(net.code)}
+                    >
+                      {net.isActive ? 'Disable' : 'Enable'}
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* TAB 2: PROVIDERS */}
+      {/* TAB 2: PROVIDER REGISTRY */}
       {activeTab === 'providers' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h2 className="text-base font-bold text-white">Telecom Providers Registry</h2>
-              <p className="text-xs text-slate-400">All registered multi-carrier aggregators and direct MNO adapters</p>
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+                Telecom Providers Registry
+              </h2>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+                All registered multi-carrier aggregators and direct MNO adapters loaded into ByteBeacon.
+              </p>
             </div>
-            <button
-              onClick={() => setIsAddWizardOpen(true)}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
-            >
-              <span>+</span> Register New Adapter
-            </button>
+            <Button size="sm" variant="primary" onClick={() => setIsAddWizardOpen(true)} leftIcon={<Plus size={14} />}>
+              Register New Adapter
+            </Button>
           </div>
 
-          {providers.length === 0 ? (
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
-              <div className="text-3xl">🔌</div>
-              <h3 className="text-base font-bold text-white">No Provider Adapters Registered</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                No telecom adapters found in registry. Add a new aggregator via the wizard or restore the standard DataHouse and GMPL providers.
-              </p>
-              <div className="flex justify-center gap-3">
-                <button
-                  onClick={handleInitializeDefaults}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition"
-                >
-                  Load Baseline Aggregators
-                </button>
-                <button
-                  onClick={() => setIsAddWizardOpen(true)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition"
-                >
-                  + Add Telecom Provider
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {providers.map((prov) => (
-                <div
-                  key={prov.id}
-                  className={`bg-slate-900/70 border ${
-                    prov.isAuthoritative ? 'border-emerald-500/40 shadow-emerald-500/5' : 'border-slate-800'
-                  } rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow-lg`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-extrabold text-white text-base">{prov.name}</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 'var(--space-4)' }}>
+            {providers.map((prov) => (
+              <Card
+                key={prov.id}
+                elevated
+                accentColor={prov.isAuthoritative ? 'green' : undefined}
+                style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 'var(--space-4)' }}
+              >
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                          {prov.name}
+                        </h3>
                         {prov.isAuthoritative && (
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold border border-emerald-500/30">
-                            AUTHORITATIVE
-                          </span>
+                          <Badge variant="brand" size="sm" dot>AUTHORITATIVE</Badge>
                         )}
                       </div>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          prov.status === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
-                        }`}
-                      >
-                        {prov.status}
+                      <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        {prov.slug} • {prov.providerType}
                       </span>
                     </div>
-                    <div className="text-xs text-slate-400 font-mono mt-0.5">
-                      {prov.slug} • {prov.providerType}
-                    </div>
-
-                    <div className="space-y-2 mt-4 text-xs">
-                      <div className="flex justify-between py-1 border-b border-slate-800/80">
-                        <span className="text-slate-400">Carriers</span>
-                        <span className="text-slate-200 font-bold">{prov.supportedNetworks.join(', ')}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-slate-800/80">
-                        <span className="text-slate-400">Protocol / Auth</span>
-                        <span className="text-slate-300 font-mono">{prov.authMethod}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-slate-800/80">
-                        <span className="text-slate-400">Latency / Success</span>
-                        <span className="text-white font-mono">
-                          {prov.avgLatencyMs}ms / {prov.successRate}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1">
-                        <span className="text-slate-400">API Key Masked</span>
-                        <span className="text-slate-300 font-mono">
-                          {prov.credentialsMasked?.apiKeyMasked || '••••••••••••••••'}
-                        </span>
-                      </div>
-                    </div>
+                    <Badge variant={prov.status === 'ACTIVE' ? 'success' : 'warning'} dot>
+                      {prov.status}
+                    </Badge>
                   </div>
 
-                  <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-slate-800 text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProviderForDossier(prov)}
-                      className="py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-semibold transition text-center border border-slate-700/50"
-                      title="View Provider Details & Credentials"
-                    >
-                      Dossier
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProviderForTest(prov)}
-                      className="py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl font-bold transition text-center"
-                      title="Test Connection (DNS, TLS, Auth, Reachability)"
-                    >
-                      ⚡ Test
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProviderForCaps(prov)}
-                      className="py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 rounded-xl font-bold transition text-center"
-                      title="Test Capabilities (Catalog, Orders, Precheck, Webhooks)"
-                    >
-                      🔍 Caps
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProviderForSandbox(prov)}
-                      className="py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-xl font-bold transition text-center"
-                      title="Run Sandbox Transaction Test"
-                    >
-                      🧪 Sbx
-                    </button>
+                  <div style={{ marginTop: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Carriers</span>
+                      <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        {prov.supportedNetworks.join(', ')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Protocol / Auth</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
+                        {prov.authMethod}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Latency / Success</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        {prov.avgLatencyMs}ms / {prov.successRate}%
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>API Key Masked</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                        {prov.credentialsMasked?.apiKeyMasked || '••••••••••••••••'}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedProviderForDossier(prov)}>
+                    Dossier
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedProviderForTest(prov)}>
+                    ⚡ Test
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedProviderForCaps(prov)}>
+                    🔍 Caps
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedProviderForSandbox(prov)}>
+                    🧪 Sbx
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
         </div>
       )}
 
       {/* TAB 3: HEALTH & TELEMETRY */}
       {activeTab === 'health' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white">Provider Telemetry & Health Monitoring</h2>
-              <p className="text-xs text-slate-400">Real-time latency distribution, error rates, and HTTP status codes</p>
-            </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+              Provider Telemetry & Health Monitoring
+            </h2>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Real-time latency distribution, error rates, and HTTP status code distribution.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 'var(--space-4)' }}>
             {providers.map((p) => (
-              <div key={p.id} className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
-                <div className="flex items-center justify-between">
+              <Card key={p.id} elevated style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-white text-base">{p.name}</h3>
-                      {p.isAuthoritative && (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
-                          AUTHORITATIVE
-                        </span>
-                      )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                        {p.name}
+                      </h3>
+                      {p.isAuthoritative && <Badge variant="brand" size="sm" dot>AUTHORITATIVE</Badge>}
                     </div>
-                    <div className="text-xs text-slate-400 font-mono">{p.apiBaseUrl}</div>
+                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {p.apiBaseUrl}
+                    </span>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs">
-                    {p.status}
+                  <Badge variant={p.status === 'ACTIVE' ? 'success' : 'warning'}>{p.status}</Badge>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-2)' }}>
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                    <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Avg Latency</div>
+                    <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)', marginTop: '0.125rem' }}>
+                      {p.avgLatencyMs}ms
+                    </div>
+                  </div>
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                    <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>P95 Latency</div>
+                    <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-warning)', marginTop: '0.125rem' }}>
+                      {p.p95LatencyMs}ms
+                    </div>
+                  </div>
+                  <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                    <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Success Rate</div>
+                    <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-brand)', marginTop: '0.125rem' }}>
+                      {p.successRate}%
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                    HTTP Status Distribution (24h)
                   </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="p-3 bg-slate-800/40 rounded-xl text-center border border-slate-800">
-                    <div className="text-[11px] text-slate-400">Avg Latency</div>
-                    <div className="text-base font-bold text-white font-mono mt-0.5">{p.avgLatencyMs}ms</div>
+                  <div style={{ width: '100%', height: '8px', borderRadius: 'var(--radius-full)', backgroundColor: 'var(--color-bg-surface-muted)', display: 'flex', overflow: 'hidden' }}>
+                    <div style={{ width: '98.5%', backgroundColor: 'var(--color-success)' }} title="2xx Success: 98.5%" />
+                    <div style={{ width: '1.2%', backgroundColor: 'var(--color-warning)' }} title="4xx Client Error: 1.2%" />
+                    <div style={{ width: '0.3%', backgroundColor: 'var(--color-danger)' }} title="5xx Server Error: 0.3%" />
                   </div>
-                  <div className="p-3 bg-slate-800/40 rounded-xl text-center border border-slate-800">
-                    <div className="text-[11px] text-slate-400">P95 Latency</div>
-                    <div className="text-base font-bold text-amber-400 font-mono mt-0.5">{p.p95LatencyMs}ms</div>
-                  </div>
-                  <div className="p-3 bg-slate-800/40 rounded-xl text-center border border-slate-800">
-                    <div className="text-[11px] text-slate-400">Success Rate</div>
-                    <div className="text-base font-bold text-emerald-400 font-mono mt-0.5">{p.successRate}%</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                    <span style={{ color: 'var(--color-success)' }}>● 2xx Success (98.5%)</span>
+                    <span style={{ color: 'var(--color-warning)' }}>● 4xx Client (1.2%)</span>
+                    <span style={{ color: 'var(--color-danger)' }}>● 5xx Gateway (0.3%)</span>
                   </div>
                 </div>
 
-                <div className="space-y-2 text-xs">
-                  <div className="text-slate-400 font-semibold">HTTP Status Distribution (24h)</div>
-                  <div className="w-full bg-slate-800 h-2.5 rounded-full flex overflow-hidden">
-                    <div className="bg-emerald-500 h-full" style={{ width: '98.5%' }} title="2xx Success: 98.5%" />
-                    <div className="bg-amber-500 h-full" style={{ width: '1.2%' }} title="4xx Client Error: 1.2%" />
-                    <div className="bg-rose-500 h-full" style={{ width: '0.3%' }} title="5xx Server Error: 0.3%" />
-                  </div>
-                  <div className="flex justify-between text-[11px] text-slate-400">
-                    <span className="text-emerald-400">● 2xx Success (98.5%)</span>
-                    <span className="text-amber-400">● 4xx Client (1.2%)</span>
-                    <span className="text-rose-400">● 5xx Gateway (0.3%)</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-800 flex justify-end">
-                  <button
-                    type="button"
+                <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => setSelectedProviderForTest(p)}
-                    className="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                    leftIcon={<Zap size={14} />}
                   >
-                    <span>⚡</span> Run Diagnostic Probe
-                  </button>
+                    Run Diagnostic Probe
+                  </Button>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         </div>
@@ -938,30 +958,42 @@ export const AdminProviderPage: React.FC = () => {
 
       {/* TAB 4: ROUTING & AUTHORITATIVE SWITCH */}
       {activeTab === 'routing' && (
-        <div className="space-y-6">
-          {/* Section 1: Carrier-to-Provider Matrix */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
-            <h2 className="text-base font-bold text-white">Carrier Fulfillment Routing Rules</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="border-b border-slate-800 text-slate-400">
-                  <tr>
-                    <th className="py-2.5">Network Carrier</th>
-                    <th className="py-2.5">Primary Provider</th>
-                    <th className="py-2.5">Fallback Provider</th>
-                    <th className="py-2.5">Status</th>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          {/* Section 1: Routing Matrix */}
+          <Card elevated style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div>
+              <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                Carrier Fulfillment Routing Rules
+              </h2>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+                Primary and secondary telecom dispatch matrix by Ghanaian carrier.
+              </p>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', fontSize: 'var(--font-size-xs)', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border-default)', color: 'var(--color-text-muted)' }}>
+                    <th style={{ padding: '0.625rem 0' }}>Network Carrier</th>
+                    <th style={{ padding: '0.625rem 0' }}>Primary Provider</th>
+                    <th style={{ padding: '0.625rem 0' }}>Fallback Provider</th>
+                    <th style={{ padding: '0.625rem 0' }}>Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/50">
+                <tbody>
                   {routingMatrix.map((r) => (
-                    <tr key={r.networkCode}>
-                      <td className="py-3 font-bold text-white">{r.networkCode}</td>
-                      <td className="py-3 text-emerald-400 font-bold">{r.primaryProvider}</td>
-                      <td className="py-3 text-slate-300">{r.fallbackProvider || 'NONE'}</td>
-                      <td className="py-3">
-                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 font-bold rounded-full text-[10px]">
-                          ACTIVE
-                        </span>
+                    <tr key={r.networkCode} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: '0.75rem 0' }}>
+                        <NetworkBadge network={r.networkCode} size="sm" />
+                      </td>
+                      <td style={{ padding: '0.75rem 0', fontWeight: 700, color: 'var(--color-brand)' }}>
+                        {r.primaryProvider}
+                      </td>
+                      <td style={{ padding: '0.75rem 0', color: 'var(--color-text-secondary)' }}>
+                        {r.fallbackProvider || 'NONE'}
+                      </td>
+                      <td style={{ padding: '0.75rem 0' }}>
+                        <Badge variant="success" size="sm" dot>ACTIVE</Badge>
                       </td>
                     </tr>
                   ))}
@@ -969,26 +1001,31 @@ export const AdminProviderPage: React.FC = () => {
               </table>
             </div>
 
-            {/* Routing Edit Form */}
-            <form onSubmit={handleUpdateRouting} className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-4 border-t border-slate-800 items-end">
+            {/* Edit Routing Form */}
+            <form onSubmit={handleUpdateRouting} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-3)', alignItems: 'end', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Carrier</label>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Carrier Network
+                </label>
                 <select
                   value={selectedRoutingNet}
                   onChange={(e) => setSelectedRoutingNet(e.target.value as NetworkProvider)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
                 >
                   <option value={NetworkProvider.MTN}>MTN Ghana</option>
                   <option value={NetworkProvider.TELECEL}>Telecel Ghana</option>
                   <option value={NetworkProvider.AIRTELTIGO}>AirtelTigo (AT)</option>
                 </select>
               </div>
+
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Primary Adapter</label>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Primary Adapter
+                </label>
                 <select
                   value={selectedPrimary}
                   onChange={(e) => setSelectedPrimary(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
                 >
                   {providers.map((p) => (
                     <option key={p.id} value={p.name}>
@@ -997,12 +1034,15 @@ export const AdminProviderPage: React.FC = () => {
                   ))}
                 </select>
               </div>
+
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Fallback Adapter</label>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Fallback Adapter
+                </label>
                 <select
                   value={selectedFallback}
                   onChange={(e) => setSelectedFallback(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
                 >
                   {providers.map((p) => (
                     <option key={p.id} value={p.name}>
@@ -1011,35 +1051,39 @@ export const AdminProviderPage: React.FC = () => {
                   ))}
                 </select>
               </div>
-              <button
-                type="submit"
-                disabled={isUpdatingRouting}
-                className="py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition"
-              >
+
+              <Button type="submit" variant="primary" disabled={isUpdatingRouting} style={{ width: '100%' }}>
                 {isUpdatingRouting ? 'Saving...' : 'Update Carrier Routing'}
-              </button>
+              </Button>
             </form>
-          </div>
+          </Card>
 
           {/* Section 2: Authoritative Provider Promotion Safeguard */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-lg">
+          <Card elevated accentColor="amber" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-amber-400 font-bold text-base">⚠️</span>
-                <h2 className="text-base font-bold text-white">Authoritative Provider Switch Safeguard</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <TactileIcon icon={ShieldCheck} color="speed" size="sm" />
+                <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Authoritative Provider Switch Safeguard
+                </h2>
+                {!isSuperAdmin && (
+                  <Badge variant="warning" size="sm">SUPER ADMIN REQUIRED</Badge>
+                )}
               </div>
-              <p className="text-xs text-slate-400 mt-1">
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
                 Promote a candidate provider to authoritative status. ByteBeacon executes a 7-step pre-flight checklist to prevent transaction drops.
               </p>
             </div>
 
-            <div className="flex flex-col md:flex-row gap-3 items-end">
-              <div className="flex-1">
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Select Candidate Provider</label>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '240px' }}>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Select Candidate Provider
+                </label>
                 <select
                   value={targetSwitchProvider}
                   onChange={(e) => setTargetSwitchProvider(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
+                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
                 >
                   {providers.map((p) => (
                     <option key={p.id} value={p.name}>
@@ -1048,120 +1092,156 @@ export const AdminProviderPage: React.FC = () => {
                   ))}
                 </select>
               </div>
-              <button
-                type="button"
+
+              <Button
+                variant="primary"
                 onClick={handleValidateSwitch}
                 disabled={isValidatingSwitch}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition shadow-md shadow-indigo-500/20"
+                leftIcon={<Zap size={14} />}
               >
                 {isValidatingSwitch ? 'Verifying Pre-Flight Checklist...' : 'Run Pre-Flight Validation'}
-              </button>
+              </Button>
             </div>
 
             {switchValidation && (
-              <div className="p-4 bg-slate-800/70 border border-slate-700 rounded-xl space-y-3">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-white">Validation Results: {switchValidation.targetProvider}</span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
-                      switchValidation.canSwitch ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
-                    }`}
-                  >
-                    {switchValidation.canSwitch ? 'ALL CHECKS PASSED' : 'CHECKLIST BLOCKED'}
+              <div style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface-muted)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-default)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'var(--font-size-xs)' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    Pre-Flight Checklist: {switchValidation.targetProvider}
                   </span>
+                  <Badge variant={switchValidation.canSwitch ? 'success' : 'danger'}>
+                    {switchValidation.canSwitch ? 'ALL CHECKS PASSED' : 'CHECKLIST BLOCKED'}
+                  </Badge>
                 </div>
 
-                <div className="space-y-1.5">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
                   {switchValidation.checks.map((chk, i) => (
-                    <div key={i} className="p-2 bg-slate-900/60 rounded-lg flex items-center justify-between text-xs">
-                      <span className="text-slate-300 flex items-center gap-2">
-                        <span className={chk.passed ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                          {chk.passed ? '✓' : '✗'}
-                        </span>
+                    <div
+                      key={i}
+                      style={{
+                        padding: '0.5rem 0.75rem',
+                        backgroundColor: 'var(--color-bg-surface)',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: 'var(--font-size-xs)',
+                        border: '1px solid var(--color-border-subtle)',
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-primary)' }}>
+                        {chk.passed ? (
+                          <CheckCircle2 size={16} color="var(--color-success)" />
+                        ) : (
+                          <XCircle size={16} color="var(--color-danger)" />
+                        )}
                         {chk.check}
                       </span>
-                      <span className="text-[11px] text-slate-400">{chk.message}</span>
+                      <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                        {chk.message}
+                      </span>
                     </div>
                   ))}
                 </div>
 
                 {switchValidation.canSwitch && (
-                  <div className="pt-3 border-t border-slate-700/60 space-y-3">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">Reason / Justification *</label>
+                      <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                        Reason / Justification *
+                      </label>
                       <input
                         type="text"
                         value={switchReason}
                         onChange={(e) => setSwitchReason(e.target.value)}
                         placeholder="e.g. Scheduled migration to primary carrier interconnect"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"
+                        style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
                       />
                     </div>
-                    <button
-                      type="button"
+
+                    <Button
+                      variant="primary"
                       onClick={handleExecuteSwitch}
-                      disabled={isSwitching || !switchReason}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+                      disabled={isSwitching || !switchReason || !isSuperAdmin}
+                      style={{ width: '100%' }}
+                      leftIcon={isSuperAdmin ? <ShieldCheck size={14} /> : <Lock size={14} />}
                     >
-                      {isSwitching ? 'Executing Atomic Authority Switch...' : `Promote ${switchValidation.targetProvider} to Authoritative`}
-                    </button>
+                      {isSwitching
+                        ? 'Executing Atomic Authority Switch...'
+                        : isSuperAdmin
+                        ? `Promote ${switchValidation.targetProvider} to Authoritative Fulfiller`
+                        : 'Super Admin Authorization Required'}
+                    </Button>
                   </div>
                 )}
               </div>
             )}
-          </div>
+          </Card>
         </div>
       )}
 
       {/* TAB 5: WEBHOOKS */}
       {activeTab === 'webhooks' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white">Inbound Webhooks & Delivery Endpoints</h2>
-              <p className="text-xs text-slate-400">Carrier async event callbacks & HMAC-SHA256 verification</p>
-            </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+              Inbound Webhooks & Delivery Endpoints
+            </h2>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Carrier asynchronous event callbacks & HMAC-SHA256 signature verification.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 'var(--space-4)' }}>
             {providers.map((p) => {
               const url = p.webhookUrl || `/api/v1/fulfillment/${p.slug}/webhook`;
               return (
-                <div key={p.id} className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 space-y-3 text-xs shadow-lg">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-white text-sm">{p.name} Webhook</h3>
-                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-bold text-[10px]">
-                      HMAC VERIFIED
-                    </span>
+                <Card key={p.id} elevated style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                      {p.name} Webhook
+                    </h3>
+                    <Badge variant="brand" size="sm">HMAC VERIFIED</Badge>
                   </div>
-                  <div className="flex items-center justify-between py-1 border-b border-slate-800/80">
-                    <span className="text-slate-400">Inbound Endpoint</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-emerald-400 text-[11px]">{url}</span>
-                      <button
-                        type="button"
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <span style={{ color: 'var(--color-text-muted)' }}>Inbound Endpoint</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-brand)', fontWeight: 700 }}>
+                        {url}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => handleCopyWebhook(url, p.slug)}
-                        className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-semibold transition"
+                        leftIcon={copiedSlug === p.slug ? <Check size={12} /> : <Copy size={12} />}
                       >
-                        {copiedSlug === p.slug ? '✓ Copied' : 'Copy'}
-                      </button>
+                        {copiedSlug === p.slug ? 'Copied' : 'Copy'}
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-800/80">
-                    <span className="text-slate-400">Signature Header</span>
-                    <span className="font-mono text-slate-200">X-ByteBeacon-Signature</span>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <span style={{ color: 'var(--color-text-muted)' }}>Signature Header</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
+                      X-ByteBeacon-Signature
+                    </span>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-800/80">
-                    <span className="text-slate-400">Signing Secret</span>
-                    <span className="font-mono text-slate-400">
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.375rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <span style={{ color: 'var(--color-text-muted)' }}>Signing Secret</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
                       {p.credentialsMasked?.webhookSecretMasked || '••••••••••••••••'}
                     </span>
                   </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-400">Supported Events</span>
-                    <span className="text-slate-300 font-semibold">order.completed, order.failed, refund</span>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--color-text-muted)' }}>Supported Events</span>
+                    <span style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                      order.completed, order.failed, refund
+                    </span>
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
@@ -1170,57 +1250,61 @@ export const AdminProviderPage: React.FC = () => {
 
       {/* TAB 6: TESTS (3-TIER DIAGNOSTICS) */}
       {activeTab === 'tests' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white">3-Tier Diagnostic & Testing Suite</h2>
-              <p className="text-xs text-slate-400">Test Connection, Test Capabilities, or Run Sandbox Transactions</p>
-            </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+              3-Tier Diagnostic & Testing Suite
+            </h2>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Execute lightweight connection diagnostics, feature capability audits, or synthetic sandbox transactions.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-4)' }}>
             {providers.map((p) => (
-              <div
-                key={p.id}
-                className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 space-y-3 flex flex-col justify-between shadow-lg"
-              >
+              <Card key={p.id} elevated style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
                 <div>
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-white text-sm">{p.name}</h3>
-                    <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] font-mono">{p.environment}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                      {p.name}
+                    </h3>
+                    <Badge variant="neutral" size="sm">{p.environment}</Badge>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Run lightweight connection checks, feature capability audits, or synthetic sandbox transactions.
+                  <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                    Run 3-tier diagnostic checks across DNS, TLS, Auth, Capabilities, and Sandbox.
                   </p>
                 </div>
 
-                <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
-                  <button
-                    type="button"
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => setSelectedProviderForTest(p)}
-                    className="w-full py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition text-left px-3 flex items-center justify-between"
+                    leftIcon={<Zap size={14} />}
+                    style={{ justifyContent: 'flex-start' }}
                   >
-                    <span>⚡ Test Connection</span>
-                    <span className="text-[10px] text-emerald-500/80 font-normal">DNS, TLS, Auth</span>
-                  </button>
-                  <button
-                    type="button"
+                    ⚡ Test Connection (DNS, TLS, Auth)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => setSelectedProviderForCaps(p)}
-                    className="w-full py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 rounded-xl text-xs font-bold transition text-left px-3 flex items-center justify-between"
+                    leftIcon={<Sliders size={14} />}
+                    style={{ justifyContent: 'flex-start' }}
                   >
-                    <span>🔍 Test Capabilities</span>
-                    <span className="text-[10px] text-purple-500/80 font-normal">Features</span>
-                  </button>
-                  <button
-                    type="button"
+                    🔍 Test Capabilities (12-Feature Audit)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => setSelectedProviderForSandbox(p)}
-                    className="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs font-bold transition text-left px-3 flex items-center justify-between"
+                    leftIcon={<Terminal size={14} />}
+                    style={{ justifyContent: 'flex-start' }}
                   >
-                    <span>🧪 Run Sandbox Test</span>
-                    <span className="text-[10px] text-indigo-500/80 font-normal">Synthetic Flow</span>
-                  </button>
+                    🧪 Run Sandbox Transaction Test
+                  </Button>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         </div>
@@ -1228,71 +1312,68 @@ export const AdminProviderPage: React.FC = () => {
 
       {/* TAB 7: INCIDENTS */}
       {activeTab === 'incidents' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h2 className="text-base font-bold text-white">Provider Incidents & Outage Log</h2>
-              <p className="text-xs text-slate-400">Active degraded carrier routes and mitigation audit trail</p>
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+                Provider Incidents & Outage Log
+              </h2>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+                Active degraded carrier routes and mitigation audit trail.
+              </p>
             </div>
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="danger"
               onClick={() => {
                 setSelectedIncidentForEdit(null);
                 setIsIncidentModalOpen(true);
               }}
-              className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition shadow-md shadow-rose-500/20"
+              leftIcon={<AlertTriangle size={14} />}
             >
-              + Report Incident
-            </button>
+              Report Incident
+            </Button>
           </div>
 
-          <div className="space-y-3">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
             {(incidents.length > 0 ? incidents : DEFAULT_INCIDENTS).map((inc) => (
-              <div
+              <Card
                 key={inc.id}
-                className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg"
+                elevated
+                accentColor={inc.status === 'RESOLVED' ? 'green' : 'amber'}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        inc.severity === 'CRITICAL'
-                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                          : inc.severity === 'HIGH'
-                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                          : 'bg-slate-700 text-slate-300'
-                      }`}
-                    >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Badge variant={inc.severity === 'CRITICAL' || inc.severity === 'HIGH' ? 'danger' : 'warning'}>
                       {inc.severity}
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        inc.status === 'RESOLVED'
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                      }`}
-                    >
+                    </Badge>
+                    <Badge variant={inc.status === 'RESOLVED' ? 'success' : 'danger'}>
                       {inc.status}
-                    </span>
-                    <h3 className="font-bold text-white text-sm">{inc.title}</h3>
+                    </Badge>
+                    <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                      {inc.title}
+                    </h3>
                   </div>
-                  <p className="text-xs text-slate-300">{inc.summary}</p>
-                  <div className="text-[11px] text-slate-400 font-mono">
+                  <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                    {inc.summary}
+                  </p>
+                  <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
                     Provider: {inc.providerName} • Carrier: {inc.affectedNetwork} • Started: {new Date(inc.startedAt).toLocaleString()}
-                  </div>
+                  </span>
                 </div>
 
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  variant="ghost"
                   onClick={() => {
-                    setSelectedIncidentForEdit(inc as any);
+                    setSelectedIncidentForEdit(inc);
                     setIsIncidentModalOpen(true);
                   }}
-                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold self-start md:self-auto transition border border-slate-700"
                 >
-                  Manage
-                </button>
-              </div>
+                  Manage Incident
+                </Button>
+              </Card>
             ))}
           </div>
         </div>
