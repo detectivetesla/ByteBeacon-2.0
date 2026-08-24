@@ -171,7 +171,7 @@ export async function adminOrdersRoutes(
           o.id::text LIKE $${idx} OR
           LOWER(COALESCE(o.recipient_phone, '')) LIKE $${idx} OR
           LOWER(COALESCE(u.email, '')) LIKE $${idx} OR
-          LOWER(COALESCE(u.full_name, u.name, '')) LIKE $${idx} OR
+          LOWER(COALESCE(u.full_name, '')) LIKE $${idx} OR
           LOWER(COALESCE(po.provider_order_id, '')) LIKE $${idx} OR
           LOWER(COALESCE(po.provider_reference, '')) LIKE $${idx} OR
           LOWER(COALESCE(p.provider_reference, '')) LIKE $${idx}
@@ -225,7 +225,7 @@ export async function adminOrdersRoutes(
                o.payment_status as "paymentStatus", o.order_status as "orderStatus",
                o.provider_status as "providerStatus", o.refund_status as "refundStatus",
                o.created_at as "createdAt", o.updated_at as "updatedAt",
-               u.email as "userEmail", COALESCE(u.full_name, u.name, 'Customer') as "userName",
+               u.email as "userEmail", COALESCE(u.full_name, 'Customer') as "userName",
                po.provider_name as "providerName", po.provider_order_id as "providerOrderId"
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id

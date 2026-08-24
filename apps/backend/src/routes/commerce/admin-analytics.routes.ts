@@ -123,7 +123,7 @@ export async function adminAnalyticsRoutes(
           o.payment_status as "paymentStatus",
           o.created_at as "createdAt",
           u.email as "userEmail",
-          COALESCE(u.full_name, u.name) as "userName"
+          COALESCE(u.full_name, 'Customer') as "userName"
         FROM orders o
         LEFT JOIN users u ON u.id = o.user_id
         ORDER BY o.created_at DESC
@@ -134,7 +134,7 @@ export async function adminAnalyticsRoutes(
       const recentUsersRes = await db.query(`
         SELECT 
           id,
-          COALESCE(full_name, name, email) as name,
+          COALESCE(full_name, email) as name,
           email,
           role,
           status,

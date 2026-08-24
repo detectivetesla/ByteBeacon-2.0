@@ -44,9 +44,16 @@ export async function adminAgentsRoutes(
   const { db, tokenService, apiKeyService, rbacService, auditService, financialLedgerService, passwordHasher } = deps;
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
 
+  // Helper to safely format dates
+  const safeIsoDate = (d: any): string | undefined => {
+    if (!d) return undefined;
+    const parsed = new Date(d);
+    return isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  };
+
   // Helper to map DB row to AdminAgentListItem
   const mapAgentRow = (r: any): AdminAgentListItem => {
-    const rawWallet = r.walletBalancePesewas ?? r.wallet_balance_pesewas ?? r.wallet_balance ?? 0;
+    const rawWallet = r.walletBalancePesewas ?? r.wallet_balance_pesewas ?? 0;
     const walletBalancePesewas = typeof rawWallet === 'string'
       ? Math.round(parseFloat(rawWallet) * 100)
       : Math.round(Number(rawWallet));
@@ -57,10 +64,10 @@ export async function adminAgentsRoutes(
     return {
       id: agentId,
       userId: r.userId || r.user_id || agentId,
-      fullName: r.fullName || r.full_name || r.name || 'Unnamed Agent',
+      fullName: r.fullName || r.full_name || 'Unnamed Agent',
       email: r.email || '',
       phone: r.phone || undefined,
-      businessName: r.businessName || r.business_name || r.fullName || r.full_name || r.name || 'Individual Reseller',
+      businessName: r.businessName || r.business_name || r.fullName || r.full_name || 'Individual Reseller',
       slug: r.slug || fallbackSlug,
       status: (r.agentStatus || r.status || 'ACTIVE').toUpperCase(),
       storeStatus: (r.storeStatus || r.store_status || 'NOT_STARTED').toUpperCase(),
@@ -74,10 +81,8 @@ export async function adminAgentsRoutes(
       revenuePesewas: parseInt(r.revenuePesewas || r.revenue_pesewas || '0', 10),
       subAgentsCount: parseInt(r.subAgentsCount || r.sub_agents_count || '0', 10),
       agentTier: r.agentTier || r.agent_tier || 'STANDARD',
-      createdAt: r.createdAt || r.created_at ? new Date(r.createdAt || r.created_at).toISOString() : new Date().toISOString(),
-      lastActiveAt: r.lastActiveAt || r.last_active_at || r.lastLoginAt || r.last_login_at || r.updatedAt || r.updated_at
-        ? new Date(r.lastActiveAt || r.last_active_at || r.lastLoginAt || r.last_login_at || r.updatedAt || r.updated_at).toISOString()
-        : undefined,
+      createdAt: safeIsoDate(r.createdAt || r.created_at) || new Date().toISOString(),
+      lastActiveAt: safeIsoDate(r.lastActiveAt || r.last_active_at || r.lastLoginAt || r.last_login_at || r.updatedAt || r.updated_at),
     };
   };
 
@@ -90,19 +95,12 @@ export async function adminAgentsRoutes(
         const statsQuery = `
           SELECT
             COUNT(DISTINCT a.id) as "totalAgents",
-            COUNT(DISTINCT a.id) FILTER (WHERE (u.status = 'ACTIVE' OR (u.status IS NULL AND u.is_active = true)) AND (a.status IS NULL OR a.status = 'ACTIVE')) as "activeAgents",
-            COUNT(DISTINCT a.id) FILTER (WHERE u.status = 'SUSPENDED' OR u.is_active = false OR a.status = 'SUSPENDED') as "suspendedAgents",
-            COUNT(DISTINCT a.id) FILTER (WHERE u.status = 'PENDING' OR a.status = 'PENDING') as "pendingAgents",
-            COUNT(DISTINCT s.id) FILTER (WHERE s.store_status = 'ACTIVE') as "agentsWithStores",
-            COUNT(DISTINCT k.agent_id) FILTER (WHERE k.status = 'ACTIVE') as "agentsWithApi",
-            COALESCE(SUM(
-              CASE
-                WHEN u.wallet_balance_pesewas IS NOT NULL THEN u.wallet_balance_pesewas
-                WHEN u.wallet_balance IS NOT NULL THEN
-                  CASE WHEN u.wallet_balance > 1000000 THEN u.wallet_balance ELSE ROUND(u.wallet_balance * 100) END
-                ELSE 0
-              END
-            ), 0) as "totalWalletFloatPesewas",
+            COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, 'ACTIVE')) = 'ACTIVE' AND UPPER(COALESCE(a.status, 'ACTIVE')) = 'ACTIVE') as "activeAgents",
+            COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'SUSPENDED' OR UPPER(COALESCE(a.status, '')) = 'SUSPENDED') as "suspendedAgents",
+            COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'PENDING' OR UPPER(COALESCE(a.status, '')) = 'PENDING') as "pendingAgents",
+            COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.store_status, '')) = 'ACTIVE') as "agentsWithStores",
+            COUNT(DISTINCT k.agent_id) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
+            COALESCE(SUM(u.wallet_balance_pesewas), 0) as "totalWalletFloatPesewas",
             COALESCE((
               SELECT SUM(amount_pesewas)
               FROM orders
@@ -192,8 +190,8 @@ export async function adminAgentsRoutes(
       if (search && search.trim()) {
         const q = `%${search.trim().toLowerCase()}%`;
         whereConditions.push(`(
-          LOWER(COALESCE(u.full_name, u.name, '')) LIKE $${paramIdx} OR
-          LOWER(u.email) LIKE $${paramIdx} OR
+          LOWER(COALESCE(u.full_name, '')) LIKE $${paramIdx} OR
+          LOWER(COALESCE(u.email, '')) LIKE $${paramIdx} OR
           LOWER(COALESCE(u.phone, '')) LIKE $${paramIdx} OR
           LOWER(COALESCE(a.business_name, '')) LIKE $${paramIdx} OR
           LOWER(COALESCE(a.slug, '')) LIKE $${paramIdx} OR
@@ -206,7 +204,7 @@ export async function adminAgentsRoutes(
       }
 
       if (status !== 'ALL') {
-        whereConditions.push(`(UPPER(a.status) = $${paramIdx} OR UPPER(u.status) = $${paramIdx})`);
+        whereConditions.push(`(UPPER(COALESCE(a.status, '')) = $${paramIdx} OR UPPER(COALESCE(u.status, '')) = $${paramIdx})`);
         params.push(status.toUpperCase());
         paramIdx++;
       }
@@ -230,11 +228,11 @@ export async function adminAgentsRoutes(
       }
 
       if (financial === 'POSITIVE') {
-        whereConditions.push(`(COALESCE(u.wallet_balance_pesewas, ROUND(COALESCE(u.wallet_balance, 0) * 100)) > 0)`);
+        whereConditions.push(`(COALESCE(u.wallet_balance_pesewas, 0) > 0)`);
       } else if (financial === 'ZERO') {
-        whereConditions.push(`(COALESCE(u.wallet_balance_pesewas, ROUND(COALESCE(u.wallet_balance, 0) * 100)) = 0)`);
+        whereConditions.push(`(COALESCE(u.wallet_balance_pesewas, 0) = 0)`);
       } else if (financial === 'NEGATIVE') {
-        whereConditions.push(`(COALESCE(u.wallet_balance_pesewas, ROUND(COALESCE(u.wallet_balance, 0) * 100)) < 0)`);
+        whereConditions.push(`(COALESCE(u.wallet_balance_pesewas, 0) < 0)`);
       }
 
       if (dateRange === '7d') {
@@ -268,10 +266,10 @@ export async function adminAgentsRoutes(
         SELECT
           a.id,
           a.user_id as "userId",
-          COALESCE(u.full_name, u.name, 'Unnamed Agent') as "fullName",
+          COALESCE(u.full_name, 'Unnamed Agent') as "fullName",
           u.email,
           u.phone,
-          a.business_name as "businessName",
+          COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
           a.slug,
           COALESCE(a.status, u.status, 'ACTIVE') as "agentStatus",
           COALESCE(s.store_status, 'NOT_STARTED') as "storeStatus",
@@ -280,7 +278,7 @@ export async function adminAgentsRoutes(
           s.slug as "storeSlug",
           COALESCE(a.api_access_enabled, FALSE) as "apiAccessEnabled",
           COALESCE(k.key_count, 0) as "activeKeysCount",
-          COALESCE(u.wallet_balance_pesewas, ROUND(COALESCE(u.wallet_balance, 0) * 100), 0) as "walletBalancePesewas",
+          COALESCE(u.wallet_balance_pesewas, 0) as "walletBalancePesewas",
           COALESCE(o.orders_count, 0) as "ordersCount",
           COALESCE(o.revenue_pesewas, 0) as "revenuePesewas",
           COALESCE(sub.sub_count, 0) as "subAgentsCount",
@@ -344,10 +342,10 @@ export async function adminAgentsRoutes(
         SELECT
           a.id,
           a.user_id as "userId",
-          COALESCE(u.full_name, u.name, 'Unnamed Agent') as "fullName",
+          COALESCE(u.full_name, 'Unnamed Agent') as "fullName",
           u.email,
           u.phone,
-          a.business_name as "businessName",
+          COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
           a.slug,
           COALESCE(a.status, u.status, 'ACTIVE') as "agentStatus",
           COALESCE(s.store_status, 'NOT_STARTED') as "storeStatus",
@@ -356,7 +354,7 @@ export async function adminAgentsRoutes(
           s.slug as "storeSlug",
           COALESCE(a.api_access_enabled, FALSE) as "apiAccessEnabled",
           COALESCE(k.key_count, 0) as "activeKeysCount",
-          COALESCE(u.wallet_balance_pesewas, ROUND(COALESCE(u.wallet_balance, 0) * 100), 0) as "walletBalancePesewas",
+          COALESCE(u.wallet_balance_pesewas, 0) as "walletBalancePesewas",
           COALESCE(o.orders_count, 0) as "ordersCount",
           COALESCE(o.revenue_pesewas, 0) as "revenuePesewas",
           COALESCE(sub.sub_count, 0) as "subAgentsCount",
@@ -458,9 +456,9 @@ export async function adminAgentsRoutes(
 
       // 5. Sub-agents
       const subAgentsRes = await db.query(
-        `SELECT a.id, a.user_id as "userId", COALESCE(u.full_name, u.name, 'Unnamed') as "fullName",
+        `SELECT a.id, a.user_id as "userId", COALESCE(u.full_name, 'Unnamed') as "fullName",
                 u.email, u.phone, a.business_name as "businessName", COALESCE(a.status, 'ACTIVE') as status,
-                u.wallet_balance as "walletBalancePesewas",
+                COALESCE(u.wallet_balance_pesewas, 0) as "walletBalancePesewas",
                 COALESCE((SELECT COUNT(*) FROM orders WHERE agent_id = a.id), 0) as "ordersCount",
                 COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE agent_id = a.id AND payment_status = 'PAID'), 0) as "revenuePesewas",
                 a.created_at as "createdAt"
@@ -484,12 +482,12 @@ export async function adminAgentsRoutes(
           : Math.round(Number(r.walletBalancePesewas || 0)),
         ordersCount: parseInt(r.ordersCount || '0', 10),
         revenuePesewas: parseInt(r.revenuePesewas || '0', 10),
-        createdAt: new Date(r.createdAt).toISOString(),
+        createdAt: safeIsoDate(r.createdAt) || new Date().toISOString(),
       }));
 
       // 6. Customers
       const customersRes = await db.query(
-        `SELECT ac.id, ac.customer_id as "customerId", COALESCE(u.full_name, u.name, 'Customer') as "fullName",
+        `SELECT ac.id, ac.customer_id as "customerId", COALESCE(u.full_name, 'Customer') as "fullName",
                 u.email, u.phone,
                 COALESCE((SELECT COUNT(*) FROM orders WHERE user_id = u.id AND agent_id = $1), 0) as "ordersCount",
                 COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE user_id = u.id AND agent_id = $1 AND payment_status = 'PAID'), 0) as "spentPesewas",
@@ -511,8 +509,8 @@ export async function adminAgentsRoutes(
         phone: r.phone || undefined,
         ordersCount: parseInt(r.ordersCount || '0', 10),
         spentPesewas: parseInt(r.spentPesewas || '0', 10),
-        lastOrderDate: r.lastOrderDate ? new Date(r.lastOrderDate).toISOString() : undefined,
-        createdAt: new Date(r.createdAt).toISOString(),
+        lastOrderDate: safeIsoDate(r.lastOrderDate),
+        createdAt: safeIsoDate(r.createdAt) || new Date().toISOString(),
       }));
 
       // 7. Custom pricing
@@ -544,7 +542,7 @@ export async function adminAgentsRoutes(
           customPricePesewas: customPrice,
           effectivePricePesewas: customPrice !== null ? customPrice : defaultAgent,
           isActive: Boolean(r.isActive),
-          updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : undefined,
+          updatedAt: safeIsoDate(r.updatedAt),
         };
       });
 
@@ -595,7 +593,7 @@ export async function adminAgentsRoutes(
           activeKeys: parseInt(as.activeKeys || '0', 10),
           totalRequests30d: 0,
           successRate: 100.0,
-          lastRequestAt: as.lastRequestAt ? new Date(as.lastRequestAt).toISOString() : undefined,
+          lastRequestAt: safeIsoDate(as.lastRequestAt),
         },
         storeSummary,
         subAgents,
@@ -642,8 +640,8 @@ export async function adminAgentsRoutes(
 
       // Create user
       const userRes = await db.query(
-        `INSERT INTO users (full_name, name, email, phone, password_hash, role, status, is_active, email_verified, wallet_balance)
-         VALUES ($1, $1, $2, $3, $4, 'agent', 'ACTIVE', TRUE, TRUE, 0)
+        `INSERT INTO users (full_name, email, phone, password_hash, role, security_domain, status, wallet_balance_pesewas)
+         VALUES ($1, $2, $3, $4, 'agent', 'AGENT', 'ACTIVE', 0)
          RETURNING id, email, phone, full_name as "fullName", created_at as "createdAt"`,
         [fullName.trim(), email.trim().toLowerCase(), phone.trim(), passwordHash],
       );
@@ -685,7 +683,7 @@ export async function adminAgentsRoutes(
           status: 'ACTIVE',
           agentTier,
           apiEnabled: enableApiAccess,
-          createdAt: new Date(newAgent.createdAt).toISOString(),
+          createdAt: safeIsoDate(newAgent.createdAt) || new Date().toISOString(),
         },
         message: 'Agent account created successfully.',
       });
@@ -722,7 +720,6 @@ export async function adminAgentsRoutes(
         await db.query(
           `UPDATE users
            SET full_name = COALESCE($1, full_name),
-               name = COALESCE($1, name),
                phone = COALESCE($2, phone),
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $3`,
@@ -805,8 +802,8 @@ export async function adminAgentsRoutes(
 
       // Update user status
       await db.query(
-        `UPDATE users SET status = $1, is_active = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
-        [status, status === AgentAccountStatus.ACTIVE, agent.userId],
+        `UPDATE users SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [status, agent.userId],
       );
 
       if (auditService) {
@@ -851,7 +848,7 @@ export async function adminAgentsRoutes(
       }
 
       const agentRes = await db.query(
-        'SELECT a.id, a.user_id as "userId", u.wallet_balance as "walletBalance" FROM agents a JOIN users u ON a.user_id = u.id WHERE a.id = $1',
+        'SELECT a.id, a.user_id as "userId", u.wallet_balance_pesewas as "walletBalancePesewas" FROM agents a JOIN users u ON a.user_id = u.id WHERE a.id = $1',
         [id],
       );
       if (agentRes.rows.length === 0) {
@@ -917,15 +914,13 @@ export async function adminAgentsRoutes(
           await financialLedgerService.recordJournalEntries(client, entries);
 
           // Update user wallet projection
-          const delta = direction === 'CREDIT' ? (amountPesewas / 100) : -(amountPesewas / 100);
           const deltaPesewas = direction === 'CREDIT' ? amountPesewas : -amountPesewas;
           await client.query(
             `UPDATE users
-             SET wallet_balance = COALESCE(wallet_balance, 0) + $1,
-                 wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $2,
+             SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = $3`,
-            [delta, deltaPesewas, userId],
+             WHERE id = $2`,
+            [deltaPesewas, userId],
           );
 
           await client.query('COMMIT');
@@ -993,7 +988,7 @@ export async function adminAgentsRoutes(
           customPricePesewas: customPrice,
           effectivePricePesewas: customPrice !== null ? customPrice : defaultAgent,
           isActive: Boolean(r.isActive),
-          updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : undefined,
+          updatedAt: safeIsoDate(r.updatedAt),
         };
       });
 
@@ -1093,9 +1088,9 @@ export async function adminAgentsRoutes(
         success: true,
         data: keysRes.rows.map((k) => ({
           ...k,
-          createdAt: new Date(k.createdAt).toISOString(),
-          lastUsedAt: k.lastUsedAt ? new Date(k.lastUsedAt).toISOString() : null,
-          expiresAt: k.expiresAt ? new Date(k.expiresAt).toISOString() : null,
+          createdAt: safeIsoDate(k.createdAt) || new Date().toISOString(),
+          lastUsedAt: safeIsoDate(k.lastUsedAt) || null,
+          expiresAt: safeIsoDate(k.expiresAt) || null,
         })),
       });
     },
@@ -1148,13 +1143,13 @@ export async function adminAgentsRoutes(
       let query = `
         SELECT
           a.id as "agentId",
-          COALESCE(u.full_name, u.name, '') as "fullName",
+          COALESCE(u.full_name, '') as "fullName",
           u.email,
           u.phone,
-          COALESCE(a.business_name, u.full_name, u.name, 'Individual Reseller') as "businessName",
+          COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
           a.slug,
           COALESCE(a.status, 'ACTIVE') as status,
-          COALESCE(u.wallet_balance, ROUND(COALESCE(u.wallet_balance_pesewas, 0) / 100.0, 2), 0) as "walletBalanceGhs",
+          ROUND(COALESCE(u.wallet_balance_pesewas, 0) / 100.0, 2) as "walletBalanceGhs",
           COALESCE((SELECT COUNT(*) FROM orders WHERE agent_id = a.id), 0) as "ordersCount",
           COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE agent_id = a.id AND payment_status = 'PAID'), 0) / 100.0 as "revenueGhs",
           a.created_at as "createdAt"
@@ -1184,7 +1179,7 @@ export async function adminAgentsRoutes(
           (Number(r.walletBalanceGhs) || 0).toFixed(2),
           r.ordersCount,
           (Number(r.revenueGhs) || 0).toFixed(2),
-          `"${r.createdAt ? new Date(r.createdAt).toISOString() : ''}"`,
+          `"${safeIsoDate(r.createdAt) || ''}"`,
         ]);
 
         const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');

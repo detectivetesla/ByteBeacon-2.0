@@ -37,6 +37,7 @@ export const migration00000000000001: MigrationFile = {
             ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret VARCHAR(255);
             ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance_pesewas BIGINT DEFAULT 0;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance NUMERIC(15, 2) DEFAULT 0.00;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INT DEFAULT 0;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;

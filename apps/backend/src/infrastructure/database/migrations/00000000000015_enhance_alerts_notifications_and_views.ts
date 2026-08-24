@@ -26,6 +26,10 @@ export const migration00000000000015: MigrationFile = {
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'email_verified') THEN
             ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT TRUE;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'wallet_balance') THEN
+            ALTER TABLE users ADD COLUMN wallet_balance NUMERIC(15, 2) DEFAULT 0.00;
+            UPDATE users SET wallet_balance = ROUND(COALESCE(wallet_balance_pesewas, 0) / 100.0, 2) WHERE wallet_balance IS NULL;
+        END IF;
 
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'financial_ledger' AND column_name = 'metadata') THEN
             ALTER TABLE financial_ledger ADD COLUMN metadata JSONB NOT NULL DEFAULT '{}';

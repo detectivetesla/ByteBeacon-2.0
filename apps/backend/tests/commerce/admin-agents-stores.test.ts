@@ -279,9 +279,9 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
         }
 
         // 8. Agent Wallet Adjustment
-        if (sql.includes('SELECT a.id, a.user_id as "userId", u.wallet_balance as "walletBalance" FROM agents a')) {
+        if (sql.includes('SELECT a.id, a.user_id as "userId", u.wallet_balance_pesewas') && sql.includes('FROM agents a')) {
           return Promise.resolve({
-            rows: [{ id: 'agt_uuid_101', userId: 'usr_agt_101', walletBalance: 1250 }],
+            rows: [{ id: 'agt_uuid_101', userId: 'usr_agt_101', walletBalancePesewas: 125000 }],
           });
         }
 

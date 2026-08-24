@@ -155,10 +155,9 @@ export async function adminStoresRoutes(
         whereConditions.push(`(
           LOWER(s.store_name) LIKE $${paramIdx} OR
           LOWER(s.slug) LIKE $${paramIdx} OR
-          LOWER(u.full_name) LIKE $${paramIdx} OR
-          LOWER(u.name) LIKE $${paramIdx} OR
-          LOWER(u.email) LIKE $${paramIdx} OR
-          LOWER(u.phone) LIKE $${paramIdx} OR
+          LOWER(COALESCE(u.full_name, '')) LIKE $${paramIdx} OR
+          LOWER(COALESCE(u.email, '')) LIKE $${paramIdx} OR
+          LOWER(COALESCE(u.phone, '')) LIKE $${paramIdx} OR
           s.id::text LIKE $${paramIdx}
         )`);
         params.push(q);
@@ -202,7 +201,7 @@ export async function adminStoresRoutes(
           s.user_id as "userId",
           s.store_name as "storeName",
           s.slug,
-          COALESCE(u.full_name, u.name, 'Merchant') as "ownerName",
+          COALESCE(u.full_name, 'Merchant') as "ownerName",
           u.email as "ownerEmail",
           COALESCE(s.contact_phone, u.phone) as "ownerPhone",
           s.payment_status as "paymentStatus",
@@ -266,7 +265,7 @@ export async function adminStoresRoutes(
           s.contact_email as "contactEmail",
           s.contact_phone as "contactPhone",
           s.contact_whatsapp as "contactWhatsapp",
-          COALESCE(u.full_name, u.name, 'Merchant') as "ownerName",
+          COALESCE(u.full_name, 'Merchant') as "ownerName",
           u.email as "ownerEmail",
           COALESCE(s.contact_phone, u.phone) as "ownerPhone",
           s.payment_status as "paymentStatus",

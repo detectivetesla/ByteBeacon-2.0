@@ -232,7 +232,7 @@ export async function adminFinanceRoutes(
           o.public_id ILIKE $${paramIndex} OR
           u.email ILIKE $${paramIndex} OR
           u.phone ILIKE $${paramIndex} OR
-          COALESCE(u.full_name, u.name) ILIKE $${paramIndex}
+          COALESCE(u.full_name, '') ILIKE $${paramIndex}
         )`);
         queryParams.push(q);
         paramIndex++;
@@ -317,7 +317,7 @@ export async function adminFinanceRoutes(
           p.amount_pesewas as "amountPesewas",
           p.currency,
           p.user_id as "userId",
-          COALESCE(u.full_name, u.name, 'Unknown User') as "userName",
+          COALESCE(u.full_name, 'Unknown User') as "userName",
           COALESCE(u.email, '') as "userEmail",
           COALESCE(u.phone, '') as "userPhone",
           COALESCE(u.role, 'customer') as "userRole",
@@ -374,7 +374,7 @@ export async function adminFinanceRoutes(
           p.provider,
           p.provider_reference as "providerReference",
           p.user_id as "userId",
-          COALESCE(u.full_name, u.name, 'Customer') as "userName",
+          COALESCE(u.full_name, 'Customer') as "userName",
           u.email as "userEmail",
           u.phone as "userPhone",
           u.role as "userRole",
@@ -673,7 +673,7 @@ export async function adminFinanceRoutes(
           COALESCE(o.public_id, r.order_id::text) as "orderPublicId",
           r.payment_id as "paymentId",
           o.user_id as "userId",
-          COALESCE(u.full_name, u.name, 'Customer') as "customerName",
+          COALESCE(u.full_name, 'Customer') as "customerName",
           u.email as "customerEmail",
           r.amount_pesewas as "amountPesewas",
           r.reason,
@@ -863,7 +863,7 @@ export async function adminFinanceRoutes(
           s.store_name as "storeName",
           s.store_slug as "storeSlug",
           p.agent_id as "agentId",
-          COALESCE(u.full_name, u.name, 'Agent') as "agentName",
+          COALESCE(u.full_name, 'Agent') as "agentName",
           u.email as "agentEmail",
           p.amount_pesewas as "amountPesewas",
           p.destination_account as "destinationAccount",
@@ -910,17 +910,17 @@ export async function adminFinanceRoutes(
           fa.id,
           fa.adjustment_number as "adjustmentNumber",
           fa.user_id as "userId",
-          COALESCE(u.full_name, u.name, 'User') as "userName",
+          COALESCE(u.full_name, 'User') as "userName",
           u.email as "userEmail",
           u.role as "userRole",
           fa.amount_pesewas as "amountPesewas",
           fa.direction,
           fa.reason,
           fa.requested_by as "requestedBy",
-          COALESCE(req_u.full_name, req_u.name, 'Admin') as "requestedByName",
+          COALESCE(req_u.full_name, 'Admin') as "requestedByName",
           fa.status,
           fa.approved_by as "approvedBy",
-          COALESCE(app_u.full_name, app_u.name) as "approvedByName",
+          COALESCE(app_u.full_name, 'Admin') as "approvedByName",
           fa.approved_at as "approvedAt",
           fa.rejection_reason as "rejectionReason",
           fa.ledger_journal_id as "ledgerJournalId",

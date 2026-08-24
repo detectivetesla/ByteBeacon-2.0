@@ -189,7 +189,7 @@ export async function adminApprovalsRoutes(
       const affectedOrdersRes = await db.query(
         `SELECT o.id, o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
                 o.amount_pesewas as "amountPesewas", o.order_status as "orderStatus", o.created_at as "createdAt",
-                COALESCE(u.full_name, u.name, 'Customer') as "userName", u.email as "userEmail"
+                COALESCE(u.full_name, 'Customer') as "userName", u.email as "userEmail"
          FROM orders o
          LEFT JOIN users u ON o.user_id = u.id
          WHERE o.recipient_phone = $1
