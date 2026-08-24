@@ -24,6 +24,13 @@ export const useWalletBalance = (): UseWalletBalanceResult => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Synchronize state if user balance in auth context updates
+  useEffect(() => {
+    if (typeof user?.walletBalancePesewas === 'number') {
+      setBalancePesewas(user.walletBalancePesewas);
+    }
+  }, [user?.walletBalancePesewas]);
+
   const fetchBalance = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -34,7 +41,9 @@ export const useWalletBalance = (): UseWalletBalanceResult => {
         const data = await walletApi.getBalance();
         if (data && typeof data.balancePesewas === 'number') {
           setBalancePesewas(data.balancePesewas);
-          updateUser({ walletBalancePesewas: data.balancePesewas });
+          if (user.walletBalancePesewas !== data.balancePesewas) {
+            updateUser({ walletBalancePesewas: data.balancePesewas });
+          }
           return;
         }
       }
@@ -43,7 +52,9 @@ export const useWalletBalance = (): UseWalletBalanceResult => {
       const profileRes = await apiClient.get<UserSummaryDto>('/auth/me');
       if (profileRes && typeof profileRes.walletBalancePesewas === 'number') {
         setBalancePesewas(profileRes.walletBalancePesewas);
-        updateUser({ walletBalancePesewas: profileRes.walletBalancePesewas });
+        if (user?.walletBalancePesewas !== profileRes.walletBalancePesewas) {
+          updateUser({ walletBalancePesewas: profileRes.walletBalancePesewas });
+        }
         return;
       }
 
@@ -64,7 +75,7 @@ export const useWalletBalance = (): UseWalletBalanceResult => {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.role]);
+  }, [user?.role, user?.walletBalancePesewas, updateUser]);
 
   useEffect(() => {
     fetchBalance();

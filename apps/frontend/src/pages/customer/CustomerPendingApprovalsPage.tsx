@@ -188,8 +188,15 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
         search: phone,
       });
 
-      if (res && Array.isArray(res.orders)) {
-        const matching = res.orders
+      if (res) {
+        const orderList = Array.isArray(res.orders)
+          ? res.orders
+          : Array.isArray(res.items)
+          ? res.items
+          : Array.isArray(res)
+          ? res
+          : [];
+        const matching = orderList
           .filter((o: any) => o.recipientPhone && o.recipientPhone.replace(/\s+/g, '') === phone.replace(/\s+/g, ''))
           .map((o: any) => ({
             id: o.id,

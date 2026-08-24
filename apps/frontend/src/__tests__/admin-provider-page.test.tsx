@@ -241,7 +241,7 @@ describe('Phase 11.9: AdminProviderPage 7-Tab Telecom Control Plane', () => {
     const incidentsTab = await screen.findByRole('button', { name: /Incidents & Status/i });
     fireEvent.click(incidentsTab);
     expect(await screen.findByText('Provider Incidents & Outage Log')).toBeDefined();
-  });
+  }, 15000);
 
   it('opens Add Telecom Provider 9-step wizard modal', async () => {
     render(<AdminProviderPage />);

@@ -62,8 +62,16 @@ export const OrdersPage: React.FC = () => {
         search: searchQuery.trim() || undefined,
       });
 
-      if (res && Array.isArray(res.orders)) {
-        const mapped: OrderRowData[] = res.orders.map((o: any) => ({
+      if (res) {
+        const orderList = Array.isArray(res.orders)
+          ? res.orders
+          : Array.isArray(res.items)
+          ? res.items
+          : Array.isArray(res)
+          ? res
+          : [];
+
+        const mapped: OrderRowData[] = orderList.map((o: any) => ({
           id: o.id,
           orderNumber: o.publicId || o.reference || o.id.slice(0, 8).toUpperCase(),
           network: o.network,
@@ -169,12 +177,9 @@ export const OrdersPage: React.FC = () => {
     return filteredOrders.slice(start, start + itemsPerPage);
   }, [filteredOrders, currentPage, itemsPerPage]);
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-      toastInfo('Updated', 'Order list refreshed with latest data.');
-    }, 600);
+  const handleRefresh = async () => {
+    await fetchOrders();
+    toastInfo('Updated', 'Order list refreshed with latest data.');
   };
 
   const handleExport = () => {

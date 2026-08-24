@@ -33,12 +33,28 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
         timeoutMs: 10000,
       });
       if (res) {
-        setStatusData({
-          isMaintenanceMode: Boolean(res.isMaintenanceMode),
-          platformStatus: res.platformStatus || (res.isMaintenanceMode ? 'MAINTENANCE' : 'OPERATIONAL'),
-          environment: res.environment,
-          message: res.message,
-          timestamp: res.timestamp,
+        const nextMaintenance = Boolean(res.isMaintenanceMode);
+        const nextStatus = res.platformStatus || (res.isMaintenanceMode ? 'MAINTENANCE' : 'OPERATIONAL');
+        const nextEnv = res.environment;
+        const nextMessage = res.message;
+        const nextTimestamp = res.timestamp;
+
+        setStatusData((prev) => {
+          if (
+            prev.isMaintenanceMode === nextMaintenance &&
+            prev.platformStatus === nextStatus &&
+            prev.environment === nextEnv &&
+            prev.message === nextMessage
+          ) {
+            return prev;
+          }
+          return {
+            isMaintenanceMode: nextMaintenance,
+            platformStatus: nextStatus,
+            environment: nextEnv,
+            message: nextMessage,
+            timestamp: nextTimestamp,
+          };
         });
       }
     } catch {

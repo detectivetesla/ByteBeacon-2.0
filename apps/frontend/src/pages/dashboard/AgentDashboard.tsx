@@ -56,12 +56,17 @@ export const AgentDashboard: React.FC = () => {
   const fetchAgentDashboardData = useCallback(async () => {
     setIsLoading(true);
     try {
-      refreshBalance();
-
       // Fetch live agent orders
       const ordersRes = await ordersApi.listAgentOrders({ limit: 20 }).catch(() => null);
-      if (ordersRes && Array.isArray(ordersRes.orders)) {
-        const mapped: AgentOrderRow[] = ordersRes.orders.map((o: any) => ({
+      if (ordersRes) {
+        const orderList = Array.isArray(ordersRes.orders)
+          ? ordersRes.orders
+          : Array.isArray(ordersRes.items)
+          ? ordersRes.items
+          : Array.isArray(ordersRes)
+          ? ordersRes
+          : [];
+        const mapped: AgentOrderRow[] = orderList.map((o: any) => ({
           id: o.id,
           orderReference: o.publicId || o.reference || o.id.slice(0, 8).toUpperCase(),
           recipient: o.recipientPhone || '—',

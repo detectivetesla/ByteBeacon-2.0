@@ -49,12 +49,18 @@ export const CustomerDashboard: React.FC = () => {
   const fetchDashboardData = useCallback(async () => {
     setIsLoading(true);
     try {
-      refreshBalance();
-
       // Fetch real user orders
       const ordersRes = await ordersApi.listOrders({ limit: 20 }).catch(() => null);
-      if (ordersRes && Array.isArray(ordersRes.orders)) {
-        const mapped: CustomerOrderRow[] = ordersRes.orders.map((o: any) => ({
+      if (ordersRes) {
+        const orderList = Array.isArray(ordersRes.orders)
+          ? ordersRes.orders
+          : Array.isArray(ordersRes.items)
+          ? ordersRes.items
+          : Array.isArray(ordersRes)
+          ? ordersRes
+          : [];
+
+        const mapped: CustomerOrderRow[] = orderList.map((o: any) => ({
           id: o.id,
           orderNumber: o.publicId || o.reference || o.id.slice(0, 8).toUpperCase(),
           network: o.network,
@@ -81,7 +87,7 @@ export const CustomerDashboard: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [user, refreshBalance]);
+  }, []);
 
   useEffect(() => {
     fetchDashboardData();

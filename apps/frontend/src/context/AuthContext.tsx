@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { UserSummaryDto } from '@bytebeacon/shared';
 import { apiClient } from '../api/httpClient.js';
 import { AuthTokens } from '../api/types.js';
@@ -32,7 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     try {
       localStorage.removeItem(AUTH_USER_KEY);
@@ -40,7 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // LocalStorage access failsafe
     }
-  };
+  }, []);
 
   useEffect(() => {
     // Configure centralized API Client with dynamic token getters and auth failure callback
@@ -81,9 +81,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [logout]);
 
-  const login = (newUser: UserSummaryDto, newTokens: AuthTokens) => {
+  const login = useCallback((newUser: UserSummaryDto, newTokens: AuthTokens) => {
     setUser(newUser);
     try {
       localStorage.setItem(AUTH_USER_KEY, JSON.stringify(newUser));
@@ -91,18 +91,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // LocalStorage access failsafe
     }
-  };
+  }, []);
 
-  const updateUser = (updatedFields: Partial<UserSummaryDto>) => {
-    if (!user) return;
-    const updated = { ...user, ...updatedFields };
-    setUser(updated);
-    try {
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updated));
-    } catch {
-      // Ignore storage error
-    }
-  };
+  const updateUser = useCallback((updatedFields: Partial<UserSummaryDto>) => {
+    setUser((prevUser) => {
+      if (!prevUser) return null;
+      let hasChanges = false;
+      for (const [key, value] of Object.entries(updatedFields)) {
+        if ((prevUser as any)[key] !== value) {
+          hasChanges = true;
+          break;
+        }
+      }
+      if (!hasChanges) {
+        return prevUser;
+      }
+      const updated = { ...prevUser, ...updatedFields };
+      try {
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updated));
+      } catch {
+        // Ignore storage error
+      }
+      return updated;
+    });
+  }, []);
 
   return (
     <AuthContext.Provider

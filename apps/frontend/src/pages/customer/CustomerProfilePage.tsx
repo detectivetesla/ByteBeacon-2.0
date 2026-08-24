@@ -48,9 +48,16 @@ export const CustomerProfilePage: React.FC = () => {
       }
 
       const ordersRes = await ordersApi.listOrders({ limit: 100 }).catch(() => null);
-      if (ordersRes && Array.isArray(ordersRes.orders)) {
-        setTotalOrdersCount(ordersRes.orders.length);
-        const sumMb = ordersRes.orders.reduce((acc: number, o: any) => acc + (o.dataAmountMb || 0), 0);
+      if (ordersRes) {
+        const orderList = Array.isArray(ordersRes.orders)
+          ? ordersRes.orders
+          : Array.isArray(ordersRes.items)
+          ? ordersRes.items
+          : Array.isArray(ordersRes)
+          ? ordersRes
+          : [];
+        setTotalOrdersCount(orderList.length);
+        const sumMb = orderList.reduce((acc: number, o: any) => acc + (o.dataAmountMb || 0), 0);
         setTotalVolumeGb(parseFloat((sumMb / 1024).toFixed(1)));
       }
     } catch {
