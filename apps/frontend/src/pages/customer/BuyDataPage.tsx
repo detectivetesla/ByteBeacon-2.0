@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { NetworkSelector } from '../../components/commerce/NetworkSelector.js';
@@ -108,8 +108,12 @@ export const BuyDataPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'normal' | 'grid'>('normal');
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkProvider>(NetworkProvider.MTN);
 
-  // Bundles for current network loaded dynamically from authoritative database / catalog API
-  const [availableBundles, setAvailableBundles] = useState<BundleItem[]>([]);
+  // Bundles for all networks indexed by provider for instant 0ms carrier and package switching
+  const [allBundlesByNetwork, setAllBundlesByNetwork] = useState<Record<NetworkProvider, BundleItem[]>>({
+    [NetworkProvider.MTN]: [],
+    [NetworkProvider.TELECEL]: [],
+    [NetworkProvider.AIRTELTIGO]: [],
+  });
   const [isLoadingBundles, setIsLoadingBundles] = useState(false);
 
   // Single order state
@@ -119,48 +123,98 @@ export const BuyDataPage: React.FC = () => {
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringFrequency, setRecurringFrequency] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
 
-  // Load catalog bundles dynamically on network or channel change
+  const mapProductsToBundles = useCallback((items: any[]): BundleItem[] => {
+    return items.map((p) => {
+      const price = isAgentPortal && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
+      return {
+        id: p.id,
+        sku: p.sku,
+        network: p.network as NetworkProvider,
+        dataAmountMb: p.dataAmountMb,
+        dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+        pricePesewas: price,
+        priceDisplay: `GH₵ ${(price / 100).toFixed(2)}`,
+        validityDays: p.validityDays,
+        validityDisplay: p.validityDesc || `${p.validityDays} Days`,
+        popular: Boolean(p.popular),
+      };
+    });
+  }, [isAgentPortal]);
+
+  // Load catalog bundles dynamically for selected network and pre-warm other networks
   useEffect(() => {
     let isMounted = true;
-    setIsLoadingBundles(true);
+    const hasCachedCurrent = (allBundlesByNetwork[selectedNetwork]?.length ?? 0) > 0;
+    if (!hasCachedCurrent) {
+      setIsLoadingBundles(true);
+    }
+
     catalogApi
       .getBundles(selectedNetwork, channel)
       .then((items) => {
         if (!isMounted || !Array.isArray(items)) return;
-        const mapped: BundleItem[] = items.map((p) => {
-          const price = isAgentPortal && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
-          return {
-            id: p.id,
-            sku: p.sku,
-            network: p.network as NetworkProvider,
-            dataAmountMb: p.dataAmountMb,
-            dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
-            pricePesewas: price,
-            priceDisplay: `GH₵ ${(price / 100).toFixed(2)}`,
-            validityDays: p.validityDays,
-            validityDisplay: p.validityDesc || `${p.validityDays} Days`,
-            popular: Boolean(p.popular),
-          };
-        });
-        setAvailableBundles(mapped);
-        if (mapped.length > 0) {
-          setSingleBundleId((prev) => {
-            const exists = mapped.some((b) => b.id === prev);
-            return exists ? prev : (mapped[2]?.id || mapped[0]?.id);
-          });
-        }
+        const mapped = mapProductsToBundles(items);
+        setAllBundlesByNetwork((prev) => ({
+          ...prev,
+          [selectedNetwork]: mapped,
+        }));
       })
-      .catch(() => {
-        if (isMounted) setAvailableBundles([]);
-      })
+      .catch(() => {})
       .finally(() => {
         if (isMounted) setIsLoadingBundles(false);
       });
 
+    // Background prefetch all networks for 0ms instant subsequent switching
+    if (typeof catalogApi.getBundles === 'function') {
+      catalogApi
+        .getBundles(undefined, channel)
+        .then((items) => {
+          if (!isMounted || !Array.isArray(items) || items.length === 0) return;
+          const byNet: Partial<Record<NetworkProvider, BundleItem[]>> = {};
+          items.forEach((p) => {
+            const net = p.network as NetworkProvider;
+            if (!byNet[net]) byNet[net] = [];
+            const price = isAgentPortal && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
+            byNet[net]!.push({
+              id: p.id,
+              sku: p.sku,
+              network: net,
+              dataAmountMb: p.dataAmountMb,
+              dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+              pricePesewas: price,
+              priceDisplay: `GH₵ ${(price / 100).toFixed(2)}`,
+              validityDays: p.validityDays,
+              validityDisplay: p.validityDesc || `${p.validityDays} Days`,
+              popular: Boolean(p.popular),
+            });
+          });
+          setAllBundlesByNetwork((prev) => ({
+            ...prev,
+            ...byNet,
+          }));
+        })
+        .catch(() => {});
+    }
+
     return () => {
       isMounted = false;
     };
-  }, [selectedNetwork, channel, isAgentPortal]);
+  }, [selectedNetwork, channel, isAgentPortal, mapProductsToBundles]);
+
+  // Derive available bundles for currently selected network instantly (0ms)
+  const availableBundles = useMemo(() => {
+    return allBundlesByNetwork[selectedNetwork] || [];
+  }, [allBundlesByNetwork, selectedNetwork]);
+
+  // Synchronize default selected bundle whenever availableBundles or selectedNetwork changes
+  useEffect(() => {
+    if (availableBundles.length > 0) {
+      setSingleBundleId((prev) => {
+        const exists = availableBundles.some((b) => b.id === prev);
+        return exists ? prev : (availableBundles[2]?.id || availableBundles[0]?.id);
+      });
+    }
+  }, [availableBundles, selectedNetwork]);
 
   // Bulk Normal state
   const [bulkRecipients, setBulkRecipients] = useState<BulkRecipientEntry[]>([
@@ -646,6 +700,8 @@ export const BuyDataPage: React.FC = () => {
           <BundleSelector
             network={selectedNetwork}
             channel={channel}
+            bundles={availableBundles}
+            isLoading={isLoadingBundles && availableBundles.length === 0}
             selectedBundleId={singleBundleId}
             onSelectBundle={(b) => {
               setSingleBundleId(b.id);
