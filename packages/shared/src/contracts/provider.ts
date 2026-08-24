@@ -110,6 +110,31 @@ export interface DlqEntryDto {
 
 // --- DataHouse Specific Extended Contracts ---
 
+export interface DataHouseAgentUserDto {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+}
+
+export interface DataHouseAgentProfileDto {
+  id: string;
+  publicId: string;
+  businessName: string;
+  businessPhone: string;
+  address: string;
+  tier: string;
+  status: string;
+  pricePerGb: string;
+  apiAccessStatus: string;
+  apiAccessPaidAt?: string | null;
+  registrationFeePaidAt?: string | null;
+  userId: string;
+  user: DataHouseAgentUserDto;
+  createdAt: string;
+  raw?: Record<string, unknown>;
+}
+
 export interface DataHouseBundleDto {
   id: string;
   name: string;
@@ -117,6 +142,9 @@ export interface DataHouseBundleDto {
   dataSizeGb: number;
   dataAmountMb: number;
   pricePesewas: number;
+  agentPricePesewas?: number;
+  agentAmountGhs?: number;
+  amountGhs?: number;
   validityDays: number;
   isActive: boolean;
   type: string;
@@ -138,16 +166,57 @@ export interface SubmitBulkOrderInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface DataHouseChildOrderDto {
+  id: string;
+  publicId: string;
+  referenceCode: string;
+  sizeGb: number;
+  beneficiaryCount: number;
+  amount: string;
+  status: string;
+}
+
 export interface SubmitBulkOrderResult {
-  providerOrderId: string;
-  providerReference: string;
+  providerOrderId: string; // submission receipt id (sub_...)
+  providerReference: string; // BLK-...
   network: NetworkProvider;
   totalRecipients: number;
   acceptedRecipients: number;
   queuedRecipients: number;
   rejectedRecipients: number;
   providerStatus: ProviderStatus;
+  groupCount?: number;
+  orders?: DataHouseChildOrderDto[];
+  blocked?: string[];
   rawResponse?: Record<string, unknown>;
+}
+
+export interface DataHousePublicPrecheckInput {
+  network: NetworkProvider;
+  phoneNumbers: string[];
+}
+
+export interface DataHousePrecheckItemResult {
+  phoneNumber: string;
+  phone?: string;
+  normalized?: string;
+  isKnown: boolean;
+  isValid: boolean;
+  status?: string;
+  accountName?: string;
+  network?: string;
+  message?: string;
+}
+
+export interface DataHousePrecheckSummary {
+  requested?: number;
+  unique?: number;
+  valid?: number;
+  invalid?: number;
+  known?: number;
+  unknown?: number;
+  total?: number;
+  recorded?: number;
 }
 
 export interface DataHousePrecheckInput {
@@ -161,25 +230,98 @@ export interface DataHousePrecheckResult {
   enforced: boolean;
   sandbox: boolean;
   recorded: boolean;
-  summary: {
-    total?: number;
-    known?: number;
-    unknown?: number;
-    valid?: number;
-    invalid?: number;
-    recorded?: number;
-  };
+  reason?: string;
+  summary: DataHousePrecheckSummary;
   unknown: string[];
-  results: Array<{
-    phoneNumber: string;
-    isKnown: boolean;
-    isValid: boolean;
-    status?: string;
-    accountName?: string;
-    network?: string;
-    message?: string;
-  }>;
+  results: DataHousePrecheckItemResult[];
   rawResponse?: Record<string, unknown>;
+}
+
+export interface DataHouseBeneficiaryStatusItemDto {
+  msisdn: string;
+  network: string;
+  status: 'pending' | 'submitted' | 'approved' | 'rejected' | string;
+  attemptCount: number;
+  lastBundleSizeGb?: string;
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  submittedAt?: string | null;
+  resolvedAt?: string | null;
+}
+
+export interface DataHouseBeneficiaryStatusListDto {
+  items: DataHouseBeneficiaryStatusItemDto[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
+export interface DataHouseOrderDeliveryStatsDto {
+  approved: number;
+  pending: number;
+  failed: number;
+  total: number;
+}
+
+export interface DataHousePaymentSplitDto {
+  fromMain: number;
+  fromOverdraft: number;
+}
+
+export interface DataHouseOrderBeneficiaryDto {
+  id: string;
+  phoneNumber: string;
+  dataVolumeGb: string;
+  amount: string;
+  network: string;
+  status: string;
+  isPorted: boolean;
+}
+
+export interface DataHouseOrderDetailsDto {
+  id: string;
+  referenceCode: string;
+  network: string;
+  status: string;
+  paymentStatus: string;
+  amount: string;
+  groupSizeGb: number;
+  submissionId?: string | null;
+  createdAt: string;
+  approvedAt?: string | null;
+  approvedByName?: string | null;
+  paymentSplit?: DataHousePaymentSplitDto | null;
+  beneficiaryCount: number;
+  totalDataGb: number;
+  delivery: DataHouseOrderDeliveryStatsDto;
+  beneficiaries: DataHouseOrderBeneficiaryDto[];
+  rawResponse?: Record<string, unknown>;
+}
+
+export interface DataHouseOrderListItemDto {
+  id: string;
+  referenceCode: string;
+  network: string;
+  status: string;
+  paymentStatus: string;
+  amount: string;
+  groupSizeGb: number;
+  submissionId?: string | null;
+  createdAt: string;
+  approvedAt?: string | null;
+  approvedByName?: string | null;
+  beneficiaryCount: number;
+  totalDataGb: number;
+  delivery: DataHouseOrderDeliveryStatsDto;
+  beneficiaries: never[];
+}
+
+export interface DataHouseOrdersListDto {
+  orders: DataHouseOrderListItemDto[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages?: number;
 }
 
 export interface DataHouseWalletBalanceDto {
@@ -197,13 +339,19 @@ export interface DataHouseWalletBalanceDto {
 
 export interface DataHouseWalletLedgerEntryDto {
   id: string;
+  walletId?: string;
   transactionId?: string;
+  direction?: 'debit' | 'credit' | string;
   type: string;
   amountPesewas: number;
   amountGhs: number;
   balanceBeforePesewas?: number;
   balanceAfterPesewas?: number;
+  category?: string;
+  referenceType?: string;
+  referenceId?: string;
   description: string;
+  source?: 'main_balance' | 'overdraft' | string | null;
   reference?: string;
   createdAt: string;
 }
@@ -213,6 +361,24 @@ export interface DataHouseWalletLedgerDto {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface DataHouseWebhookSubscriptionDto {
+  id: string;
+  agentId?: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface DataHouseWebhookCreateInputDto {
+  url: string;
+  events: string[];
+}
+
+export interface DataHouseWebhookCreateResultDto extends DataHouseWebhookSubscriptionDto {
+  signingSecret: string;
 }
 
 // =========================================================================

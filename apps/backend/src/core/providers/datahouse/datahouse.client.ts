@@ -1,16 +1,21 @@
 import crypto from 'node:crypto';
 import {
+  DataHouseAgentProfile,
   DataHouseSubmitOrderRequest,
   DataHouseSubmitOrderResponse,
   DataHouseBulkOrderRequest,
   DataHouseBulkOrderResponse,
   DataHouseOrderStatusResponse,
   DataHouseBundlesResponse,
+  DataHousePublicPrecheckRequest,
   DataHousePrecheckRequest,
   DataHousePrecheckResponse,
   DataHouseBeneficiariesListResponse,
   DataHouseWalletBalanceResponse,
   DataHouseWalletLedgerResponse,
+  DataHouseWebhookSubscription,
+  DataHouseWebhookCreateRequest,
+  DataHouseWebhookCreateResponse,
 } from './datahouse.types.js';
 import {
   DataHouseError,
@@ -19,6 +24,13 @@ import {
   DataHouseRateLimitError,
   DataHouseAuthError,
   DataHouseRejectionError,
+  DataHouseInsufficientBalanceError,
+  DataHouseBundleInactiveError,
+  DataHouseBulkNotOnSandboxError,
+  DataHouseAgentInactiveError,
+  DataHouseBundleNotFoundError,
+  DataHouseInvalidPhoneError,
+  DataHouseBeneficiaryNotValidatedError,
 } from './datahouse.errors.js';
 import { logger } from '../../logging/logger.js';
 
@@ -45,69 +57,178 @@ export class DataHouseClient {
     this.maxRetries = config.maxRetries ?? 2;
   }
 
-  public async submitOrder(
-    req: DataHouseSubmitOrderRequest,
-    correlationId: string,
-  ): Promise<DataHouseSubmitOrderResponse> {
-    return this.request<DataHouseSubmitOrderResponse>('/agent/orders', 'POST', req, correlationId);
-  }
-
-  public async submitBulkOrder(
-    req: DataHouseBulkOrderRequest,
-    correlationId: string,
-  ): Promise<DataHouseBulkOrderResponse> {
-    return this.request<DataHouseBulkOrderResponse>('/agent/orders/bulk', 'POST', req, correlationId);
-  }
-
-  public async getOrderStatus(
-    orderIdOrReference: string,
-    correlationId: string,
-  ): Promise<DataHouseOrderStatusResponse> {
-    return this.request<DataHouseOrderStatusResponse>(
-      `/agent/orders/${encodeURIComponent(orderIdOrReference)}`,
+  /**
+   * Fetches the agent profile associated with this API key.
+   * GET /agent/me
+   */
+  public async getAgentProfile(correlationId = 'agent_me'): Promise<DataHouseAgentProfile> {
+    const resp = await this.request<{ success?: boolean; data?: DataHouseAgentProfile } | DataHouseAgentProfile>(
+      '/agent/me',
       'GET',
       undefined,
       correlationId,
     );
+    return (resp as any)?.data || resp;
   }
 
-  public async getBundles(params: {
-    network?: string;
-    type?: string;
-    search?: string;
-    page?: number;
-    limit?: number;
-  } = {}, correlationId = 'bundles_fetch'): Promise<DataHouseBundlesResponse> {
+  /**
+   * Places a single data-bundle order against the agent wallet.
+   * POST /agent/orders
+   */
+  public async submitOrder(
+    req: DataHouseSubmitOrderRequest,
+    correlationId: string,
+  ): Promise<DataHouseSubmitOrderResponse> {
+    const resp = await this.request<{ success?: boolean; data?: DataHouseSubmitOrderResponse } | DataHouseSubmitOrderResponse>(
+      '/agent/orders',
+      'POST',
+      req,
+      correlationId,
+    );
+    return (resp as any)?.data || resp;
+  }
+
+  /**
+   * Places a JSON bulk order across many recipients on one network.
+   * POST /agent/orders/bulk
+   */
+  public async submitBulkOrder(
+    req: DataHouseBulkOrderRequest,
+    correlationId: string,
+  ): Promise<DataHouseBulkOrderResponse> {
+    const resp = await this.request<{ success?: boolean; data?: DataHouseBulkOrderResponse } | DataHouseBulkOrderResponse>(
+      '/agent/orders/bulk',
+      'POST',
+      req,
+      correlationId,
+    );
+    return (resp as any)?.data || resp;
+  }
+
+  /**
+   * Lists orders for this agent with optional filters.
+   * GET /agent/orders
+   */
+  public async listOrders(
+    params: {
+      status?: string;
+      network?: string;
+      paymentStatus?: string;
+      after?: string;
+      before?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+    correlationId = 'orders_list',
+  ): Promise<{ data: any[]; meta?: { page: number; limit: number; total: number; totalPages?: number } }> {
     const query = new URLSearchParams();
-    if (params.network && params.network !== 'ALL') query.append('network', params.network.toUpperCase());
-    if (params.type) query.append('type', params.type.toLowerCase());
+    if (params.status) query.append('status', params.status);
+    if (params.network) query.append('network', params.network.toUpperCase());
+    if (params.paymentStatus) query.append('paymentStatus', params.paymentStatus);
+    if (params.after) query.append('after', params.after);
+    if (params.before) query.append('before', params.before);
     if (params.search) query.append('search', params.search);
     if (params.page) query.append('page', String(params.page));
     if (params.limit) query.append('limit', String(params.limit));
 
     const qs = query.toString() ? `?${query.toString()}` : '';
-    return this.request<DataHouseBundlesResponse>(`/agent/bundles${qs}`, 'GET', undefined, correlationId);
+    const resp = await this.request<any>(`/agent/orders${qs}`, 'GET', undefined, correlationId);
+    return resp?.data || resp;
   }
 
+  /**
+   * Looks up one order's status and recipient list by public ID or reference.
+   * GET /agent/orders/:id
+   */
+  public async getOrderStatus(
+    orderIdOrReference: string,
+    correlationId: string,
+  ): Promise<DataHouseOrderStatusResponse> {
+    const resp = await this.request<{ success?: boolean; data?: DataHouseOrderStatusResponse } | DataHouseOrderStatusResponse>(
+      `/agent/orders/${encodeURIComponent(orderIdOrReference)}`,
+      'GET',
+      undefined,
+      correlationId,
+    );
+    return (resp as any)?.data || resp;
+  }
+
+  /**
+   * Lists active data bundles priced for this key's tier.
+   * GET /agent/bundles
+   */
+  public async getBundles(
+    params: {
+      network?: string;
+      type?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+    correlationId = 'bundles_fetch',
+  ): Promise<DataHouseBundlesResponse> {
+    const query = new URLSearchParams();
+    if (params.network && params.network !== 'ALL') query.append('network', params.network.toUpperCase());
+    if (params.type) query.append('type', params.type.toUpperCase());
+    if (params.search) query.append('search', params.search);
+    if (params.page) query.append('page', String(params.page));
+    if (params.limit) query.append('limit', String(params.limit));
+
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const resp = await this.request<DataHouseBundlesResponse>(`/agent/bundles${qs}`, 'GET', undefined, correlationId);
+    return (resp as any)?.data || resp;
+  }
+
+  /**
+   * Public precheck of up to 10 beneficiary numbers (no API key).
+   * POST /orders/beneficiaries/precheck
+   */
+  public async precheckPublicBeneficiaries(
+    req: DataHousePublicPrecheckRequest,
+    correlationId = 'public_precheck',
+  ): Promise<DataHousePrecheckResponse> {
+    const resp = await this.request<{ success?: boolean; data?: DataHousePrecheckResponse } | DataHousePrecheckResponse>(
+      '/orders/beneficiaries/precheck',
+      'POST',
+      req,
+      correlationId,
+      false, // Omit API key for public endpoint
+    );
+    return (resp as any)?.data || resp;
+  }
+
+  /**
+   * Keyed batch precheck of up to 1000 numbers with opt-in recording.
+   * POST /agent/beneficiaries/precheck
+   */
   public async precheckBeneficiaries(
     req: DataHousePrecheckRequest,
     correlationId: string,
   ): Promise<DataHousePrecheckResponse> {
-    return this.request<DataHousePrecheckResponse>(
+    const resp = await this.request<{ success?: boolean; data?: DataHousePrecheckResponse } | DataHousePrecheckResponse>(
       '/agent/beneficiaries/precheck',
       'POST',
       req,
       correlationId,
     );
+    return (resp as any)?.data || resp;
   }
 
-  public async listBeneficiaries(params: {
-    status?: string;
-    network?: string;
-    search?: string;
-    page?: number;
-    limit?: number;
-  } = {}, correlationId = 'beneficiaries_list'): Promise<DataHouseBeneficiariesListResponse> {
+  /**
+   * Checks MTN approval status of submitted/recorded numbers.
+   * GET /agent/beneficiaries
+   */
+  public async listBeneficiaries(
+    params: {
+      status?: string;
+      network?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+    correlationId = 'beneficiaries_list',
+  ): Promise<DataHouseBeneficiariesListResponse> {
     const query = new URLSearchParams();
     if (params.status && params.status !== 'all') query.append('status', params.status);
     if (params.network && params.network !== 'all') query.append('network', params.network.toUpperCase());
@@ -116,40 +237,121 @@ export class DataHouseClient {
     if (params.limit) query.append('limit', String(params.limit));
 
     const qs = query.toString() ? `?${query.toString()}` : '';
-    return this.request<DataHouseBeneficiariesListResponse>(
+    const resp = await this.request<DataHouseBeneficiariesListResponse>(
       `/agent/beneficiaries${qs}`,
       'GET',
       undefined,
       correlationId,
     );
+    return (resp as any)?.data || resp;
   }
 
+  /**
+   * Retrieves agent wallet balance and overdraft limits.
+   * GET /agent/wallet/balance
+   */
   public async getWalletBalance(correlationId = 'wallet_balance'): Promise<DataHouseWalletBalanceResponse> {
-    return this.request<DataHouseWalletBalanceResponse>(
+    const resp = await this.request<{ success?: boolean; data?: DataHouseWalletBalanceResponse } | DataHouseWalletBalanceResponse>(
       '/agent/wallet/balance',
       'GET',
       undefined,
       correlationId,
     );
+    return (resp as any)?.data || resp;
   }
 
+  /**
+   * Retrieves agent wallet ledger history (fixed page=1, limit=50 on x-api-key surface).
+   * GET /agent/wallet/ledger
+   */
   public async getWalletLedger(correlationId = 'wallet_ledger'): Promise<DataHouseWalletLedgerResponse> {
-    return this.request<DataHouseWalletLedgerResponse>(
+    const resp = await this.request<DataHouseWalletLedgerResponse>(
       '/agent/wallet/ledger',
       'GET',
       undefined,
       correlationId,
     );
+    return (resp as any)?.data || resp;
   }
 
+  /**
+   * Subscribes an HTTPS URL to event webhooks. Returns signing secret ONCE.
+   * POST /agent/webhooks
+   */
+  public async createWebhookSubscription(
+    req: DataHouseWebhookCreateRequest,
+    correlationId = 'webhook_create',
+  ): Promise<DataHouseWebhookCreateResponse> {
+    const resp = await this.request<{ success?: boolean; data?: DataHouseWebhookCreateResponse } | DataHouseWebhookCreateResponse>(
+      '/agent/webhooks',
+      'POST',
+      req,
+      correlationId,
+    );
+    return (resp as any)?.data || resp;
+  }
+
+  /**
+   * Lists configured webhook subscriptions.
+   * GET /agent/webhooks
+   */
+  public async listWebhookSubscriptions(
+    correlationId = 'webhook_list',
+  ): Promise<DataHouseWebhookSubscription[]> {
+    const resp = await this.request<{ success?: boolean; data?: DataHouseWebhookSubscription[] } | DataHouseWebhookSubscription[]>(
+      '/agent/webhooks',
+      'GET',
+      undefined,
+      correlationId,
+    );
+    const data = (resp as any)?.data || resp;
+    return Array.isArray(data) ? data : (data as any)?.data || [];
+  }
+
+  /**
+   * Rotates a subscription's HMAC signing secret; returns new secret ONCE.
+   * POST /agent/webhooks/:id/rotate-secret
+   */
+  public async rotateWebhookSecret(
+    subscriptionId: string,
+    correlationId = 'webhook_rotate',
+  ): Promise<DataHouseWebhookCreateResponse> {
+    const resp = await this.request<{ success?: boolean; data?: DataHouseWebhookCreateResponse } | DataHouseWebhookCreateResponse>(
+      `/agent/webhooks/${encodeURIComponent(subscriptionId)}/rotate-secret`,
+      'POST',
+      undefined,
+      correlationId,
+    );
+    return (resp as any)?.data || resp;
+  }
+
+  /**
+   * Deletes a webhook subscription.
+   * DELETE /agent/webhooks/:id
+   */
+  public async deleteWebhookSubscription(
+    subscriptionId: string,
+    correlationId = 'webhook_delete',
+  ): Promise<void> {
+    await this.request<void>(
+      `/agent/webhooks/${encodeURIComponent(subscriptionId)}`,
+      'DELETE',
+      undefined,
+      correlationId,
+    );
+  }
+
+  /**
+   * Probes integration health via /agent/me or /agent/wallet/balance.
+   */
   public async checkHealth(): Promise<{ status: 'UP' | 'DOWN'; latencyMs: number }> {
     const start = Date.now();
     try {
-      await this.getWalletBalance('health_probe');
+      await this.getAgentProfile('health_probe');
       return { status: 'UP', latencyMs: Date.now() - start };
     } catch {
       try {
-        await this.getBundles({ limit: 1 }, 'health_probe');
+        await this.getWalletBalance('health_probe');
         return { status: 'UP', latencyMs: Date.now() - start };
       } catch {
         return { status: 'DOWN', latencyMs: Date.now() - start };
@@ -159,7 +361,7 @@ export class DataHouseClient {
 
   /**
    * Cryptographically verifies incoming DataHouse webhook signature.
-   * Supports t=<ts>,v1=<hex> / sha256=<hex> / raw hex.
+   * Supports X-Telecom-Signature format: t=<ts>,v1=<hex>.
    */
   public verifyWebhookSignature(rawBody: string | Buffer, signatureHeader: string): boolean {
     const secret = this.webhookSecret;
@@ -184,7 +386,7 @@ export class DataHouseClient {
         signatureHex = signatureHeader.trim();
       }
 
-      // Check 5-minute clock drift if timestamp is provided
+      // 5-minute replay window check
       if (timestamp) {
         const nowSec = Math.floor(Date.now() / 1000);
         if (Math.abs(nowSec - timestamp) > 300) {
@@ -225,6 +427,7 @@ export class DataHouseClient {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     body?: unknown,
     correlationId = 'req_internal',
+    includeApiKey = true,
   ): Promise<T> {
     const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const url = `${this.baseUrl}${cleanPath}`;
@@ -237,11 +440,17 @@ export class DataHouseClient {
 
       try {
         const headers: Record<string, string> = {
-          'x-api-key': this.apiKey,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
+          Accept: 'application/json',
           'x-correlation-id': correlationId,
         };
+
+        if (includeApiKey && this.apiKey) {
+          headers['x-api-key'] = this.apiKey;
+        }
+
+        if (body) {
+          headers['Content-Type'] = 'application/json';
+        }
 
         const response = await fetch(url, {
           method,
@@ -251,6 +460,11 @@ export class DataHouseClient {
         });
 
         clearTimeout(timeoutId);
+
+        // 204 No Content Handling
+        if (response.status === 204) {
+          return undefined as unknown as T;
+        }
 
         // 429 Rate Limiting Backoff
         if (response.status === 429) {
@@ -266,22 +480,10 @@ export class DataHouseClient {
           throw new DataHouseRateLimitError();
         }
 
-        // 401/403 Authentication Error
-        if (response.status === 401 || response.status === 403) {
-          throw new DataHouseAuthError();
-        }
-
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          const errorMessage = (data as any)?.error?.message || (data as any)?.message || `HTTP ${response.status} from DataHouse`;
-          const errorCode = (data as any)?.error?.code || (data as any)?.code || 'DATAHOUSE_ERROR';
-
-          if (response.status === 422 || response.status === 400) {
-            throw new DataHouseRejectionError(errorMessage, errorCode, (data as any)?.details);
-          }
-
-          throw new DataHouseError(errorMessage, response.status, errorCode);
+          this.handleErrorResponse(response.status, data);
         }
 
         return data as T;
@@ -312,4 +514,46 @@ export class DataHouseClient {
 
     throw new DataHouseNetworkError('Exceeded maximum retry attempts');
   }
+
+  private handleErrorResponse(statusCode: number, data: any): never {
+    const errorMessage = data?.error?.message || data?.message || `HTTP ${statusCode} from DataHouse`;
+    const errorCode = (data?.error?.code || data?.code || 'DATAHOUSE_ERROR').toUpperCase();
+
+    if (errorCode === 'INSUFFICIENT_BALANCE') {
+      throw new DataHouseInsufficientBalanceError(errorMessage);
+    }
+    if (errorCode === 'BUNDLE_INACTIVE') {
+      throw new DataHouseBundleInactiveError(errorMessage);
+    }
+    if (errorCode === 'BULK_NOT_ON_SANDBOX') {
+      throw new DataHouseBulkNotOnSandboxError(errorMessage);
+    }
+    if (errorCode === 'AGENT_INACTIVE') {
+      throw new DataHouseAgentInactiveError(errorMessage);
+    }
+    if (errorCode === 'BUNDLE_NOT_FOUND') {
+      throw new DataHouseBundleNotFoundError(errorMessage);
+    }
+    if (errorCode === 'INVALID_PHONE') {
+      throw new DataHouseInvalidPhoneError(errorMessage);
+    }
+    if (errorCode === 'BENEFICIARY_NOT_VALIDATED') {
+      throw new DataHouseBeneficiaryNotValidatedError(errorMessage);
+    }
+    if (statusCode === 401 || (statusCode === 403 && errorCode === 'UNAUTHORIZED')) {
+      throw new DataHouseAuthError(errorMessage);
+    }
+    if (statusCode === 403) {
+      throw new DataHouseAgentInactiveError(errorMessage);
+    }
+    if (statusCode === 429) {
+      throw new DataHouseRateLimitError();
+    }
+    if (statusCode === 400 || statusCode === 422) {
+      throw new DataHouseRejectionError(errorMessage, errorCode, data?.details);
+    }
+
+    throw new DataHouseError(errorMessage, statusCode, errorCode);
+  }
 }
+

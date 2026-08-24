@@ -50,3 +50,46 @@ export class DataHouseBeneficiaryError extends DataHouseError {
     super(`DataHouse Beneficiary Precheck Error: ${message}`, 422, 'DATAHOUSE_BENEFICIARY_ERROR', details);
   }
 }
+
+export class DataHouseInsufficientBalanceError extends DataHouseError {
+  constructor(message = 'Insufficient agent wallet balance') {
+    super(message, 400, 'INSUFFICIENT_BALANCE');
+  }
+}
+
+export class DataHouseBundleInactiveError extends DataHouseError {
+  constructor(message = 'Requested bundle is currently inactive') {
+    super(message, 400, 'BUNDLE_INACTIVE');
+  }
+}
+
+export class DataHouseBulkNotOnSandboxError extends DataHouseError {
+  constructor(message = 'Bulk orders cannot be executed with sandbox test keys (ak_test_...)') {
+    super(message, 400, 'BULK_NOT_ON_SANDBOX');
+  }
+}
+
+export class DataHouseAgentInactiveError extends DataHouseError {
+  constructor(message = 'Agent account is inactive or missing required scope') {
+    super(message, 403, 'AGENT_INACTIVE');
+  }
+}
+
+export class DataHouseBundleNotFoundError extends DataHouseError {
+  constructor(message = 'Requested bundle ID was not found in catalog') {
+    super(message, 404, 'BUNDLE_NOT_FOUND');
+  }
+}
+
+export class DataHouseInvalidPhoneError extends DataHouseError {
+  constructor(message = 'Invalid Ghanaian phone number format') {
+    super(message, 422, 'INVALID_PHONE');
+  }
+}
+
+export class DataHouseBeneficiaryNotValidatedError extends DataHouseError {
+  constructor(message = 'First-time MTN beneficiary has not been validated (recorded for approval)') {
+    super(message, 422, 'BENEFICIARY_NOT_VALIDATED');
+  }
+}
+

@@ -77,8 +77,32 @@ export class DataHouseWebhookService {
         return { status: 'DUPLICATE', message: 'Event already recorded' };
       }
 
-      // 4. Locate Local Provider Order Projection
-      const reference = payload.data?.referenceCode || payload.data?.reference;
+      // 4. Handle Wallet Updated Non-Order Event
+      if (eventType === 'wallet.updated') {
+        await client.query(
+          `INSERT INTO provider_events (
+              provider, provider_event_id, provider_order_id, event_type,
+              event_timestamp, event_version, correlation_id, provider_status,
+              payload, is_applied
+           ) VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, true)`,
+          [
+            'DATAHOUSE',
+            eventId,
+            null,
+            eventType,
+            eventTimestamp,
+            correlationId,
+            'PROCESSED',
+            JSON.stringify(payload),
+          ],
+        );
+        await client.query('COMMIT');
+        logger.info({ eventId, walletId: payload.data?.wallet_id }, 'DataHouse wallet.updated event recorded');
+        return { status: 'PROCESSED', message: 'Wallet balance update event recorded' };
+      }
+
+      // 5. Locate Local Provider Order Projection
+      const reference = payload.data?.referenceCode || payload.data?.reference || payload.data?.reference_code;
       const datahouseOrderId = payload.data?.id || payload.data?.orderId || payload.data?.order_id;
 
       const projRes = await client.query(

@@ -159,6 +159,134 @@ describe('DataHouseWebhookService', () => {
     expect(res.status).toBe('PROCESSED');
   });
 
+  it('should process purchase.success event and mark order as COMPLETED', async () => {
+    const payload = {
+      id: 'ord_uuid_auto_1',
+      type: 'purchase.success',
+      created_at: '2026-07-07T12:00:05.000Z',
+      data: {
+        order_id: 'ord_uuid_auto_1',
+        reference_code: 'TXN-7GH2K9',
+        amount: '21.00',
+        network: 'MTN',
+        bundle_type: 'DATA',
+        phone_number: '0241234567',
+        provider_reference: 'MTN-PRV-123',
+        status: 'fulfilled',
+      },
+    };
+
+    mockClient.query.mockImplementation(async (sql: string, params: any[]) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+      if (sql.includes('SELECT id FROM provider_events')) return { rows: [] };
+      if (sql.includes('SELECT po.id, po.order_id')) {
+        return {
+          rows: [
+            {
+              id: 'po_uuid_10',
+              orderId: 'ord_uuid_auto_1',
+              currentStatus: ProviderStatus.PROCESSING,
+              lastSyncedAt: new Date(Date.now() - 60000).toISOString(),
+              syncVersion: 1,
+              orderStatus: OrderStatus.PROCESSING,
+              paymentStatus: 'PAID',
+              amountPesewas: 2100,
+            },
+          ],
+        };
+      }
+      if (sql.includes('UPDATE orders')) {
+        expect(params[0]).toBe(ProviderStatus.COMPLETED);
+        expect(params[1]).toBe(OrderStatus.COMPLETED);
+        return { rowCount: 1 };
+      }
+      return { rows: [] };
+    });
+
+    const res = await webhookService.handleWebhook(JSON.stringify(payload), 'valid_sig', 'req_purchase_success');
+    expect(res.status).toBe('PROCESSED');
+  });
+
+  it('should process purchase.failed event and mark order as FAILED with refund PENDING', async () => {
+    const payload = {
+      id: 'ord_uuid_fail_1',
+      type: 'purchase.failed',
+      created_at: '2026-07-07T12:00:05.000Z',
+      data: {
+        order_id: 'ord_uuid_fail_1',
+        reference_code: 'TXN-FAIL-001',
+        amount: '21.00',
+        network: 'MTN',
+        bundle_type: 'DATA',
+        phone_number: '0241234567',
+        error_message: 'Subscriber barred',
+        status: 'refunded',
+        refunded: true,
+      },
+    };
+
+    mockClient.query.mockImplementation(async (sql: string, params: any[]) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+      if (sql.includes('SELECT id FROM provider_events')) return { rows: [] };
+      if (sql.includes('SELECT po.id, po.order_id')) {
+        return {
+          rows: [
+            {
+              id: 'po_uuid_11',
+              orderId: 'ord_uuid_fail_1',
+              currentStatus: ProviderStatus.PROCESSING,
+              lastSyncedAt: new Date(Date.now() - 60000).toISOString(),
+              syncVersion: 1,
+              orderStatus: OrderStatus.PROCESSING,
+              paymentStatus: 'PAID',
+              amountPesewas: 2100,
+            },
+          ],
+        };
+      }
+      if (sql.includes('UPDATE orders')) {
+        expect(params[0]).toBe(ProviderStatus.REJECTED);
+        expect(params[1]).toBe(OrderStatus.FAILED);
+        expect(params[2]).toBe('PENDING');
+        return { rowCount: 1 };
+      }
+      return { rows: [] };
+    });
+
+    const res = await webhookService.handleWebhook(JSON.stringify(payload), 'valid_sig', 'req_purchase_failed');
+    expect(res.status).toBe('PROCESSED');
+  });
+
+  it('should process wallet.updated event and record event without requiring order match', async () => {
+    const payload = {
+      id: 'le_01J8',
+      type: 'wallet.updated',
+      created_at: '2026-07-07T11:00:00.000Z',
+      data: {
+        wallet_id: 'w_01J',
+        ledger_entry_id: 'le_01J8',
+        direction: 'credit',
+        amount: '500.00',
+        balance_after: '2040.75',
+        category: 'deposit',
+        reference_type: 'Deposit',
+        reference_id: 'dep_01J',
+        description: 'Wallet top-up',
+        occurred_at: '2026-07-07T11:00:00.000Z',
+      },
+    };
+
+    mockClient.query.mockImplementation(async (sql: string) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+      if (sql.includes('SELECT id FROM provider_events')) return { rows: [] };
+      if (sql.includes('INSERT INTO provider_events')) return { rowCount: 1 };
+      return { rows: [] };
+    });
+
+    const res = await webhookService.handleWebhook(JSON.stringify(payload), 'valid_sig', 'req_wallet_update');
+    expect(res.status).toBe('PROCESSED');
+  });
+
   it('should reject stale out-of-order event when incoming timestamp is older than current', async () => {
     const olderTime = new Date(Date.now() - 100000);
     const newerTime = new Date(Date.now() - 20000);

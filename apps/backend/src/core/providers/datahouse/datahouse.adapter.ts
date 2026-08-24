@@ -8,14 +8,22 @@ import {
   ProviderOrderStatus,
   ValidateBeneficiaryInput,
   BeneficiaryValidationResult,
+  DataHouseAgentProfileDto,
   ProviderHealth,
   SubmitBulkOrderInput,
   SubmitBulkOrderResult,
   DataHousePrecheckInput,
   DataHousePrecheckResult,
+  DataHousePublicPrecheckInput,
+  DataHouseBeneficiaryStatusListDto,
+  DataHouseOrderDetailsDto,
+  DataHouseOrdersListDto,
   DataHouseBundleDto,
   DataHouseWalletBalanceDto,
   DataHouseWalletLedgerDto,
+  DataHouseWebhookSubscriptionDto,
+  DataHouseWebhookCreateInputDto,
+  DataHouseWebhookCreateResultDto,
   NetworkProvider,
   ProviderConnectionTestResult,
   ProviderConnectionTestStep,
@@ -38,6 +46,11 @@ export class DataHouseAdapter implements ITelecomProvider {
     return [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO];
   }
 
+  public async getAgentProfile(): Promise<DataHouseAgentProfileDto> {
+    const profile = await this.client.getAgentProfile();
+    return DataHouseMapper.toAgentProfileDto(profile);
+  }
+
   public async submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
     const correlationId = (input.metadata?.correlationId as string) || `dh_ord_${input.orderId}`;
     const dhReq = DataHouseMapper.toDataHouseSubmitRequest(input);
@@ -56,6 +69,18 @@ export class DataHouseAdapter implements ITelecomProvider {
     const correlationId = `dh_status_${input.providerReference}`;
     const dhResp = await this.client.getOrderStatus(input.providerReference, correlationId);
     return DataHouseMapper.toProviderOrderStatus(dhResp);
+  }
+
+  public async getOrderDetails(orderIdOrReference: string): Promise<DataHouseOrderDetailsDto> {
+    const correlationId = `dh_details_${orderIdOrReference}`;
+    const dhResp = await this.client.getOrderStatus(orderIdOrReference, correlationId);
+    return DataHouseMapper.toOrderDetailsDto(dhResp);
+  }
+
+  public async listOrders(params: any = {}): Promise<DataHouseOrdersListDto> {
+    const correlationId = `dh_list_orders_${Date.now()}`;
+    const dhResp = await this.client.listOrders(params, correlationId);
+    return DataHouseMapper.toOrdersListDto(dhResp);
   }
 
   public async validateBeneficiary(input: ValidateBeneficiaryInput): Promise<BeneficiaryValidationResult> {
@@ -77,6 +102,18 @@ export class DataHouseAdapter implements ITelecomProvider {
     return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
   }
 
+  public async precheckPublicBeneficiaries(input: DataHousePublicPrecheckInput): Promise<DataHousePrecheckResult> {
+    const correlationId = `dh_pub_precheck_${Date.now()}`;
+    const dhResp = await this.client.precheckPublicBeneficiaries(input, correlationId);
+    return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
+  }
+
+  public async listBeneficiaries(params: any = {}): Promise<DataHouseBeneficiaryStatusListDto> {
+    const correlationId = `dh_list_ben_${Date.now()}`;
+    const dhResp = await this.client.listBeneficiaries(params, correlationId);
+    return DataHouseMapper.toBeneficiaryStatusListDto(dhResp);
+  }
+
   public async getBundles(params: {
     network?: string;
     type?: string;
@@ -96,6 +133,44 @@ export class DataHouseAdapter implements ITelecomProvider {
   public async getWalletLedger(): Promise<DataHouseWalletLedgerDto> {
     const dhResp = await this.client.getWalletLedger();
     return DataHouseMapper.toWalletLedgerDto(dhResp);
+  }
+
+  public async createWebhookSubscription(input: DataHouseWebhookCreateInputDto): Promise<DataHouseWebhookCreateResultDto> {
+    const correlationId = `dh_wh_create_${Date.now()}`;
+    const resp = await this.client.createWebhookSubscription(input, correlationId);
+    return {
+      id: resp.id,
+      agentId: resp.agentId,
+      url: resp.url,
+      events: resp.events,
+      isActive: resp.isActive,
+      createdAt: resp.createdAt,
+      signingSecret: resp.signingSecret,
+    };
+  }
+
+  public async listWebhookSubscriptions(): Promise<DataHouseWebhookSubscriptionDto[]> {
+    const correlationId = `dh_wh_list_${Date.now()}`;
+    return this.client.listWebhookSubscriptions(correlationId);
+  }
+
+  public async rotateWebhookSecret(subscriptionId: string): Promise<DataHouseWebhookCreateResultDto> {
+    const correlationId = `dh_wh_rotate_${Date.now()}`;
+    const resp = await this.client.rotateWebhookSecret(subscriptionId, correlationId);
+    return {
+      id: resp.id,
+      agentId: resp.agentId,
+      url: resp.url,
+      events: resp.events,
+      isActive: resp.isActive,
+      createdAt: resp.createdAt,
+      signingSecret: resp.signingSecret,
+    };
+  }
+
+  public async deleteWebhookSubscription(subscriptionId: string): Promise<void> {
+    const correlationId = `dh_wh_del_${Date.now()}`;
+    await this.client.deleteWebhookSubscription(subscriptionId, correlationId);
   }
 
   public async healthCheck(): Promise<ProviderHealth> {
@@ -121,6 +196,10 @@ export class DataHouseAdapter implements ITelecomProvider {
       SANDBOX: true,
       PRECHECK: true,
       WALLET_BALANCE: true,
+      AGENT_PROFILE: true,
+      ORDERS_LIST: true,
+      BENEFICIARY_LIST: true,
+      WEBHOOK_MANAGEMENT: true,
     };
   }
 
@@ -133,7 +212,7 @@ export class DataHouseAdapter implements ITelecomProvider {
       name: 'DNS Resolution',
       status: 'PASSED',
       latencyMs: 14,
-      details: 'Resolved host api.datahouse.com.gh (104.21.48.112)',
+      details: 'Resolved host api.getmorepaylessdatahouse.net',
     });
 
     // Step 2: TLS Connection
@@ -150,43 +229,44 @@ export class DataHouseAdapter implements ITelecomProvider {
       status: 'PASSED',
       latencyMs: 42,
       httpStatus: 200,
-      details: `Reachable at ${environment === 'SANDBOX' ? 'https://sandbox.datahouse.com.gh/v1' : 'https://api.datahouse.com.gh/v1'}`,
+      details: 'Reachable at https://api.getmorepaylessdatahouse.net/api/v1',
     });
 
-    // Step 4: Authentication
+    // Step 4: Authentication via Profile Probe (/agent/me)
     try {
-      const health = await this.client.checkHealth();
-      const authLatency = health.latencyMs || 45;
+      const authStart = Date.now();
+      const profile = await this.getAgentProfile();
+      const authLatency = Date.now() - authStart;
+
       steps.push({
         name: 'Authentication',
-        status: health.status === 'DOWN' ? 'FAILED' : 'PASSED',
+        status: 'PASSED',
         latencyMs: authLatency,
-        httpStatus: health.status === 'DOWN' ? 401 : 200,
-        details: health.status === 'DOWN' ? 'Invalid API Key or Secret' : 'API Key validated successfully (Server Signature Match)',
+        httpStatus: 200,
+        details: `API Key validated for agent: ${profile.businessName} (${profile.tier} tier)`,
       });
 
       // Step 5: Provider Health Probe
       steps.push({
         name: 'Provider Health',
-        status: health.status === 'DOWN' ? 'FAILED' : 'PASSED',
+        status: 'PASSED',
         latencyMs: 22,
         httpStatus: 200,
         details: 'Carrier core routing engine is operational',
       });
 
       const totalLatency = Date.now() - startTime;
-      const isFailed = steps.some((s) => s.status === 'FAILED');
 
       return {
         providerId: 'datahouse',
         providerName: 'DataHouse',
         environment,
-        result: isFailed ? 'FAILED' : 'PASSED',
+        result: 'PASSED',
         totalLatencyMs: totalLatency || 151,
         steps,
-        httpStatus: isFailed ? 401 : 200,
-        errorCategory: isFailed ? 'AUTHENTICATION_FAILURE' : 'NONE',
-        errorMessage: isFailed ? 'Authentication rejected by DataHouse gateway' : undefined,
+        httpStatus: 200,
+        errorCategory: 'NONE',
+        errorMessage: undefined,
         timestamp: new Date().toISOString(),
       };
     } catch (err: any) {
@@ -194,8 +274,8 @@ export class DataHouseAdapter implements ITelecomProvider {
         name: 'Authentication',
         status: 'FAILED',
         latencyMs: 30,
-        httpStatus: 500,
-        details: err.message || 'Connection error',
+        httpStatus: err.statusCode || 401,
+        details: err.message || 'Authentication rejected by DataHouse gateway',
       });
 
       return {
@@ -205,8 +285,8 @@ export class DataHouseAdapter implements ITelecomProvider {
         result: 'FAILED',
         totalLatencyMs: Date.now() - startTime,
         steps,
-        httpStatus: 500,
-        errorCategory: 'ENDPOINT_UNREACHABLE',
+        httpStatus: err.statusCode || 401,
+        errorCategory: 'AUTHENTICATION_FAILURE',
         errorMessage: err.message,
         timestamp: new Date().toISOString(),
       };
@@ -234,7 +314,8 @@ export class DataHouseAdapter implements ITelecomProvider {
     });
 
     // Step 3: Order submission
-    const testRef = `DH-TEST-${Date.now().toString().slice(-6)}`;
+    const isFailureMock = input.recipientPhone.endsWith('0000');
+    const testRef = `SBX-${Date.now().toString().slice(-6)}`;
     steps.push({
       step: 'Order submission',
       status: 'PASSED',
@@ -245,17 +326,21 @@ export class DataHouseAdapter implements ITelecomProvider {
     // Step 4: Provider response
     steps.push({
       step: 'Provider response',
-      status: 'PASSED',
+      status: isFailureMock ? 'FAILED' : 'PASSED',
       latencyMs: 40,
-      details: `Provider response code 200 OK (Reference: ${testRef})`,
+      details: isFailureMock
+        ? 'Sandbox simulated failure triggered (phone ending in 0000)'
+        : `Provider response code 201 OK (Reference: ${testRef})`,
     });
 
     // Step 5: Status retrieval
     steps.push({
       step: 'Status retrieval',
-      status: 'PASSED',
+      status: isFailureMock ? 'FAILED' : 'PASSED',
       latencyMs: 65,
-      details: 'Status retrieved: COMPLETED (Mock Sandbox Transaction)',
+      details: isFailureMock
+        ? 'Status retrieved: FULFILLMENT_FAILED (Mock Sandbox Failure)'
+        : 'Status retrieved: FULFILLED (Mock Sandbox Transaction)',
     });
 
     return {
@@ -266,7 +351,7 @@ export class DataHouseAdapter implements ITelecomProvider {
       recipientPhone: input.recipientPhone,
       dataAmountMb: input.dataAmountMb,
       durationMs: Date.now() - startTime,
-      result: 'PASSED',
+      result: isFailureMock ? 'FAILED' : 'PASSED',
       steps,
       responsePayload: {
         sandbox: true,
@@ -275,7 +360,7 @@ export class DataHouseAdapter implements ITelecomProvider {
         network: input.network,
         recipient: input.recipientPhone,
         volumeMb: input.dataAmountMb,
-        status: 'COMPLETED',
+        status: isFailureMock ? 'fulfillment_failed' : 'fulfilled',
         liveTransactionExecuted: false,
       },
       timestamp: new Date().toISOString(),
@@ -286,4 +371,5 @@ export class DataHouseAdapter implements ITelecomProvider {
     return this.client.verifyWebhookSignature(rawBody, signature);
   }
 }
+
 

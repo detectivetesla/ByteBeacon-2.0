@@ -3,6 +3,51 @@
  * Authoritative schemas for DataHouse Telecom Gateway Integration.
  */
 
+export interface DataHouseApiResponse<T> {
+  success: boolean;
+  statusCode: number;
+  message: string;
+  data: T;
+}
+
+export interface DataHouseApiErrorDetail {
+  code: string;
+  message: string;
+}
+
+export interface DataHouseApiErrorResponse {
+  success: false;
+  error: DataHouseApiErrorDetail;
+  meta?: {
+    correlationId?: string;
+  };
+}
+
+export interface DataHouseAgentUser {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+}
+
+export interface DataHouseAgentProfile {
+  id: string;
+  publicId: string;
+  businessName: string;
+  businessPhone: string;
+  address: string;
+  tier: string;
+  status: string;
+  pricePerGb: string;
+  apiAccessStatus: string;
+  apiAccessPaidAt?: string | null;
+  registrationFeePaidAt?: string | null;
+  userId: string;
+  user: DataHouseAgentUser;
+  createdAt: string;
+  [key: string]: unknown;
+}
+
 export interface DataHouseSubmitOrderRequest {
   bundleId: string;
   phoneNumber: string;
@@ -12,19 +57,29 @@ export interface DataHouseSubmitOrderRequest {
 
 export interface DataHouseSubmitOrderResponse {
   id?: string;
+  publicId?: string;
   order_id?: string;
   orderId?: string;
   referenceCode?: string;
   reference?: string;
-  status: string;
-  network?: string;
-  recipient?: string;
-  phoneNumber?: string;
-  dataSizeGb?: number;
-  amount?: number;
+  idempotencyKey?: string;
+  userId?: string;
+  agentId?: string;
+  channel?: string;
+  bundleId?: string;
+  amount?: string | number;
   price?: number;
-  created_at?: string;
+  network?: string;
+  bundleType?: string;
+  groupSizeGb?: string | number;
+  phoneNumber?: string;
+  recipient?: string;
+  dataSizeGb?: number;
+  email?: string;
+  status: string;
+  isSandbox?: boolean;
   createdAt?: string;
+  created_at?: string;
   correlationId?: string;
   message?: string;
   [key: string]: unknown;
@@ -44,36 +99,88 @@ export interface DataHouseBulkOrderRequest {
   onUnvalidated?: 'set_aside' | 'reject';
 }
 
-export interface DataHouseBulkOrderResponse {
-  id?: string;
-  batchId?: string;
-  network: string;
+export interface DataHouseBulkChildOrder {
+  id: string;
+  publicId: string;
+  referenceCode: string;
+  sizeGb: number;
+  beneficiaryCount: number;
+  amount: string;
   status: string;
+}
+
+export interface DataHouseBulkOrderResponse {
+  id?: string; // the submission id (sub_01J...)
+  submissionId?: string;
+  batchId?: string;
+  referenceCode?: string; // BLK-7GH2K9ABCDEF
+  network: string;
+  amount?: string | number;
+  status: string;
+  createdAt?: string;
+  created_at?: string;
+  beneficiaryCount?: number;
+  groupCount?: number;
   totalRecipients?: number;
   acceptedRecipients?: number;
   queuedRecipients?: number;
   rejectedRecipients?: number;
-  created_at?: string;
+  orders?: DataHouseBulkChildOrder[];
+  blocked?: string[];
   correlationId?: string;
   details?: unknown[];
   [key: string]: unknown;
 }
 
+export interface DataHouseOrderDeliveryStats {
+  approved: number;
+  pending: number;
+  failed: number;
+  total: number;
+}
+
+export interface DataHouseOrderBeneficiaryItem {
+  id: string;
+  phoneNumber: string;
+  dataVolumeGb: string;
+  amount: string;
+  network: string;
+  status: string;
+  isPorted: boolean;
+}
+
 export interface DataHouseOrderStatusResponse {
   id: string;
+  publicId?: string;
   order_id?: string;
   referenceCode?: string;
   reference?: string;
   status: string;
+  paymentStatus?: string;
   network: string;
-  phoneNumber: string;
+  phoneNumber?: string;
   recipient?: string;
   dataSizeGb?: number;
-  amount?: number;
+  groupSizeGb?: number;
+  amount?: string | number;
   price?: number;
+  submissionId?: string | null;
+  createdAt?: string;
   created_at?: string;
+  completedAt?: string;
   completed_at?: string;
+  updatedAt?: string;
   updated_at?: string;
+  approvedAt?: string | null;
+  approvedByName?: string | null;
+  paymentSplit?: {
+    fromMain: number;
+    fromOverdraft: number;
+  } | null;
+  beneficiaryCount?: number;
+  totalDataGb?: number;
+  delivery?: DataHouseOrderDeliveryStats;
+  beneficiaries?: DataHouseOrderBeneficiaryItem[];
   error?: string | null;
   errorMessage?: string | null;
   [key: string]: unknown;
@@ -85,8 +192,11 @@ export interface DataHouseBundleItem {
   network: string;
   dataSizeGb?: number;
   dataVolume?: string;
-  price: number;
-  agentPrice?: number;
+  bundleType?: string;
+  price?: number | string;
+  amount?: number | string;
+  agentPrice?: number | string;
+  agentAmount?: number | string;
   validityDays?: number;
   validity?: string | number;
   is_active?: boolean;
@@ -96,7 +206,7 @@ export interface DataHouseBundleItem {
 }
 
 export interface DataHouseBundlesResponse {
-  data?: DataHouseBundleItem[];
+  data?: DataHouseBundleItem[] | { data: DataHouseBundleItem[]; meta?: { page?: number; limit?: number; total?: number } };
   bundles?: DataHouseBundleItem[];
   items?: DataHouseBundleItem[];
   total?: number;
@@ -108,6 +218,11 @@ export interface DataHouseBundlesResponse {
   [key: string]: unknown;
 }
 
+export interface DataHousePublicPrecheckRequest {
+  network: string;
+  phoneNumbers: string[];
+}
+
 export interface DataHousePrecheckRequest {
   network: string;
   phoneNumbers: string[];
@@ -116,8 +231,9 @@ export interface DataHousePrecheckRequest {
 
 export interface DataHousePrecheckItem {
   phoneNumber?: string;
-  msisdn?: string;
   phone?: string;
+  msisdn?: string;
+  normalized?: string;
   isKnown?: boolean;
   known?: boolean;
   isValid?: boolean;
@@ -129,29 +245,46 @@ export interface DataHousePrecheckItem {
   [key: string]: unknown;
 }
 
+export interface DataHousePrecheckSummary {
+  requested?: number;
+  unique?: number;
+  valid?: number;
+  invalid?: number;
+  known?: number;
+  unknown?: number;
+  total?: number;
+  recorded?: number;
+}
+
 export interface DataHousePrecheckResponse {
   network: string;
   enforced?: boolean;
   sandbox?: boolean;
   recorded?: boolean;
-  summary?: {
-    total?: number;
-    known?: number;
-    unknown?: number;
-    valid?: number;
-    invalid?: number;
-    recorded?: number;
-  };
+  reason?: string;
+  summary?: DataHousePrecheckSummary;
   unknown?: string[];
   results?: DataHousePrecheckItem[];
   data?: DataHousePrecheckItem[];
   [key: string]: unknown;
 }
 
+export interface DataHouseBeneficiaryStatusItem {
+  msisdn: string;
+  network: string;
+  status: string;
+  attemptCount: number;
+  lastBundleSizeGb?: string;
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  submittedAt?: string | null;
+  resolvedAt?: string | null;
+}
+
 export interface DataHouseBeneficiariesListResponse {
-  data?: unknown[];
-  items?: unknown[];
-  results?: unknown[];
+  data?: DataHouseBeneficiaryStatusItem[] | { data: DataHouseBeneficiaryStatusItem[]; meta?: { page?: number; limit?: number; total?: number } };
+  items?: DataHouseBeneficiaryStatusItem[];
+  results?: DataHouseBeneficiaryStatusItem[];
   meta?: {
     page?: number;
     limit?: number;
@@ -171,10 +304,32 @@ export interface DataHouseWalletBalanceResponse {
   [key: string]: unknown;
 }
 
+export interface DataHouseWalletLedgerEntry {
+  id: string;
+  walletId?: string;
+  transactionId?: string;
+  direction?: 'debit' | 'credit' | string;
+  type?: string;
+  amount: string | number;
+  balanceAfter?: string | number;
+  balanceBefore?: string | number;
+  category?: string;
+  referenceType?: string;
+  referenceId?: string;
+  description?: string;
+  narration?: string;
+  source?: 'main_balance' | 'overdraft' | string | null;
+  reference?: string;
+  orderId?: string;
+  order_id?: string;
+  createdAt?: string;
+  created_at?: string;
+}
+
 export interface DataHouseWalletLedgerResponse {
-  data?: unknown[];
-  ledger?: unknown[];
-  items?: unknown[];
+  data?: DataHouseWalletLedgerEntry[] | { data: DataHouseWalletLedgerEntry[]; meta?: { page?: number; limit?: number; total?: number } };
+  ledger?: DataHouseWalletLedgerEntry[];
+  items?: DataHouseWalletLedgerEntry[];
   meta?: {
     page?: number;
     limit?: number;
@@ -183,28 +338,63 @@ export interface DataHouseWalletLedgerResponse {
   [key: string]: unknown;
 }
 
+export interface DataHouseWebhookSubscription {
+  id: string;
+  agentId?: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface DataHouseWebhookCreateRequest {
+  url: string;
+  events: string[];
+}
+
+export interface DataHouseWebhookCreateResponse extends DataHouseWebhookSubscription {
+  signingSecret: string;
+}
+
 export interface DataHouseWebhookPayload {
   id?: string;
   eventId?: string;
   event_id?: string;
   type: string;
   timestamp?: number | string;
+  created_at?: string;
+  createdAt?: string;
   data: {
     id?: string;
-    orderId?: string;
     order_id?: string;
-    referenceCode?: string;
+    orderId?: string;
     reference?: string;
+    reference_code?: string;
+    referenceCode?: string;
     status: string;
     network?: string;
+    phone_number?: string;
     phoneNumber?: string;
     recipient?: string;
     dataSizeGb?: number;
-    amount?: number;
+    bundle_type?: string;
+    bundleType?: string;
+    amount?: string | number;
+    provider_reference?: string;
+    error_message?: string;
+    error?: string;
+    refunded?: boolean;
+    wallet_id?: string;
+    ledger_entry_id?: string;
+    direction?: string;
+    balance_after?: string | number;
+    category?: string;
+    reference_type?: string;
+    reference_id?: string;
+    description?: string;
+    occurred_at?: string;
     completedAt?: string;
     completed_at?: string;
-    error?: string;
-    errorMessage?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;
