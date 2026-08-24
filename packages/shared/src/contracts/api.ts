@@ -2670,3 +2670,49 @@ export interface ProviderHealthMetricDto {
   lastCheck: string;
 }
 
+// --- MTN & Carrier Beneficiary Precheck Contracts ---
+
+export interface PublicBeneficiaryPrecheckRequest {
+  network: NetworkProvider | string;
+  phoneNumbers: string[];
+}
+
+export interface BeneficiaryPrecheckItem {
+  phone: string;
+  normalized: string;
+  valid: boolean;
+  known: boolean;
+  accountName?: string;
+}
+
+export interface PublicBeneficiaryPrecheckData {
+  network: NetworkProvider | string;
+  results: BeneficiaryPrecheckItem[];
+}
+
+export interface AgentBeneficiaryPrecheckRequest {
+  network: NetworkProvider | string;
+  phoneNumbers: string[];
+  record?: boolean;
+}
+
+export interface BeneficiaryPrecheckSummary {
+  requested: number;
+  unique: number;
+  valid: number;
+  invalid: number;
+  known: number;
+  unknown: number;
+}
+
+export interface AgentBeneficiaryPrecheckData {
+  network: NetworkProvider | string;
+  enforced: boolean;
+  sandbox: boolean;
+  recorded: boolean;
+  reason?: string;
+  summary: BeneficiaryPrecheckSummary;
+  unknown: string[];
+  results: BeneficiaryPrecheckItem[];
+}
+

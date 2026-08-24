@@ -18,7 +18,57 @@ export interface BeneficiaryItemDto {
   createdAt: string;
 }
 
+export interface BeneficiaryPrecheckItemDto {
+  phone: string;
+  normalized: string;
+  valid: boolean;
+  known: boolean;
+  accountName?: string;
+}
+
+export interface AgentBeneficiaryPrecheckResultDto {
+  network: NetworkProvider | string;
+  enforced: boolean;
+  sandbox: boolean;
+  recorded: boolean;
+  reason?: string;
+  summary: {
+    requested: number;
+    unique: number;
+    valid: number;
+    invalid: number;
+    known: number;
+    unknown: number;
+  };
+  unknown: string[];
+  results: BeneficiaryPrecheckItemDto[];
+}
+
 export const beneficiaryApi = {
+  /**
+   * Public precheck endpoint (up to 10 numbers, no auth needed).
+   */
+  precheckPublic: async (params: {
+    network: NetworkProvider;
+    phoneNumbers: string[];
+  }): Promise<{
+    network: NetworkProvider | string;
+    results: BeneficiaryPrecheckItemDto[];
+  }> => {
+    return apiClient.post('/orders/beneficiaries/precheck', params);
+  },
+
+  /**
+   * Authenticated agent bulk precheck (up to 1000 numbers with opt-in recording).
+   */
+  precheckAgent: async (params: {
+    network: NetworkProvider;
+    phoneNumbers: string[];
+    record?: boolean;
+  }): Promise<AgentBeneficiaryPrecheckResultDto> => {
+    return apiClient.post('/agent/beneficiaries/precheck', params);
+  },
+
   precheck: async (params: {
     phoneNumbers: string[];
     network: NetworkProvider;

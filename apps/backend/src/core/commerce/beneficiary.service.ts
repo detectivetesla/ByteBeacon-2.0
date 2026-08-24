@@ -131,7 +131,351 @@ export class BeneficiaryService {
   }
 
   /**
+   * Normalizes and validates a Ghanaian MSISDN.
+   */
+  public normalizeGhanaPhone(phone: string): { normalized: string; valid: boolean; raw: string } {
+    const raw = String(phone || '').trim();
+    let clean = raw.replace(/[\s\-()]/g, '');
+
+    if (clean.startsWith('+233')) {
+      clean = '0' + clean.slice(4);
+    } else if (clean.startsWith('233') && clean.length === 12) {
+      clean = '0' + clean.slice(3);
+    } else if (/^[235]\d{8}$/.test(clean)) {
+      clean = '0' + clean;
+    }
+
+    const ghanaPhoneRegex = /^0[235]\d{8}$/;
+    const valid = ghanaPhoneRegex.test(clean);
+
+    return {
+      raw,
+      normalized: valid ? clean : raw,
+      valid,
+    };
+  }
+
+  /**
+   * Public Beneficiary Precheck (up to 10 numbers per call).
+   * POST /orders/beneficiaries/precheck
+   */
+  public async precheckPublicBeneficiaries(params: {
+    network: NetworkProvider | string;
+    phoneNumbers: string[];
+  }): Promise<{
+    network: NetworkProvider | string;
+    results: Array<{
+      phone: string;
+      normalized: string;
+      valid: boolean;
+      known: boolean;
+      accountName?: string;
+    }>;
+  }> {
+    const { network, phoneNumbers } = params;
+    const net = (typeof network === 'string' ? network.toUpperCase() : network) as NetworkProvider;
+
+    const parsedItems = phoneNumbers.map((p) => this.normalizeGhanaPhone(p));
+    const validNormalizedPhones = Array.from(
+      new Set(parsedItems.filter((item) => item.valid).map((item) => item.normalized)),
+    );
+
+    // If TELECEL or non-MTN, every valid Ghanaian MSISDN is known: true
+    if (net !== NetworkProvider.MTN) {
+      return {
+        network: net,
+        results: parsedItems.map((item) => ({
+          phone: item.raw,
+          normalized: item.normalized,
+          valid: item.valid,
+          known: item.valid,
+        })),
+      };
+    }
+
+    // For MTN: check provider and DB validated list
+    const knownPhonesSet = new Set<string>();
+
+    if (this.telecomProvider && this.telecomProvider.precheckPublicBeneficiaries) {
+      try {
+        const providerRes = await this.telecomProvider.precheckPublicBeneficiaries({
+          network: net,
+          phoneNumbers: validNormalizedPhones,
+        });
+        if (providerRes && Array.isArray(providerRes.results)) {
+          providerRes.results.forEach((r) => {
+            if (r.isKnown || (r as any).known) {
+              const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
+              knownPhonesSet.add(norm);
+            }
+          });
+        }
+      } catch {
+        // Fallback to local DB check
+      }
+    }
+
+    // Check DB for validated beneficiary records
+    if (validNormalizedPhones.length > 0) {
+      try {
+        const dbQuery = `
+          SELECT phone_number as "phoneNumber"
+          FROM beneficiary_validation
+          WHERE phone_number = ANY($1)
+            AND network = 'MTN'
+            AND validation_status = 'VALID'
+            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+        `;
+        const dbRes = await this.db.query(dbQuery, [validNormalizedPhones]);
+        dbRes.rows.forEach((r: any) => {
+          knownPhonesSet.add(r.phoneNumber);
+        });
+
+        // Also check if any orders have been fulfilled/processing for this number
+        const orderQuery = `
+          SELECT DISTINCT recipient_phone as "recipientPhone"
+          FROM orders
+          WHERE recipient_phone = ANY($1)
+            AND network = 'MTN'
+            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED')
+        `;
+        const orderRes = await this.db.query(orderQuery, [validNormalizedPhones]);
+        orderRes.rows.forEach((r: any) => {
+          knownPhonesSet.add(r.recipientPhone);
+        });
+      } catch {
+        // Continue with memory set
+      }
+    }
+
+    const results = parsedItems.map((item) => ({
+      phone: item.raw,
+      normalized: item.normalized,
+      valid: item.valid,
+      known: item.valid ? knownPhonesSet.has(item.normalized) : false,
+    }));
+
+    return {
+      network: net,
+      results,
+    };
+  }
+
+  /**
+   * Bulk-sized Agent Beneficiary Precheck with opt-in recording.
+   * POST /agent/beneficiaries/precheck
+   */
+  public async precheckAgentBeneficiaries(params: {
+    network: NetworkProvider | string;
+    phoneNumbers: string[];
+    record?: boolean;
+    isSandbox?: boolean;
+    userId?: string;
+  }): Promise<{
+    network: NetworkProvider | string;
+    enforced: boolean;
+    sandbox: boolean;
+    recorded: boolean;
+    reason?: string;
+    summary: {
+      requested: number;
+      unique: number;
+      valid: number;
+      invalid: number;
+      known: number;
+      unknown: number;
+    };
+    unknown: string[];
+    results: Array<{
+      phone: string;
+      normalized: string;
+      valid: boolean;
+      known: boolean;
+    }>;
+  }> {
+    const { network, phoneNumbers, record = false, isSandbox = false, userId: _userId } = params;
+    const net = (typeof network === 'string' ? network.toUpperCase() : network) as NetworkProvider;
+
+    const requestedCount = phoneNumbers.length;
+
+    // Deduplicate while preserving original order
+    const seen = new Set<string>();
+    const uniqueItems: Array<{ phone: string; normalized: string; valid: boolean }> = [];
+
+    for (const phone of phoneNumbers) {
+      const parsed = this.normalizeGhanaPhone(phone);
+      if (!seen.has(parsed.normalized)) {
+        seen.add(parsed.normalized);
+        uniqueItems.push({
+          phone: parsed.raw,
+          normalized: parsed.normalized,
+          valid: parsed.valid,
+        });
+      }
+    }
+
+    // 1. Check Sandbox Short-Circuit
+    if (isSandbox) {
+      const results = uniqueItems.map((item) => ({
+        phone: item.phone,
+        normalized: item.normalized,
+        valid: item.valid,
+        known: item.valid,
+      }));
+
+      return {
+        network: net,
+        enforced: false,
+        sandbox: true,
+        recorded: false,
+        reason: 'sandbox',
+        summary: {
+          requested: requestedCount,
+          unique: uniqueItems.length,
+          valid: results.filter((r) => r.valid).length,
+          invalid: results.filter((r) => !r.valid).length,
+          known: results.filter((r) => r.known).length,
+          unknown: 0,
+        },
+        unknown: [],
+        results,
+      };
+    }
+
+    // 2. Check Non-MTN Short-Circuit (TELECEL / AIRTELTIGO)
+    if (net !== NetworkProvider.MTN) {
+      const results = uniqueItems.map((item) => ({
+        phone: item.phone,
+        normalized: item.normalized,
+        valid: item.valid,
+        known: item.valid,
+      }));
+
+      return {
+        network: net,
+        enforced: false,
+        sandbox: false,
+        recorded: false,
+        reason: 'non_mtn',
+        summary: {
+          requested: requestedCount,
+          unique: uniqueItems.length,
+          valid: results.filter((r) => r.valid).length,
+          invalid: results.filter((r) => !r.valid).length,
+          known: results.filter((r) => r.known).length,
+          unknown: 0,
+        },
+        unknown: [],
+        results,
+      };
+    }
+
+    // 3. Live MTN Enforcement
+    const validNormalizedPhones = uniqueItems.filter((item) => item.valid).map((item) => item.normalized);
+    const knownPhonesSet = new Set<string>();
+
+    if (this.telecomProvider && this.telecomProvider.precheckBeneficiaries) {
+      try {
+        const providerRes = await this.telecomProvider.precheckBeneficiaries({
+          network: net,
+          phoneNumbers: validNormalizedPhones,
+          record,
+        });
+        if (providerRes && Array.isArray(providerRes.results)) {
+          providerRes.results.forEach((r) => {
+            if (r.isKnown || (r as any).known) {
+              const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
+              knownPhonesSet.add(norm);
+            }
+          });
+        }
+      } catch {
+        // Fallback to local DB check
+      }
+    }
+
+    // Query DB for known/validated MTN beneficiaries
+    if (validNormalizedPhones.length > 0) {
+      try {
+        const dbQuery = `
+          SELECT phone_number as "phoneNumber"
+          FROM beneficiary_validation
+          WHERE phone_number = ANY($1)
+            AND network = 'MTN'
+            AND validation_status = 'VALID'
+            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+        `;
+        const dbRes = await this.db.query(dbQuery, [validNormalizedPhones]);
+        dbRes.rows.forEach((r: any) => {
+          knownPhonesSet.add(r.phoneNumber);
+        });
+
+        // Query historical successful orders
+        const orderQuery = `
+          SELECT DISTINCT recipient_phone as "recipientPhone"
+          FROM orders
+          WHERE recipient_phone = ANY($1)
+            AND network = 'MTN'
+            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED')
+        `;
+        const orderRes = await this.db.query(orderQuery, [validNormalizedPhones]);
+        orderRes.rows.forEach((r: any) => {
+          knownPhonesSet.add(r.recipientPhone);
+        });
+      } catch {
+        // Continue with available known set
+      }
+    }
+
+    const results = uniqueItems.map((item) => ({
+      phone: item.phone,
+      normalized: item.normalized,
+      valid: item.valid,
+      known: item.valid ? knownPhonesSet.has(item.normalized) : false,
+    }));
+
+    const unknownList = results
+      .filter((r) => r.valid && !r.known)
+      .map((r) => r.normalized);
+
+    let recorded = false;
+    if (record && unknownList.length > 0) {
+      recorded = true;
+      try {
+        for (const unkPhone of unknownList) {
+          const insertPendingQuery = `
+            INSERT INTO beneficiary_validation (phone_number, network, validation_status, created_at, updated_at)
+            VALUES ($1, 'MTN', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT DO NOTHING
+          `;
+          await this.db.query(insertPendingQuery, [unkPhone]);
+        }
+      } catch {
+        // Non-fatal recording error
+      }
+    }
+
+    return {
+      network: net,
+      enforced: true,
+      sandbox: false,
+      recorded,
+      summary: {
+        requested: requestedCount,
+        unique: results.length,
+        valid: results.filter((r) => r.valid).length,
+        invalid: results.filter((r) => !r.valid).length,
+        known: results.filter((r) => r.known).length,
+        unknown: unknownList.length,
+      },
+      unknown: unknownList,
+      results,
+    };
+  }
+
+  /**
    * Prechecks a list of phone numbers for MTN Up2U or carrier-specific validation.
+   * Maintained for backwards compatibility.
    */
   public async precheckBeneficiaries(params: {
     phoneNumbers: string[];
@@ -139,7 +483,7 @@ export class BeneficiaryService {
     record?: boolean;
     userId?: string;
   }): Promise<PrecheckBeneficiaryResult> {
-    const { phoneNumbers, network, record = false } = params;
+    const { phoneNumbers, network, record = false, userId } = params;
 
     if (this.telecomProvider && this.telecomProvider.precheckBeneficiaries) {
       const dhResult = await this.telecomProvider.precheckBeneficiaries({
@@ -152,35 +496,31 @@ export class BeneficiaryService {
         network,
         enforced: dhResult.enforced,
         results: dhResult.results.map((r) => ({
-          phoneNumber: r.phoneNumber,
+          phoneNumber: r.phoneNumber || (r as any).phone || (r as any).normalized || '',
           network,
-          isValid: r.isValid,
-          isKnown: r.isKnown,
+          isValid: Boolean(r.isValid !== undefined ? r.isValid : (r as any).valid !== undefined ? (r as any).valid : true),
+          isKnown: Boolean(r.isKnown !== undefined ? r.isKnown : (r as any).known !== undefined ? (r as any).known : false),
           accountName: r.accountName,
         })),
       };
     }
 
-    // Fallback: Perform local verification
-    const ghanaPhoneRegex = /^(?:\+233|0)[235]\d{8}$/;
-    const results = [];
-
-    for (const phone of phoneNumbers) {
-      const clean = phone.trim().replace(/\s+/g, '');
-      const isValid = ghanaPhoneRegex.test(clean);
-      results.push({
-        phoneNumber: clean,
-        network,
-        isValid,
-        isKnown: isValid,
-        accountName: isValid ? `Subscriber ${clean.slice(-4)}` : undefined,
-      });
-    }
+    const agentResult = await this.precheckAgentBeneficiaries({
+      network,
+      phoneNumbers,
+      record,
+      userId,
+    });
 
     return {
       network,
-      enforced: network === NetworkProvider.MTN,
-      results,
+      enforced: agentResult.enforced,
+      results: agentResult.results.map((r) => ({
+        phoneNumber: r.normalized,
+        network,
+        isValid: r.valid,
+        isKnown: r.known,
+      })),
     };
   }
 

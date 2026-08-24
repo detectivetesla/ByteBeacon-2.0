@@ -95,6 +95,26 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
           },
         ],
       }),
+      precheckPublicBeneficiaries: vi.fn().mockResolvedValue({
+        network: NetworkProvider.MTN,
+        enforced: true,
+        results: [
+          {
+            phoneNumber: '0241234567',
+            phone: '0241234567',
+            normalized: '0241234567',
+            isValid: true,
+            isKnown: true,
+          },
+          {
+            phoneNumber: '0209990000',
+            phone: '0209990000',
+            normalized: '0209990000',
+            isValid: true,
+            isKnown: false,
+          },
+        ],
+      }),
       validateBeneficiary: vi.fn(),
       submitOrder: vi.fn(),
       getOrderStatus: vi.fn(),
@@ -114,7 +134,24 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       }),
     } as unknown as TokenService;
 
-    mockApiKeyService = {} as unknown as ApiKeyService;
+    mockApiKeyService = {
+      validateApiKey: vi.fn().mockImplementation((rawKey: string) => ({
+        id: 'key_1',
+        agentId: 'ag_1',
+        isSandbox: rawKey.startsWith('ak_test_'),
+        keyPrefix: rawKey.slice(0, 7),
+        scopes: ['beneficiaries:read'],
+        name: 'test_agent',
+      })),
+      verifyApiKey: vi.fn().mockReturnValue({
+        id: 'key_1',
+        agentId: 'ag_1',
+        isSandbox: false,
+        keyPrefix: 'ak_live',
+        scopes: ['beneficiaries:read'],
+      }),
+    } as unknown as ApiKeyService;
+
     mockRbacService = {
       hasPermission: vi.fn().mockReturnValue(true),
     } as unknown as RbacService;
@@ -131,17 +168,103 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
     });
   });
 
-  describe('POST /beneficiaries/precheck', () => {
-    it('should precheck numbers with DataHouse provider and report MTN Up2U status', async () => {
+  describe('Public Endpoint: POST /orders/beneficiaries/precheck', () => {
+    it('should allow public access without x-api-key or authorization and check MTN numbers', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: '/beneficiaries/precheck',
+        url: '/orders/beneficiaries/precheck',
+        payload: {
+          network: 'MTN',
+          phoneNumbers: ['0241234567', '0209990000'],
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.statusCode).toBe(200);
+      expect(json.message).toBe('Success');
+      expect(json.data.network).toBe('MTN');
+      expect(json.data.results).toHaveLength(2);
+      expect(json.data.results[0]).toEqual({
+        phone: '0241234567',
+        normalized: '0241234567',
+        valid: true,
+        known: true,
+      });
+      expect(json.data.results[1]).toEqual({
+        phone: '0209990000',
+        normalized: '0209990000',
+        valid: true,
+        known: false,
+      });
+    });
+
+    it('should always pass TELECEL numbers as known: true if valid Ghanaian MSISDN', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/orders/beneficiaries/precheck',
+        payload: {
+          network: 'TELECEL',
+          phoneNumbers: ['0201234567', 'invalid_phone'],
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.network).toBe('TELECEL');
+      expect(json.data.results[0]).toEqual({
+        phone: '0201234567',
+        normalized: '0201234567',
+        valid: true,
+        known: true,
+      });
+      expect(json.data.results[1]).toEqual({
+        phone: 'invalid_phone',
+        normalized: 'invalid_phone',
+        valid: false,
+        known: false,
+      });
+    });
+
+    it('should reject requests exceeding 10 numbers or with numbers > 20 chars', async () => {
+      const elevenNumbers = Array.from({ length: 11 }, (_, i) => `024100000${i}`);
+      const resTooMany = await app.inject({
+        method: 'POST',
+        url: '/orders/beneficiaries/precheck',
+        payload: {
+          network: 'MTN',
+          phoneNumbers: elevenNumbers,
+        },
+      });
+
+      expect(resTooMany.statusCode).toBe(400);
+
+      const resTooLong = await app.inject({
+        method: 'POST',
+        url: '/orders/beneficiaries/precheck',
+        payload: {
+          network: 'MTN',
+          phoneNumbers: ['024123456789012345678901234567890'],
+        },
+      });
+
+      expect(resTooLong.statusCode).toBe(400);
+    });
+  });
+
+  describe('Agent Keyed Endpoint: POST /agent/beneficiaries/precheck', () => {
+    it('should perform bulk-sized precheck with deduplication, summaries, and opt-in recording', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/beneficiaries/precheck',
         headers: {
-          authorization: 'Bearer valid_token',
+          'x-api-key': 'ak_live_8f3c12345678',
         },
         payload: {
-          network: NetworkProvider.MTN,
-          phoneNumbers: ['0241112233', '0249998877'],
+          network: 'MTN',
+          phoneNumbers: ['0241112233', '0249998877', '0249998877'],
           record: true,
         },
       });
@@ -149,36 +272,83 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       expect(res.statusCode).toBe(200);
       const json = JSON.parse(res.body);
       expect(json.success).toBe(true);
+      expect(json.statusCode).toBe(200);
+      expect(json.message).toBe('Success');
       expect(json.data.network).toBe('MTN');
       expect(json.data.enforced).toBe(true);
+      expect(json.data.sandbox).toBe(false);
+      expect(json.data.recorded).toBe(true);
+      expect(json.data.summary).toEqual({
+        requested: 3,
+        unique: 2,
+        valid: 2,
+        invalid: 0,
+        known: 1,
+        unknown: 1,
+      });
+      expect(json.data.unknown).toEqual(['0249998877']);
       expect(json.data.results).toHaveLength(2);
-      expect(json.data.results[0].isKnown).toBe(true);
-      expect(json.data.results[0].accountName).toBe('Kwame Mensah');
-      expect(json.data.results[1].isKnown).toBe(false);
-
-      expect(mockTelecomProvider.precheckBeneficiaries).toHaveBeenCalledWith({
-        network: NetworkProvider.MTN,
-        phoneNumbers: ['0241112233', '0249998877'],
-        record: true,
+      expect(json.data.results[0]).toEqual({
+        phone: '0241112233',
+        normalized: '0241112233',
+        valid: true,
+        known: true,
+      });
+      expect(json.data.results[1]).toEqual({
+        phone: '0249998877',
+        normalized: '0249998877',
+        valid: true,
+        known: false,
       });
     });
 
-    it('should reject requests missing phone numbers or network', async () => {
+    it('should short-circuit on sandbox keys: sandbox: true, enforced: false, recorded: false', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: '/beneficiaries/precheck',
+        url: '/agent/beneficiaries/precheck',
+        headers: {
+          'x-api-key': 'ak_test_sandbox_secret_key',
+        },
+        payload: {
+          network: 'MTN',
+          phoneNumbers: ['0241112233', '0249998877'],
+          record: true,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.data.network).toBe('MTN');
+      expect(json.data.sandbox).toBe(true);
+      expect(json.data.enforced).toBe(false);
+      expect(json.data.recorded).toBe(false);
+      expect(json.data.reason).toBe('sandbox');
+      expect(json.data.results.every((r: any) => r.known === true)).toBe(true);
+    });
+
+    it('should return enforced: false with reason non_mtn for TELECEL on agent precheck', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/beneficiaries/precheck',
         headers: {
           authorization: 'Bearer valid_token',
         },
         payload: {
-          network: NetworkProvider.MTN,
-          phoneNumbers: [],
+          network: 'TELECEL',
+          phoneNumbers: ['0201234567', '0207654321'],
+          record: false,
         },
       });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(200);
       const json = JSON.parse(res.body);
-      expect(json.message).toContain('phoneNumbers array is required');
+      expect(json.data.network).toBe('TELECEL');
+      expect(json.data.enforced).toBe(false);
+      expect(json.data.reason).toBe('non_mtn');
+      expect(json.data.recorded).toBe(false);
+      expect(json.data.summary.valid).toBe(2);
+      expect(json.data.summary.known).toBe(2);
+      expect(json.data.summary.unknown).toBe(0);
     });
   });
 

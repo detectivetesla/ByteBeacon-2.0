@@ -70,34 +70,96 @@ export async function beneficiaryRoutes(
     },
   );
 
-  // 3. PRECHECK BENEFICIARIES (Bulk MTN Up2U & Carrier Verification)
+  // 1. PUBLIC PRECHECK: POST /orders/beneficiaries/precheck & /beneficiaries/precheck
+  const handlePublicPrecheck = async (
+    req: FastifyRequest<{
+      Body: {
+        network: NetworkProvider | string;
+        phoneNumbers: string[];
+      };
+    }>,
+    reply: FastifyReply,
+  ) => {
+    const { network, phoneNumbers } = req.body || {};
+
+    if (!network) {
+      throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
+    }
+    if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
+      throw new BadRequestError('phoneNumbers array is required and cannot be empty');
+    }
+    if (phoneNumbers.length > 10) {
+      throw new BadRequestError('Up to 10 phone numbers allowed per public precheck call');
+    }
+    for (const phone of phoneNumbers) {
+      if (typeof phone !== 'string' || phone.length > 20) {
+        throw new BadRequestError('Each phone number must be a string of at most 20 characters');
+      }
+    }
+
+    const result = await beneficiaryService.precheckPublicBeneficiaries({
+      network: network as NetworkProvider,
+      phoneNumbers,
+    });
+
+    return reply.status(200).send({
+      success: true,
+      statusCode: 200,
+      message: 'Success',
+      data: result,
+    });
+  };
+
+  app.post<{ Body: { network: NetworkProvider | string; phoneNumbers: string[] } }>(
+    '/orders/beneficiaries/precheck',
+    handlePublicPrecheck,
+  );
+  app.post<{ Body: { network: NetworkProvider | string; phoneNumbers: string[] } }>(
+    '/beneficiaries/precheck',
+    handlePublicPrecheck,
+  );
+
+  // 2. AGENT PRECHECK (Bulk-sized, opt-in recording): POST /agent/beneficiaries/precheck
   app.post<{
     Body: {
+      network: NetworkProvider | string;
       phoneNumbers: string[];
-      network: NetworkProvider;
       record?: boolean;
     };
   }>(
-    '/beneficiaries/precheck',
-    { preHandler: [authHooks.authenticateCustomer] },
+    '/agent/beneficiaries/precheck',
+    { preHandler: [authHooks.authenticate] },
     async (req, reply) => {
-      const { phoneNumbers, network, record = false } = req.body || {};
-      if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
-        throw new BadRequestError('phoneNumbers array is required');
-      }
+      const { network, phoneNumbers, record = false } = req.body || {};
+
       if (!network) {
-        throw new BadRequestError('network is required');
+        throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
+      }
+      if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
+        throw new BadRequestError('phoneNumbers array is required and cannot be empty');
+      }
+      if (phoneNumbers.length > 1000) {
+        throw new BadRequestError('Up to 1000 phone numbers allowed per agent precheck call');
       }
 
-      const result = await beneficiaryService.precheckBeneficiaries({
+      const apiKeyHeader = (req.headers['x-api-key'] as string) || '';
+      const isSandbox =
+        Boolean((req as any).apiKey?.isSandbox) ||
+        apiKeyHeader.startsWith('ak_test_') ||
+        (req as any).apiKey?.keyPrefix?.startsWith('ak_test');
+
+      const result = await beneficiaryService.precheckAgentBeneficiaries({
+        network: network as NetworkProvider,
         phoneNumbers,
-        network,
         record,
-        userId: req.user!.sub,
+        isSandbox,
+        userId: req.user?.sub,
       });
 
-      return reply.send({
+      return reply.status(200).send({
         success: true,
+        statusCode: 200,
+        message: 'Success',
         data: result,
       });
     },
