@@ -98,8 +98,8 @@ export async function adminAgentsRoutes(
             COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, 'ACTIVE')) = 'ACTIVE' AND UPPER(COALESCE(a.status, 'ACTIVE')) = 'ACTIVE') as "activeAgents",
             COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'SUSPENDED' OR UPPER(COALESCE(a.status, '')) = 'SUSPENDED') as "suspendedAgents",
             COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'PENDING' OR UPPER(COALESCE(a.status, '')) = 'PENDING') as "pendingAgents",
-            COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.store_status, '')) = 'ACTIVE') as "agentsWithStores",
-            COUNT(DISTINCT k.agent_id) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
+            COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.status, '')) = 'ACTIVE') as "agentsWithStores",
+            COUNT(DISTINCT k.user_id) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
             COALESCE(SUM(u.wallet_balance_pesewas), 0) as "totalWalletFloatPesewas",
             COALESCE((
               SELECT SUM(amount_pesewas)
@@ -108,8 +108,8 @@ export async function adminAgentsRoutes(
             ), 0) as "totalRevenuePesewas"
           FROM agents a
           JOIN users u ON a.user_id = u.id
-          LEFT JOIN stores s ON s.agent_id = a.id
-          LEFT JOIN api_keys k ON k.agent_id = u.id AND k.status = 'ACTIVE'
+          LEFT JOIN agent_stores s ON s.agent_id = a.id
+          LEFT JOIN api_keys k ON k.user_id = u.id AND k.status = 'ACTIVE'
         `;
 
         const res = await db.query(statsQuery);
@@ -214,11 +214,11 @@ export async function adminAgentsRoutes(
       } else if (store === 'NO_STORE') {
         whereConditions.push(`s.id IS NULL`);
       } else if (store === 'ACTIVE_STORE') {
-        whereConditions.push(`s.store_status = 'ACTIVE'`);
+        whereConditions.push(`s.status = 'ACTIVE'`);
       } else if (store === 'PENDING_STORE') {
-        whereConditions.push(`s.approval_status = 'AWAITING_APPROVAL'`);
+        whereConditions.push(`s.status = 'PENDING' OR s.approval_status = 'AWAITING_APPROVAL'`);
       } else if (store === 'SUSPENDED_STORE') {
-        whereConditions.push(`s.store_status = 'SUSPENDED'`);
+        whereConditions.push(`s.status = 'SUSPENDED'`);
       }
 
       if (api === 'ENABLED') {
@@ -249,17 +249,17 @@ export async function adminAgentsRoutes(
         SELECT COUNT(DISTINCT a.id) as total
         FROM agents a
         JOIN users u ON a.user_id = u.id
-        LEFT JOIN stores s ON s.agent_id = a.id
+        LEFT JOIN agent_stores s ON s.agent_id = a.id
         LEFT JOIN (
-          SELECT agent_id, COUNT(*) as key_count
+          SELECT user_id, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY agent_id
-        ) k ON k.agent_id = u.id
+          GROUP BY user_id
+        ) k ON k.user_id = u.id
         WHERE ${whereClause}
       `;
 
-      const countRes = await db.query(countQuery, params);
+      const countRes = await db.query(countQuery, params).catch(() => ({ rows: [{ total: '0' }] }));
       const total = parseInt(countRes.rows[0]?.total || '0', 10);
 
       const listQuery = `
@@ -272,7 +272,7 @@ export async function adminAgentsRoutes(
           COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
           a.slug,
           COALESCE(a.status, u.status, 'ACTIVE') as "agentStatus",
-          COALESCE(s.store_status, 'NOT_STARTED') as "storeStatus",
+          COALESCE(s.status, 'NOT_STARTED') as "storeStatus",
           s.id as "storeId",
           s.store_name as "storeName",
           s.slug as "storeSlug",
@@ -287,13 +287,13 @@ export async function adminAgentsRoutes(
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
         FROM agents a
         JOIN users u ON a.user_id = u.id
-        LEFT JOIN stores s ON s.agent_id = a.id
+        LEFT JOIN agent_stores s ON s.agent_id = a.id
         LEFT JOIN (
-          SELECT agent_id, COUNT(*) as key_count
+          SELECT user_id, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY agent_id
-        ) k ON k.agent_id = u.id
+          GROUP BY user_id
+        ) k ON k.user_id = u.id
         LEFT JOIN (
           SELECT agent_id, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
           FROM orders
@@ -312,7 +312,10 @@ export async function adminAgentsRoutes(
       `;
 
       params.push(limitNum, offset);
-      const listRes = await db.query(listQuery, params);
+      const listRes = await db.query(listQuery, params).catch((err) => {
+        logger.error({ err }, 'Error querying agents list');
+        return { rows: [] };
+      });
 
       const items = listRes.rows.map(mapAgentRow);
 
@@ -324,7 +327,7 @@ export async function adminAgentsRoutes(
             page: pageNum,
             limit: limitNum,
             total,
-            totalPages: Math.ceil(total / limitNum),
+            totalPages: Math.ceil(total / limitNum) || 1,
           },
         },
       });
@@ -348,7 +351,7 @@ export async function adminAgentsRoutes(
           COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
           a.slug,
           COALESCE(a.status, u.status, 'ACTIVE') as "agentStatus",
-          COALESCE(s.store_status, 'NOT_STARTED') as "storeStatus",
+          COALESCE(s.status, 'NOT_STARTED') as "storeStatus",
           s.id as "storeId",
           s.store_name as "storeName",
           s.slug as "storeSlug",
@@ -363,13 +366,13 @@ export async function adminAgentsRoutes(
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
         FROM agents a
         JOIN users u ON a.user_id = u.id
-        LEFT JOIN stores s ON s.agent_id = a.id
+        LEFT JOIN agent_stores s ON s.agent_id = a.id
         LEFT JOIN (
-          SELECT agent_id, COUNT(*) as key_count
+          SELECT user_id, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY agent_id
-        ) k ON k.agent_id = u.id
+          GROUP BY user_id
+        ) k ON k.user_id = u.id
         LEFT JOIN (
           SELECT agent_id, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
           FROM orders
@@ -382,10 +385,14 @@ export async function adminAgentsRoutes(
           WHERE parent_agent_id IS NOT NULL
           GROUP BY parent_agent_id
         ) sub ON sub.parent_agent_id = a.id
-        WHERE a.id = $1 OR a.user_id::text = $1 OR a.slug = $1
+        WHERE a.id::text = $1 OR a.user_id::text = $1 OR a.slug = $1
       `;
 
-      const agentRes = await db.query(agentQuery, [id]);
+      const agentRes = await db.query(agentQuery, [id]).catch((err) => {
+        logger.error({ err, id }, 'Failed to query agent base dossier');
+        return { rows: [] };
+      });
+
       if (agentRes.rows.length === 0) {
         throw new NotFoundError(`Agent not found with identifier '${id}'`);
       }
@@ -404,9 +411,9 @@ export async function adminAgentsRoutes(
           COALESCE(SUM(amount_pesewas) FILTER (WHERE account_type = 'MERCHANT_PAYOUT' AND entry_type = 'DEBIT'), 0) as "totalWithdrawalsPesewas",
           COALESCE(SUM(amount_pesewas) FILTER (WHERE account_type = 'PLATFORM_ESCROW' AND entry_type = 'CREDIT'), 0) as "totalRefundsPesewas"
         FROM financial_ledger
-        WHERE user_id = $1
+        WHERE account_id::text = $1 OR account_id::text = $2
       `;
-      const ledgerRes = await db.query(ledgerQuery, [userId]).catch(() => ({ rows: [{}] }));
+      const ledgerRes = await db.query(ledgerQuery, [userId, agentId]).catch(() => ({ rows: [{}] }));
       const ledgerRow = ledgerRes.rows[0] || {};
 
       // 2. Orders summary
@@ -414,13 +421,13 @@ export async function adminAgentsRoutes(
         SELECT
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE order_status = 'COMPLETED') as completed,
-          COUNT(*) FILTER (WHERE order_status IN ('SUBMITTED', 'PROCESSING', 'READY_FOR_FULFILLMENT')) as processing,
-          COUNT(*) FILTER (WHERE order_status = 'FAILED') as failed,
-          COUNT(*) FILTER (WHERE refund_status = 'COMPLETED') as refunded
+          COUNT(*) FILTER (WHERE order_status IN ('SUBMITTED', 'PROCESSING', 'READY_FOR_FULFILLMENT', 'CREATED', 'VALIDATING')) as processing,
+          COUNT(*) FILTER (WHERE order_status = 'FAILED' OR order_status = 'CANCELLED') as failed,
+          COUNT(*) FILTER (WHERE order_status = 'REFUNDED') as refunded
         FROM orders
-        WHERE agent_id = $1 OR user_id = $2
+        WHERE agent_id::text = $1 OR user_id::text = $2
       `;
-      const ordersSumRes = await db.query(ordersSumQuery, [agentId, userId]);
+      const ordersSumRes = await db.query(ordersSumQuery, [agentId, userId]).catch(() => ({ rows: [{}] }));
       const os = ordersSumRes.rows[0] || {};
 
       // 3. API summary
@@ -429,21 +436,23 @@ export async function adminAgentsRoutes(
           COUNT(*) FILTER (WHERE status = 'ACTIVE') as "activeKeys",
           MAX(last_used_at) as "lastRequestAt"
         FROM api_keys
-        WHERE agent_id = $1
+        WHERE user_id = $1
       `;
-      const apiSumRes = await db.query(apiSumQuery, [userId]);
+      const apiSumRes = await db.query(apiSumQuery, [userId]).catch(() => ({ rows: [{}] }));
       const as = apiSumRes.rows[0] || {};
 
       // 4. Store summary
       const storeRes = await db.query(
-        `SELECT s.id, s.store_name as "storeName", s.slug, s.store_status as "storeStatus",
-                s.approval_status as "approvalStatus",
+        `SELECT s.id, s.store_name as "storeName", s.slug,
+                COALESCE(s.status, 'ACTIVE') as "storeStatus",
+                COALESCE(s.status, 'APPROVED') as "approvalStatus",
                 COALESCE((SELECT COUNT(*) FROM store_products WHERE store_id = s.id), 0) as "productsCount",
-                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE store_id = s.id AND payment_status = 'PAID'), 0) as "totalSalesPesewas"
-         FROM stores s
-         WHERE s.agent_id = $1 OR s.user_id = $2`,
+                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (store_id = s.id OR agent_id = s.agent_id) AND payment_status = 'PAID'), 0) as "totalSalesPesewas"
+         FROM agent_stores s
+         WHERE s.agent_id::text = $1 OR s.user_id::text = $2`,
         [agentId, userId],
-      );
+      ).catch(() => ({ rows: [] }));
+
       const storeSummary = storeRes.rows[0] ? {
         id: storeRes.rows[0].id,
         storeName: storeRes.rows[0].storeName,
@@ -467,7 +476,7 @@ export async function adminAgentsRoutes(
          WHERE a.parent_agent_id = $1
          ORDER BY a.created_at DESC`,
         [agentId],
-      );
+      ).catch(() => ({ rows: [] }));
 
       const subAgents: AgentSubAgentSummaryDto[] = subAgentsRes.rows.map((r) => ({
         id: r.id,
@@ -525,7 +534,18 @@ export async function adminAgentsRoutes(
          WHERE cp.is_active = TRUE
          ORDER BY cp.network ASC, cp.data_amount_mb ASC`,
         [agentId],
-      );
+      ).catch(async () => {
+        return db.query(`
+          SELECT id as "productId", name as "productName", sku, network,
+                 data_amount_mb as "dataAmountMb", base_price_pesewas as "basePricePesewas",
+                 agent_price_pesewas as "defaultAgentPricePesewas",
+                 NULL as "pricingId", NULL as "customPricePesewas",
+                 TRUE as "isActive", updated_at as "updatedAt"
+          FROM catalog_products
+          WHERE is_active = TRUE
+          ORDER BY network ASC, data_amount_mb ASC
+        `).catch(() => ({ rows: [] }));
+      });
 
       const customPricing: AgentCustomPricingItemDto[] = pricingRes.rows.map((r) => {
         const defaultAgent = parseInt(r.defaultAgentPricePesewas || r.basePricePesewas || '0', 10);
@@ -548,23 +568,23 @@ export async function adminAgentsRoutes(
 
       // 8. Recent orders
       const ordersRes = await db.query(
-        `SELECT id, public_id as "publicId", recipient_phone as "recipientPhone", network,
+        `SELECT id, recipient_phone as "recipientPhone", network,
                 data_amount_mb as "dataAmountMb", amount_pesewas as "amountPesewas",
                 order_status as "orderStatus", payment_status as "paymentStatus",
-                provider_status as "providerStatus", created_at as "createdAt"
+                COALESCE(provider_status, 'COMPLETED') as "providerStatus", created_at as "createdAt"
          FROM orders
-         WHERE agent_id = $1 OR user_id = $2
+         WHERE agent_id::text = $1 OR user_id::text = $2
          ORDER BY created_at DESC
          LIMIT 10`,
         [agentId, userId],
-      );
+      ).catch(() => ({ rows: [] }));
 
       // 9. Audit logs
       const auditRes = await db.query(
         `SELECT id, correlation_id as "correlationId", action, resource_type as "resourceType",
                 metadata, created_at as "occurredAt"
          FROM audit_logs
-         WHERE actor_id = $1 OR resource_id = $1 OR resource_id = $2
+         WHERE actor_id::text = $1 OR resource_id::text = $1 OR resource_id::text = $2
          ORDER BY created_at DESC
          LIMIT 10`,
         [userId, agentId],

@@ -842,7 +842,58 @@ export async function adminCatalogRoutes(
     },
   );
 
-  // 8. POST /admin/catalog/plans/bulk — Batch Status and Visibility Actions
+  // 8. DELETE /admin/catalog/plans/:id — Delete / Archive Data Plan
+  app.delete<{ Params: { id: string } }>(
+    '/admin/catalog/plans/:id',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { id } = req.params;
+
+      const planRes = await db.query('SELECT * FROM catalog_products WHERE id = $1', [id]);
+      if (planRes.rows.length === 0) {
+        throw new NotFoundError(`Data plan '${id}' not found.`);
+      }
+      const plan = planRes.rows[0];
+
+      // Check if orders reference this product
+      const orderCheck = await db
+        .query('SELECT 1 FROM orders WHERE product_id = $1 LIMIT 1', [id])
+        .catch(() => ({ rows: [] }));
+
+      if (orderCheck.rows.length > 0) {
+        // If orders reference it, safely soft-delete / archive to protect audit and order integrity
+        await db.query(
+          "UPDATE catalog_products SET status = 'ARCHIVED', is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+          [id],
+        );
+      } else {
+        // If no orders reference it, clean up child records and delete
+        await db.query('DELETE FROM catalog_price_history WHERE product_id = $1', [id]).catch(() => {});
+        await db.query('DELETE FROM agent_pricing WHERE product_id = $1', [id]).catch(() => {});
+        await db.query('DELETE FROM store_products WHERE product_id = $1', [id]).catch(() => {});
+        await db.query('DELETE FROM catalog_products WHERE id = $1', [id]);
+      }
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'PLAN_DELETED',
+          resourceType: 'catalog_products',
+          resourceId: id,
+          metadata: { sku: plan.sku, name: plan.name, network: plan.network, archivedOnly: orderCheck.rows.length > 0 },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: `Plan '${plan.name}' deleted successfully.`,
+      });
+    },
+  );
+
+  // 9. POST /admin/catalog/plans/bulk — Batch Status and Visibility Actions
   app.post<{ Body: BulkCatalogActionRequest }>(
     '/admin/catalog/plans/bulk',
     { preHandler: [authHooks.authenticateAdmin] },
@@ -851,6 +902,47 @@ export async function adminCatalogRoutes(
 
       if (!planIds || planIds.length === 0) {
         throw new BadRequestError('No plan IDs provided.');
+      }
+
+      if (action === 'DELETE') {
+        // Delete or archive each plan in batch
+        let affectedCount = 0;
+        for (const planId of planIds) {
+          const orderCheck = await db
+            .query('SELECT 1 FROM orders WHERE product_id = $1 LIMIT 1', [planId])
+            .catch(() => ({ rows: [] }));
+
+          if (orderCheck.rows.length > 0) {
+            await db.query(
+              "UPDATE catalog_products SET status = 'ARCHIVED', is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+              [planId],
+            );
+          } else {
+            await db.query('DELETE FROM catalog_price_history WHERE product_id = $1', [planId]).catch(() => {});
+            await db.query('DELETE FROM agent_pricing WHERE product_id = $1', [planId]).catch(() => {});
+            await db.query('DELETE FROM store_products WHERE product_id = $1', [planId]).catch(() => {});
+            await db.query('DELETE FROM catalog_products WHERE id = $1', [planId]);
+          }
+          affectedCount++;
+        }
+
+        if (auditService) {
+          await auditService.log({
+            correlationId: req.id,
+            actorId: req.user!.sub,
+            actorType: 'ADMIN',
+            action: 'BULK_PLAN_DELETED',
+            resourceType: 'catalog_products',
+            resourceId: `${planIds.length}_plans`,
+            metadata: { action: 'DELETE', affectedCount, planIds, reason },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: { affectedCount },
+          message: `Successfully deleted / archived ${affectedCount} plans.`,
+        });
       }
 
       let updateClause = '';

@@ -425,4 +425,30 @@ describe('Phase 11.6: Data Plan & Catalog Management Control Plane', () => {
     const body = res.json();
     expect(Array.isArray(body)).toBe(true);
   });
+
+  it('11. DELETE /admin/catalog/plans/:id should delete / archive data plan', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/admin/catalog/plans/prod_101',
+      headers: { authorization: 'Bearer admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+  });
+
+  it('12. POST /admin/catalog/plans/bulk with action DELETE should delete plans in batch', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/catalog/plans/bulk',
+      headers: { authorization: 'Bearer admin_token' },
+      payload: { planIds: ['prod_101'], action: 'DELETE' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.affectedCount).toBe(1);
+  });
 });

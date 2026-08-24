@@ -39,6 +39,7 @@ export const AdminAnalyticsPage: React.FC = () => {
     fetchAnalytics();
   }, [fetchAnalytics]);
 
+  const periodVolumeGhs = (((analytics?.revenue?.periodPesewas ?? analytics?.revenue?.monthPesewas ?? 0)) / 100).toFixed(2);
   const totalVolumeGhs = ((analytics?.revenue?.lifetimePesewas || 0) / 100).toFixed(2);
   const monthVolumeGhs = ((analytics?.revenue?.monthPesewas || 0) / 100).toFixed(2);
   const todayVolumeGhs = ((analytics?.revenue?.todayPesewas || 0) / 100).toFixed(2);
@@ -72,7 +73,7 @@ export const AdminAnalyticsPage: React.FC = () => {
 
         {/* Range Buttons */}
         <div style={{ display: 'flex', gap: '0.5rem', backgroundColor: 'var(--color-surface)', padding: '0.25rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
-          {['7d', '30d', '90d', 'all'].map((r) => (
+          {['today', '7d', '30d', '90d', 'all'].map((r) => (
             <Button
               key={r}
               variant={range === r ? 'primary' : 'ghost'}
@@ -80,7 +81,7 @@ export const AdminAnalyticsPage: React.FC = () => {
               onClick={() => setRange(r)}
               style={{ textTransform: 'uppercase', fontWeight: 700, fontSize: 'var(--font-size-2xs)' }}
             >
-              {r === 'all' ? 'All Time' : `${r.replace('d', ' Days')}`}
+              {r === 'all' ? 'All Time' : r === 'today' ? 'Today' : `${r.replace('d', ' Days')}`}
             </Button>
           ))}
           <Button variant="ghost" size="sm" onClick={fetchAnalytics} disabled={isLoading}>
@@ -99,7 +100,7 @@ export const AdminAnalyticsPage: React.FC = () => {
       >
         <MetricCard
           title="Period Revenue"
-          value={`GH₵ ${monthVolumeGhs}`}
+          value={`GH₵ ${range === 'all' ? totalVolumeGhs : range === 'today' ? todayVolumeGhs : periodVolumeGhs}`}
           subvalue={`Lifetime: GH₵ ${totalVolumeGhs} • Today: GH₵ ${todayVolumeGhs}`}
           accent="green"
           icon={<TactileIcon icon={DollarSign} color="security" size="sm" />}

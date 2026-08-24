@@ -82,13 +82,17 @@ export const AdminDashboard: React.FC = () => {
     setIsLoading(true);
     try {
       const [overviewRes, healthRes, auditRes] = await Promise.all([
-        adminApi.getAnalyticsOverview(range).catch(() => null),
+        adminApi.getAnalyticsOverview(range).catch((err) => {
+          console.error('Failed to fetch analytics overview:', err);
+          return null;
+        }),
         apiClient.get<any>('/health/integrations').catch(() => null),
         adminApi.getAudit({ limit: 6 }).catch(() => null),
       ]);
 
-      if (overviewRes) {
-        setData(overviewRes);
+      const analyticsData = (overviewRes as any)?.data || overviewRes;
+      if (analyticsData) {
+        setData(analyticsData);
         setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       }
 
@@ -179,10 +183,11 @@ export const AdminDashboard: React.FC = () => {
   const displayName = currentUser?.fullName || currentUser?.email?.split('@')[0] || 'Administrator';
 
   // Derived financial numbers
-  const lifetimeGhs = ((data?.revenue?.lifetimePesewas || 0) / 100).toFixed(2);
-  const todayGhs = ((data?.revenue?.todayPesewas || 0) / 100).toFixed(2);
-  const monthGhs = ((data?.revenue?.monthPesewas || 0) / 100).toFixed(2);
-  const walletLiabilityGhs = ((data?.financialHealth?.totalWalletLiabilitiesPesewas || 0) / 100).toFixed(2);
+  const periodGhs = (((data?.revenue?.periodPesewas ?? data?.revenue?.monthPesewas ?? 0)) / 100).toFixed(2);
+  const lifetimeGhs = (((data?.revenue?.lifetimePesewas ?? 0)) / 100).toFixed(2);
+  const todayGhs = (((data?.revenue?.todayPesewas ?? 0)) / 100).toFixed(2);
+  const monthGhs = (((data?.revenue?.monthPesewas ?? 0)) / 100).toFixed(2);
+  const walletLiabilityGhs = (((data?.financialHealth?.totalWalletLiabilitiesPesewas ?? 0)) / 100).toFixed(2);
 
   return (
     <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -325,7 +330,7 @@ export const AdminDashboard: React.FC = () => {
         <div onClick={() => navigate('/admin/ledger')} style={{ cursor: 'pointer' }}>
           <MetricCard
             title="Period Revenue"
-            value={`GH₵ ${monthGhs}`}
+            value={`GH₵ ${range === 'all' ? lifetimeGhs : range === 'today' ? todayGhs : periodGhs}`}
             subvalue={`Today: GH₵ ${todayGhs} • Lifetime: GH₵ ${lifetimeGhs}`}
             accent="green"
             icon={<TactileIcon icon={DollarSign} color="security" size="sm" />}

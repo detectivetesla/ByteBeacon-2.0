@@ -1,12 +1,14 @@
-import { getDatabasePool, closeDatabasePool } from './pool.js';
+import { createDatabasePool, closeDatabasePool } from './pool.js';
 import { DatabaseMigrator } from './migrator.js';
 import { allMigrations } from './migrations.registry.js';
 import { logger } from '../../core/logging/logger.js';
+import { getConfig } from '../../config/env.js';
 
 export { allMigrations };
 
 async function main() {
-  const pool = getDatabasePool();
+  const config = getConfig();
+  const pool = createDatabasePool({ connectionString: config.DATABASE_URL });
   const migrator = new DatabaseMigrator(pool);
 
   try {

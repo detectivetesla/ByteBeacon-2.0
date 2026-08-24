@@ -388,6 +388,7 @@ export interface BulkCatalogActionRequest {
     | 'ACTIVATE'
     | 'DISABLE'
     | 'ARCHIVE'
+    | 'DELETE'
     | 'ENABLE_CUSTOMER'
     | 'DISABLE_CUSTOMER'
     | 'ENABLE_AGENT'

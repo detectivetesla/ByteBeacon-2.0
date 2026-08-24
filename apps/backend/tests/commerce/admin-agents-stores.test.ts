@@ -153,13 +153,13 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
         }
 
         // 5. Single Agent Detail Query
-        if (sql.includes('FROM agents a') && sql.includes('WHERE a.id = $1 OR a.user_id::text = $1')) {
+        if (sql.includes('FROM agents a') && (sql.includes('WHERE a.id = $1') || sql.includes('WHERE a.id::text = $1'))) {
           return Promise.resolve({
             rows: [mockAgentRow],
           });
         }
 
-        if (sql.includes('FROM financial_ledger WHERE user_id = $1')) {
+        if (sql.includes('FROM financial_ledger')) {
           return Promise.resolve({
             rows: [{
               ledgerBalancePesewas: '125000',
@@ -171,7 +171,7 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
           });
         }
 
-        if (sql.includes('FROM orders WHERE agent_id = $1 OR user_id = $2')) {
+        if (sql.includes('FROM orders') && (sql.includes('agent_id = $1') || sql.includes('agent_id::text = $1'))) {
           return Promise.resolve({
             rows: [{
               total: '438',
@@ -183,7 +183,7 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
           });
         }
 
-        if (sql.includes('FROM api_keys WHERE agent_id = $1')) {
+        if (sql.includes('FROM api_keys')) {
           return Promise.resolve({
             rows: [{
               activeKeys: '2',
@@ -192,7 +192,7 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
           });
         }
 
-        if (sql.includes('FROM stores s WHERE s.agent_id = $1 OR s.user_id = $2')) {
+        if (sql.includes('FROM agent_stores s') || sql.includes('FROM stores s')) {
           return Promise.resolve({
             rows: [mockStoreRow],
           });

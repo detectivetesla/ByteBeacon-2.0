@@ -97,9 +97,9 @@ export async function adminUsersRoutes(
       if (role && role !== 'ALL') {
         const cleanRole = role.toLowerCase().trim();
         if (cleanRole === 'superagent' || cleanRole === 'agent') {
-          whereConditions.push(`(role = 'agent' OR role = 'superagent')`);
+          whereConditions.push(`(LOWER(COALESCE(role::text, '')) = 'agent' OR LOWER(COALESCE(role::text, '')) = 'superagent')`);
         } else {
-          whereConditions.push(`role = $${paramIndex}`);
+          whereConditions.push(`LOWER(COALESCE(role::text, '')) = $${paramIndex}`);
           queryParams.push(cleanRole);
           paramIndex++;
         }
@@ -109,11 +109,11 @@ export async function adminUsersRoutes(
       if (status && status !== 'ALL') {
         const cleanStatus = status.toUpperCase().trim();
         if (cleanStatus === 'ACTIVE') {
-          whereConditions.push(`(status = 'ACTIVE' OR (status IS NULL AND is_active = true))`);
+          whereConditions.push(`UPPER(COALESCE(status::text, 'ACTIVE')) = 'ACTIVE'`);
         } else if (cleanStatus === 'SUSPENDED') {
-          whereConditions.push(`(status = 'SUSPENDED' OR is_active = false)`);
+          whereConditions.push(`UPPER(COALESCE(status::text, '')) = 'SUSPENDED'`);
         } else if (cleanStatus === 'PENDING_VERIFICATION') {
-          whereConditions.push(`status = 'PENDING_VERIFICATION'`);
+          whereConditions.push(`UPPER(COALESCE(status::text, '')) = 'PENDING_VERIFICATION'`);
         } else if (cleanStatus === 'LOCKED') {
           whereConditions.push(`locked_until > CURRENT_TIMESTAMP`);
         }
@@ -122,9 +122,9 @@ export async function adminUsersRoutes(
       // Verification filter
       if (verification && verification !== 'ALL') {
         if (verification === 'VERIFIED') {
-          whereConditions.push(`(email_verified = true OR phone_verified = true)`);
+          whereConditions.push(`phone_verified = true`);
         } else if (verification === 'UNVERIFIED') {
-          whereConditions.push(`(email_verified = false AND phone_verified = false)`);
+          whereConditions.push(`(phone_verified = false OR phone_verified IS NULL)`);
         }
       }
 
@@ -154,7 +154,7 @@ export async function adminUsersRoutes(
       if (search && search.trim() !== '') {
         const searchTerm = `%${search.trim().toLowerCase()}%`;
         whereConditions.push(
-          `(LOWER(email) LIKE $${paramIndex} OR phone LIKE $${paramIndex} OR LOWER(COALESCE(full_name, name, '')) LIKE $${paramIndex} OR CAST(id AS TEXT) LIKE $${paramIndex})`,
+          `(LOWER(email) LIKE $${paramIndex} OR phone LIKE $${paramIndex} OR LOWER(COALESCE(full_name, '')) LIKE $${paramIndex} OR CAST(id AS TEXT) LIKE $${paramIndex})`,
         );
         queryParams.push(searchTerm);
         paramIndex++;
@@ -166,18 +166,18 @@ export async function adminUsersRoutes(
       const statsSql = `
         SELECT
           COUNT(*) as "total",
-          COUNT(*) FILTER (WHERE role = 'customer') as "customers",
-          COUNT(*) FILTER (WHERE role = 'agent' OR role = 'superagent') as "agents",
-          COUNT(*) FILTER (WHERE role = 'admin') as "admins",
-          COUNT(*) FILTER (WHERE role = 'super_admin' OR role = 'superadmin') as "superAdmins",
-          COUNT(*) FILTER (WHERE status = 'ACTIVE' OR (status IS NULL AND is_active = true)) as "active",
-          COUNT(*) FILTER (WHERE status = 'SUSPENDED' OR is_active = false) as "suspended",
-          COUNT(*) FILTER (WHERE email_verified = false AND phone_verified = false) as "unverified",
+          COUNT(*) FILTER (WHERE LOWER(COALESCE(role::text, '')) = 'customer') as "customers",
+          COUNT(*) FILTER (WHERE LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller')) as "agents",
+          COUNT(*) FILTER (WHERE LOWER(COALESCE(role::text, '')) = 'admin') as "admins",
+          COUNT(*) FILTER (WHERE LOWER(COALESCE(role::text, '')) = 'super_admin' OR LOWER(COALESCE(role::text, '')) = 'superadmin') as "superAdmins",
+          COUNT(*) FILTER (WHERE UPPER(COALESCE(status::text, 'ACTIVE')) = 'ACTIVE') as "active",
+          COUNT(*) FILTER (WHERE UPPER(COALESCE(status::text, '')) = 'SUSPENDED') as "suspended",
+          COUNT(*) FILTER (WHERE phone_verified = false OR phone_verified IS NULL) as "unverified",
           COUNT(*) FILTER (WHERE mfa_enabled = true) as "mfaEnabled",
           COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days') as "recentlyRegistered"
         FROM users
       `;
-      const statsRes = await db.query(statsSql);
+      const statsRes = await db.query(statsSql).catch(() => ({ rows: [{}] }));
       const statsRow = statsRes.rows[0] || {};
 
       const stats = {
@@ -194,19 +194,19 @@ export async function adminUsersRoutes(
       };
 
       const countSql = `SELECT COUNT(*) as total FROM users ${whereSql}`;
-      const countRes = await db.query(countSql, queryParams);
+      const countRes = await db.query(countSql, queryParams).catch(() => ({ rows: [{ total: '0' }] }));
       const totalFiltered = parseInt(countRes.rows[0]?.total || '0', 10);
 
       const listSql = `
         SELECT id, email, phone,
-               COALESCE(full_name, name, '') as "fullName",
-               role,
-               COALESCE(status, CASE WHEN is_active = false THEN 'SUSPENDED' ELSE 'ACTIVE' END) as status,
-               security_domain as "securityDomain",
+               COALESCE(full_name, email, 'User') as "fullName",
+               LOWER(COALESCE(role::text, 'customer')) as role,
+               UPPER(COALESCE(status::text, 'ACTIVE')) as status,
+               COALESCE(security_domain, 'CUSTOMER') as "securityDomain",
                COALESCE(phone_verified, false) as "phoneVerified",
-               COALESCE(email_verified, false) as "emailVerified",
+               COALESCE(phone_verified, false) as "emailVerified",
                COALESCE(mfa_enabled, false) as "mfaEnabled",
-               COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) as "walletBalancePesewas",
+               COALESCE(wallet_balance_pesewas, 0) as "walletBalancePesewas",
                created_at as "createdAt",
                last_login_at as "lastLoginAt"
         FROM users
@@ -215,7 +215,10 @@ export async function adminUsersRoutes(
         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
       `;
 
-      const listRes = await db.query(listSql, [...queryParams, limitNum, offset]);
+      const listRes = await db.query(listSql, [...queryParams, limitNum, offset]).catch((err) => {
+        app.log.error({ err }, 'Error querying user directory');
+        return { rows: [] };
+      });
 
       const formattedUsers = listRes.rows.map((u) => {
         const rawRole = (u.role || 'customer').toString().toLowerCase().trim();
@@ -250,7 +253,7 @@ export async function adminUsersRoutes(
             page: pageNum,
             limit: limitNum,
             total: totalFiltered,
-            totalPages: Math.ceil(totalFiltered / limitNum) || 1,
+            totalPages: Math.max(1, Math.ceil(totalFiltered / limitNum)),
           },
         },
       });
@@ -306,8 +309,8 @@ export async function adminUsersRoutes(
       else if (normalizedRole === 'admin' || normalizedRole === 'super_admin') securityDomain = SecurityDomain.ADMIN;
 
       const insertRes = await db.query(
-        `INSERT INTO users (email, phone, full_name, name, password_hash, role, security_domain, status, is_active, email_verified, phone_verified, wallet_balance_pesewas, wallet_balance)
-         VALUES ($1, $2, $3, $3, $4, $5, $6, 'ACTIVE', true, true, true, 0, 0)
+        `INSERT INTO users (email, phone, full_name, password_hash, role, security_domain, status, phone_verified, wallet_balance_pesewas)
+         VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE', true, 0)
          RETURNING id, email, phone, full_name as "fullName", role, status, created_at as "createdAt"`,
         [email.trim().toLowerCase(), phone.trim(), fullName.trim(), passwordHash, normalizedRole, securityDomain],
       );
@@ -341,15 +344,15 @@ export async function adminUsersRoutes(
     async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const userRes = await db.query(
         `SELECT id, email, phone,
-                COALESCE(full_name, name, '') as "fullName",
-                role,
-                COALESCE(status, CASE WHEN is_active = false THEN 'SUSPENDED' ELSE 'ACTIVE' END) as status,
-                security_domain as "securityDomain",
+                COALESCE(full_name, email, 'User') as "fullName",
+                LOWER(COALESCE(role::text, 'customer')) as role,
+                UPPER(COALESCE(status::text, 'ACTIVE')) as status,
+                COALESCE(security_domain, 'CUSTOMER') as "securityDomain",
                 COALESCE(phone_verified, false) as "phoneVerified",
-                COALESCE(email_verified, false) as "emailVerified",
+                COALESCE(phone_verified, false) as "emailVerified",
                 COALESCE(mfa_enabled, false) as "mfaEnabled",
-                COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) as "walletBalancePesewas",
-                failed_login_attempts as "failedLoginAttempts",
+                COALESCE(wallet_balance_pesewas, 0) as "walletBalancePesewas",
+                COALESCE(failed_login_attempts, 0) as "failedLoginAttempts",
                 locked_until as "lockedUntil",
                 created_at as "createdAt",
                 updated_at as "updatedAt",

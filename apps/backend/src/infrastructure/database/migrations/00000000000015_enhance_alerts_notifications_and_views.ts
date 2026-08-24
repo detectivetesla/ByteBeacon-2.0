@@ -31,6 +31,19 @@ export const migration00000000000015: MigrationFile = {
             UPDATE users SET wallet_balance = ROUND(COALESCE(wallet_balance_pesewas, 0) / 100.0, 2) WHERE wallet_balance IS NULL;
         END IF;
 
+        -- audit_logs table reconciliation
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'INFO';
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'ADMIN_ACTION';
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result VARCHAR(20) NOT NULL DEFAULT 'SUCCESS';
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS before_state JSONB;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS after_state JSONB;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS event_hash VARCHAR(64);
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS previous_event_hash VARCHAR(64);
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'updated_at') THEN
+            ALTER TABLE payments ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'financial_ledger' AND column_name = 'metadata') THEN
             ALTER TABLE financial_ledger ADD COLUMN metadata JSONB NOT NULL DEFAULT '{}';
         END IF;
@@ -131,7 +144,39 @@ export const migration00000000000015: MigrationFile = {
 
     CREATE INDEX IF NOT EXISTS idx_notification_rules_status ON notification_rules(status);
 
-    -- 6. Create Compatibility Views
+    -- 6. Reconcile Legacy Non-View Relations & Create Compatibility Views
+    DO $$
+    BEGIN
+        -- If any legacy base tables exist with view names, drop them so views can be created
+        IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'audit_events' AND c.relkind != 'v') THEN
+            DROP TABLE IF EXISTS audit_events CASCADE;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'agent_stores' AND c.relkind != 'v') THEN
+            DROP TABLE IF EXISTS agent_stores CASCADE;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'payment_transactions' AND c.relkind != 'v') THEN
+            DROP TABLE IF EXISTS payment_transactions CASCADE;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'ledger_entries' AND c.relkind != 'v') THEN
+            DROP TABLE IF EXISTS ledger_entries CASCADE;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'feature_flags' AND c.relkind != 'v') THEN
+            DROP TABLE IF EXISTS feature_flags CASCADE;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'beneficiary_records' AND c.relkind != 'v') THEN
+            DROP TABLE IF EXISTS beneficiary_records CASCADE;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'financial_safety_controls' AND c.relkind != 'v') THEN
+            DROP TABLE IF EXISTS financial_safety_controls CASCADE;
+        END IF;
+    END $$;
+
     CREATE OR REPLACE VIEW audit_events AS
     SELECT 
         id,
@@ -196,7 +241,7 @@ export const migration00000000000015: MigrationFile = {
         status,
         paid_at,
         created_at,
-        updated_at
+        COALESCE(updated_at, created_at) AS updated_at
     FROM payments;
 
     CREATE OR REPLACE VIEW ledger_entries AS

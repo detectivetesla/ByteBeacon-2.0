@@ -76,20 +76,21 @@ export const AdminUsersPage: React.FC = () => {
         search: searchQuery.trim() || undefined,
       });
 
-      if (res?.users) {
-        setUsers(res.users);
-        setTotalPages(res.pagination?.totalPages || 1);
-        setTotalUsers(res.pagination?.total || res.users.length);
-        if (res.stats) {
-          setStats(res.stats);
-        }
-      } else {
-        setUsers([]);
-        setTotalPages(1);
-        setTotalUsers(0);
+      const userList = res?.users || (res as any)?.data?.users || (Array.isArray(res) ? res : []);
+      const pagination = res?.pagination || (res as any)?.data?.pagination || { totalPages: 1, total: userList.length };
+      const userStats = res?.stats || (res as any)?.data?.stats || null;
+
+      setUsers(userList);
+      setTotalPages(pagination.totalPages || 1);
+      setTotalUsers(pagination.total ?? userList.length);
+      if (userStats) {
+        setStats(userStats);
       }
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch user directory:', err);
       setUsers([]);
+      setTotalPages(1);
+      setTotalUsers(0);
     } finally {
       setIsLoading(false);
     }

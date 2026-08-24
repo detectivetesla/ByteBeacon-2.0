@@ -519,10 +519,13 @@ export interface AdminAnalyticsOverview {
     customers: number;
     agents: number;
     admins: number;
+    superAdmins?: number;
     active: number;
   };
   orders: {
     total: number;
+    lifetimeTotal?: number;
+    periodTotal?: number;
     completed: number;
     processing: number;
     failed: number;
@@ -530,14 +533,24 @@ export interface AdminAnalyticsOverview {
     completionRate: number;
   };
   revenue: {
+    periodPesewas?: number;
     lifetimePesewas: number;
     todayPesewas: number;
     monthPesewas: number;
+    platformMarginPesewas?: number;
+  };
+  financialHealth?: {
+    ledgerStatus: string;
+    totalWalletLiabilitiesPesewas: number;
+    agentWalletPesewas: number;
+    customerWalletPesewas: number;
+    unreconciledDiscrepancies: number;
   };
   networks: Array<{
     network: string;
     orderCount: number;
     volumePesewas: number;
+    sharePct?: number;
   }>;
   stores: {
     total: number;
@@ -548,7 +561,17 @@ export interface AdminAnalyticsOverview {
     pendingMtnApprovals: number;
     processingOrders: number;
   };
-  systemStatus: Record<string, string>;
+  systemStatus?: Record<string, string>;
+  alerts?: Array<{
+    id: string;
+    severity: 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO';
+    title: string;
+    description: string;
+    source: string;
+    actionPath?: string;
+  }>;
+  recentOrders?: any[];
+  recentUsers?: any[];
 }
 
 export interface AdminOrderStats {
@@ -1059,6 +1082,10 @@ export const adminApi = {
 
   updateCatalogPlan: async (id: string, data: UpdateCatalogPlanRequest) => {
     return apiClient.put<CatalogProductDto>(`/admin/catalog/plans/${id}`, data);
+  },
+
+  deleteCatalogPlan: async (id: string) => {
+    return apiClient.delete<{ success: boolean; message: string }>(`/admin/catalog/plans/${id}`);
   },
 
   updatePlanStatus: async (id: string, status: CatalogPlanStatus, reason?: string) => {

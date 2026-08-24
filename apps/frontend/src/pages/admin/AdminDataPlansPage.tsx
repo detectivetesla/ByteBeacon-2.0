@@ -38,6 +38,10 @@ import {
   Globe,
   Sliders,
   X,
+  Trash2,
+  Users,
+  Store,
+  Check,
 } from 'lucide-react';
 
 export const AdminDataPlansPage: React.FC = () => {
@@ -50,7 +54,8 @@ export const AdminDataPlansPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
 
-  // 2. Filters State
+  // 2. Channel View Tabs & Filters State
+  const [activeChannelTab, setActiveChannelTab] = useState<'ALL' | 'CUSTOMER' | 'AGENT' | 'STORE'>('ALL');
   const [search, setSearch] = useState('');
   const [networkFilter, setNetworkFilter] = useState<string>('ALL');
   const [providerFilter, setProviderFilter] = useState<string>('ALL');
@@ -66,6 +71,12 @@ export const AdminDataPlansPage: React.FC = () => {
   // 3. Selection & Bulk State
   const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([]);
   const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+
+  // Single Plan Delete State
+  const [planToDelete, setPlanToDelete] = useState<CatalogProductDto | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // 4. Bulk Pricing State
   const [isBulkPricingOpen, setIsBulkPricingOpen] = useState(false);
@@ -519,6 +530,131 @@ export const AdminDataPlansPage: React.FC = () => {
     );
   };
 
+  // Channel view switch
+  const handleSelectChannelTab = (tab: 'ALL' | 'CUSTOMER' | 'AGENT' | 'STORE') => {
+    setActiveChannelTab(tab);
+    if (tab === 'ALL') {
+      setCustomerFilter('ALL');
+      setAgentFilter('ALL');
+      setStoreFilter('ALL');
+    } else if (tab === 'CUSTOMER') {
+      setCustomerFilter('AVAILABLE');
+      setAgentFilter('ALL');
+      setStoreFilter('ALL');
+    } else if (tab === 'AGENT') {
+      setCustomerFilter('ALL');
+      setAgentFilter('AVAILABLE');
+      setStoreFilter('ALL');
+    } else if (tab === 'STORE') {
+      setCustomerFilter('ALL');
+      setAgentFilter('ALL');
+      setStoreFilter('AVAILABLE');
+    }
+    setPagination((prev) => ({ ...prev, page: 1 }));
+  };
+
+  // Prompt Single Plan Delete
+  const handlePromptDelete = (plan: CatalogProductDto, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setPlanToDelete(plan);
+    setIsDeleteModalOpen(true);
+  };
+
+  // Confirm Single Plan Delete
+  const handleDeletePlan = async () => {
+    if (!planToDelete) return;
+    setDeleteLoading(true);
+    try {
+      await adminApi.deleteCatalogPlan(planToDelete.id);
+      toastSuccess('Plan Deleted', `Successfully deleted plan "${planToDelete.name}"`);
+      setIsDeleteModalOpen(false);
+      setPlanToDelete(null);
+      if (selectedPlanDetail?.id === planToDelete.id) {
+        setSelectedPlanDetail(null);
+      }
+      fetchPlans();
+      fetchStats();
+    } catch (err: any) {
+      toastError('Delete Failed', err.message || 'Could not delete plan.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  // Execute Bulk Action (Activate, Disable, Archive, Delete, Channel Toggles)
+  const handleExecuteBulkAction = async (action: any) => {
+    if (selectedPlanIds.length === 0) return;
+    if (action === 'DELETE') {
+      setIsBulkDeleteModalOpen(true);
+      return;
+    }
+    setBulkProcessing(true);
+    try {
+      const res = await adminApi.executeBulkCatalogAction({
+        planIds: selectedPlanIds,
+        action,
+        reason: 'Admin bulk action',
+      });
+      toastSuccess('Bulk Action Executed', `Updated ${res?.affectedCount || selectedPlanIds.length} plans.`);
+      setSelectedPlanIds([]);
+      fetchPlans();
+      fetchStats();
+    } catch (err: any) {
+      toastError('Bulk Action Failed', err.message);
+    } finally {
+      setBulkProcessing(false);
+    }
+  };
+
+  // Confirm Bulk Delete
+  const handleConfirmBulkDelete = async () => {
+    if (selectedPlanIds.length === 0) return;
+    setBulkProcessing(true);
+    try {
+      const res = await adminApi.executeBulkCatalogAction({
+        planIds: selectedPlanIds,
+        action: 'DELETE',
+        reason: 'Administrative bulk deletion',
+      });
+      toastSuccess('Bulk Deletion Complete', `Deleted ${res?.affectedCount || selectedPlanIds.length} plans.`);
+      setSelectedPlanIds([]);
+      setIsBulkDeleteModalOpen(false);
+      fetchPlans();
+      fetchStats();
+    } catch (err: any) {
+      toastError('Bulk Action Failed', err.message || 'Could not delete selected plans.');
+    } finally {
+      setBulkProcessing(false);
+    }
+  };
+
+  // Quick Channel Visibility Toggles
+  const handleToggleCustomerVisibility = async (plan: CatalogProductDto, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const nextVal = !plan.availableForCustomer;
+    try {
+      await adminApi.updatePlanVisibility(plan.id, { availableForCustomer: nextVal });
+      toastSuccess('Visibility Updated', `Customer portal ${nextVal ? 'enabled' : 'disabled'} for ${plan.name}`);
+      fetchPlans();
+      fetchStats();
+    } catch (err: any) {
+      toastError('Update Failed', err.message);
+    }
+  };
+
+  const handleToggleAgentVisibility = async (plan: CatalogProductDto, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const nextVal = !plan.availableForAgent;
+    try {
+      await adminApi.updatePlanVisibility(plan.id, { availableForAgent: nextVal });
+      toastSuccess('Visibility Updated', `Agent wholesale portal ${nextVal ? 'enabled' : 'disabled'} for ${plan.name}`);
+      fetchPlans();
+      fetchStats();
+    } catch (err: any) {
+      toastError('Update Failed', err.message);
+    }
+  };
+
   // Margin calculation helpers for form
   const calcFormMargins = () => {
     const cust = parseFloat(formData.customerPriceGhs) || 0;
@@ -673,7 +809,43 @@ export const AdminDataPlansPage: React.FC = () => {
       {/* 3. Filter Bar & Search */}
       <Card elevated accentColor="amber" style={{ padding: 'var(--space-4)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          {/* Top Row: Search & Carrier Buttons */}
+          {/* Top Channel Switcher Tabs */}
+          <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-3)', flexWrap: 'wrap' }}>
+            <Button
+              variant={activeChannelTab === 'ALL' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => handleSelectChannelTab('ALL')}
+              leftIcon={<Layers size={14} />}
+            >
+              All Bundles ({stats?.totalPlans ?? plans.length})
+            </Button>
+            <Button
+              variant={activeChannelTab === 'CUSTOMER' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => handleSelectChannelTab('CUSTOMER')}
+              leftIcon={<Globe size={14} />}
+            >
+              Customer Retail ({stats?.customerPlans ?? 0})
+            </Button>
+            <Button
+              variant={activeChannelTab === 'AGENT' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => handleSelectChannelTab('AGENT')}
+              leftIcon={<TrendingUp size={14} />}
+            >
+              Agent Wholesale ({stats?.agentPlans ?? 0})
+            </Button>
+            <Button
+              variant={activeChannelTab === 'STORE' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => handleSelectChannelTab('STORE')}
+              leftIcon={<Store size={14} />}
+            >
+              Storefront Resale ({stats?.storePlans ?? 0})
+            </Button>
+          </div>
+
+          {/* Carrier Network Filter & Search Bar */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
             <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
               {['ALL', NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO].map((net) => (
@@ -812,17 +984,32 @@ export const AdminDataPlansPage: React.FC = () => {
 
           {/* Bulk Selection Bar */}
           {selectedPlanIds.length > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(0, 102, 255, 0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-brand)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.85rem', backgroundColor: 'rgba(0, 102, 255, 0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-brand)', flexWrap: 'wrap', gap: '0.5rem' }}>
               <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-brand)' }}>
                 {selectedPlanIds.length} plans selected
               </span>
 
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <Button variant="primary" size="sm" onClick={() => setIsBulkPricingOpen(true)}>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                <Button variant="primary" size="sm" onClick={() => setIsBulkPricingOpen(true)} leftIcon={<Sliders size={13} />}>
                   Bulk Pricing
                 </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleExecuteBulkAction('ACTIVATE')} disabled={bulkProcessing}>
+                  Activate
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleExecuteBulkAction('DISABLE')} disabled={bulkProcessing}>
+                  Disable
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleExecuteBulkAction('ENABLE_CUSTOMER')} disabled={bulkProcessing} leftIcon={<Globe size={13} />}>
+                  Enable Customer
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleExecuteBulkAction('ENABLE_AGENT')} disabled={bulkProcessing} leftIcon={<TrendingUp size={13} />}>
+                  Enable Agent
+                </Button>
+                <Button variant="danger" size="sm" onClick={() => setIsBulkDeleteModalOpen(true)} disabled={bulkProcessing} leftIcon={<Trash2 size={13} />}>
+                  Delete Selected
+                </Button>
                 <Button variant="ghost" size="sm" onClick={() => setSelectedPlanIds([])}>
-                  Clear Selection
+                  Clear
                 </Button>
               </div>
             </div>
@@ -857,9 +1044,16 @@ export const AdminDataPlansPage: React.FC = () => {
                 accessor: 'name',
                 render: (row) => (
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-                      {row.name}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <span style={{ fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                        {row.name}
+                      </span>
+                      {row.popular && (
+                        <Badge variant="warning" size="sm">
+                          Popular
+                        </Badge>
+                      )}
+                    </div>
                     <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
                       {row.sku}
                     </span>
@@ -885,35 +1079,17 @@ export const AdminDataPlansPage: React.FC = () => {
                 ),
               },
               {
-                header: 'Provider',
-                accessor: 'providerName',
-                render: (row) => (
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{row.providerName || 'DataHouse'}</span>
-                    {row.providerPlanId && (
-                      <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                        {row.providerPlanId}
-                      </span>
-                    )}
-                  </div>
-                ),
-              },
-              {
-                header: 'Size',
+                header: 'Size & Validity',
                 accessor: 'dataAmountMb',
                 render: (row) => (
-                  <span style={{ fontWeight: 800, fontSize: 'var(--font-size-xs)' }}>
-                    {(row.dataAmountMb / 1024).toFixed(row.dataAmountMb % 1024 === 0 ? 0 : 1)} GB
-                  </span>
-                ),
-              },
-              {
-                header: 'Validity',
-                accessor: 'validityDesc',
-                render: (row) => (
-                  <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                    {row.validityDesc || `${row.validityDays} Days`}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontWeight: 800, fontSize: 'var(--font-size-xs)' }}>
+                      {(row.dataAmountMb / 1024).toFixed(row.dataAmountMb % 1024 === 0 ? 0 : 1)} GB
+                    </span>
+                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                      {row.validityDesc || `${row.validityDays} Days`}
+                    </span>
+                  </div>
                 ),
               },
               {
@@ -926,34 +1102,90 @@ export const AdminDataPlansPage: React.FC = () => {
                 ),
               },
               {
-                header: 'Customer Price',
+                header: 'Customer Retail',
                 accessor: 'basePricePesewas',
-                render: (row) => (
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-                    GH₵ {(row.basePricePesewas / 100).toFixed(2)}
-                  </span>
-                ),
-              },
-              {
-                header: 'Agent Price',
-                accessor: 'agentPricePesewas',
-                render: (row) => (
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-brand)', fontSize: 'var(--font-size-xs)' }}>
-                    {row.agentPricePesewas ? `GH₵ ${(row.agentPricePesewas / 100).toFixed(2)}` : '—'}
-                  </span>
-                ),
-              },
-              {
-                header: 'Customer Margin',
-                accessor: 'id',
                 render: (row) => {
                   const cost = row.providerPricePesewas || 0;
                   const margin = row.basePricePesewas - cost;
                   const pct = row.basePricePesewas > 0 ? ((margin / row.basePricePesewas) * 100).toFixed(0) : '0';
                   return (
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: '#10B981', fontWeight: 700 }}>
-                      +GH₵ {(margin / 100).toFixed(2)} ({pct}%)
-                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                          GH₵ {(row.basePricePesewas / 100).toFixed(2)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleToggleCustomerVisibility(row, e)}
+                          title={row.availableForCustomer ? 'Available for Customer (Click to toggle)' : 'Hidden from Customer (Click to toggle)'}
+                          style={{
+                            border: 'none',
+                            background: row.availableForCustomer ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                            color: row.availableForCustomer ? '#10B981' : '#EF4444',
+                            borderRadius: '4px',
+                            padding: '2px 4px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                          }}
+                        >
+                          <Globe size={10} />
+                          {row.availableForCustomer ? 'Retail' : 'Hidden'}
+                        </button>
+                      </div>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-3xs)', color: '#10B981', fontWeight: 600 }}>
+                        Margin: +GH₵ {(margin / 100).toFixed(2)} ({pct}%)
+                      </span>
+                    </div>
+                  );
+                },
+              },
+              {
+                header: 'Agent Wholesale',
+                accessor: 'agentPricePesewas',
+                render: (row) => {
+                  const cost = row.providerPricePesewas || 0;
+                  const agentPrice = row.agentPricePesewas;
+                  if (!agentPrice) {
+                    return <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>—</span>;
+                  }
+                  const margin = agentPrice - cost;
+                  const pct = agentPrice > 0 ? ((margin / agentPrice) * 100).toFixed(0) : '0';
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-brand)', fontSize: 'var(--font-size-xs)' }}>
+                          GH₵ {(agentPrice / 100).toFixed(2)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleToggleAgentVisibility(row, e)}
+                          title={row.availableForAgent ? 'Available for Agent (Click to toggle)' : 'Hidden from Agent (Click to toggle)'}
+                          style={{
+                            border: 'none',
+                            background: row.availableForAgent ? 'rgba(0, 102, 255, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                            color: row.availableForAgent ? 'var(--color-brand)' : '#EF4444',
+                            borderRadius: '4px',
+                            padding: '2px 4px',
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                          }}
+                        >
+                          <TrendingUp size={10} />
+                          {row.availableForAgent ? 'Wholesale' : 'Hidden'}
+                        </button>
+                      </div>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-brand)', fontWeight: 600 }}>
+                        Margin: +GH₵ {(margin / 100).toFixed(2)} ({pct}%)
+                      </span>
+                    </div>
                   );
                 },
               },
@@ -978,27 +1210,16 @@ export const AdminDataPlansPage: React.FC = () => {
                 ),
               },
               {
-                header: 'Provider State',
-                accessor: 'providerStatus',
-                render: (row) => (
-                  <Badge
-                    variant={row.providerStatus === 'AVAILABLE' ? 'success' : (row.providerStatus === 'SYNC_ERROR' ? 'danger' : 'warning')}
-                    size="sm"
-                  >
-                    {row.providerStatus || 'AVAILABLE'}
-                  </Badge>
-                ),
-              },
-              {
                 header: 'Actions',
                 accessor: 'id',
                 render: (row) => (
-                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                  <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => handleInspectPlan(row.id)}
                       leftIcon={<Eye size={12} />}
+                      title="View Plan Dossier"
                     >
                       Dossier
                     </Button>
@@ -1007,6 +1228,7 @@ export const AdminDataPlansPage: React.FC = () => {
                       size="sm"
                       onClick={() => handleOpenEdit(row)}
                       leftIcon={<Edit3 size={12} />}
+                      title="Edit Pricing & Channels"
                     >
                       Edit
                     </Button>
@@ -1017,6 +1239,15 @@ export const AdminDataPlansPage: React.FC = () => {
                       style={{ fontSize: 'var(--font-size-3xs)' }}
                     >
                       {row.status === 'ACTIVE' ? 'Disable' : 'Enable'}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={(e) => handlePromptDelete(row, e)}
+                      leftIcon={<Trash2 size={12} />}
+                      title="Delete / Archive Plan"
+                    >
+                      Delete
                     </Button>
                   </div>
                 ),
@@ -1174,7 +1405,7 @@ export const AdminDataPlansPage: React.FC = () => {
                       value={formData.agentPriceGhs}
                       onChange={(e) => setFormData({ ...formData, agentPriceGhs: e.target.value })}
                     />
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: '#10B981', fontWeight: 700 }}>
+                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-brand)', fontWeight: 700 }}>
                       Agent Margin: +GH₵ {margins.agentMargin.toFixed(2)} ({margins.agentPct}%)
                     </span>
                   </div>
@@ -1191,49 +1422,88 @@ export const AdminDataPlansPage: React.FC = () => {
                       Store Margin: +GH₵ {margins.storeMargin.toFixed(2)} ({margins.storePct}%)
                     </span>
                   </div>
+
+                  <div>
+                    <Input
+                      label="Agent Min Resale Cap (GHS)"
+                      type="number"
+                      step="0.01"
+                      placeholder="Optional lower limit"
+                      value={formData.agentMinPriceGhs}
+                      onChange={(e) => setFormData({ ...formData, agentMinPriceGhs: e.target.value })}
+                    />
+                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                      Minimum allowed agent resale price
+                    </span>
+                  </div>
+
+                  <div>
+                    <Input
+                      label="Agent Max Resale Cap (GHS)"
+                      type="number"
+                      step="0.01"
+                      placeholder="Optional upper limit"
+                      value={formData.agentMaxPriceGhs}
+                      onChange={(e) => setFormData({ ...formData, agentMaxPriceGhs: e.target.value })}
+                    />
+                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                      Maximum allowed agent resale price
+                    </span>
+                  </div>
                 </div>
               </div>
 
               {/* Independent Channel Visibility */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>Channel Availability Controls</span>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>Channel Publishing & Access Controls</span>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={formData.availableForCustomer}
                       onChange={(e) => setFormData({ ...formData, availableForCustomer: e.target.checked })}
                     />
-                    Customer Portal
+                    <span>Customer Retail Portal</span>
                   </label>
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={formData.availableForAgent}
                       onChange={(e) => setFormData({ ...formData, availableForAgent: e.target.checked })}
                     />
-                    Agent Reseller Portal
+                    <span>Agent Wholesale Portal</span>
                   </label>
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={formData.availableForStore}
                       onChange={(e) => setFormData({ ...formData, availableForStore: e.target.checked })}
                     />
-                    Agent Storefronts
+                    <span>Agent Storefronts</span>
                   </label>
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={formData.availableForApi}
                       onChange={(e) => setFormData({ ...formData, availableForApi: e.target.checked })}
                     />
-                    Developer API
+                    <span>Developer REST API</span>
                   </label>
                 </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.popular}
+                    onChange={(e) => setFormData({ ...formData, popular: e.target.checked })}
+                  />
+                  <span>Mark as Popular Bundle</span>
+                </label>
               </div>
 
               {editingPlan && (
@@ -1241,7 +1511,7 @@ export const AdminDataPlansPage: React.FC = () => {
                   label="Change Reason (Audit Trail)"
                   value={formData.changeReason}
                   onChange={(e) => setFormData({ ...formData, changeReason: e.target.value })}
-                  placeholder="e.g. DataHouse cost increase"
+                  placeholder="e.g. Updating customer retail and agent wholesale rates"
                   required
                 />
               )}
@@ -1255,6 +1525,74 @@ export const AdminDataPlansPage: React.FC = () => {
                 </Button>
               </div>
             </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Single Plan Delete Confirmation Modal */}
+      {isDeleteModalOpen && planToDelete && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
+          <Card elevated accentColor="red" style={{ maxWidth: '480px', width: '100%', padding: 'var(--space-6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: 'var(--space-3)' }}>
+              <TactileIcon icon={Trash2} color="red" size="md" />
+              <div>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  Delete Data Plan
+                </h3>
+                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                  Permanent Removal or Archival Protection
+                </span>
+              </div>
+            </div>
+
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: '0 0 var(--space-4)' }}>
+              Are you sure you want to delete <strong>{planToDelete.name}</strong> ({planToDelete.network} - {planToDelete.sku})?
+              <br />
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                Note: If previous orders exist for this bundle, it will be safely archived to preserve financial and customer history.
+              </span>
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <Button variant="ghost" size="sm" onClick={() => setIsDeleteModalOpen(false)} disabled={deleteLoading}>
+                Cancel
+              </Button>
+              <Button variant="danger" size="sm" onClick={handleDeletePlan} disabled={deleteLoading} leftIcon={<Trash2 size={14} />}>
+                {deleteLoading ? 'Deleting...' : 'Confirm Delete'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Bulk Delete Modal */}
+      {isBulkDeleteModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
+          <Card elevated accentColor="red" style={{ maxWidth: '480px', width: '100%', padding: 'var(--space-6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: 'var(--space-3)' }}>
+              <TactileIcon icon={Trash2} color="red" size="md" />
+              <div>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  Delete {selectedPlanIds.length} Data Plans
+                </h3>
+                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                  Batch Removal & Archival
+                </span>
+              </div>
+            </div>
+
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: '0 0 var(--space-4)' }}>
+              Are you sure you want to delete all <strong>{selectedPlanIds.length}</strong> selected data plans?
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <Button variant="ghost" size="sm" onClick={() => setIsBulkDeleteModalOpen(false)} disabled={bulkProcessing}>
+                Cancel
+              </Button>
+              <Button variant="danger" size="sm" onClick={handleConfirmBulkDelete} disabled={bulkProcessing} leftIcon={<Trash2 size={14} />}>
+                {bulkProcessing ? 'Deleting...' : `Delete ${selectedPlanIds.length} Plans`}
+              </Button>
+            </div>
           </Card>
         </div>
       )}
@@ -1550,9 +1888,33 @@ export const AdminDataPlansPage: React.FC = () => {
                   SKU: {selectedPlanDetail.sku} | ID: {selectedPlanDetail.id}
                 </span>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedPlanDetail(null)}>
-                <X size={18} />
-              </Button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const matchedPlan = plans.find((p) => p.id === selectedPlanDetail.id);
+                    if (matchedPlan) handleOpenEdit(matchedPlan);
+                  }}
+                  leftIcon={<Edit3 size={13} />}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => {
+                    const matchedPlan = plans.find((p) => p.id === selectedPlanDetail.id);
+                    if (matchedPlan) handlePromptDelete(matchedPlan);
+                  }}
+                  leftIcon={<Trash2 size={13} />}
+                >
+                  Delete
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedPlanDetail(null)}>
+                  <X size={18} />
+                </Button>
+              </div>
             </div>
 
             {/* Dossier Tabs */}

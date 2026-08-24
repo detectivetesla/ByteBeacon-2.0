@@ -21,6 +21,8 @@
     "format": "prettier --write \"./**/*.{ts,tsx,js,jsx,json,md,css}\"",
     "format:check": "prettier --check \"./**/*.{ts,tsx,js,jsx,json,md,css}\"",
     "migrate": "node apps/backend/dist/infrastructure/database/cli.js",
+    "migrate:up": "node apps/backend/dist/infrastructure/database/cli.js up",
+    "migrate:status": "node apps/backend/dist/infrastructure/database/cli.js status",
     "verify": "tsx scripts/verify-foundation.ts && tsx scripts/verify-production-safety.ts && tsx scripts/verify-production-integrity.ts"
   },
   "devDependencies": {

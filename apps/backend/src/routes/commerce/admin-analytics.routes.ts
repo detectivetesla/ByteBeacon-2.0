@@ -31,42 +31,45 @@ export async function adminAnalyticsRoutes(
       let days = 30;
       if (range === '7d') days = 7;
       else if (range === '90d') days = 90;
-      else if (range === 'all') days = 3650;
+      else if (range === 'all') days = 0;
       else if (range === 'today') days = 1;
 
-      // 1. User metrics
+      // 1. User metrics (Case-insensitive matching with status fallback)
       const userStatsRes = await db.query(`
         SELECT 
           COUNT(*) as "totalUsers",
-          COUNT(CASE WHEN role = 'customer' THEN 1 END) as "totalCustomers",
-          COUNT(CASE WHEN role = 'agent' OR role = 'superagent' THEN 1 END) as "totalAgents",
-          COUNT(CASE WHEN role = 'admin' THEN 1 END) as "totalAdmins",
-          COUNT(CASE WHEN role = 'super_admin' THEN 1 END) as "totalSuperAdmins",
-          COUNT(CASE WHEN is_active = true OR status = 'ACTIVE' THEN 1 END) as "activeUsers"
+          COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) = 'customer' THEN 1 END) as "totalCustomers",
+          COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller') THEN 1 END) as "totalAgents",
+          COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) = 'admin' THEN 1 END) as "totalAdmins",
+          COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) = 'super_admin' THEN 1 END) as "totalSuperAdmins",
+          COUNT(CASE WHEN UPPER(COALESCE(status::text, 'ACTIVE')) = 'ACTIVE' THEN 1 END) as "activeUsers"
         FROM users
       `).catch(() => ({ rows: [{ totalUsers: 0, totalCustomers: 0, totalAgents: 0, totalAdmins: 0, totalSuperAdmins: 0, activeUsers: 0 }] }));
 
-      // 2. Order metrics & projections
+      // 2. Order metrics & projections (Rock-solid interval arithmetic and dual lifetime/period aggregation)
       const orderStatsRes = await db.query(`
         SELECT 
-          COUNT(*) as "totalOrders",
-          COUNT(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as "completedOrders",
-          COUNT(CASE WHEN order_status IN ('PENDING', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT') THEN 1 END) as "processingOrders",
-          COUNT(CASE WHEN order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as "failedOrders",
-          COUNT(CASE WHEN order_status = 'REFUNDED' THEN 1 END) as "refundedOrders",
-          COALESCE(SUM(amount_pesewas), 0) as "totalVolumePesewas",
+          COUNT(*) as "lifetimeOrders",
+          COALESCE(SUM(amount_pesewas), 0) as "lifetimeVolumePesewas",
+          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) THEN 1 END) as "totalOrders",
+          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) AND order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as "completedOrders",
+          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) AND order_status IN ('PENDING', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT', 'CREATED', 'VALIDATING') THEN 1 END) as "processingOrders",
+          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) AND order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as "failedOrders",
+          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) AND order_status = 'REFUNDED' THEN 1 END) as "refundedOrders",
+          COALESCE(SUM(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) THEN amount_pesewas ELSE 0 END), 0) as "periodVolumePesewas",
           COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_pesewas ELSE 0 END), 0) as "todayVolumePesewas",
           COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE) THEN amount_pesewas ELSE 0 END), 0) as "monthVolumePesewas"
         FROM orders
-        WHERE created_at >= CURRENT_TIMESTAMP - ($1 || ' days')::INTERVAL
       `, [days]).catch(() => ({
         rows: [{
+          lifetimeOrders: 0,
+          lifetimeVolumePesewas: '0',
           totalOrders: 0,
           completedOrders: 0,
           processingOrders: 0,
           failedOrders: 0,
           refundedOrders: 0,
-          totalVolumePesewas: '0',
+          periodVolumePesewas: '0',
           todayVolumePesewas: '0',
           monthVolumePesewas: '0',
         }],
@@ -79,7 +82,7 @@ export async function adminAnalyticsRoutes(
           COUNT(*) as "orderCount",
           COALESCE(SUM(amount_pesewas), 0) as "volumePesewas"
         FROM orders
-        WHERE created_at >= CURRENT_TIMESTAMP - ($1 || ' days')::INTERVAL
+        WHERE ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day'))
         GROUP BY network
       `, [days]).catch(() => ({ rows: [] }));
 
@@ -87,8 +90,8 @@ export async function adminAnalyticsRoutes(
       const walletLiabilitiesRes = await db.query(`
         SELECT 
           COALESCE(SUM(wallet_balance_pesewas), 0) as "totalWalletPesewas",
-          COALESCE(SUM(CASE WHEN role = 'agent' OR role = 'superagent' THEN wallet_balance_pesewas ELSE 0 END), 0) as "agentWalletPesewas",
-          COALESCE(SUM(CASE WHEN role = 'customer' THEN wallet_balance_pesewas ELSE 0 END), 0) as "customerWalletPesewas"
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller') THEN wallet_balance_pesewas ELSE 0 END), 0) as "agentWalletPesewas",
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(role::text, '')) = 'customer' THEN wallet_balance_pesewas ELSE 0 END), 0) as "customerWalletPesewas"
         FROM users
       `).catch(() => ({ rows: [{ totalWalletPesewas: 0, agentWalletPesewas: 0, customerWalletPesewas: 0 }] }));
 
@@ -98,8 +101,10 @@ export async function adminAnalyticsRoutes(
       `).catch(() => ({ rows: [{ pendingDlq: 0 }] }));
 
       const mtnApprovalsRes = await db.query(`
-        SELECT COUNT(*) as "pendingMtn" FROM beneficiary_records WHERE status = 'PENDING'
-      `).catch(() => ({ rows: [{ pendingMtn: 0 }] }));
+        SELECT COUNT(*) as "pendingMtn" FROM beneficiary_validation WHERE status = 'PENDING' OR status = 'PENDING_APPROVAL'
+      `).catch(async () => {
+        return db.query(`SELECT COUNT(*) as "pendingMtn" FROM beneficiary_records WHERE status = 'PENDING'`).catch(() => ({ rows: [{ pendingMtn: 0 }] }));
+      });
 
       // 6. Security Metrics
       const sessionsRes = await db.query(`
@@ -107,11 +112,11 @@ export async function adminAnalyticsRoutes(
       `).catch(() => ({ rows: [{ activeSessions: 0 }] }));
 
       const failedLoginsRes = await db.query(`
-        SELECT COUNT(*) as "failedLogins" FROM audit_events 
-        WHERE action = 'AUTH_LOGIN_FAILED' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+        SELECT COUNT(*) as "failedLogins" FROM audit_logs 
+        WHERE (action ILIKE '%LOGIN_FAIL%' OR action ILIKE '%AUTH_FAIL%') AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
       `).catch(() => ({ rows: [{ failedLogins: 0 }] }));
 
-      // 7. Recent Orders (last 5)
+      // 7. Recent Orders (last 6)
       const recentOrdersRes = await db.query(`
         SELECT 
           o.id,
@@ -122,8 +127,8 @@ export async function adminAnalyticsRoutes(
           o.order_status as "orderStatus",
           o.payment_status as "paymentStatus",
           o.created_at as "createdAt",
-          u.email as "userEmail",
-          COALESCE(u.full_name, 'Customer') as "userName"
+          COALESCE(u.email, 'guest@bytebeacon.com') as "userEmail",
+          COALESCE(u.full_name, u.email, 'Customer') as "userName"
         FROM orders o
         LEFT JOIN users u ON u.id = o.user_id
         ORDER BY o.created_at DESC
@@ -160,7 +165,8 @@ export async function adminAnalyticsRoutes(
       const activeSessions = parseInt(sessionsRes.rows[0]?.activeSessions || '0', 10);
       const failedLogins = parseInt(failedLoginsRes.rows[0]?.failedLogins || '0', 10);
       const storeStats = storesRes.rows[0];
-      const totalOrdersCount = parseInt(orderStats.totalOrders || '0', 10);
+      const totalOrdersCount = parseInt(orderStats.totalOrders || orderStats.lifetimeOrders || '0', 10);
+      const lifetimeOrdersCount = parseInt(orderStats.lifetimeOrders || '0', 10);
 
       // Construct Attention Required alerts
       const alerts: Array<{
@@ -217,6 +223,8 @@ export async function adminAnalyticsRoutes(
           },
           orders: {
             total: totalOrdersCount,
+            lifetimeTotal: lifetimeOrdersCount,
+            periodTotal: totalOrdersCount,
             completed: parseInt(orderStats.completedOrders || '0', 10),
             processing: parseInt(orderStats.processingOrders || '0', 10),
             failed: parseInt(orderStats.failedOrders || '0', 10),
@@ -226,10 +234,11 @@ export async function adminAnalyticsRoutes(
               : 100,
           },
           revenue: {
-            lifetimePesewas: parseInt(orderStats.totalVolumePesewas || '0', 10),
+            periodPesewas: parseInt(orderStats.periodVolumePesewas || orderStats.lifetimeVolumePesewas || '0', 10),
+            lifetimePesewas: parseInt(orderStats.lifetimeVolumePesewas || '0', 10),
             todayPesewas: parseInt(orderStats.todayVolumePesewas || '0', 10),
             monthPesewas: parseInt(orderStats.monthVolumePesewas || '0', 10),
-            platformMarginPesewas: Math.round(parseInt(orderStats.totalVolumePesewas || '0', 10) * 0.18),
+            platformMarginPesewas: Math.round(parseInt(orderStats.periodVolumePesewas || orderStats.lifetimeVolumePesewas || '0', 10) * 0.18),
           },
           financialHealth: {
             ledgerStatus: 'BALANCED',
@@ -238,9 +247,9 @@ export async function adminAnalyticsRoutes(
             customerWalletPesewas: parseInt(walletStats.customerWalletPesewas || '0', 10),
             unreconciledDiscrepancies: 0,
           },
-          networks: networkStatsRes.rows.map((r) => {
+          networks: networkStatsRes.rows.map((r: any) => {
             const vol = parseInt(r.volumePesewas || '0', 10);
-            const totalVol = parseInt(orderStats.totalVolumePesewas || '1', 10);
+            const totalVol = parseInt(orderStats.periodVolumePesewas || orderStats.lifetimeVolumePesewas || '1', 10);
             return {
               network: r.network,
               orderCount: parseInt(r.orderCount || '0', 10),

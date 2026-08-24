@@ -16,6 +16,34 @@ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stores' AND column_name = 'id') THEN
             ALTER TABLE stores ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
         END IF;
+
+        -- Reconcile required columns on stores if preexisting
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS agent_id UUID;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS user_id UUID;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS store_name VARCHAR(255) DEFAULT '';
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS tagline TEXT;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS description TEXT;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS logo_url TEXT;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS banner_url TEXT;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS primary_color VARCHAR(30) NOT NULL DEFAULT '#0066FF';
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS accent_color VARCHAR(30) NOT NULL DEFAULT '#00E599';
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255);
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(50);
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS contact_whatsapp VARCHAR(50);
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) NOT NULL DEFAULT 'NOT_STARTED';
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS approval_status VARCHAR(30) NOT NULL DEFAULT 'NOT_SUBMITTED';
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS store_status VARCHAR(30) NOT NULL DEFAULT 'NOT_STARTED';
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS activation_fee_pesewas BIGINT NOT NULL DEFAULT 50000;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS paystack_reference VARCHAR(255);
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS approved_by UUID;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+        -- Backfill slug if null
+        UPDATE stores SET slug = 'store-' || substr(id::text, 1, 8) WHERE slug IS NULL;
     END IF;
 END $$;
 

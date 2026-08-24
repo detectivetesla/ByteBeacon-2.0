@@ -25,6 +25,65 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'agents' AND column_name = 'api_access_enabled') THEN
         ALTER TABLE agents ADD COLUMN api_access_enabled BOOLEAN NOT NULL DEFAULT FALSE;
     END IF;
+
+    -- Self-heal agent_pricing if preexisting
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agent_pricing') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_pricing' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_pricing' AND column_name = 'id') THEN
+            ALTER TABLE agent_pricing RENAME COLUMN uuid TO id;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_pricing' AND column_name = 'catalog_product_id')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_pricing' AND column_name = 'product_id') THEN
+            ALTER TABLE agent_pricing RENAME COLUMN catalog_product_id TO product_id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_pricing' AND column_name = 'id') THEN
+            ALTER TABLE agent_pricing ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+        ALTER TABLE agent_pricing ADD COLUMN IF NOT EXISTS agent_id UUID;
+        ALTER TABLE agent_pricing ADD COLUMN IF NOT EXISTS product_id UUID;
+        ALTER TABLE agent_pricing ADD COLUMN IF NOT EXISTS custom_price_pesewas BIGINT DEFAULT 100;
+        ALTER TABLE agent_pricing ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE agent_pricing ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE agent_pricing ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    END IF;
+
+    -- Self-heal store_payouts if preexisting
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'store_payouts') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'store_payouts' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'store_payouts' AND column_name = 'id') THEN
+            ALTER TABLE store_payouts RENAME COLUMN uuid TO id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'store_payouts' AND column_name = 'id') THEN
+            ALTER TABLE store_payouts ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS store_id UUID;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS agent_id UUID;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT DEFAULT 100;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS destination_account VARCHAR(255) DEFAULT '';
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS destination_provider VARCHAR(50) DEFAULT 'MOMO';
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'PENDING';
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS reviewed_by UUID;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE store_payouts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    END IF;
+
+    -- Self-heal agent_customers if preexisting
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agent_customers') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_customers' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_customers' AND column_name = 'id') THEN
+            ALTER TABLE agent_customers RENAME COLUMN uuid TO id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agent_customers' AND column_name = 'id') THEN
+            ALTER TABLE agent_customers ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+        ALTER TABLE agent_customers ADD COLUMN IF NOT EXISTS agent_id UUID;
+        ALTER TABLE agent_customers ADD COLUMN IF NOT EXISTS customer_id UUID;
+        ALTER TABLE agent_customers ADD COLUMN IF NOT EXISTS notes TEXT;
+        ALTER TABLE agent_customers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    END IF;
 END $$;
 
 -- 2. Create agent_pricing table for custom wholesale pricing per agent

@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "bench:argon2": "tsx src/core/security/password-hasher.bench.ts",
-    "migrate": "tsx src/infrastructure/database/cli.ts"
+    "migrate": "tsx src/infrastructure/database/cli.ts",
+    "migrate:up": "tsx src/infrastructure/database/cli.ts up",
+    "migrate:status": "tsx src/infrastructure/database/cli.ts status"
   },
   "dependencies": {
     "@bytebeacon/shared": "*",

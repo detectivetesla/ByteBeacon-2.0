@@ -22,6 +22,39 @@ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'id') THEN
             ALTER TABLE agents ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
         END IF;
+
+        -- Reconcile required columns on agents if preexisting
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS user_id UUID;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS business_name VARCHAR(255) DEFAULT '';
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+        -- Backfill slug if null
+        UPDATE agents SET slug = 'agent-' || substr(id::text, 1, 8) WHERE slug IS NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'catalog_products') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'catalog_products' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'catalog_products' AND column_name = 'id') THEN
+            ALTER TABLE catalog_products RENAME COLUMN uuid TO id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'catalog_products' AND column_name = 'id') THEN
+            ALTER TABLE catalog_products ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+
+        -- Reconcile required columns on catalog_products if preexisting
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS sku VARCHAR(100);
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS network VARCHAR(30) DEFAULT 'MTN';
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS name VARCHAR(255) DEFAULT '';
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS data_amount_mb INT DEFAULT 1024;
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS validity_days INT DEFAULT 30;
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS base_price_pesewas BIGINT DEFAULT 100;
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS agent_price_pesewas BIGINT;
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'orders') THEN
@@ -39,7 +72,10 @@ BEGIN
 
         -- Reconcile required columns on orders if preexisting
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(50);
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(30);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id UUID;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS agent_id UUID;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_id UUID;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(30) DEFAULT '';
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS network VARCHAR(30) DEFAULT 'MTN';
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS data_amount_mb INT DEFAULT 1024;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT DEFAULT 100;
@@ -52,6 +88,67 @@ BEGIN
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+        UPDATE orders SET public_id = 'ORD-' || UPPER(substr(md5(random()::text || id::text), 1, 10)) WHERE public_id IS NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'provider_orders') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'provider_orders' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'provider_orders' AND column_name = 'id') THEN
+            ALTER TABLE provider_orders RENAME COLUMN uuid TO id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'provider_orders' AND column_name = 'id') THEN
+            ALTER TABLE provider_orders ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS order_id UUID;
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS provider_name VARCHAR(50) DEFAULT 'GMPL';
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS provider_order_id VARCHAR(255);
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS provider_reference VARCHAR(255);
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS provider_status VARCHAR(30) DEFAULT 'UNKNOWN';
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS raw_payload JSONB;
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ;
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS last_provider_event_at TIMESTAMPTZ;
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS sync_version INT DEFAULT 0;
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS sync_metadata JSONB DEFAULT '{}';
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE provider_orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_items') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'order_items' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'order_items' AND column_name = 'id') THEN
+            ALTER TABLE order_items RENAME COLUMN uuid TO id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'order_items' AND column_name = 'id') THEN
+            ALTER TABLE order_items ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+
+        ALTER TABLE order_items ADD COLUMN IF NOT EXISTS order_id UUID;
+        ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_id UUID;
+        ALTER TABLE order_items ADD COLUMN IF NOT EXISTS quantity INT DEFAULT 1;
+        ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit_price_pesewas BIGINT DEFAULT 100;
+        ALTER TABLE order_items ADD COLUMN IF NOT EXISTS total_pesewas BIGINT DEFAULT 100;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_events') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'order_events' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'order_events' AND column_name = 'id') THEN
+            ALTER TABLE order_events RENAME COLUMN uuid TO id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'order_events' AND column_name = 'id') THEN
+            ALTER TABLE order_events ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS order_id UUID;
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS event_type VARCHAR(100) DEFAULT 'STATUS_CHANGE';
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(100) DEFAULT '';
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS actor_id UUID;
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS actor_type VARCHAR(50) DEFAULT 'SYSTEM';
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'SYSTEM';
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS previous_state JSONB;
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS new_state JSONB;
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}';
+        ALTER TABLE order_events ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payments') THEN
@@ -59,6 +156,20 @@ BEGIN
            AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'id') THEN
             ALTER TABLE payments RENAME COLUMN uuid TO id;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'id') THEN
+            ALTER TABLE payments ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS order_id UUID;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS user_id UUID;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT DEFAULT 100;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'GHS';
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider VARCHAR(50) DEFAULT 'PAYSTACK';
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider_reference VARCHAR(255);
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'MOMO';
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'PENDING';
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+        ALTER TABLE payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'refunds') THEN
@@ -66,6 +177,37 @@ BEGIN
            AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'refunds' AND column_name = 'id') THEN
             ALTER TABLE refunds RENAME COLUMN uuid TO id;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'refunds' AND column_name = 'id') THEN
+            ALTER TABLE refunds ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS payment_id UUID;
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS order_id UUID;
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT DEFAULT 100;
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS reason TEXT DEFAULT '';
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'PENDING';
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS provider_refund_reference VARCHAR(255);
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'provider_sync_records') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'provider_sync_records' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'provider_sync_records' AND column_name = 'id') THEN
+            ALTER TABLE provider_sync_records RENAME COLUMN uuid TO id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'provider_sync_records' AND column_name = 'id') THEN
+            ALTER TABLE provider_sync_records ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+
+        ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS order_id UUID;
+        ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS provider_name VARCHAR(50) DEFAULT 'GMPL';
+        ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS event_timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS event_version BIGINT DEFAULT 1;
+        ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS status_received VARCHAR(50) DEFAULT '';
+        ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS is_applied BOOLEAN DEFAULT FALSE;
+        ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS reason TEXT;
+        ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
     END IF;
 END $$;
 

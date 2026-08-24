@@ -154,7 +154,8 @@ export const AdminAgentsPage: React.FC = () => {
     setDossierTab('OVERVIEW');
     setIsLoadingDetail(true);
     try {
-      const detail = await adminApi.getAgentDetail(agentId);
+      const res = await adminApi.getAgentDetail(agentId);
+      const detail = (res as any)?.data || res;
       setAgentDetail(detail);
     } catch (err: any) {
       toastError('Failed to load agent dossier', err.message || 'Could not fetch details');
