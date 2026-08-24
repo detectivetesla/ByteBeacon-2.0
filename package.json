@@ -21,7 +21,7 @@
     "format": "prettier --write \"./**/*.{ts,tsx,js,jsx,json,md,css}\"",
     "format:check": "prettier --check \"./**/*.{ts,tsx,js,jsx,json,md,css}\"",
     "migrate": "node apps/backend/dist/infrastructure/database/cli.js",
-    "verify": "node scripts/verify-foundation.ts"
+    "verify": "tsx scripts/verify-foundation.ts && tsx scripts/verify-production-safety.ts && tsx scripts/verify-production-integrity.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",

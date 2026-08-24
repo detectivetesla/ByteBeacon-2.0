@@ -372,24 +372,26 @@ export const PublicStorefrontPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleInitiateOrder(bundle)}
+                  disabled={isMaintenanceMode}
                   style={{
                     width: '100%',
                     padding: '0.5rem',
                     borderRadius: '8px',
-                    backgroundColor: storeInfo.primaryColor,
-                    color: '#FFFFFF',
+                    backgroundColor: isMaintenanceMode ? 'rgba(51, 65, 85, 0.7)' : storeInfo.primaryColor,
+                    color: isMaintenanceMode ? '#94A3B8' : '#FFFFFF',
                     border: 'none',
                     fontSize: 'var(--font-size-xs)',
                     fontWeight: 800,
-                    cursor: 'pointer',
+                    cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
+                    opacity: isMaintenanceMode ? 0.6 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.35rem',
-                    boxShadow: '0 4px 12px rgba(0, 102, 255, 0.3)',
+                    boxShadow: isMaintenanceMode ? 'none' : '0 4px 12px rgba(0, 102, 255, 0.3)',
                   }}
                 >
-                  <span>Buy Now</span>
+                  <span>{isMaintenanceMode ? 'Platform in Maintenance' : 'Buy Now'}</span>
                   <ArrowRight size={13} />
                 </button>
               </div>

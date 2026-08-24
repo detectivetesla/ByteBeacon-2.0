@@ -6,6 +6,7 @@ import { Input, PhoneInput, AmountInput, Select, DateInput, SearchInput } from '
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { walletApi } from '../../api/wallet.api.js';
 import {
   ArrowDownToLine,
@@ -72,6 +73,7 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const { user } = useAuth();
   const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
   // Authoritative Reseller Financial Balances
   const [totalProfitEarnedPesewas] = useState<number>(0);
@@ -161,6 +163,11 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const handleConfirmWithdrawal = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Withdrawals and payouts are temporarily paused during scheduled maintenance.');
+      return;
+    }
+
     if (availableProfitGhs <= 0) {
       toastError('No Withdrawable Profit', 'You have no eligible profit available for payout.');
       return;
@@ -227,6 +234,33 @@ export const AgentWithdrawalsPage: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      {/* Maintenance In-Page Alert Banner */}
+      {isMaintenanceMode && (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-xl)',
+            backgroundColor: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.85rem',
+            color: '#FBBF24',
+          }}
+        >
+          <span style={{ fontSize: '1.25rem' }}>⚠️</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800 }}>
+              Platform Maintenance Active — Withdrawals Temporarily Paused
+            </strong>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              {maintenanceMessage || 'Reseller earnings withdrawals and automated payouts are paused for scheduled maintenance.'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 1. Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
@@ -569,13 +603,13 @@ export const AgentWithdrawalsPage: React.FC = () => {
                   Cancel
                 </Button>
                 <Button
-                  variant="primary"
+                  variant={isMaintenanceMode ? 'secondary' : 'primary'}
                   size="md"
                   type="submit"
                   isLoading={isSubmittingWithdrawal}
-                  disabled={parsedWithdrawAmount <= 0 || parsedWithdrawAmount > availableProfitGhs}
+                  disabled={parsedWithdrawAmount <= 0 || parsedWithdrawAmount > availableProfitGhs || isMaintenanceMode}
                 >
-                  Confirm Withdrawal
+                  {isMaintenanceMode ? 'Platform in Maintenance' : 'Confirm Withdrawal'}
                 </Button>
               </div>
             </form>

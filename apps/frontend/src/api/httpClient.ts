@@ -229,6 +229,17 @@ export class HttpClient {
         const errorCode = responseBody?.error?.code || responseBody?.code || 'API_ERROR';
         const details = responseBody?.error?.details || responseBody?.details;
 
+        if (
+          typeof window !== 'undefined' &&
+          (response.status === 503 || errorCode === 'MAINTENANCE_MODE_ACTIVE')
+        ) {
+          window.dispatchEvent(
+            new CustomEvent('platform-maintenance-active', {
+              detail: { message: errorMessage },
+            }),
+          );
+        }
+
         throw new ApiError(errorMessage, response.status, errorCode, details, requestId);
       }
 

@@ -1544,6 +1544,19 @@ export const adminApi = {
     return apiClient.patch(`/admin/audit/incidents/${id}`, data);
   },
 
+  getEmergencyControls: async (): Promise<Array<{
+    key: string;
+    name: string;
+    desc: string;
+    status: boolean;
+    lastToggledBy?: string | null;
+    lastToggledAt?: string | null;
+    lastJustification?: string | null;
+  }>> => {
+    const res = await apiClient.get('/admin/audit/emergency/controls');
+    return Array.isArray(res) ? res : res?.data || [];
+  },
+
   toggleEmergencyControl: async (data: AdminEmergencyControlToggleRequest) => {
     return apiClient.post('/admin/audit/emergency/toggle', data);
   },

@@ -4,7 +4,8 @@ import { NetworkProvider } from '@bytebeacon/shared';
 import { Button } from '../ui/Button/Button.js';
 import { PhoneInput, Input } from '../ui/index.js';
 import { NetworkBadge } from '../ui/Badge/Badge.js';
-import { BundleItem, SAMPLE_BUNDLES } from './BundleSelector.js';
+import { BundleItem } from './BundleSelector.js';
+import { catalogApi } from '../../api/catalog.api.js';
 import {
   CheckCircle2,
   Wallet,
@@ -113,11 +114,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const [step, setStep] = useState<1 | 2 | 3>(initialRecipientPhone || customRecipientSummary ? 2 : 1);
   const [network, setNetwork] = useState<NetworkProvider>(initialNetwork);
-  const [selectedBundle, setSelectedBundle] = useState<BundleItem>(
-    (initialBundleId && SAMPLE_BUNDLES[initialNetwork]?.find((b) => b.id === initialBundleId)) ||
-      SAMPLE_BUNDLES[initialNetwork]?.[2] ||
-      SAMPLE_BUNDLES[NetworkProvider.MTN][2],
-  );
+  const [selectedBundle, setSelectedBundle] = useState<BundleItem | null>(null);
   const [recipientPhone, setRecipientPhone] = useState(initialRecipientPhone);
   const [buyerEmail, setBuyerEmail] = useState('');
   const [phoneError, setPhoneError] = useState('');
@@ -132,11 +129,6 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   useEffect(() => {
     if (initialNetwork) {
       setNetwork(initialNetwork);
-      const defaultBundle =
-        (initialBundleId && SAMPLE_BUNDLES[initialNetwork]?.find((b) => b.id === initialBundleId)) ||
-        SAMPLE_BUNDLES[initialNetwork]?.[2] ||
-        SAMPLE_BUNDLES[NetworkProvider.MTN][2];
-      if (defaultBundle) setSelectedBundle(defaultBundle);
     }
     if (initialRecipientPhone) {
       setRecipientPhone(initialRecipientPhone);
@@ -145,6 +137,37 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       setStep(2);
     } else {
       setStep(1);
+    }
+
+    if (isOpen) {
+      let isMounted = true;
+      const targetNet = initialNetwork || network || NetworkProvider.MTN;
+      catalogApi
+        .getBundles(targetNet, 'CUSTOMER')
+        .then((items) => {
+          if (!isMounted || !Array.isArray(items) || items.length === 0) return;
+          const mapped: BundleItem[] = items.map((p) => ({
+            id: p.id,
+            sku: p.sku,
+            network: p.network as NetworkProvider,
+            dataAmountMb: p.dataAmountMb,
+            dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+            pricePesewas: p.basePricePesewas,
+            priceDisplay: `GH₵ ${(p.basePricePesewas / 100).toFixed(2)}`,
+            validityDays: p.validityDays,
+            validityDisplay: p.validityDesc || `${p.validityDays} Days`,
+            popular: Boolean(p.popular),
+          }));
+          const match =
+            (initialBundleId && mapped.find((b) => b.id === initialBundleId || b.sku === initialBundleId)) ||
+            mapped[0];
+          if (match) setSelectedBundle(match);
+        })
+        .catch(() => {});
+
+      return () => {
+        isMounted = false;
+      };
     }
   }, [initialNetwork, initialBundleId, initialRecipientPhone, customRecipientSummary, isOpen]);
 
@@ -242,7 +265,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         // Fallback / Sandbox direct flow: Creates order and triggers instant fulfillment
         try {
           const created = await ordersApi.createOrder({
-            productId: selectedBundle.id || 'default_bundle',
+            productId: selectedBundle?.id || initialBundleId || 'default_bundle',
             recipientPhone: cleaned,
             idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
           });
@@ -282,7 +305,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
 
     try {
       const order = await ordersApi.createOrder({
-        productId: selectedBundle.id || 'default_bundle',
+        productId: selectedBundle?.id || initialBundleId || 'default_bundle',
         recipientPhone: recipientPhone.trim(),
         idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       });

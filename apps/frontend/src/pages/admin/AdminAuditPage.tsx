@@ -95,6 +95,46 @@ export const AdminAuditPage: React.FC = () => {
 
   // Emergency Controls State
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
+  const [emergencyControlsList, setEmergencyControlsList] = useState<Array<{
+    key: string;
+    name: string;
+    desc: string;
+    status: boolean;
+    lastToggledBy?: string | null;
+    lastToggledAt?: string | null;
+    lastJustification?: string | null;
+  }>>([
+    {
+      key: 'MAINTENANCE_MODE',
+      name: 'Platform Maintenance Mode',
+      desc: 'Restricts all customer and agent portal access; renders platform maintenance splash.',
+      status: false,
+    },
+    {
+      key: 'DISABLE_AGENT_STORES',
+      name: 'Kill Switch: Agent Storefronts',
+      desc: 'Immediately pauses checkout processing on all agent public storefront subdomains.',
+      status: false,
+    },
+    {
+      key: 'KILL_SWITCH_PAYSTACK',
+      name: 'Kill Switch: Paystack Live Processing',
+      desc: 'Halts incoming MoMo/Card deposits; forces fallback to manual bank reconciliation.',
+      status: false,
+    },
+    {
+      key: 'KILL_SWITCH_TELECOM_DISPATCH',
+      name: 'Kill Switch: Automated Telecom Dispatch',
+      desc: 'Holds new data bundle orders in pending queue rather than submitting upstream to DataHouse.',
+      status: false,
+    },
+    {
+      key: 'EMERGENCY_READ_ONLY',
+      name: 'Emergency Platform Read-Only Mode',
+      desc: 'Disables all database write operations across financial, catalog, and order engines.',
+      status: false,
+    },
+  ]);
   const [selectedEmergencyKey, setSelectedEmergencyKey] = useState<string>('');
   const [selectedEmergencyName, setSelectedEmergencyName] = useState<string>('');
   const [emergencyTargetState, setEmergencyTargetState] = useState<boolean>(false);
@@ -103,6 +143,18 @@ export const AdminAuditPage: React.FC = () => {
   const [emergencyError, setEmergencyError] = useState<string | null>(null);
   const [emergencySuccessMsg, setEmergencySuccessMsg] = useState<string | null>(null);
 
+  // Fetch Emergency Controls
+  const fetchEmergencyControls = useCallback(async () => {
+    try {
+      const controls = await adminApi.getEmergencyControls();
+      if (Array.isArray(controls) && controls.length > 0) {
+        setEmergencyControlsList(controls);
+      }
+    } catch {
+      // Keep resilient defaults
+    }
+  }, []);
+
   // Fetch Overview Stats
   const fetchOverview = useCallback(async () => {
     try {
@@ -110,10 +162,11 @@ export const AdminAuditPage: React.FC = () => {
       if (res) {
         setStats(res);
       }
+      await fetchEmergencyControls();
     } catch {
       // Fallback to local default stats if network error
     }
-  }, []);
+  }, [fetchEmergencyControls]);
 
   // Fetch Audit Logs
   const fetchAuditLogs = useCallback(async () => {
@@ -160,7 +213,8 @@ export const AdminAuditPage: React.FC = () => {
 
   useEffect(() => {
     fetchOverview();
-  }, [fetchOverview]);
+    fetchEmergencyControls();
+  }, [fetchOverview, fetchEmergencyControls]);
 
   useEffect(() => {
     if (activeTab === 'stream') {
@@ -1014,38 +1068,7 @@ export const AdminAuditPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {[
-              {
-                key: 'MAINTENANCE_MODE',
-                name: 'Platform Maintenance Mode',
-                desc: 'Restricts all customer and agent portal access; renders platform maintenance splash.',
-                status: false,
-              },
-              {
-                key: 'DISABLE_AGENT_STORES',
-                name: 'Kill Switch: Agent Storefronts',
-                desc: 'Immediately pauses checkout processing on all agent public storefront subdomains.',
-                status: false,
-              },
-              {
-                key: 'KILL_SWITCH_PAYSTACK',
-                name: 'Kill Switch: Paystack Live Processing',
-                desc: 'Halts incoming MoMo/Card deposits; forces fallback to manual bank reconciliation.',
-                status: false,
-              },
-              {
-                key: 'KILL_SWITCH_TELECOM_DISPATCH',
-                name: 'Kill Switch: Automated Telecom Dispatch',
-                desc: 'Holds new data bundle orders in pending queue rather than submitting upstream to DataHouse.',
-                status: false,
-              },
-              {
-                key: 'EMERGENCY_READ_ONLY',
-                name: 'Emergency Platform Read-Only Mode',
-                desc: 'Disables all database write operations across financial, catalog, and order engines.',
-                status: false,
-              },
-            ].map((ctrl) => (
+            {emergencyControlsList.map((ctrl) => (
               <div
                 key={ctrl.key}
                 style={{
@@ -1072,6 +1095,11 @@ export const AdminAuditPage: React.FC = () => {
                   <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
                     {ctrl.desc}
                   </p>
+                  {ctrl.lastToggledAt && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                      Last toggled: {new Date(ctrl.lastToggledAt).toLocaleString()}
+                    </span>
+                  )}
                 </div>
 
                 <Button

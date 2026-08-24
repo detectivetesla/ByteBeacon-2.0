@@ -43,18 +43,65 @@ export class FeatureFlagService {
   public async isEnabled(flagName: string, context?: FeatureFlagContext): Promise<boolean> {
     const normalizedName = flagName.toUpperCase();
 
-    // 1. Check environment variable override (e.g. FF_NEW_ORDER_ENGINE=false)
+    // 1. Check local memory override / kill-switch
+    if (this.memoryOverrides.has(normalizedName)) {
+      return this.memoryOverrides.get(normalizedName)!;
+    }
+
+    // 2. Special handling for platform-wide emergency maintenance mode
+    if (normalizedName === 'MAINTENANCE_MODE') {
+      // Explicit emergency env override to true
+      const envOverride = process.env.FF_MAINTENANCE_MODE;
+      if (envOverride === 'true' || envOverride === '1') {
+        return true;
+      }
+
+      // Check database across all administrative maintenance controls
+      if (this.db) {
+        try {
+          const res = await this.db.query<{ is_active: boolean }>(
+            `SELECT (
+              EXISTS (
+                SELECT 1 FROM platform_feature_flags 
+                WHERE flag_key = 'MAINTENANCE_MODE' AND is_enabled = true
+              )
+              OR EXISTS (
+                SELECT 1 FROM emergency_system_controls 
+                WHERE control_key = 'MAINTENANCE_MODE' AND is_enabled = true
+              )
+              OR EXISTS (
+                SELECT 1 FROM financial_safety_controls 
+                WHERE global_maintenance_mode = true
+              )
+              OR EXISTS (
+                SELECT 1 FROM system_configurations 
+                WHERE config_key = 'maintenance_mode' 
+                  AND (value = 'true'::jsonb OR value::text = 'true' OR value::text = '"true"')
+              )
+            ) AS is_active`,
+          );
+          if (res.rows.length > 0) {
+            return Boolean(res.rows[0].is_active);
+          }
+        } catch (err) {
+          logger.warn({ flagName, err }, '[FEATURE_FLAGS] Database lookup failed for maintenance mode; falling back to default');
+        }
+      }
+
+      if (envOverride !== undefined) {
+        return envOverride.toLowerCase() === 'true' || envOverride === '1';
+      }
+
+      return FeatureFlagService.DEFAULT_FLAGS[normalizedName] ?? false;
+    }
+
+    // 3. Check environment variable override for other flags (e.g. FF_NEW_ORDER_ENGINE=false)
     const envOverride = process.env[`FF_${normalizedName}`];
     if (envOverride !== undefined) {
       return envOverride.toLowerCase() === 'true' || envOverride === '1';
     }
 
-    // 2. Check local memory override / kill-switch
-    if (this.memoryOverrides.has(normalizedName)) {
-      return this.memoryOverrides.get(normalizedName)!;
-    }
-
-    // 3. Check database overrides if available
+    // 4. Check database overrides for regular flags
     if (this.db) {
       try {
         const res = await this.db.query<{ is_enabled: boolean; target_role?: string; allowed_roles?: string[] | null }>(
@@ -81,23 +128,12 @@ export class FeatureFlagService {
           }
           return row.is_enabled;
         }
-
-        // Check system_configurations if querying maintenance mode
-        if (normalizedName === 'MAINTENANCE_MODE') {
-          const sysRes = await this.db.query<{ value: any }>(
-            "SELECT value FROM system_configurations WHERE config_key = 'maintenance_mode' LIMIT 1",
-          );
-          if (sysRes.rows.length > 0) {
-            const val = sysRes.rows[0].value;
-            return val === true || val === 'true';
-          }
-        }
       } catch (err) {
         logger.warn({ flagName, err }, '[FEATURE_FLAGS] Database lookup failed; falling back to defaults');
       }
     }
 
-    // 4. Fallback to hardcoded safe default
+    // 5. Fallback to hardcoded safe default
     return FeatureFlagService.DEFAULT_FLAGS[normalizedName] ?? false;
   }
 

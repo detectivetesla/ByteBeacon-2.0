@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { MaintenanceBanner } from '../components/navigation/MaintenanceBanner.js';
 import { PlatformStatusProvider, usePlatformStatus } from '../context/PlatformStatusContext.js';
+import { AuthProvider } from '../context/AuthContext.js';
 import { PurchaseModal } from '../components/commerce/PurchaseModal.js';
 import { ToastProvider } from '../context/ToastContext.js';
 import { apiClient } from '../api/httpClient.js';
@@ -88,6 +89,74 @@ describe('Frontend Maintenance Mode Integration & UI Suite', () => {
       const button = screen.getByRole('button', { name: /Platform in Maintenance/i });
       expect(button).toBeTruthy();
       expect(button.hasAttribute('disabled')).toBe(true);
+    });
+
+    cleanup();
+  });
+
+  it('BuyDataPage renders in-page maintenance banner and disables single order button when active', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue({
+      isMaintenanceMode: true,
+      platformStatus: 'MAINTENANCE',
+      message: 'Platform order fulfillment and checkout operations are temporarily paused for maintenance.',
+    } as any);
+
+    const { BuyDataPage } = await import('../pages/customer/BuyDataPage.js');
+
+    render(
+      <BrowserRouter>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Platform Maintenance Active — Checkout Operations Paused/i)).toBeTruthy();
+      const buyButton = screen.getByRole('button', { name: /Platform in Maintenance/i });
+      expect(buyButton).toBeTruthy();
+      expect(buyButton.hasAttribute('disabled')).toBe(true);
+    });
+
+    cleanup();
+  });
+
+  it('WalletPage renders maintenance warning and disables top-up checkout', async () => {
+    vi.spyOn(apiClient, 'get').mockImplementation(async (url: string) => {
+      if (url.includes('/platform/status')) {
+        return {
+          isMaintenanceMode: true,
+          platformStatus: 'MAINTENANCE',
+          message: 'Wallet deposits paused for system maintenance.',
+        };
+      }
+      if (url.includes('/wallet/balance')) {
+        return { balanceGhs: 50.0, balancePesewas: 5000 };
+      }
+      if (url.includes('/wallet/transactions')) {
+        return { transactions: [] };
+      }
+      return {};
+    });
+
+    const { WalletPage } = await import('../pages/customer/WalletPage.js');
+
+    render(
+      <BrowserRouter>
+        <ToastProvider>
+          <AuthProvider>
+            <PlatformStatusProvider>
+              <WalletPage />
+            </PlatformStatusProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Platform Maintenance Active — Deposits Temporarily Paused/i)).toBeTruthy();
     });
 
     cleanup();

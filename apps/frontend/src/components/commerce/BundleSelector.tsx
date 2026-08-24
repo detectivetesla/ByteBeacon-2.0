@@ -17,32 +17,7 @@ export interface BundleItem {
   popular?: boolean;
 }
 
-export const SAMPLE_BUNDLES: Record<NetworkProvider, BundleItem[]> = {
-  [NetworkProvider.MTN]: [
-    { id: 'mtn_1gb', sku: 'MTN-1GB', network: NetworkProvider.MTN, dataAmountMb: 1024, dataDisplay: '1 GB', pricePesewas: 600, priceDisplay: 'GH₵ 6.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'mtn_2_5gb', sku: 'MTN-2.5GB', network: NetworkProvider.MTN, dataAmountMb: 2560, dataDisplay: '2.5 GB', pricePesewas: 1500, priceDisplay: 'GH₵ 15.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'mtn_5gb', sku: 'MTN-5GB', network: NetworkProvider.MTN, dataAmountMb: 5120, dataDisplay: '5 GB', pricePesewas: 2800, priceDisplay: 'GH₵ 28.00', validityDays: 30, validityDisplay: 'Non-Expiry', popular: true },
-    { id: 'mtn_10gb', sku: 'MTN-10GB', network: NetworkProvider.MTN, dataAmountMb: 10240, dataDisplay: '10 GB', pricePesewas: 5500, priceDisplay: 'GH₵ 55.00', validityDays: 30, validityDisplay: 'Non-Expiry', popular: true },
-    { id: 'mtn_20gb', sku: 'MTN-20GB', network: NetworkProvider.MTN, dataAmountMb: 20480, dataDisplay: '20 GB', pricePesewas: 10000, priceDisplay: 'GH₵ 100.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'mtn_50gb', sku: 'MTN-50GB', network: NetworkProvider.MTN, dataAmountMb: 51200, dataDisplay: '50 GB', pricePesewas: 24000, priceDisplay: 'GH₵ 240.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-  ],
-  [NetworkProvider.TELECEL]: [
-    { id: 'tel_1gb', sku: 'TEL-1GB', network: NetworkProvider.TELECEL, dataAmountMb: 1024, dataDisplay: '1 GB', pricePesewas: 550, priceDisplay: 'GH₵ 5.50', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'tel_2_5gb', sku: 'TEL-2.5GB', network: NetworkProvider.TELECEL, dataAmountMb: 2560, dataDisplay: '2.5 GB', pricePesewas: 1400, priceDisplay: 'GH₵ 14.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'tel_5gb', sku: 'TEL-5GB', network: NetworkProvider.TELECEL, dataAmountMb: 5120, dataDisplay: '5 GB', pricePesewas: 2400, priceDisplay: 'GH₵ 24.00', validityDays: 30, validityDisplay: 'Non-Expiry', popular: true },
-    { id: 'tel_10gb', sku: 'TEL-10GB', network: NetworkProvider.TELECEL, dataAmountMb: 10240, dataDisplay: '10 GB', pricePesewas: 4500, priceDisplay: 'GH₵ 45.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'tel_20gb', sku: 'TEL-20GB', network: NetworkProvider.TELECEL, dataAmountMb: 20480, dataDisplay: '20 GB', pricePesewas: 8500, priceDisplay: 'GH₵ 85.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'tel_50gb', sku: 'TEL-50GB', network: NetworkProvider.TELECEL, dataAmountMb: 51200, dataDisplay: '50 GB', pricePesewas: 20000, priceDisplay: 'GH₵ 200.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-  ],
-  [NetworkProvider.AIRTELTIGO]: [
-    { id: 'at_1gb', sku: 'AT-1GB', network: NetworkProvider.AIRTELTIGO, dataAmountMb: 1024, dataDisplay: '1 GB', pricePesewas: 500, priceDisplay: 'GH₵ 5.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'at_2_5gb', sku: 'AT-2.5GB', network: NetworkProvider.AIRTELTIGO, dataAmountMb: 2560, dataDisplay: '2.5 GB', pricePesewas: 1300, priceDisplay: 'GH₵ 13.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'at_5gb', sku: 'AT-5GB', network: NetworkProvider.AIRTELTIGO, dataAmountMb: 5120, dataDisplay: '5 GB', pricePesewas: 2200, priceDisplay: 'GH₵ 22.00', validityDays: 30, validityDisplay: 'Non-Expiry', popular: true },
-    { id: 'at_10gb', sku: 'AT-10GB', network: NetworkProvider.AIRTELTIGO, dataAmountMb: 10240, dataDisplay: '10 GB', pricePesewas: 4200, priceDisplay: 'GH₵ 42.00', validityDays: 30, validityDisplay: 'Non-Expiry', popular: true },
-    { id: 'at_20gb', sku: 'AT-20GB', network: NetworkProvider.AIRTELTIGO, dataAmountMb: 20480, dataDisplay: '20 GB', pricePesewas: 8000, priceDisplay: 'GH₵ 80.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-    { id: 'at_50gb', sku: 'AT-50GB', network: NetworkProvider.AIRTELTIGO, dataAmountMb: 51200, dataDisplay: '50 GB', pricePesewas: 19000, priceDisplay: 'GH₵ 190.00', validityDays: 30, validityDisplay: 'Non-Expiry' },
-  ],
-};
+
 
 const NETWORK_THEMES: Record<
   NetworkProvider,

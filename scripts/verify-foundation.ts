@@ -321,7 +321,10 @@ export function runVerification(): VerificationReport {
         if (f.isDirectory()) checkFrontendImports(p);
         else if (f.name.endsWith('.ts') || f.name.endsWith('.tsx')) {
           const content = fs.readFileSync(p, 'utf-8');
-          if (content.includes('pg') || content.includes('ioredis') || content.includes('@bytebeacon/backend')) {
+          if (
+            /(?:import|require|from)\s+['"](pg|ioredis|@bytebeacon\/backend)['"]/.test(content) ||
+            content.includes('@bytebeacon/backend')
+          ) {
             importBoundaryViolation = true;
           }
         }

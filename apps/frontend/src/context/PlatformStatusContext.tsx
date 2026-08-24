@@ -51,18 +51,41 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
   useEffect(() => {
     fetchPlatformStatus();
 
-    // Poll status periodically every 30 seconds
-    const interval = setInterval(fetchPlatformStatus, 30000);
+    // Poll status periodically every 10 seconds for timely maintenance enforcement
+    const interval = setInterval(fetchPlatformStatus, 10000);
 
-    // Refresh when browser tab gains focus
+    // Refresh when browser tab gains focus or returns online
     const handleFocus = () => {
       fetchPlatformStatus();
     };
+
+    // Fast reactive listener for 503 maintenance mode responses or admin toggle events
+    const handleMaintenanceEvent = (event: Event) => {
+      const customEvt = event as CustomEvent;
+      setStatusData((prev) => ({
+        ...prev,
+        isMaintenanceMode: true,
+        platformStatus: 'MAINTENANCE',
+        message: customEvt.detail?.message || prev.message,
+      }));
+      fetchPlatformStatus();
+    };
+
+    const handleStatusCheckEvent = () => {
+      fetchPlatformStatus();
+    };
+
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleFocus);
+    window.addEventListener('platform-maintenance-active', handleMaintenanceEvent);
+    window.addEventListener('platform-status-check', handleStatusCheckEvent);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleFocus);
+      window.removeEventListener('platform-maintenance-active', handleMaintenanceEvent);
+      window.removeEventListener('platform-status-check', handleStatusCheckEvent);
     };
   }, [fetchPlatformStatus]);
 

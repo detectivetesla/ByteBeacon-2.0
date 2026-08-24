@@ -46,6 +46,10 @@ export const authApi = {
     return apiClient.get<UserSummaryDto>('/auth/me');
   },
 
+  getAdminProfile: async (): Promise<UserSummaryDto> => {
+    return apiClient.get<UserSummaryDto>('/admin/auth/me');
+  },
+
   forgotPassword: async (email: string): Promise<{ message: string }> => {
     return apiClient.post<{ message: string }>('/auth/forgot-password', { email }, { skipAuth: true });
   },

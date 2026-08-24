@@ -25,6 +25,7 @@ import {
   AuthResponseData,
   MfaSetupData,
   AdminMfaChallengeData,
+  UserSummaryDto,
 } from '@bytebeacon/shared';
 
 export interface AdminAuthRouteDependencies {
@@ -326,4 +327,44 @@ export async function adminAuthRoutes(
       return reply.send(response);
     },
   );
+
+  // 4. ADMIN PROFILE LOOKUP (/admin/auth/me & /admin/auth/profile)
+  const handleGetAdminProfile = async (req: FastifyRequest, reply: FastifyReply) => {
+    let userRes: any = null;
+    try {
+      userRes = await db.query<any>(
+        'SELECT * FROM users WHERE (uuid = $1 OR id = $1) AND (role = $2 OR role = $3)',
+        [req.user!.sub, 'admin', 'super_admin'],
+      );
+    } catch {
+      userRes = { rows: [] };
+    }
+
+    if (!userRes || userRes.rows.length === 0) {
+      throw new UnauthorizedError('Administrator profile not found');
+    }
+
+    const rawRow = userRes.rows[0];
+    const isSuperAdmin = (rawRow.role || '').toLowerCase().includes('super');
+
+    const adminSummary: UserSummaryDto = {
+      id: rawRow.uuid || rawRow.id,
+      email: rawRow.email,
+      phone: rawRow.phone || '',
+      fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',
+      role: isSuperAdmin ? UserRole.SUPER_ADMIN : UserRole.ADMIN,
+      status: rawRow.status || (rawRow.is_active === false ? UserStatus.SUSPENDED : UserStatus.ACTIVE),
+      securityDomain: SecurityDomain.ADMIN,
+      phoneVerified: rawRow.phone_verified !== undefined ? rawRow.phone_verified : true,
+      mfaEnabled: rawRow.mfa_enabled || false,
+      walletBalancePesewas: rawRow.wallet_balance_pesewas !== undefined && rawRow.wallet_balance_pesewas !== null
+        ? parseInt(String(rawRow.wallet_balance_pesewas), 10)
+        : 0,
+    };
+
+    return reply.send({ success: true, data: adminSummary });
+  };
+
+  app.get('/admin/auth/me', { preHandler: [authHooks.authenticateAdmin] }, handleGetAdminProfile);
+  app.get('/admin/auth/profile', { preHandler: [authHooks.authenticateAdmin] }, handleGetAdminProfile);
 }

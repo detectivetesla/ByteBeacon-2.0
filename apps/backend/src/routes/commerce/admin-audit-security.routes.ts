@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type pg from 'pg';
 import { TokenService } from '../../core/security/token.service.js';
 import { ApiKeyService } from '../../core/security/api-key.service.js';
@@ -827,6 +827,119 @@ export async function adminAuditSecurityRoutes(
         message: `Security incident ${existing.incident_number} updated successfully.`,
       });
     },
+  );
+
+  // =========================================================================
+  // 8.5. GET /admin/audit/emergency/controls — List Emergency System Controls
+  // =========================================================================
+  const handleGetEmergencyControls = async (_req: FastifyRequest, reply: FastifyReply) => {
+    const res = await db.query(
+      `SELECT control_key as "key", name, description as "desc", is_enabled as "status",
+              last_toggled_by as "lastToggledBy", last_toggled_at as "lastToggledAt", last_justification as "lastJustification"
+       FROM emergency_system_controls
+       ORDER BY control_key ASC`,
+    ).catch(() => ({ rows: [] }));
+
+    const controlsMap = new Map<string, any>();
+    res.rows.forEach((r: any) => {
+      controlsMap.set(r.key, r);
+    });
+
+    // Check system_configurations and platform_feature_flags for maintenance mode sync
+    const maintRes = await db.query(
+      `SELECT (
+        EXISTS (SELECT 1 FROM platform_feature_flags WHERE flag_key = 'MAINTENANCE_MODE' AND is_enabled = true) OR
+        EXISTS (SELECT 1 FROM emergency_system_controls WHERE control_key = 'MAINTENANCE_MODE' AND is_enabled = true) OR
+        EXISTS (SELECT 1 FROM financial_safety_controls WHERE global_maintenance_mode = true) OR
+        EXISTS (SELECT 1 FROM system_configurations WHERE config_key = 'maintenance_mode' AND (value = 'true'::jsonb OR value::text = 'true' OR value::text = '"true"'))
+      ) as is_maint`,
+    ).catch(() => ({ rows: [{ is_maint: false }] }));
+    const isMaintActive = Boolean(maintRes.rows[0]?.is_maint);
+
+    const defaultControls = [
+      {
+        key: 'MAINTENANCE_MODE',
+        name: 'Platform Maintenance Mode',
+        desc: 'Restricts all customer and agent portal access; renders platform maintenance splash.',
+        status: isMaintActive,
+      },
+      {
+        key: 'DISABLE_AGENT_STORES',
+        name: 'Kill Switch: Agent Storefronts',
+        desc: 'Immediately pauses checkout processing on all agent public storefront subdomains.',
+        status: false,
+      },
+      {
+        key: 'KILL_SWITCH_PAYSTACK',
+        name: 'Kill Switch: Paystack Live Processing',
+        desc: 'Halts incoming MoMo/Card deposits; forces fallback to manual bank reconciliation.',
+        status: false,
+      },
+      {
+        key: 'KILL_SWITCH_TELECOM_DISPATCH',
+        name: 'Kill Switch: Automated Telecom Dispatch',
+        desc: 'Holds new data bundle orders in pending queue rather than submitting upstream to DataHouse.',
+        status: false,
+      },
+      {
+        key: 'EMERGENCY_READ_ONLY',
+        name: 'Emergency Platform Read-Only Mode',
+        desc: 'Disables all database write operations across financial, catalog, and order engines.',
+        status: false,
+      },
+    ];
+
+    const controls = defaultControls.map((d) => {
+      const found = controlsMap.get(d.key);
+      if (d.key === 'MAINTENANCE_MODE') {
+        return {
+          ...d,
+          status: isMaintActive,
+          lastToggledBy: found?.lastToggledBy || null,
+          lastToggledAt: found?.lastToggledAt || null,
+          lastJustification: found?.lastJustification || null,
+        };
+      }
+      if (found) {
+        return {
+          key: d.key,
+          name: found.name || d.name,
+          desc: found.desc || d.desc,
+          status: Boolean(found.status),
+          lastToggledBy: found.lastToggledBy || null,
+          lastToggledAt: found.lastToggledAt || null,
+          lastJustification: found.lastJustification || null,
+        };
+      }
+      return d;
+    });
+
+    return reply.send({
+      success: true,
+      data: controls,
+    });
+  };
+
+  app.get(
+    '/admin/audit/emergency/controls',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.SETTINGS_MANAGE),
+      ],
+    },
+    handleGetEmergencyControls,
+  );
+
+  app.get(
+    '/admin/audit/controls',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.SETTINGS_MANAGE),
+      ],
+    },
+    handleGetEmergencyControls,
   );
 
   // =========================================================================

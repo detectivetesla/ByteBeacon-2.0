@@ -64,6 +64,22 @@ export function runProductionSafetyAudit(): { passed: boolean; errors: string[] 
     console.log('✓ Check 3: Zero development credentials in frontend bundle / source code');
   }
 
+  // Check 4: Verify Complete Legacy Database & Backend Destruction
+  const legacyBackendDir = path.resolve(process.cwd(), 'backend');
+  if (fs.existsSync(legacyBackendDir)) {
+    errors.push('CRITICAL: Legacy backend directory still exists in workspace!');
+  } else {
+    console.log('✓ Check 4: Legacy backend directory completely deleted from workspace');
+  }
+
+  // Check 5: Verify ByteBeacon 2.0 Database Isolation & Zero Legacy Contamination
+  const legacyArchiveFile = path.resolve(process.cwd(), 'reports/BYTEBEACON_LEGACY_ARCHIVE_DO_NOT_USE.sql');
+  if (fs.existsSync(legacyArchiveFile)) {
+    console.log('✓ Check 5: Legacy database archival record safely preserved in reports/BYTEBEACON_LEGACY_ARCHIVE_DO_NOT_USE.sql');
+  } else {
+    errors.push('WARNING: Legacy archive record missing from reports directory');
+  }
+
   console.log('----------------------------------------------------');
   if (errors.length === 0) {
     console.log('PRODUCTION SAFETY AUDIT: PASS (System is production-hardened)');

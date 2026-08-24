@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { NetworkSelector } from '../../components/commerce/NetworkSelector.js';
-import { BundleSelector, BundleItem, SAMPLE_BUNDLES } from '../../components/commerce/BundleSelector.js';
+import { BundleSelector, BundleItem } from '../../components/commerce/BundleSelector.js';
 import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
 import { HolographicGlobe } from '../../components/marketing/HolographicGlobe.js';
 import { HowItWorksSection } from '../../components/marketing/HowItWorksSection.js';
@@ -18,7 +18,7 @@ import { WhatsAppFloat } from '../../components/ui/WhatsAppFloat.js';
 
 export const LandingPage: React.FC = () => {
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkProvider>(NetworkProvider.MTN);
-  const [selectedBundle, setSelectedBundle] = useState<BundleItem>(SAMPLE_BUNDLES[NetworkProvider.MTN][2]);
+  const [selectedBundle, setSelectedBundle] = useState<BundleItem | null>(null);
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const [scrollY, setScrollY] = useState(0);
 
@@ -249,7 +249,7 @@ export const LandingPage: React.FC = () => {
           selectedNetwork={selectedNetwork}
           onSelect={(net) => {
             setSelectedNetwork(net);
-            setSelectedBundle(SAMPLE_BUNDLES[net][2]);
+            setSelectedBundle(null);
           }}
         />
       </section>
@@ -260,7 +260,7 @@ export const LandingPage: React.FC = () => {
       <section style={{ maxWidth: 'var(--container-xl)', margin: '0 auto', padding: '0 var(--space-page-x, var(--space-6)) var(--space-16)' }}>
         <BundleSelector
           network={selectedNetwork}
-          selectedBundleId={selectedBundle.id}
+          selectedBundleId={selectedBundle?.id}
           onSelect={(b) => {
             setSelectedBundle(b);
             setPurchaseModalOpen(true);
@@ -293,7 +293,7 @@ export const LandingPage: React.FC = () => {
         isOpen={purchaseModalOpen}
         onClose={() => setPurchaseModalOpen(false)}
         initialNetwork={selectedNetwork}
-        initialBundleId={selectedBundle.id}
+        initialBundleId={selectedBundle?.id}
         isGuestPurchase={true}
       />
 

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { apiClient } from '../../api/httpClient.js';
 import { walletApi } from '../../api/wallet.api.js';
 
@@ -112,6 +113,7 @@ export const TypeBadge: React.FC<{ type: WalletTransactionType; isCredit?: boole
 export const AgentWalletPage: React.FC = () => {
   const { user } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [floatBalance] = useState('1,450.00');
@@ -303,6 +305,10 @@ export const AgentWalletPage: React.FC = () => {
 
   const handleProceedToPaystack = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform deposit and checkout operations are temporarily paused during scheduled maintenance.');
+      return;
+    }
     if (parsedTopUpAmount < 1) {
       toastError('Minimum Required', 'Minimum wallet top-up amount is GH₵ 1.00.');
       return;
@@ -338,6 +344,33 @@ export const AgentWalletPage: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      {/* Maintenance In-Page Alert Banner */}
+      {isMaintenanceMode && (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-xl)',
+            backgroundColor: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.85rem',
+            color: '#FBBF24',
+          }}
+        >
+          <span style={{ fontSize: '1.25rem' }}>⚠️</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800 }}>
+              Platform Maintenance Active — Float Deposits Paused
+            </strong>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              {maintenanceMessage || 'Agent wallet top-ups and checkout operations are paused for scheduled maintenance.'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 1. Header */}
       <div>
         <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#10B981' }}>
@@ -562,13 +595,14 @@ export const AgentWalletPage: React.FC = () => {
               )}
 
               <Button
-                variant="primary"
+                variant={isMaintenanceMode ? 'secondary' : 'primary'}
                 size="md"
                 fullWidth
                 type="submit"
                 isLoading={isProcessingCheckout}
+                disabled={isMaintenanceMode}
               >
-                Proceed to Paystack →
+                {isMaintenanceMode ? 'Platform in Maintenance' : 'Proceed to Paystack →'}
               </Button>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontSize: 'var(--font-size-3xs)', color: 'rgba(255, 255, 255, 0.65)' }}>

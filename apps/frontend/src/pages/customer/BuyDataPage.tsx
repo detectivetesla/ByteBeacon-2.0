@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { NetworkSelector } from '../../components/commerce/NetworkSelector.js';
-import { BundleSelector, SAMPLE_BUNDLES } from '../../components/commerce/BundleSelector.js';
+import { BundleSelector, BundleItem } from '../../components/commerce/BundleSelector.js';
+import { catalogApi } from '../../api/catalog.api.js';
 import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
 import { Card } from '../../components/ui/Card/Card.js';
 import { PhoneInput, Select, Checkbox, Textarea } from '../../components/ui/index.js';
@@ -27,6 +28,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 
 type OrderMode = 'single' | 'bulk' | 'excel';
 type BulkSubMode = 'normal' | 'free';
@@ -77,6 +79,7 @@ const NETWORK_THEMES: Record<
 
 export const BuyDataPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
   // Page level state
   const [orderMode, setOrderMode] = useState<OrderMode>('single');
@@ -84,20 +87,55 @@ export const BuyDataPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'normal' | 'grid'>('normal');
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkProvider>(NetworkProvider.MTN);
 
-  // Bundles for current network
-  const availableBundles = SAMPLE_BUNDLES[selectedNetwork] || SAMPLE_BUNDLES[NetworkProvider.MTN] || [];
+  // Bundles for current network loaded dynamically from authoritative database / catalog API
+  const [availableBundles, setAvailableBundles] = useState<BundleItem[]>([]);
 
   // Single order state
-  const defaultBundleId = SAMPLE_BUNDLES[NetworkProvider.MTN]?.[2]?.id || 'mtn_5gb';
   const [singlePhone, setSinglePhone] = useState('');
   const [singlePhoneError, setSinglePhoneError] = useState('');
-  const [singleBundleId, setSingleBundleId] = useState<string>(defaultBundleId);
+  const [singleBundleId, setSingleBundleId] = useState<string>('');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringFrequency, setRecurringFrequency] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
 
+  // Load catalog bundles dynamically on network change
+  React.useEffect(() => {
+    let isMounted = true;
+    catalogApi
+      .getBundles(selectedNetwork, 'CUSTOMER')
+      .then((items) => {
+        if (!isMounted || !Array.isArray(items)) return;
+        const mapped: BundleItem[] = items.map((p) => ({
+          id: p.id,
+          sku: p.sku,
+          network: p.network as NetworkProvider,
+          dataAmountMb: p.dataAmountMb,
+          dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+          pricePesewas: p.basePricePesewas,
+          priceDisplay: `GH₵ ${(p.basePricePesewas / 100).toFixed(2)}`,
+          validityDays: p.validityDays,
+          validityDisplay: p.validityDesc || `${p.validityDays} Days`,
+          popular: Boolean(p.popular),
+        }));
+        setAvailableBundles(mapped);
+        if (mapped.length > 0) {
+          setSingleBundleId((prev) => {
+            const exists = mapped.some((b) => b.id === prev);
+            return exists ? prev : (mapped[2]?.id || mapped[0]?.id);
+          });
+        }
+      })
+      .catch(() => {
+        if (isMounted) setAvailableBundles([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedNetwork]);
+
   // Bulk Normal state
   const [bulkRecipients, setBulkRecipients] = useState<BulkRecipientEntry[]>([
-    { id: '1', phone: '', bundleId: defaultBundleId, frequency: 'once' },
+    { id: '1', phone: '', bundleId: '', frequency: 'once' },
   ]);
 
   // Bulk Free state
@@ -128,35 +166,36 @@ export const BuyDataPage: React.FC = () => {
   // Handle Network Change
   const handleNetworkSelect = (net: NetworkProvider) => {
     setSelectedNetwork(net);
-    const networkBundles = SAMPLE_BUNDLES[net] || SAMPLE_BUNDLES[NetworkProvider.MTN] || [];
-    const firstBundle = networkBundles[2] || networkBundles[0] || { id: 'default' };
-    setSingleBundleId(firstBundle.id);
-    setBulkRecipients((prev) =>
-      prev.map((r) => ({
-        ...r,
-        bundleId: firstBundle.id,
-      }))
-    );
   };
 
   // Selected single bundle object
   const currentSingleBundle = useMemo(() => {
-    return availableBundles.find((b) => b.id === singleBundleId) || availableBundles[0] || {
-      id: 'mtn_5gb',
-      sku: 'MTN-5GB',
-      network: selectedNetwork || NetworkProvider.MTN,
-      dataAmountMb: 5120,
-      dataDisplay: '5 GB',
-      pricePesewas: 2800,
-      priceDisplay: 'GH₵ 28.00',
-      validityDays: 30,
-      validityDisplay: 'Non-Expiry',
-      popular: true,
-    };
+    return (
+      availableBundles.find((b) => b.id === singleBundleId) ||
+      availableBundles[0] || {
+        id: '',
+        sku: '',
+        network: selectedNetwork,
+        dataAmountMb: 0,
+        dataDisplay: 'Select Bundle',
+        pricePesewas: 0,
+        priceDisplay: 'GH₵ 0.00',
+        validityDays: 30,
+        validityDisplay: 'Non-Expiry',
+      }
+    );
   }, [availableBundles, singleBundleId, selectedNetwork]);
 
   // Single Order Submit
   const handleSingleOrderSubmit = () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
+    if (!currentSingleBundle || !currentSingleBundle.id) {
+      toastError('Bundle Required', 'Please select a data bundle before submitting.');
+      return;
+    }
     const cleaned = singlePhone.replace(/\s+/g, '');
     if (!/^(0|\+?233)[25][0-9]{8}$/.test(cleaned)) {
       setSinglePhoneError('Enter a valid Ghana 10-digit mobile number (e.g. 0241234567)');
@@ -182,7 +221,7 @@ export const BuyDataPage: React.FC = () => {
       {
         id: String(Date.now()),
         phone: '',
-        bundleId: currentSingleBundle.id,
+        bundleId: currentSingleBundle?.id || '',
         frequency: 'once',
       },
     ]);
@@ -210,6 +249,10 @@ export const BuyDataPage: React.FC = () => {
   }, [bulkRecipients, availableBundles, currentSingleBundle]);
 
   const handleBulkNormalSubmit = () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
     const hasInvalid = bulkRecipients.some((r) => {
       const cleaned = r.phone.replace(/\s+/g, '');
       return !/^(0|\+?233)[25][0-9]{8}$/.test(cleaned);
@@ -265,6 +308,10 @@ export const BuyDataPage: React.FC = () => {
   }, [freePasteText, availableBundles]);
 
   const handleBulkFreeSubmit = () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
     if (parsedFreeEntries.invalidCount > 0) {
       toastError('Invalid Entries', 'Please fix any invalid recipient phone numbers.');
       return;
@@ -367,6 +414,10 @@ export const BuyDataPage: React.FC = () => {
   };
 
   const handleExcelSubmit = () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
     if (!excelFile) {
       toastError('No File', 'Please upload an Excel or CSV file first.');
       return;
@@ -453,6 +504,33 @@ export const BuyDataPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Maintenance Mode In-Page Alert Banner */}
+      {isMaintenanceMode && (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-xl)',
+            backgroundColor: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.85rem',
+            color: '#FBBF24',
+          }}
+        >
+          <span style={{ fontSize: '1.25rem' }}>⚠️</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800 }}>
+              Platform Maintenance Active — Checkout Operations Paused
+            </strong>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              {maintenanceMessage || 'Platform order fulfillment and checkout operations are temporarily paused for maintenance. You can still browse data packages and track existing orders.'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* 2. Step 1: Network Selection */}
       <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
@@ -789,27 +867,29 @@ export const BuyDataPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleSingleOrderSubmit}
+                  disabled={isMaintenanceMode}
                   style={{
                     width: '100%',
                     padding: '0.65rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: theme.buttonBg,
-                    color: theme.buttonTextColor,
+                    backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                    color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-sm)',
-                    cursor: 'pointer',
+                    cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
+                    opacity: isMaintenanceMode ? 0.6 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.4rem',
-                    boxShadow: `0 3px 12px ${theme.glowColor}`,
+                    boxShadow: !isMaintenanceMode ? `0 3px 12px ${theme.glowColor}` : 'none',
                     transition: 'transform 100ms ease',
                   }}
-                  onMouseDown={(e) => (e.currentTarget.style.transform = 'translateY(1px)')}
-                  onMouseUp={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+                  onMouseDown={(e) => (!isMaintenanceMode && (e.currentTarget.style.transform = 'translateY(1px)'))}
+                  onMouseUp={(e) => (!isMaintenanceMode && (e.currentTarget.style.transform = 'translateY(0)'))}
                 >
-                  <span>Buy Data ({currentSingleBundle.priceDisplay})</span>
+                  <span>{isMaintenanceMode ? 'Platform in Maintenance' : `Buy Data (${currentSingleBundle.priceDisplay})`}</span>
                   <ArrowRight size={16} strokeWidth={2.6} />
                 </button>
               </Card>
@@ -917,19 +997,21 @@ export const BuyDataPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleBulkNormalSubmit}
+                  disabled={isMaintenanceMode}
                   style={{
                     padding: '0.55rem 1.5rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: theme.buttonBg,
-                    color: theme.buttonTextColor,
+                    backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                    color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-sm)',
-                    cursor: 'pointer',
-                    boxShadow: `0 2px 8px ${theme.glowColor}`,
+                    cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
+                    opacity: isMaintenanceMode ? 0.6 : 1,
+                    boxShadow: !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
                   }}
                 >
-                  Continue to Payment →
+                  {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
                 </button>
               </Card>
             </div>
@@ -1020,22 +1102,22 @@ export const BuyDataPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleBulkFreeSubmit}
-                    disabled={parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0}
+                    disabled={parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode}
                     style={{
                       width: '100%',
                       padding: '0.6rem',
                       borderRadius: 'var(--radius-md)',
                       border: 'none',
-                      backgroundColor: theme.buttonBg,
-                      color: theme.buttonTextColor,
+                      backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                      color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
                       fontWeight: 900,
                       fontSize: 'var(--font-size-sm)',
-                      cursor: parsedFreeEntries.invalidCount > 0 ? 'not-allowed' : 'pointer',
-                      opacity: parsedFreeEntries.invalidCount > 0 ? 0.6 : 1,
-                      boxShadow: `0 2px 8px ${theme.glowColor}`,
+                      cursor: parsedFreeEntries.invalidCount > 0 || isMaintenanceMode ? 'not-allowed' : 'pointer',
+                      opacity: parsedFreeEntries.invalidCount > 0 || isMaintenanceMode ? 0.6 : 1,
+                      boxShadow: !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
                     }}
                   >
-                    Continue to Payment →
+                    {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
                   </button>
                 </div>
               </Card>
@@ -1210,19 +1292,21 @@ export const BuyDataPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleExcelSubmit}
+                      disabled={isMaintenanceMode}
                       style={{
                         padding: '0.55rem 1.5rem',
                         borderRadius: 'var(--radius-md)',
                         border: 'none',
-                        backgroundColor: theme.buttonBg,
-                        color: theme.buttonTextColor,
+                        backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                        color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
                         fontWeight: 900,
                         fontSize: 'var(--font-size-sm)',
-                        cursor: 'pointer',
-                        boxShadow: `0 2px 8px ${theme.glowColor}`,
+                        cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
+                        opacity: isMaintenanceMode ? 0.6 : 1,
+                        boxShadow: !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
                       }}
                     >
-                      Continue to Payment →
+                      {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
                     </button>
                   </div>
                 </Card>

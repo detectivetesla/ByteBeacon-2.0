@@ -6,6 +6,7 @@ import { Table } from '../../components/ui/Table/Table.js';
 import { AmountInput } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { walletApi, WalletTransactionDto } from '../../api/wallet.api.js';
 import {
   Wallet,
@@ -21,6 +22,7 @@ import {
 export const WalletPage: React.FC = () => {
   const { user } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [balanceGhs, setBalanceGhs] = useState<number>((user?.walletBalancePesewas || 0) / 100);
@@ -79,6 +81,10 @@ export const WalletPage: React.FC = () => {
 
   const handleProceedToPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isMaintenanceMode) {
+      toastError('Maintenance in Progress', 'Wallet top-ups and checkout operations are temporarily paused during scheduled maintenance.');
+      return;
+    }
     const amount = parseFloat(topUpAmount);
     if (isNaN(amount) || amount < 1) {
       toastError('Invalid Amount', 'Minimum top-up amount is GH₵ 1.00');
@@ -106,6 +112,33 @@ export const WalletPage: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+      {/* Maintenance In-Page Alert Banner */}
+      {isMaintenanceMode && (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-xl)',
+            backgroundColor: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.85rem',
+            color: '#FBBF24',
+          }}
+        >
+          <span style={{ fontSize: '1.25rem' }}>⚠️</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800 }}>
+              Platform Maintenance Active — Deposits Temporarily Paused
+            </strong>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              {maintenanceMessage || 'Payment gateway checkouts and wallet top-ups are paused for scheduled maintenance.'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
         <div>
@@ -322,8 +355,34 @@ export const WalletPage: React.FC = () => {
                 </span>
               </div>
 
-              <Button variant="primary" size="lg" fullWidth type="submit" isLoading={isSubmittingTopUp}>
-                Proceed to Secure Checkout
+              {isMaintenanceMode && (
+                <div
+                  style={{
+                    padding: '0.625rem 0.75rem',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    color: '#FBBF24',
+                    fontSize: 'var(--font-size-xs)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <span>⚠️</span>
+                  <span>Deposits are temporarily paused during platform maintenance.</span>
+                </div>
+              )}
+
+              <Button
+                variant={isMaintenanceMode ? 'secondary' : 'primary'}
+                size="lg"
+                fullWidth
+                type="submit"
+                isLoading={isSubmittingTopUp}
+                disabled={isMaintenanceMode}
+              >
+                {isMaintenanceMode ? 'Platform in Maintenance' : 'Proceed to Secure Checkout'}
               </Button>
             </form>
           </div>
