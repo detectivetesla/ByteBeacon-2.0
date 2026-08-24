@@ -44,36 +44,42 @@ export async function adminAnalyticsRoutes(
           COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) = 'super_admin' THEN 1 END) as "totalSuperAdmins",
           COUNT(CASE WHEN UPPER(COALESCE(status::text, 'ACTIVE')) = 'ACTIVE' THEN 1 END) as "activeUsers"
         FROM users
-      `).catch(() => ({ rows: [{ totalUsers: 0, totalCustomers: 0, totalAgents: 0, totalAdmins: 0, totalSuperAdmins: 0, activeUsers: 0 }] }));
+      `).catch((err) => {
+        app.log.error({ err }, 'Error calculating userStats in overview');
+        return { rows: [{ totalUsers: 0, totalCustomers: 0, totalAgents: 0, totalAdmins: 0, totalSuperAdmins: 0, activeUsers: 0 }] };
+      });
 
       // 2. Order metrics & projections (Rock-solid interval arithmetic and dual lifetime/period aggregation)
       const orderStatsRes = await db.query(`
         SELECT 
           COUNT(*) as "lifetimeOrders",
           COALESCE(SUM(amount_pesewas), 0) as "lifetimeVolumePesewas",
-          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) THEN 1 END) as "totalOrders",
-          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) AND order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as "completedOrders",
-          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) AND order_status IN ('PENDING', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT', 'CREATED', 'VALIDATING') THEN 1 END) as "processingOrders",
-          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) AND order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as "failedOrders",
-          COUNT(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) AND order_status = 'REFUNDED' THEN 1 END) as "refundedOrders",
-          COALESCE(SUM(CASE WHEN ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')) THEN amount_pesewas ELSE 0 END), 0) as "periodVolumePesewas",
+          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) THEN 1 END) as "totalOrders",
+          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) AND order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as "completedOrders",
+          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) AND order_status IN ('PENDING', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT', 'CREATED', 'VALIDATING') THEN 1 END) as "processingOrders",
+          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) AND order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as "failedOrders",
+          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) AND order_status = 'REFUNDED' THEN 1 END) as "refundedOrders",
+          COALESCE(SUM(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) THEN amount_pesewas ELSE 0 END), 0) as "periodVolumePesewas",
           COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_pesewas ELSE 0 END), 0) as "todayVolumePesewas",
           COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE) THEN amount_pesewas ELSE 0 END), 0) as "monthVolumePesewas"
         FROM orders
-      `, [days]).catch(() => ({
-        rows: [{
-          lifetimeOrders: 0,
-          lifetimeVolumePesewas: '0',
-          totalOrders: 0,
-          completedOrders: 0,
-          processingOrders: 0,
-          failedOrders: 0,
-          refundedOrders: 0,
-          periodVolumePesewas: '0',
-          todayVolumePesewas: '0',
-          monthVolumePesewas: '0',
-        }],
-      }));
+      `, [days]).catch((err) => {
+        app.log.error({ err }, 'Error calculating orderStats in overview');
+        return {
+          rows: [{
+            lifetimeOrders: 0,
+            lifetimeVolumePesewas: '0',
+            totalOrders: 0,
+            completedOrders: 0,
+            processingOrders: 0,
+            failedOrders: 0,
+            refundedOrders: 0,
+            periodVolumePesewas: '0',
+            todayVolumePesewas: '0',
+            monthVolumePesewas: '0',
+          }],
+        };
+      });
 
       // 3. Network breakdown
       const networkStatsRes = await db.query(`
@@ -82,9 +88,12 @@ export async function adminAnalyticsRoutes(
           COUNT(*) as "orderCount",
           COALESCE(SUM(amount_pesewas), 0) as "volumePesewas"
         FROM orders
-        WHERE ($1 = 0 OR created_at >= CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day'))
+        WHERE ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day'))
         GROUP BY network
-      `, [days]).catch(() => ({ rows: [] }));
+      `, [days]).catch((err) => {
+        app.log.error({ err }, 'Error calculating networkStats in overview');
+        return { rows: [] };
+      });
 
       // 4. Financial float & wallet liabilities
       const walletLiabilitiesRes = await db.query(`
