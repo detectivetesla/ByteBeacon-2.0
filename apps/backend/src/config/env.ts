@@ -77,6 +77,11 @@ export const envSchema = z.object({
           'http://127.0.0.1:3000',
           'https://frontend-byte-beacon.vercel.app',
           'https://frontend-hazel-six-10.vercel.app',
+          'https://bytebeacon.online',
+          'https://www.bytebeacon.online',
+          'https://api.bytebeacon.online',
+          'https://admin.bytebeacon.online',
+          'https://app.bytebeacon.online',
         ];
       }
       return val.split(',').map((origin) => origin.trim()).filter(Boolean);

@@ -327,7 +327,7 @@ export async function agentRoutes(
           amountPesewas,
           currency: Currency.GHS,
           paymentMethod: PaymentMethod.MOMO,
-          callbackUrl: callbackUrl || 'https://bytebeacon.com/agent/wallet',
+          callbackUrl: callbackUrl || 'https://bytebeacon.online/agent/wallet',
           metadata: {
             type: 'WALLET_TOPUP',
             userId: req.user!.sub,

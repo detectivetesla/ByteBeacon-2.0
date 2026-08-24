@@ -13,7 +13,7 @@ export async function registerSwagger(app: FastifyInstance) {
         version: '2.0.0',
         contact: {
           name: 'ByteBeacon Developer Support',
-          email: 'support@bytebeacon.com',
+          email: 'support@bytebeacon.online',
         },
       },
       servers: [
@@ -22,11 +22,11 @@ export async function registerSwagger(app: FastifyInstance) {
           description: 'Local Development Server',
         },
         {
-          url: 'https://sandbox.bytebeacon.com',
+          url: 'https://sandbox.bytebeacon.online',
           description: 'Staging Developer Sandbox',
         },
         {
-          url: 'https://api.bytebeacon.com',
+          url: 'https://api.bytebeacon.online',
           description: 'Production Live Gateway',
         },
       ],
