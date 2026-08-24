@@ -223,5 +223,23 @@ describe('Admin Analytics & Overview Dashboard Telemetry', () => {
     const body = res.json();
     expect(body.success).toBe(true);
     expect(body.data.range).toBe('all');
+    expect(body.data.orders.total).toBe(850);
+    expect(body.data.revenue.periodPesewas).toBe(15000000);
+  });
+
+  it('3. GET /admin/analytics/overview with range=today should return today revenue and orders', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/analytics/overview?range=today',
+      headers: { authorization: 'Bearer admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.range).toBe('today');
+    expect(body.data.users.total).toBe(150);
+    expect(body.data.revenue.todayPesewas).toBe(85000);
+    expect(body.data.revenue.periodPesewas).toBe(85000);
   });
 });

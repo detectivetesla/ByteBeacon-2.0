@@ -25,8 +25,9 @@ export const AdminAnalyticsPage: React.FC = () => {
     setIsLoading(true);
     try {
       const res = await adminApi.getAnalyticsOverview(range);
-      if (res) {
-        setAnalytics(res);
+      const analyticsData = (res as any)?.data || res;
+      if (analyticsData) {
+        setAnalytics(analyticsData);
       }
     } catch {
       // Fallback

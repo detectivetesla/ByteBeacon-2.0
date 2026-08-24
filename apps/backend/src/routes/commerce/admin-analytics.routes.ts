@@ -40,8 +40,8 @@ export async function adminAnalyticsRoutes(
           COUNT(*) as "totalUsers",
           COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) = 'customer' THEN 1 END) as "totalCustomers",
           COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller') THEN 1 END) as "totalAgents",
-          COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) = 'admin' THEN 1 END) as "totalAdmins",
-          COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) = 'super_admin' THEN 1 END) as "totalSuperAdmins",
+          COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) IN ('admin', 'super_admin', 'superadmin') THEN 1 END) as "totalAdmins",
+          COUNT(CASE WHEN LOWER(COALESCE(role::text, '')) IN ('super_admin', 'superadmin') THEN 1 END) as "totalSuperAdmins",
           COUNT(CASE WHEN UPPER(COALESCE(status::text, 'ACTIVE')) = 'ACTIVE' THEN 1 END) as "activeUsers"
         FROM users
       `).catch((err) => {
@@ -49,17 +49,17 @@ export async function adminAnalyticsRoutes(
         return { rows: [{ totalUsers: 0, totalCustomers: 0, totalAgents: 0, totalAdmins: 0, totalSuperAdmins: 0, activeUsers: 0 }] };
       });
 
-      // 2. Order metrics & projections (Rock-solid interval arithmetic and dual lifetime/period aggregation)
+      // 2. Order metrics & projections (Rock-solid PostgreSQL interval arithmetic and dual lifetime/period aggregation)
       const orderStatsRes = await db.query(`
         SELECT 
           COUNT(*) as "lifetimeOrders",
           COALESCE(SUM(amount_pesewas), 0) as "lifetimeVolumePesewas",
-          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) THEN 1 END) as "totalOrders",
-          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) AND order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as "completedOrders",
-          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) AND order_status IN ('PENDING', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT', 'CREATED', 'VALIDATING') THEN 1 END) as "processingOrders",
-          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) AND order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as "failedOrders",
-          COUNT(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) AND order_status = 'REFUNDED' THEN 1 END) as "refundedOrders",
-          COALESCE(SUM(CASE WHEN ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')) THEN amount_pesewas ELSE 0 END), 0) as "periodVolumePesewas",
+          COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) THEN 1 END) as "totalOrders",
+          COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as "completedOrders",
+          COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status IN ('PENDING', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT', 'CREATED', 'VALIDATING') THEN 1 END) as "processingOrders",
+          COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as "failedOrders",
+          COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status = 'REFUNDED' THEN 1 END) as "refundedOrders",
+          COALESCE(SUM(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) THEN amount_pesewas ELSE 0 END), 0) as "periodVolumePesewas",
           COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_pesewas ELSE 0 END), 0) as "todayVolumePesewas",
           COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE) THEN amount_pesewas ELSE 0 END), 0) as "monthVolumePesewas"
         FROM orders
@@ -88,7 +88,7 @@ export async function adminAnalyticsRoutes(
           COUNT(*) as "orderCount",
           COALESCE(SUM(amount_pesewas), 0) as "volumePesewas"
         FROM orders
-        WHERE ($1::int = 0 OR created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day'))
+        WHERE ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int)))
         GROUP BY network
       `, [days]).catch((err) => {
         app.log.error({ err }, 'Error calculating networkStats in overview');
@@ -98,9 +98,9 @@ export async function adminAnalyticsRoutes(
       // 4. Financial float & wallet liabilities
       const walletLiabilitiesRes = await db.query(`
         SELECT 
-          COALESCE(SUM(wallet_balance_pesewas), 0) as "totalWalletPesewas",
-          COALESCE(SUM(CASE WHEN LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller') THEN wallet_balance_pesewas ELSE 0 END), 0) as "agentWalletPesewas",
-          COALESCE(SUM(CASE WHEN LOWER(COALESCE(role::text, '')) = 'customer' THEN wallet_balance_pesewas ELSE 0 END), 0) as "customerWalletPesewas"
+          COALESCE(SUM(COALESCE(wallet_balance_pesewas, 0)), 0) as "totalWalletPesewas",
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller') THEN COALESCE(wallet_balance_pesewas, 0) ELSE 0 END), 0) as "agentWalletPesewas",
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(role::text, '')) = 'customer' THEN COALESCE(wallet_balance_pesewas, 0) ELSE 0 END), 0) as "customerWalletPesewas"
         FROM users
       `).catch(() => ({ rows: [{ totalWalletPesewas: 0, agentWalletPesewas: 0, customerWalletPesewas: 0 }] }));
 
@@ -110,7 +110,7 @@ export async function adminAnalyticsRoutes(
       `).catch(() => ({ rows: [{ pendingDlq: 0 }] }));
 
       const mtnApprovalsRes = await db.query(`
-        SELECT COUNT(*) as "pendingMtn" FROM beneficiary_validation WHERE status = 'PENDING' OR status = 'PENDING_APPROVAL'
+        SELECT COUNT(*) as "pendingMtn" FROM beneficiary_validation WHERE validation_status IN ('PENDING', 'PENDING_APPROVAL')
       `).catch(async () => {
         return db.query(`SELECT COUNT(*) as "pendingMtn" FROM beneficiary_records WHERE status = 'PENDING'`).catch(() => ({ rows: [{ pendingMtn: 0 }] }));
       });
@@ -164,18 +164,28 @@ export async function adminAnalyticsRoutes(
           COUNT(*) as "totalStores",
           COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as "activeStores"
         FROM agent_stores
-      `).catch(() => ({ rows: [{ totalStores: 0, activeStores: 0 }] }));
+      `).catch(async () => {
+        return db.query(`SELECT COUNT(*) as "totalStores", COUNT(CASE WHEN is_active = true THEN 1 END) as "activeStores" FROM agents`).catch(() => ({ rows: [{ totalStores: 0, activeStores: 0 }] }));
+      });
 
-      const userStats = userStatsRes.rows[0];
-      const orderStats = orderStatsRes.rows[0];
-      const walletStats = walletLiabilitiesRes.rows[0];
+      const userStats = userStatsRes.rows[0] || {};
+      const orderStats = orderStatsRes.rows[0] || {};
+      const walletStats = walletLiabilitiesRes.rows[0] || {};
       const dlqCount = parseInt(dlqCountRes.rows[0]?.pendingDlq || '0', 10);
       const mtnPending = parseInt(mtnApprovalsRes.rows[0]?.pendingMtn || '0', 10);
       const activeSessions = parseInt(sessionsRes.rows[0]?.activeSessions || '0', 10);
       const failedLogins = parseInt(failedLoginsRes.rows[0]?.failedLogins || '0', 10);
-      const storeStats = storesRes.rows[0];
-      const totalOrdersCount = parseInt(orderStats.totalOrders || orderStats.lifetimeOrders || '0', 10);
+      const storeStats = storesRes.rows[0] || {};
+      const totalOrdersCount = days === 0
+        ? parseInt(orderStats.lifetimeOrders || '0', 10)
+        : parseInt(orderStats.totalOrders || '0', 10);
       const lifetimeOrdersCount = parseInt(orderStats.lifetimeOrders || '0', 10);
+
+      const periodRevenuePesewas = days === 0
+        ? parseInt(orderStats.lifetimeVolumePesewas || '0', 10)
+        : range === 'today'
+        ? parseInt(orderStats.todayVolumePesewas || orderStats.periodVolumePesewas || '0', 10)
+        : parseInt(orderStats.periodVolumePesewas || '0', 10);
 
       // Construct Attention Required alerts
       const alerts: Array<{
@@ -243,11 +253,11 @@ export async function adminAnalyticsRoutes(
               : 100,
           },
           revenue: {
-            periodPesewas: parseInt(orderStats.periodVolumePesewas || orderStats.lifetimeVolumePesewas || '0', 10),
+            periodPesewas: periodRevenuePesewas,
             lifetimePesewas: parseInt(orderStats.lifetimeVolumePesewas || '0', 10),
             todayPesewas: parseInt(orderStats.todayVolumePesewas || '0', 10),
             monthPesewas: parseInt(orderStats.monthVolumePesewas || '0', 10),
-            platformMarginPesewas: Math.round(parseInt(orderStats.periodVolumePesewas || orderStats.lifetimeVolumePesewas || '0', 10) * 0.18),
+            platformMarginPesewas: Math.round(periodRevenuePesewas * 0.18),
           },
           financialHealth: {
             ledgerStatus: 'BALANCED',
@@ -258,7 +268,7 @@ export async function adminAnalyticsRoutes(
           },
           networks: networkStatsRes.rows.map((r: any) => {
             const vol = parseInt(r.volumePesewas || '0', 10);
-            const totalVol = parseInt(orderStats.periodVolumePesewas || orderStats.lifetimeVolumePesewas || '1', 10);
+            const totalVol = periodRevenuePesewas || parseInt(orderStats.lifetimeVolumePesewas || '1', 10);
             return {
               network: r.network,
               orderCount: parseInt(r.orderCount || '0', 10),
@@ -309,7 +319,11 @@ export async function adminAnalyticsRoutes(
             webhooks: 'OPERATIONAL',
           },
           alerts,
-          recentOrders: recentOrdersRes.rows,
+          recentOrders: recentOrdersRes.rows.map((r: any) => ({
+            ...r,
+            amountPesewas: parseInt(r.amountPesewas || '0', 10),
+            dataAmountMb: parseInt(r.dataAmountMb || '0', 10),
+          })),
           recentUsers: recentUsersRes.rows,
         },
       });
