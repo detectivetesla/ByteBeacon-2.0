@@ -4,46 +4,51 @@ export interface SocialAuthButtonProps {
   provider: 'google' | 'apple';
   onClick?: () => void;
   isLoading?: boolean;
+  disabled?: boolean;
 }
 
 export const SocialAuthButton: React.FC<SocialAuthButtonProps> = ({
   provider,
   onClick,
   isLoading = false,
+  disabled = false,
 }) => {
   const isGoogle = provider === 'google';
+  const isDisabled = isLoading || disabled;
 
   return (
     <button
       type="button"
-      onClick={onClick}
-      disabled={isLoading}
+      data-testid={`social-auth-${provider}`}
+      onClick={isDisabled ? undefined : onClick}
+      disabled={isDisabled}
       style={{
         width: '100%',
         height: '44px',
         borderRadius: 'var(--radius-sm)',
-        backgroundColor: 'var(--color-bg-surface-elevated)',
+        backgroundColor: isDisabled ? 'var(--color-bg-surface-muted)' : 'var(--color-bg-surface-elevated)',
         border: '1px solid var(--color-border-default)',
-        color: 'var(--color-text-primary)',
+        color: isDisabled ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
         fontSize: 'var(--font-size-xs)',
         fontWeight: 600,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         gap: '0.625rem',
-        cursor: isLoading ? 'not-allowed' : 'pointer',
-        boxShadow: 'var(--shadow-tactile-sm)',
+        cursor: isDisabled ? 'not-allowed' : 'pointer',
+        opacity: isDisabled ? 0.6 : 1,
+        boxShadow: isDisabled ? 'none' : 'var(--shadow-tactile-sm)',
         transition: 'all var(--transition-fast)',
         userSelect: 'none',
       }}
       onMouseEnter={(e) => {
-        if (!isLoading) {
+        if (!isDisabled) {
           e.currentTarget.style.borderColor = 'var(--color-border-hover)';
           e.currentTarget.style.transform = 'translateY(-1px)';
         }
       }}
       onMouseLeave={(e) => {
-        if (!isLoading) {
+        if (!isDisabled) {
           e.currentTarget.style.borderColor = 'var(--color-border-default)';
           e.currentTarget.style.transform = 'translateY(0)';
         }

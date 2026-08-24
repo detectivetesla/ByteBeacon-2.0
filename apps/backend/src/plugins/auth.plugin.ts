@@ -3,7 +3,8 @@ import { TokenService, JwtPayload } from '../core/security/token.service.js';
 import { ApiKeyService, ValidatedApiKeyResult } from '../core/security/api-key.service.js';
 import { RbacService } from '../core/security/rbac.service.js';
 import { SecurityDomain, UserRole, Permission, UserStatus } from '@bytebeacon/shared';
-import { UnauthorizedError, ForbiddenError } from '../core/errors/app-error.js';
+import { UnauthorizedError, ForbiddenError, AppError } from '../core/errors/app-error.js';
+import type { FeatureFlagService } from '../infrastructure/features/feature-flag.service.js';
 import type pg from 'pg';
 
 declare module 'fastify' {
@@ -19,6 +20,7 @@ export function createAuthHooks(
   apiKeyService: ApiKeyService,
   rbacService: RbacService,
   db: pg.Pool,
+  featureFlagService?: FeatureFlagService,
 ) {
   const authenticateCustomer = async (req: FastifyRequest, _reply: FastifyReply) => {
     const authHeader = req.headers.authorization;
@@ -46,6 +48,22 @@ export function createAuthHooks(
     }
 
     req.user = { ...payload, status: userStatus };
+
+    // Enforce maintenance mode blackout for non-administrative users
+    if (
+      featureFlagService &&
+      req.user.role !== UserRole.ADMIN &&
+      req.user.role !== UserRole.SUPER_ADMIN
+    ) {
+      const isMaint = await featureFlagService.isMaintenanceModeActive();
+      if (isMaint) {
+        throw new AppError(
+          'Platform is currently undergoing scheduled maintenance. Portal access is temporarily restricted.',
+          503,
+          'MAINTENANCE_MODE_ACTIVE',
+        );
+      }
+    }
   };
 
   const authenticateAdmin = async (req: FastifyRequest, _reply: FastifyReply) => {

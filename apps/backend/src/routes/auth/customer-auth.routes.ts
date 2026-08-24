@@ -18,7 +18,9 @@ import {
   ForbiddenError,
   ConflictError,
   NotFoundError,
+  AppError,
 } from '../../core/errors/app-error.js';
+import type { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import {
   SecurityDomain,
   UserRole,
@@ -43,6 +45,7 @@ export interface CustomerAuthRouteDependencies {
   rateLimiter: RateLimiterService;
   apiKeyService: ApiKeyService;
   rbacService: RbacService;
+  featureFlagService?: FeatureFlagService;
 }
 
 // In-memory user cache for development when local PostgreSQL is offline
@@ -52,8 +55,8 @@ export async function customerAuthRoutes(
   app: FastifyInstance,
   deps: CustomerAuthRouteDependencies,
 ) {
-  const { db, hasher, tokenService, sessionService, auditService, rateLimiter } = deps;
-  const authHooks = createAuthHooks(tokenService, deps.apiKeyService, deps.rbacService, db);
+  const { db, hasher, tokenService, sessionService, auditService, rateLimiter, featureFlagService } = deps;
+  const authHooks = createAuthHooks(tokenService, deps.apiKeyService, deps.rbacService, db, featureFlagService);
   const strictRateLimit = createRateLimitHook(rateLimiter, { limit: 10, windowSeconds: 60 });
 
   // 1. REGISTER
@@ -61,6 +64,15 @@ export async function customerAuthRoutes(
     '/register',
     { preHandler: [strictRateLimit] },
     async (req: FastifyRequest<{ Body: RegisterRequest }>, reply: FastifyReply) => {
+      // Reject customer registrations if maintenance mode is active
+      if (featureFlagService && (await featureFlagService.isMaintenanceModeActive())) {
+        throw new AppError(
+          'Platform is currently undergoing scheduled maintenance. New user registrations are temporarily paused. Please check back shortly.',
+          503,
+          'MAINTENANCE_MODE_ACTIVE',
+        );
+      }
+
       const { email, phone, password, fullName } = req.body || {};
 
       if (!email || !phone || !password || !fullName) {
@@ -242,6 +254,22 @@ export async function customerAuthRoutes(
           if (!devMatch.expectedPass || password !== devMatch.expectedPass) {
             await hasher.verifyPassword('$argon2id$v=19$m=65536,t=3,p=4$dummyhashdummyhash$dummyhashdummyhash', password);
             throw new UnauthorizedError('Invalid login credentials');
+          }
+
+          // Enforce maintenance mode restriction for non-admin dev accounts
+          if (
+            featureFlagService &&
+            devMatch.role !== UserRole.ADMIN &&
+            devMatch.role !== UserRole.SUPER_ADMIN
+          ) {
+            const isMaint = await featureFlagService.isMaintenanceModeActive();
+            if (isMaint) {
+              throw new AppError(
+                'Platform is currently undergoing scheduled maintenance. Customer and Agent portal access is temporarily disabled. Please check back shortly.',
+                503,
+                'MAINTENANCE_MODE_ACTIVE',
+              );
+            }
           }
 
           // Provision or retrieve development user in database
@@ -508,6 +536,22 @@ export async function customerAuthRoutes(
         throw new UnauthorizedError('Invalid login credentials');
       }
 
+      // Enforce maintenance mode restriction for non-admin accounts
+      if (
+        featureFlagService &&
+        user.role !== UserRole.ADMIN &&
+        user.role !== UserRole.SUPER_ADMIN
+      ) {
+        const isMaint = await featureFlagService.isMaintenanceModeActive();
+        if (isMaint) {
+          throw new AppError(
+            'Platform is currently undergoing scheduled maintenance. Customer and Agent portal access is temporarily disabled. Please check back shortly.',
+            503,
+            'MAINTENANCE_MODE_ACTIVE',
+          );
+        }
+      }
+
       // Reset failed login attempts on successful password & upgrade hash if needed
       try {
         if (hasher.needsRehash(user.passwordHash)) {
@@ -714,6 +758,17 @@ export async function customerAuthRoutes(
         throw new ForbiddenError('Account is suspended. Please contact support.');
       }
 
+      // Enforce maintenance mode restriction for Google Auth (non-admin accounts)
+      if (featureFlagService && (await featureFlagService.isMaintenanceModeActive())) {
+        if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.SUPER_ADMIN)) {
+          throw new AppError(
+            'Platform is currently undergoing scheduled maintenance. Google sign-in is temporarily disabled.',
+            503,
+            'MAINTENANCE_MODE_ACTIVE',
+          );
+        }
+      }
+
       // Generate refresh token and session
       const { rawToken, tokenHash } = tokenService.generateRefreshToken();
       const session = await sessionService.createSession({
@@ -800,6 +855,22 @@ export async function customerAuthRoutes(
       }
 
       const user = userRes.rows[0];
+
+      // Enforce maintenance mode restriction for refreshing non-admin sessions
+      if (
+        featureFlagService &&
+        user.role !== UserRole.ADMIN &&
+        user.role !== UserRole.SUPER_ADMIN
+      ) {
+        const isMaint = await featureFlagService.isMaintenanceModeActive();
+        if (isMaint) {
+          throw new AppError(
+            'Platform is currently undergoing scheduled maintenance. Active customer and agent sessions are temporarily paused.',
+            503,
+            'MAINTENANCE_MODE_ACTIVE',
+          );
+        }
+      }
 
       // Rotate Refresh Token
       const { rawToken: newRawToken, tokenHash: newTokenHash } = tokenService.generateRefreshToken();
@@ -1065,6 +1136,22 @@ export async function customerAuthRoutes(
       const securityDomain = (role === 'admin' || role === 'super_admin') ? SecurityDomain.ADMIN : role === 'agent' ? SecurityDomain.AGENT : SecurityDomain.CUSTOMER;
       const defaultEmail = role === 'agent' ? (config.DEV_AGENT_EMAIL || 'dev-agent@bytebeacon.local') : (role === 'admin' || role === 'super_admin') ? (config.DEV_ADMIN_EMAIL || 'dev-admin@bytebeacon.local') : (config.DEV_CUSTOMER_EMAIL || 'dev-customer@bytebeacon.local');
       const defaultName = role === 'agent' ? 'Development Agent' : (role === 'admin' || role === 'super_admin') ? 'Development Administrator' : 'Development Customer';
+
+      // Enforce maintenance mode restriction for non-admin dev login
+      if (
+        featureFlagService &&
+        userRole !== UserRole.ADMIN &&
+        userRole !== UserRole.SUPER_ADMIN
+      ) {
+        const isMaint = await featureFlagService.isMaintenanceModeActive();
+        if (isMaint) {
+          throw new AppError(
+            'Platform is currently undergoing scheduled maintenance. Development login for customers and agents is paused.',
+            503,
+            'MAINTENANCE_MODE_ACTIVE',
+          );
+        }
+      }
 
       // Find or provision development identity in DB
       let userRes = await db.query<{

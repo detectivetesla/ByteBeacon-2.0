@@ -27,6 +27,7 @@ import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { TokenService } from '../../core/security/token.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { AuditService } from '../../core/security/audit.service.js';
+import type { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { logger } from '../../core/logging/logger.js';
 import { AppError } from '../../core/errors/app-error.js';
 
@@ -36,14 +37,15 @@ interface AdminSettingsRouteOptions extends FastifyPluginOptions {
   tokenService: TokenService;
   rbacService: RbacService;
   auditService: AuditService;
+  featureFlagService?: FeatureFlagService;
 }
 
 export async function adminSettingsRoutes(
   app: FastifyInstance,
   opts: AdminSettingsRouteOptions,
 ): Promise<void> {
-  const { db, apiKeyService, tokenService, rbacService, auditService } = opts;
-  const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
+  const { db, apiKeyService, tokenService, rbacService, auditService, featureFlagService } = opts;
+  const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db, featureFlagService);
 
   // 1. GET /admin/settings/overview — High-level Platform Status & Summary
   app.get(
@@ -314,6 +316,10 @@ export async function adminSettingsRoutes(
            SET global_maintenance_mode = $1, updated_at = CURRENT_TIMESTAMP`,
           [isEnabled],
         ).catch(() => {});
+
+        if (featureFlagService) {
+          featureFlagService.setOverride('MAINTENANCE_MODE', isEnabled);
+        }
       }
 
       // 3. Emit immutable cryptographic audit log
@@ -613,6 +619,10 @@ export async function adminSettingsRoutes(
            SET global_maintenance_mode = $1, updated_at = CURRENT_TIMESTAMP`,
           [isEnabled],
         ).catch(() => {});
+
+        if (featureFlagService) {
+          featureFlagService.setOverride('MAINTENANCE_MODE', isEnabled);
+        }
       }
 
       await auditService.logEvent({

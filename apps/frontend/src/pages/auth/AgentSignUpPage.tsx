@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { authApi } from '../../api/auth.api.js';
 import { validatePassword } from '../../utils/password.js';
 import { Store, ArrowRight, User, Mail } from 'lucide-react';
@@ -16,12 +17,18 @@ export const AgentSignUpPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ storeName?: string; fullName?: string; email?: string; phone?: string; password?: string }>({});
 
+  const { isMaintenanceMode } = usePlatformStatus();
   const { error: toastError, success: toastSuccess } = useToast();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFieldErrors({});
+
+    if (isMaintenanceMode) {
+      toastError('Registration Paused', 'Agent registrations are temporarily paused during scheduled platform maintenance.');
+      return;
+    }
 
     const errors: { storeName?: string; fullName?: string; email?: string; phone?: string; password?: string } = {};
     if (!storeName.trim()) errors.storeName = 'Store / Business name is required';
@@ -94,7 +101,7 @@ export const AgentSignUpPage: React.FC = () => {
           placeholder="e.g. Accra Data Hub"
           value={storeName}
           onChange={(e) => setStoreName(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           error={fieldErrors.storeName}
           leftIcon={<Store size={15} color="var(--color-text-muted)" />}
           required
@@ -108,7 +115,7 @@ export const AgentSignUpPage: React.FC = () => {
           placeholder="e.g. Kofi Owusu"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           error={fieldErrors.fullName}
           leftIcon={<User size={15} color="var(--color-text-muted)" />}
           required
@@ -122,7 +129,7 @@ export const AgentSignUpPage: React.FC = () => {
           placeholder="kofi@datahub.gh"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           error={fieldErrors.email}
           leftIcon={<Mail size={15} color="var(--color-text-muted)" />}
           required
@@ -135,7 +142,7 @@ export const AgentSignUpPage: React.FC = () => {
           placeholder="024 123 4567"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           error={fieldErrors.phone}
           required
         />
@@ -148,7 +155,7 @@ export const AgentSignUpPage: React.FC = () => {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           error={fieldErrors.password}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           showStrengthMeter
           showRequirements
           required
@@ -160,13 +167,14 @@ export const AgentSignUpPage: React.FC = () => {
           variant="primary"
           size="lg"
           fullWidth
+          disabled={isMaintenanceMode}
           isLoading={isLoading}
           style={{
             marginTop: 'var(--space-3)',
           }}
           rightIcon={<ArrowRight size={16} strokeWidth={2.8} />}
         >
-          Register as Agent
+          {isMaintenanceMode ? 'Registration Paused' : 'Register as Agent'}
         </Button>
       </form>
     </AuthLayout>

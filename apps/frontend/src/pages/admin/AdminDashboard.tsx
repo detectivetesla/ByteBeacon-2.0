@@ -9,6 +9,7 @@ import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { OrderHealthProgressBar } from '../../components/dashboard/OrderHealthProgressBar.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { adminApi } from '../../api/admin.api.js';
 import { apiClient } from '../../api/httpClient.js';
 import {
@@ -48,14 +49,20 @@ interface AuditStreamItem {
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
+  const { isMaintenanceMode, refetch: refetchPlatformStatus } = usePlatformStatus();
   const { success: toastSuccess, error: toastError } = useToast();
 
   const [range, setRange] = useState<string>('30d');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [data, setData] = useState<any | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('Just now');
-  const [maintenanceMode, setMaintenanceMode] = useState<boolean>(false);
+  const [maintenanceMode, setMaintenanceMode] = useState<boolean>(isMaintenanceMode);
   const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState<boolean>(false);
+  const [isTogglingMaintenance, setIsTogglingMaintenance] = useState<boolean>(false);
+
+  useEffect(() => {
+    setMaintenanceMode(isMaintenanceMode);
+  }, [isMaintenanceMode]);
 
   const [auditLogs, setAuditLogs] = useState<AuditStreamItem[]>([
     { id: '1', action: 'DATABASE_POOL_CONNECTED', color: '#10b981', time: 'Just now' },
@@ -113,19 +120,58 @@ export const AdminDashboard: React.FC = () => {
     }
   }, [range, toastError]);
 
-  useEffect(() => {
-    fetchOverviewData();
-  }, [fetchOverviewData]);
+  const handleToggleMaintenance = async () => {
+    setIsTogglingMaintenance(true);
+    const targetState = !maintenanceMode;
+    try {
+      let toggled = false;
+      try {
+        await adminApi.toggleEmergencyControl({
+          controlKey: 'MAINTENANCE_MODE',
+          enabled: targetState,
+          reason: `Admin dashboard quick toggle by ${currentUser?.email || 'admin'}`,
+          stepUpConfirmation: 'CONFIRM_EMERGENCY_ACTION',
+        });
+        toggled = true;
+      } catch {
+        // Fallback to feature flag or system config endpoint
+      }
 
-  const handleToggleMaintenance = () => {
-    setMaintenanceMode((prev) => !prev);
-    setIsMaintenanceModalOpen(false);
-    toastSuccess(
-      !maintenanceMode ? 'Maintenance Mode Enabled' : 'Maintenance Mode Disabled',
-      !maintenanceMode
-        ? 'Public checkout is paused. Administrative operations remain active.'
-        : 'All platform purchasing systems restored to normal operation.'
-    );
+      if (!toggled) {
+        try {
+          await adminApi.updateFeatureFlag('MAINTENANCE_MODE', {
+            isEnabled: targetState,
+            reason: `Admin dashboard quick toggle by ${currentUser?.email || 'admin'}`,
+            stepUpConfirmation: 'CONFIRM_CONFIG_CHANGE',
+          });
+          toggled = true;
+        } catch {
+          // Fallback to system config
+        }
+      }
+
+      if (!toggled) {
+        await adminApi.updateSystemConfig('maintenance_mode', {
+          value: targetState,
+          reason: `Admin dashboard quick toggle by ${currentUser?.email || 'admin'}`,
+          stepUpConfirmation: 'CONFIRM_CONFIG_CHANGE',
+        });
+      }
+
+      setMaintenanceMode(targetState);
+      await refetchPlatformStatus();
+      toastSuccess(
+        targetState ? 'Maintenance Mode Enabled' : 'Maintenance Mode Disabled',
+        targetState
+          ? 'Public checkout and customer portals are paused. Administrative operations remain active.'
+          : 'All platform systems restored to normal operational status.'
+      );
+    } catch (err: any) {
+      toastError('Failed to Toggle Maintenance Mode', err?.message || 'Could not update system state.');
+    } finally {
+      setIsTogglingMaintenance(false);
+      setIsMaintenanceModalOpen(false);
+    }
   };
 
   const isSuperAdmin = currentUser?.role === 'super_admin';
@@ -739,12 +785,18 @@ export const AdminDashboard: React.FC = () => {
             </p>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-              <Button variant="ghost" size="sm" onClick={() => setIsMaintenanceModalOpen(false)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isTogglingMaintenance}
+                onClick={() => setIsMaintenanceModalOpen(false)}
+              >
                 Cancel
               </Button>
               <Button
                 variant={maintenanceMode ? 'primary' : 'danger'}
                 size="sm"
+                isLoading={isTogglingMaintenance}
                 onClick={handleToggleMaintenance}
               >
                 Confirm State Change

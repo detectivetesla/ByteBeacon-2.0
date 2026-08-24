@@ -10,6 +10,7 @@ import {
   NotFoundError,
   ForbiddenError,
 } from '../../core/errors/app-error.js';
+import type { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import {
   UserRole,
   Permission,
@@ -35,6 +36,7 @@ export interface AdminAuditSecurityRouteDependencies {
   apiKeyService: ApiKeyService;
   rbacService: RbacService;
   auditService?: AuditService;
+  featureFlagService?: FeatureFlagService;
 }
 
 function redactEmail(email: string | null | undefined): string {
@@ -48,8 +50,8 @@ export async function adminAuditSecurityRoutes(
   app: FastifyInstance,
   deps: AdminAuditSecurityRouteDependencies,
 ) {
-  const { db, tokenService, apiKeyService, rbacService, auditService } = deps;
-  const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
+  const { db, tokenService, apiKeyService, rbacService, auditService, featureFlagService } = deps;
+  const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db, featureFlagService);
 
   // =========================================================================
   // 1. GET /admin/audit/overview — Security Health & Audit Overview
@@ -1009,6 +1011,10 @@ export async function adminAuditSecurityRoutes(
            SET global_maintenance_mode = $1, updated_at = CURRENT_TIMESTAMP`,
           [enabled],
         ).catch(() => {});
+
+        if (featureFlagService) {
+          featureFlagService.setOverride('MAINTENANCE_MODE', enabled);
+        }
       }
 
       if (auditService) {

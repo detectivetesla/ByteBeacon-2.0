@@ -349,6 +349,7 @@ export function createApp(options: AppOptions = {}) {
         rateLimiter,
         apiKeyService,
         rbacService,
+        featureFlagService,
       });
     },
     { prefix: '/api/v1/auth' },
@@ -530,6 +531,7 @@ export function createApp(options: AppOptions = {}) {
         tokenService,
         rbacService,
         auditService,
+        featureFlagService,
       });
       await adminSettingsRoutes(commerceSubApp, {
         db: dbPool!,
@@ -537,6 +539,7 @@ export function createApp(options: AppOptions = {}) {
         tokenService,
         rbacService,
         auditService,
+        featureFlagService,
       });
       await adminPermissionsRoutes(commerceSubApp, {
         db: dbPool!,

@@ -5,11 +5,13 @@ import { Button } from '../../components/ui/Button/Button.js';
 import { Input, PasswordInput } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { authApi } from '../../api/auth.api.js';
-import { Store, ArrowLeft, Mail } from 'lucide-react';
+import { Store, ArrowLeft, Mail, AlertTriangle } from 'lucide-react';
 
 export const StoreLoginPage: React.FC = () => {
   const { login } = useAuth();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const navigate = useNavigate();
   const { toastSuccess, toastError } = useToast();
 
@@ -19,6 +21,11 @@ export const StoreLoginPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isMaintenanceMode) {
+      toastError('Maintenance Mode Active', 'Agent store login is temporarily offline during scheduled platform maintenance.');
+      return;
+    }
+
     if (!email || !password) {
       toastError('Missing fields', 'Please enter both your email and password.');
       return;
@@ -131,6 +138,34 @@ export const StoreLoginPage: React.FC = () => {
           </p>
         </div>
 
+        {/* Maintenance Alert */}
+        {isMaintenanceMode && (
+          <div
+            role="alert"
+            data-testid="store-maintenance-alert"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '0.75rem',
+              padding: '0.875rem 1rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              marginBottom: 'var(--space-4)',
+            }}
+          >
+            <AlertTriangle size={18} style={{ color: '#F59E0B', flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ fontSize: 'var(--font-size-xs)', lineHeight: 1.45 }}>
+              <div style={{ fontWeight: 800, color: '#D97706', marginBottom: '0.125rem' }}>
+                Maintenance in Progress
+              </div>
+              <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-3xs)' }}>
+                {maintenanceMessage || 'Agent stores are temporarily inaccessible while platform maintenance is active.'}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Login Form */}
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <Input
@@ -142,7 +177,7 @@ export const StoreLoginPage: React.FC = () => {
             placeholder="agent@example.com"
             leftIcon={<Mail size={15} color="var(--color-text-muted)" />}
             required
-            disabled={loading}
+            disabled={loading || isMaintenanceMode}
           />
 
           <PasswordInput
@@ -152,12 +187,19 @@ export const StoreLoginPage: React.FC = () => {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••••••"
             required
-            disabled={loading}
+            disabled={loading || isMaintenanceMode}
           />
 
           <div style={{ marginTop: 'var(--space-2)' }}>
-            <Button variant="primary" size="lg" fullWidth type="submit" isLoading={loading}>
-              Sign In to Store
+            <Button
+              variant="primary"
+              size="lg"
+              fullWidth
+              type="submit"
+              disabled={isMaintenanceMode}
+              isLoading={loading}
+            >
+              {isMaintenanceMode ? 'Portal Offline' : 'Sign In to Store'}
             </Button>
           </div>
         </form>

@@ -5,6 +5,7 @@ import { SocialAuthButton } from '../../components/auth/SocialAuthButton.js';
 import { Input, PasswordInput, Checkbox, Button } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { authApi } from '../../api/auth.api.js';
 import { promptGoogleSignIn } from '../../utils/googleAuth.js';
 import { ArrowRight, Mail } from 'lucide-react';
@@ -18,10 +19,16 @@ export const SignInPage: React.FC = () => {
   const [fieldErrors, setFieldErrors] = useState<{ identifier?: string; password?: string }>({});
 
   const { login } = useAuth();
+  const { isMaintenanceMode } = usePlatformStatus();
   const { error: toastError, success: toastSuccess, info: toastInfo } = useToast();
   const navigate = useNavigate();
 
   const handleGoogleSignIn = async () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance Mode Active', 'Google sign-in is disabled during scheduled maintenance. Administrators may sign in below with credentials.');
+      return;
+    }
+
     setIsGoogleLoading(true);
     try {
       toastInfo('Google Sign In', 'Opening Google Authentication...');
@@ -118,7 +125,13 @@ export const SignInPage: React.FC = () => {
           provider="google"
           onClick={handleGoogleSignIn}
           isLoading={isGoogleLoading}
+          disabled={isMaintenanceMode}
         />
+        {isMaintenanceMode && (
+          <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+            Google Sign-In is disabled during scheduled maintenance.
+          </div>
+        )}
       </div>
 
       {/* Divider */}

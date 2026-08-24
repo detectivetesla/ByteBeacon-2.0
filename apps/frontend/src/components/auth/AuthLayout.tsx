@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { VisualPanel } from './VisualPanel.js';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 
 export interface AuthLayoutProps {
   children: React.ReactNode;
@@ -25,6 +26,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
   topActionHref,
 }) => {
   const navigate = useNavigate();
+  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
   const handleBack = () => {
     if (window.history.length > 1) {
@@ -202,6 +204,37 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
                     {subtitle}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* Maintenance Mode Amber Notification Banner */}
+            {isMaintenanceMode && (
+              <div
+                role="alert"
+                data-testid="auth-maintenance-alert"
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.75rem',
+                  padding: '0.875rem 1rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                  marginBottom: 'var(--space-4)',
+                }}
+              >
+                <AlertTriangle size={18} style={{ color: '#F59E0B', flexShrink: 0, marginTop: '2px' }} />
+                <div style={{ fontSize: 'var(--font-size-xs)', lineHeight: 1.45 }}>
+                  <div style={{ fontWeight: 800, color: '#D97706', marginBottom: '0.125rem' }}>
+                    Scheduled Maintenance in Progress
+                  </div>
+                  <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-3xs)' }}>
+                    {maintenanceMessage || 'Platform upgrades are currently underway. Customer & Agent portal access is temporarily offline.'}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-3xs)', color: '#D97706', fontWeight: 700, marginTop: '0.375rem' }}>
+                    Administrator sign-in remains active.
+                  </div>
+                </div>
               </div>
             )}
 

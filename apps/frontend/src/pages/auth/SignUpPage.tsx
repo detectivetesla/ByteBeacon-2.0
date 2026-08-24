@@ -5,6 +5,7 @@ import { SocialAuthButton } from '../../components/auth/SocialAuthButton.js';
 import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { authApi } from '../../api/auth.api.js';
 import { promptGoogleSignIn } from '../../utils/googleAuth.js';
 import { validatePassword } from '../../utils/password.js';
@@ -20,10 +21,16 @@ export const SignUpPage: React.FC = () => {
   const [fieldErrors, setFieldErrors] = useState<{ fullName?: string; email?: string; phone?: string; password?: string }>({});
 
   const { login } = useAuth();
+  const { isMaintenanceMode } = usePlatformStatus();
   const { error: toastError, success: toastSuccess, info: toastInfo } = useToast();
   const navigate = useNavigate();
 
   const handleGoogleSignUp = async () => {
+    if (isMaintenanceMode) {
+      toastError('Maintenance Mode Active', 'Google sign-up is disabled during scheduled maintenance. Please check back shortly.');
+      return;
+    }
+
     setIsGoogleLoading(true);
     try {
       toastInfo('Google Sign Up', 'Opening Google Authentication...');
@@ -53,6 +60,11 @@ export const SignUpPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFieldErrors({});
+
+    if (isMaintenanceMode) {
+      toastError('Registration Paused', 'New user registrations are temporarily paused during scheduled maintenance.');
+      return;
+    }
 
     const errors: { fullName?: string; email?: string; phone?: string; password?: string } = {};
     if (!fullName.trim()) errors.fullName = 'Full name is required';
@@ -101,7 +113,13 @@ export const SignUpPage: React.FC = () => {
           provider="google"
           onClick={handleGoogleSignUp}
           isLoading={isGoogleLoading}
+          disabled={isMaintenanceMode}
         />
+        {isMaintenanceMode && (
+          <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+            Google Sign-Up is disabled during scheduled maintenance.
+          </div>
+        )}
       </div>
 
       {/* Divider */}
@@ -130,7 +148,7 @@ export const SignUpPage: React.FC = () => {
           placeholder="e.g. Kwame Mensah"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           error={fieldErrors.fullName}
           leftIcon={<User size={15} color="var(--color-text-muted)" />}
           required
@@ -144,7 +162,7 @@ export const SignUpPage: React.FC = () => {
           placeholder="kwame@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           error={fieldErrors.email}
           leftIcon={<Mail size={15} color="var(--color-text-muted)" />}
           required
@@ -157,7 +175,7 @@ export const SignUpPage: React.FC = () => {
           placeholder="024 123 4567"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           error={fieldErrors.phone}
           required
         />
@@ -170,7 +188,7 @@ export const SignUpPage: React.FC = () => {
           onChange={(e) => setPassword(e.target.value)}
           placeholder="••••••••••••"
           error={fieldErrors.password}
-          disabled={isLoading}
+          disabled={isLoading || isMaintenanceMode}
           showStrengthMeter
           showRequirements
           required
@@ -187,11 +205,12 @@ export const SignUpPage: React.FC = () => {
           variant="primary"
           size="lg"
           fullWidth
+          disabled={isMaintenanceMode}
           isLoading={isLoading}
           style={{ marginTop: 'var(--space-1)' }}
           rightIcon={<ArrowRight size={16} strokeWidth={2.4} />}
         >
-          Create Account
+          {isMaintenanceMode ? 'Registration Paused' : 'Create Account'}
         </Button>
       </form>
     </AuthLayout>
