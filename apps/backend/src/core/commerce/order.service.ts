@@ -15,6 +15,9 @@ import {
   PaginatedResponse,
   CustomerOrderDto,
   toCustomerFacingStatus,
+  AgentOrdersListData,
+  AgentOrderDetailData,
+  AgentOrderListItem,
 } from '@bytebeacon/shared';
 import { OrderStateMachine } from './order-state-machine.js';
 import { CatalogService } from './catalog.service.js';
@@ -477,4 +480,262 @@ export class OrderService {
       client.release();
     }
   }
+
+  /**
+   * Lists an agent's data orders (newest first) with per-order delivery tally.
+   * Excludes WAEC checker orders. The list omits the recipient array.
+   */
+  public async listAgentOrders(params: {
+    agentOrUserId: string;
+    status?: string;
+    network?: string;
+    paymentStatus?: string;
+    after?: string;
+    before?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<AgentOrdersListData> {
+    const page = Math.max(1, params.page || 1);
+    const limit = Math.min(100, Math.max(1, params.limit || 30));
+    const offset = (page - 1) * limit;
+
+    // Resolve agent and user ID
+    let agentId = params.agentOrUserId;
+    let userId = params.agentOrUserId;
+    try {
+      const agentRes = await this.db.query(
+        'SELECT id, user_id as "userId" FROM agents WHERE id = $1 OR user_id = $1',
+        [params.agentOrUserId],
+      );
+      if (agentRes.rows.length > 0) {
+        agentId = agentRes.rows[0].id;
+        userId = agentRes.rows[0].userId;
+      }
+    } catch {
+      // Continue with provided ID
+    }
+
+    const conditions: string[] = ['(o.agent_id = $1 OR o.user_id = $2)'];
+    const queryParams: any[] = [agentId, userId];
+    let paramIdx = 3;
+
+    // Filter by network
+    if (params.network && params.network.toUpperCase() !== 'ALL') {
+      conditions.push(`o.network = $${paramIdx}`);
+      queryParams.push(params.network.toUpperCase());
+      paramIdx++;
+    }
+
+    // Filter by status
+    if (params.status && params.status.toLowerCase() !== 'all') {
+      const st = params.status.toLowerCase();
+      if (st === 'approved' || st === 'fulfilled' || st === 'completed') {
+        conditions.push(`(o.order_status = 'COMPLETED' OR o.provider_status = 'COMPLETED')`);
+      } else if (st === 'received' || st === 'created' || st === 'submitted') {
+        conditions.push(`(o.order_status IN ('CREATED', 'SUBMITTED', 'READY_FOR_FULFILLMENT') OR o.provider_status IN ('UNKNOWN', 'RECEIVED'))`);
+      } else if (st === 'processing') {
+        conditions.push(`(o.order_status = 'PROCESSING' OR o.provider_status = 'PROCESSING')`);
+      } else if (st === 'rejected' || st === 'fulfillment_failed' || st === 'failed' || st === 'cancelled') {
+        conditions.push(`(o.order_status IN ('FAILED', 'CANCELLED') OR o.provider_status IN ('FAILED', 'REJECTED'))`);
+      } else {
+        conditions.push(`(o.order_status ILIKE $${paramIdx} OR o.provider_status ILIKE $${paramIdx})`);
+        queryParams.push(st);
+        paramIdx++;
+      }
+    }
+
+    // Filter by paymentStatus
+    if (params.paymentStatus && params.paymentStatus.toLowerCase() !== 'all') {
+      conditions.push(`o.payment_status ILIKE $${paramIdx}`);
+      queryParams.push(params.paymentStatus);
+      paramIdx++;
+    }
+
+    // Filter by date bounds
+    if (params.after) {
+      conditions.push(`o.created_at >= $${paramIdx}`);
+      queryParams.push(new Date(params.after));
+      paramIdx++;
+    }
+    if (params.before) {
+      conditions.push(`o.created_at <= $${paramIdx}`);
+      queryParams.push(new Date(params.before));
+      paramIdx++;
+    }
+
+    // Filter by search (TXN reference or phone in any format)
+    if (params.search && params.search.trim()) {
+      const s = params.search.trim();
+      conditions.push(
+        `(o.public_id ILIKE $${paramIdx} OR o.recipient_phone ILIKE $${paramIdx} OR po.provider_reference ILIKE $${paramIdx} OR o.idempotency_key ILIKE $${paramIdx})`,
+      );
+      queryParams.push(`%${s}%`);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Total Count Query
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM orders o
+      LEFT JOIN provider_orders po ON o.id = po.order_id
+      ${whereClause}
+    `;
+    const countRes = await this.db.query(countQuery, queryParams);
+    const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+    // Select Query
+    const selectQuery = `
+      SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone",
+             o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
+             o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+             o.provider_status as "providerStatus", o.created_at as "createdAt", o.updated_at as "updatedAt",
+             po.provider_reference as "providerReference", bsi.submission_id as "submissionId"
+      FROM orders o
+      LEFT JOIN provider_orders po ON o.id = po.order_id
+      LEFT JOIN bulk_submission_items bsi ON o.id = bsi.order_id
+      ${whereClause}
+      ORDER BY o.created_at DESC
+      LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
+    `;
+    const selectParams = [...queryParams, limit, offset];
+    const itemsRes = await this.db.query(selectQuery, selectParams);
+
+    const data: AgentOrderListItem[] = itemsRes.rows.map((r: any) => {
+      const isApproved = r.orderStatus === 'COMPLETED' || r.providerStatus === 'COMPLETED';
+      const isFailed = r.orderStatus === 'FAILED' || r.orderStatus === 'CANCELLED' || r.providerStatus === 'FAILED' || r.providerStatus === 'REJECTED';
+      const isPending = !isApproved && !isFailed;
+
+      const mappedStatus = isApproved ? 'approved' : isFailed ? 'rejected' : r.orderStatus === 'PROCESSING' ? 'processing' : 'received';
+      const sizeGb = Math.round((r.dataAmountMb || 0) / 1024) || Math.max(1, Number(((r.dataAmountMb || 0) / 1024).toFixed(1)));
+      const amountGhs = (parseInt(r.amountPesewas || '0', 10) / 100).toFixed(2);
+
+      return {
+        id: r.publicId,
+        referenceCode: r.providerReference || r.publicId,
+        network: r.network,
+        status: mappedStatus,
+        paymentStatus: String(r.paymentStatus || 'PENDING').toLowerCase(),
+        amount: amountGhs,
+        groupSizeGb: sizeGb,
+        submissionId: r.submissionId || null,
+        createdAt: new Date(r.createdAt).toISOString(),
+        approvedAt: isApproved ? new Date(r.updatedAt).toISOString() : null,
+        approvedByName: isApproved ? 'Ops Team' : null,
+        beneficiaryCount: 1,
+        totalDataGb: sizeGb,
+        delivery: {
+          approved: isApproved ? 1 : 0,
+          pending: isPending ? 1 : 0,
+          failed: isFailed ? 1 : 0,
+          total: 1,
+        },
+        beneficiaries: [] as never[],
+      };
+    });
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * Looks up one agent order's status and full recipient list by public ID or reference code.
+   */
+  public async getAgentOrderById(
+    orderIdOrPublicId: string,
+    agentOrUserId: string,
+  ): Promise<AgentOrderDetailData> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      orderIdOrPublicId,
+    );
+
+    // Resolve agent and user ID
+    let agentId = agentOrUserId;
+    let userId = agentOrUserId;
+    try {
+      const agentRes = await this.db.query(
+        'SELECT id, user_id as "userId" FROM agents WHERE id = $1 OR user_id = $1',
+        [agentOrUserId],
+      );
+      if (agentRes.rows.length > 0) {
+        agentId = agentRes.rows[0].id;
+        userId = agentRes.rows[0].userId;
+      }
+    } catch {
+      // Continue with provided ID
+    }
+
+    const query = `
+      SELECT o.id, o.public_id as "publicId", o.user_id as "userId", o.agent_id as "agentId",
+             o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
+             o.amount_pesewas as "amountPesewas", o.currency, o.pricing_snapshot as "pricingSnapshot",
+             o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+             o.provider_status as "providerStatus", o.created_at as "createdAt", o.updated_at as "updatedAt",
+             po.provider_reference as "providerReference", bsi.submission_id as "submissionId"
+      FROM orders o
+      LEFT JOIN provider_orders po ON o.id = po.order_id
+      LEFT JOIN bulk_submission_items bsi ON o.id = bsi.order_id
+      WHERE (${isUuid ? 'o.id = $1' : 'o.public_id = $1 OR po.provider_reference = $1'})
+        AND (o.agent_id = $2 OR o.user_id = $3)
+      LIMIT 1
+    `;
+
+    const result = await this.db.query(query, [orderIdOrPublicId, agentId, userId]);
+    if (result.rows.length === 0) {
+      throw new NotFoundError(`Order '${orderIdOrPublicId}' not found for current agent`);
+    }
+
+    const r = result.rows[0];
+    const isApproved = r.orderStatus === 'COMPLETED' || r.providerStatus === 'COMPLETED';
+    const isFailed = r.orderStatus === 'FAILED' || r.orderStatus === 'CANCELLED' || r.providerStatus === 'FAILED' || r.providerStatus === 'REJECTED';
+    const isPending = !isApproved && !isFailed;
+
+    const mappedStatus = isApproved ? 'approved' : isFailed ? 'rejected' : r.orderStatus === 'PROCESSING' ? 'processing' : 'received';
+    const sizeGb = Math.round((r.dataAmountMb || 0) / 1024) || Math.max(1, Number(((r.dataAmountMb || 0) / 1024).toFixed(1)));
+    const amountGhs = (parseInt(r.amountPesewas || '0', 10) / 100).toFixed(2);
+
+    return {
+      id: r.publicId,
+      referenceCode: r.providerReference || r.publicId,
+      network: r.network,
+      status: mappedStatus,
+      paymentStatus: String(r.paymentStatus || 'PENDING').toLowerCase(),
+      amount: amountGhs,
+      groupSizeGb: sizeGb,
+      submissionId: r.submissionId || null,
+      createdAt: new Date(r.createdAt).toISOString(),
+      approvedAt: isApproved ? new Date(r.updatedAt).toISOString() : null,
+      approvedByName: isApproved ? 'Ops Team' : null,
+      paymentSplit: null,
+      beneficiaryCount: 1,
+      totalDataGb: sizeGb,
+      delivery: {
+        approved: isApproved ? 1 : 0,
+        pending: isPending ? 1 : 0,
+        failed: isFailed ? 1 : 0,
+        total: 1,
+      },
+      beneficiaries: [
+        {
+          id: `ben_${r.publicId.slice(4)}`,
+          phoneNumber: r.recipientPhone,
+          dataVolumeGb: Number(sizeGb).toFixed(2),
+          amount: amountGhs,
+          network: r.network,
+          status: mappedStatus,
+          isPorted: false,
+        },
+      ],
+    };
+  }
 }
+

@@ -5,6 +5,7 @@ import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
 import { IPaymentProvider } from '../../core/payments/payment-provider.interface.js';
+import { OrderService } from '../../core/commerce/order.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
@@ -27,6 +28,7 @@ export interface AgentRouteDependencies {
   ledgerService?: FinancialLedgerService;
   paymentProvider?: IPaymentProvider;
   featureFlagService?: FeatureFlagService;
+  orderService?: OrderService;
 }
 
 export async function agentRoutes(
@@ -35,8 +37,118 @@ export async function agentRoutes(
 ) {
   const { db, tokenService, apiKeyService, rbacService, ledgerService, paymentProvider } = deps;
   const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(db);
+  const orderService = deps.orderService ?? (app as any).orderService;
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const maintenanceHook = createMaintenanceHook(featureFlagService);
+
+  interface ListAgentOrdersQuery {
+    status?: string;
+    network?: string;
+    paymentStatus?: string;
+    after?: string;
+    before?: string;
+    search?: string;
+    page?: string;
+    limit?: string;
+  }
+
+  // 0. LIST AGENT ORDERS: GET /agent/orders & GET /agents/orders
+  const handleListAgentOrders = async (
+    req: FastifyRequest<{ Querystring: ListAgentOrdersQuery }>,
+    reply: FastifyReply,
+  ) => {
+    const {
+      status,
+      network,
+      paymentStatus,
+      after,
+      before,
+      search,
+      page,
+      limit,
+    } = req.query;
+
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 30;
+
+    let result;
+    if (orderService) {
+      result = await orderService.listAgentOrders({
+        agentOrUserId: req.user!.sub,
+        status,
+        network,
+        paymentStatus,
+        after,
+        before,
+        search,
+        page: pageNum,
+        limit: limitNum,
+      });
+    } else {
+      result = { data: [], meta: { page: pageNum, limit: limitNum, total: 0, totalPages: 1 } };
+    }
+
+    return reply.status(200).send({
+      success: true,
+      statusCode: 200,
+      message: 'Success',
+      data: {
+        data: result.data,
+        orders: result.data,
+        total: result.meta.total,
+        page: result.meta.page,
+        limit: result.meta.limit,
+        totalPages: result.meta.totalPages,
+        meta: result.meta,
+      },
+    });
+  };
+
+  app.get<{ Querystring: ListAgentOrdersQuery }>(
+    '/agent/orders',
+    { preHandler: [authHooks.authenticate] },
+    handleListAgentOrders,
+  );
+  app.get<{ Querystring: ListAgentOrdersQuery }>(
+    '/agents/orders',
+    { preHandler: [authHooks.authenticate] },
+    handleListAgentOrders,
+  );
+
+  // 0.1 LOOKUP AGENT ORDER BY ID: GET /agent/orders/:id & GET /agents/orders/:id
+  const handleGetAgentOrder = async (
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { id } = req.params;
+    if (!id) {
+      throw new BadRequestError('Order ID is required');
+    }
+
+    if (!orderService) {
+      throw new NotFoundError(`Order '${id}' not found`);
+    }
+
+    const order = await orderService.getAgentOrderById(id, req.user!.sub);
+
+    return reply.status(200).send({
+      success: true,
+      statusCode: 200,
+      message: 'Success',
+      data: order,
+    });
+  };
+
+  app.get<{ Params: { id: string } }>(
+    '/agent/orders/:id',
+    { preHandler: [authHooks.authenticate] },
+    handleGetAgentOrder,
+  );
+  app.get<{ Params: { id: string } }>(
+    '/agents/orders/:id',
+    { preHandler: [authHooks.authenticate] },
+    handleGetAgentOrder,
+  );
 
   // 1. GET AGENT PROFILE
   app.get(
@@ -570,148 +682,6 @@ export async function agentRoutes(
           },
         });
       }
-    },
-  );
-
-  // 8. LIST AGENT ORDERS (/agents/orders)
-  app.get<{
-    Querystring: {
-      status?: string;
-      paymentStatus?: string;
-      network?: string;
-      search?: string;
-      dateRange?: string;
-      startDate?: string;
-      endDate?: string;
-      sortBy?: string;
-      page?: string;
-      limit?: string;
-    };
-  }>(
-    '/agents/orders',
-    { preHandler: [authHooks.authenticateCustomer] },
-    async (req, reply) => {
-      const {
-        status,
-        paymentStatus,
-        network,
-        search,
-        dateRange,
-        startDate,
-        endDate,
-        sortBy = 'newest',
-        page = '1',
-        limit = '20',
-      } = req.query;
-
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-      const offset = (pageNum - 1) * limitNum;
-
-      const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
-      const agentId = agentRes.rows[0]?.id;
-
-      const conditions: string[] = ['(o.user_id = $1' + (agentId ? ' OR o.agent_id = $2' : '') + ')'];
-      const params: any[] = [req.user!.sub];
-      if (agentId) {
-        params.push(agentId);
-      }
-
-      if (status && status !== 'ALL') {
-        params.push(status);
-        conditions.push(`o.order_status = $${params.length}`);
-      }
-
-      if (paymentStatus && paymentStatus !== 'ALL') {
-        params.push(paymentStatus);
-        conditions.push(`o.payment_status = $${params.length}`);
-      }
-
-      if (network && network !== 'ALL') {
-        params.push(network);
-        conditions.push(`o.network = $${params.length}`);
-      }
-
-      if (search && search.trim()) {
-        params.push(`%${search.trim()}%`);
-        conditions.push(`(o.public_id ILIKE $${params.length} OR o.recipient_phone ILIKE $${params.length})`);
-      }
-
-      if (startDate) {
-        params.push(startDate);
-        conditions.push(`o.created_at >= $${params.length}`);
-      } else if (dateRange && dateRange !== 'all') {
-        let days = 30;
-        if (dateRange === 'today') days = 1;
-        else if (dateRange === 'yesterday') days = 2;
-        else if (dateRange === '7d') days = 7;
-        else if (dateRange === '14d') days = 14;
-        else if (dateRange === '30d') days = 30;
-        else if (dateRange === '90d') days = 90;
-        else if (dateRange === '1y') days = 365;
-
-        conditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '${days} days'`);
-      }
-
-      if (endDate) {
-        params.push(endDate);
-        conditions.push(`o.created_at <= $${params.length}`);
-      }
-
-      const whereClause = `WHERE ${conditions.join(' AND ')}`;
-
-      let orderClause = 'ORDER BY o.created_at DESC';
-      if (sortBy === 'oldest') orderClause = 'ORDER BY o.created_at ASC';
-      else if (sortBy === 'highest') orderClause = 'ORDER BY o.amount_pesewas DESC';
-      else if (sortBy === 'lowest') orderClause = 'ORDER BY o.amount_pesewas ASC';
-      else if (sortBy === 'status') orderClause = 'ORDER BY o.order_status ASC';
-
-      const countRes = await db.query(`SELECT COUNT(*) as total FROM orders o ${whereClause}`, params);
-      const total = parseInt(countRes.rows[0]?.total || '0', 10);
-
-      const queryParams = [...params, limitNum, offset];
-      const ordersRes = await db.query(
-        `SELECT o.id, o.public_id as "publicId", o.user_id as "userId", o.agent_id as "agentId",
-                o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
-                o.amount_pesewas as "amountPesewas", o.currency,
-                o.payment_status as "paymentStatus", o.order_status as "orderStatus",
-                o.provider_status as "providerStatus", o.refund_status as "refundStatus",
-                o.created_at as "createdAt", o.updated_at as "updatedAt"
-         FROM orders o
-         ${whereClause}
-         ${orderClause}
-         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-        queryParams,
-      );
-
-      const orders = ordersRes.rows.map((r: any) => ({
-        id: r.id,
-        publicId: r.publicId,
-        userId: r.userId,
-        agentId: r.agentId,
-        recipientPhone: r.recipientPhone,
-        network: r.network,
-        dataAmountMb: r.dataAmountMb,
-        amountPesewas: parseInt(r.amountPesewas, 10) || 0,
-        currency: r.currency || 'GHS',
-        paymentStatus: r.paymentStatus,
-        orderStatus: r.orderStatus,
-        providerStatus: r.providerStatus,
-        refundStatus: r.refundStatus,
-        createdAt: new Date(r.createdAt).toISOString(),
-        updatedAt: new Date(r.updatedAt).toISOString(),
-      }));
-
-      return reply.send({
-        success: true,
-        data: {
-          orders,
-          total,
-          page: pageNum,
-          limit: limitNum,
-          totalPages: Math.ceil(total / limitNum) || 1,
-        },
-      });
     },
   );
 

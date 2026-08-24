@@ -416,6 +416,7 @@ export function createApp(options: AppOptions = {}) {
         ledgerService,
         paymentProvider,
         featureFlagService,
+        orderService,
       });
       await storeRoutes(commerceSubApp, {
         db: dbPool!,

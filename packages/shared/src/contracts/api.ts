@@ -2716,3 +2716,70 @@ export interface AgentBeneficiaryPrecheckData {
   results: BeneficiaryPrecheckItem[];
 }
 
+// --- Agent Orders List & Lookup Contracts ---
+
+export interface AgentOrderDeliverySummary {
+  approved: number;
+  pending: number;
+  failed: number;
+  total: number;
+}
+
+export interface AgentOrderBeneficiaryItem {
+  id: string;
+  phoneNumber: string;
+  dataVolumeGb: string;
+  amount: string;
+  network: string;
+  status: string;
+  isPorted: boolean;
+}
+
+export interface AgentOrderListItem {
+  id: string;
+  referenceCode: string;
+  network: string;
+  status: string;
+  paymentStatus: string;
+  amount: string;
+  groupSizeGb: number;
+  submissionId: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  approvedByName: string | null;
+  beneficiaryCount: number;
+  totalDataGb: number;
+  delivery: AgentOrderDeliverySummary;
+  beneficiaries: never[];
+}
+
+export interface AgentOrdersListData {
+  data: AgentOrderListItem[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface AgentOrderDetailData {
+  id: string;
+  referenceCode: string;
+  network: string;
+  status: string;
+  paymentStatus: string;
+  amount: string;
+  groupSizeGb: number;
+  submissionId: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  approvedByName: string | null;
+  paymentSplit?: { fromMain: number; fromOverdraft: number } | null;
+  beneficiaryCount: number;
+  totalDataGb: number;
+  delivery: AgentOrderDeliverySummary;
+  beneficiaries: AgentOrderBeneficiaryItem[];
+}
+
+
