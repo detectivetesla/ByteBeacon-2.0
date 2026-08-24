@@ -17,6 +17,8 @@ import {
   X,
   CreditCard,
   RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 export const WalletPage: React.FC = () => {
@@ -31,6 +33,23 @@ export const WalletPage: React.FC = () => {
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('20');
   const [isSubmittingTopUp, setIsSubmittingTopUp] = useState(false);
+  const [isBalanceVisible, setIsBalanceVisible] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('bytebeacon_balance_visible') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleBalanceVisibility = () => {
+    setIsBalanceVisible((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('bytebeacon_balance_visible', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const fetchWalletData = useCallback(async () => {
     setIsLoading(true);
@@ -181,12 +200,42 @@ export const WalletPage: React.FC = () => {
               <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Available Balance
               </span>
-              <div style={{ padding: '0.375rem', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
-                <Wallet size={18} strokeWidth={2.6} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={toggleBalanceVisibility}
+                  title={isBalanceVisible ? 'Hide Balance' : 'Show Balance'}
+                  aria-label={isBalanceVisible ? 'Hide Balance' : 'Show Balance'}
+                  style={{
+                    background: 'var(--color-bg-subtle)',
+                    border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--color-text-secondary)',
+                    cursor: 'pointer',
+                    padding: '0.3rem 0.45rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 150ms ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--color-bg-surface-elevated)';
+                    e.currentTarget.style.color = 'var(--color-text-primary)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--color-bg-subtle)';
+                    e.currentTarget.style.color = 'var(--color-text-secondary)';
+                  }}
+                >
+                  {isBalanceVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+                <div style={{ padding: '0.375rem', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
+                  <Wallet size={18} strokeWidth={2.6} />
+                </div>
               </div>
             </div>
             <div style={{ fontSize: 'var(--font-size-4xl)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)' }}>
-              GH₵ {balanceGhs.toFixed(2)}
+              GH₵ {isBalanceVisible ? balanceGhs.toFixed(2) : '••••••'}
             </div>
           </div>
 

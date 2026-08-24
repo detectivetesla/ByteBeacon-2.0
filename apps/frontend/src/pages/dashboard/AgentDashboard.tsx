@@ -42,7 +42,7 @@ interface AgentOrderRow {
 
 export const AgentDashboard: React.FC = () => {
   const { user } = useAuth();
-  const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
+  const { balanceGhs } = useWalletBalance();
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const [activePeriod, setActivePeriod] = useState<ChartPeriod>('30D');
   const [selectedOrder, setSelectedOrder] = useState<OrderDetailData | null>(null);

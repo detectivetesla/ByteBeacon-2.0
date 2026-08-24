@@ -21,7 +21,6 @@ import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
-import { Select } from '../../components/ui/index.js';
 import {
   Cpu,
   RefreshCw,
@@ -38,9 +37,7 @@ import {
   Copy,
   Check,
   Settings,
-  ArrowRight,
   Lock,
-  Wifi,
   Sliders,
 } from 'lucide-react';
 

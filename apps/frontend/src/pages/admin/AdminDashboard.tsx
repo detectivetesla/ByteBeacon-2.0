@@ -186,7 +186,6 @@ export const AdminDashboard: React.FC = () => {
   const periodGhs = (((data?.revenue?.periodPesewas ?? data?.revenue?.monthPesewas ?? 0)) / 100).toFixed(2);
   const lifetimeGhs = (((data?.revenue?.lifetimePesewas ?? 0)) / 100).toFixed(2);
   const todayGhs = (((data?.revenue?.todayPesewas ?? 0)) / 100).toFixed(2);
-  const monthGhs = (((data?.revenue?.monthPesewas ?? 0)) / 100).toFixed(2);
   const walletLiabilityGhs = (((data?.financialHealth?.totalWalletLiabilitiesPesewas ?? 0)) / 100).toFixed(2);
 
   return (

@@ -39,9 +39,7 @@ import {
   Sliders,
   X,
   Trash2,
-  Users,
   Store,
-  Check,
 } from 'lucide-react';
 
 export const AdminDataPlansPage: React.FC = () => {

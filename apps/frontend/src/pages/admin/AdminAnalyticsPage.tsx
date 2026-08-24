@@ -42,7 +42,6 @@ export const AdminAnalyticsPage: React.FC = () => {
 
   const periodVolumeGhs = (((analytics?.revenue?.periodPesewas ?? analytics?.revenue?.monthPesewas ?? 0)) / 100).toFixed(2);
   const totalVolumeGhs = ((analytics?.revenue?.lifetimePesewas || 0) / 100).toFixed(2);
-  const monthVolumeGhs = ((analytics?.revenue?.monthPesewas || 0) / 100).toFixed(2);
   const todayVolumeGhs = ((analytics?.revenue?.todayPesewas || 0) / 100).toFixed(2);
 
   return (

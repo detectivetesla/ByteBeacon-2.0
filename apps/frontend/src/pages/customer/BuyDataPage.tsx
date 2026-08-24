@@ -27,11 +27,17 @@ import {
   ShieldCheck,
   Phone,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
+import {
+  parseSpreadsheetFile,
+  generateSpreadsheetTemplate,
+  ParsedSpreadsheetRow,
+} from '../../utils/spreadsheetParser.js';
 
 type OrderMode = 'single' | 'bulk' | 'excel';
 type BulkSubMode = 'normal' | 'free';
@@ -167,9 +173,7 @@ export const BuyDataPage: React.FC = () => {
   // Excel Order state
   const [isDragging, setIsDragging] = useState(false);
   const [excelFile, setExcelFile] = useState<File | null>(null);
-  const [excelParsedRows, setExcelParsedRows] = useState<
-    Array<{ phone: string; bundleId: string; data: string; pricePesewas: number }>
-  >([]);
+  const [excelParsedRows, setExcelParsedRows] = useState<ParsedSpreadsheetRow[]>([]);
   const [excelLoading, setExcelLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -400,105 +404,57 @@ export const BuyDataPage: React.FC = () => {
   };
 
   // Excel Template Downloads
-  const handleDownloadSimpleTemplate = () => {
-    const csvContent = 'Recipient,Volume\n0241234567,5GB\n0551234567,10GB\n0201234567,2.5GB\n';
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const handleDownloadTemplate = (format: 'xlsx' | 'csv', type: 'simple' | 'full') => {
+    const { blob, filename } = generateSpreadsheetTemplate(format, type);
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', 'bytebeacon_simple_template.csv');
+    link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toastSuccess('Template Downloaded', 'Simple template downloaded (Recipient, Volume).');
+    URL.revokeObjectURL(url);
+    toastSuccess('Template Downloaded', `${filename} downloaded successfully.`);
   };
 
-  const handleDownloadFullTemplate = () => {
-    const csvContent = 'Beneficiary Msisdn,Data (GB)\n0241234567,5\n0551234567,10\n0201234567,2.5\n';
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'bytebeacon_full_template.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Template Downloaded', 'Full template downloaded (Beneficiary Msisdn, Data (GB)).');
-  };
+  const handleDownloadSimpleTemplate = () => handleDownloadTemplate('csv', 'simple');
+  const handleDownloadFullTemplate = () => handleDownloadTemplate('xlsx', 'full');
 
-  // File Upload Handlers (Standardized in GB)
-  const handleFileUpload = (file: File) => {
+  // File Upload Handlers (Supports .xlsx, .xls, .csv standardized in GB)
+  const handleFileUpload = async (file: File) => {
     setExcelFile(file);
     setExcelLoading(true);
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
+    try {
+      const result = await parseSpreadsheetFile(file, availableBundles);
       setExcelLoading(false);
-      const text = evt.target?.result as string;
-      if (!text) {
-        toastError('Empty File', 'Uploaded file appears to be empty.');
+
+      if (result.error) {
+        toastError('Spreadsheet Error', result.error);
+        setExcelParsedRows([]);
         return;
       }
 
-      const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-      const parsedRows: Array<{ phone: string; bundleId: string; data: string; pricePesewas: number }> = [];
-
-      // Skip header if first row contains non-digits header
-      const startIdx = lines[0] && /[a-zA-Z]/.test(lines[0]) ? 1 : 0;
-      for (let i = startIdx; i < lines.length; i++) {
-        const parts = lines[i].split(',').map((p) => p.trim().replace(/^["']|["']$/g, ''));
-        if (parts.length >= 2) {
-          const phone = parts[0];
-          const rawVol = parts[1];
-
-          // Parse GB volume: e.g. "5", "5GB", "10", "2.5", "5120"
-          const cleanVol = rawVol.toLowerCase().replace(/\s+/g, '').replace(/gb$/, '');
-          let numGb = parseFloat(cleanVol);
-
-          // If user entered MB value >= 100 (e.g. 5120), convert to GB
-          if (!isNaN(numGb) && numGb >= 100) {
-            numGb = numGb / 1024;
-          }
-
-          // Match bundle in authoritative catalog
-          let matchingBundle = availableBundles.find((b) => {
-            const bGb = b.dataAmountMb / 1024;
-            return (
-              b.dataDisplay.toLowerCase().replace(/\s+/g, '') === rawVol.toLowerCase().replace(/\s+/g, '') ||
-              (!isNaN(numGb) && Math.abs(bGb - numGb) < 0.05)
-            );
-          });
-
-          if (!matchingBundle) {
-            matchingBundle = availableBundles[0];
-          }
-
-          if (matchingBundle) {
-            parsedRows.push({
-              phone,
-              bundleId: matchingBundle.id,
-              data: matchingBundle.dataDisplay,
-              pricePesewas: matchingBundle.pricePesewas,
-            });
-          }
-        }
-      }
-
-      if (parsedRows.length === 0) {
-        toastError('Format Error', 'No valid rows found. Please use the format: Beneficiary Msisdn, Data (GB)');
+      if (result.rows.length === 0) {
+        toastError('Format Error', 'No data rows found. Please use the format: Beneficiary Msisdn, Data (GB)');
+        setExcelParsedRows([]);
         return;
       }
 
-      setExcelParsedRows(parsedRows);
-      toastSuccess('File Parsed', `Parsed ${file.name} successfully (${parsedRows.length} recipients detected).`);
-    };
+      setExcelParsedRows(result.rows);
 
-    reader.onerror = () => {
+      if (result.invalidRows > 0) {
+        toastError(
+          'Validation Warning',
+          `${result.validRows} valid recipients found. ${result.invalidRows} rows contain invalid phone numbers.`,
+        );
+      } else {
+        toastSuccess('File Parsed', `Parsed ${file.name} successfully (${result.validRows} recipients detected).`);
+      }
+    } catch (err: any) {
       setExcelLoading(false);
-      toastError('Read Error', 'Failed to read the uploaded file.');
-    };
-
-    reader.readAsText(file);
+      toastError('Read Error', `Failed to read the uploaded file: ${err?.message || 'Unknown error'}`);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -510,7 +466,17 @@ export const BuyDataPage: React.FC = () => {
   };
 
   const excelTotalPesewas = useMemo(() => {
-    return excelParsedRows.reduce((sum, r) => sum + r.pricePesewas, 0);
+    return excelParsedRows
+      .filter((r) => r.isValid)
+      .reduce((sum, r) => sum + r.pricePesewas, 0);
+  }, [excelParsedRows]);
+
+  const validExcelRows = useMemo(() => {
+    return excelParsedRows.filter((r) => r.isValid);
+  }, [excelParsedRows]);
+
+  const invalidExcelRows = useMemo(() => {
+    return excelParsedRows.filter((r) => !r.isValid);
   }, [excelParsedRows]);
 
   const handleExcelSubmit = () => {
@@ -518,12 +484,12 @@ export const BuyDataPage: React.FC = () => {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
-    if (!excelFile || excelParsedRows.length === 0) {
-      toastError('No File', 'Please upload a valid Excel or CSV file first.');
+    if (!excelFile || validExcelRows.length === 0) {
+      toastError('No Valid Orders', 'Please upload a spreadsheet with at least one valid recipient phone number.');
       return;
     }
 
-    const bulkItems: BulkOrderItem[] = excelParsedRows.map((r) => ({
+    const bulkItems: BulkOrderItem[] = validExcelRows.map((r) => ({
       recipientPhone: r.phone.replace(/\s+/g, ''),
       productId: r.bundleId,
       dataDisplay: r.data,
@@ -532,8 +498,8 @@ export const BuyDataPage: React.FC = () => {
 
     setModalPayload({
       title: 'Excel Bulk Order',
-      packageSummary: `${excelParsedRows.length} Packages (${selectedNetwork})`,
-      recipientSummary: `${excelParsedRows.length} Recipients (${excelFile.name})`,
+      packageSummary: `${validExcelRows.length} Packages (${selectedNetwork})`,
+      recipientSummary: `${validExcelRows.length} Recipients (${excelFile.name})`,
       amountDisplay: `GH₵ ${(excelTotalPesewas / 100).toFixed(2)}`,
       bundleId: currentSingleBundle.id,
       bulkItems,
@@ -1269,10 +1235,10 @@ export const BuyDataPage: React.FC = () => {
 
                 <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                   <Button variant="outline" size="sm" onClick={handleDownloadSimpleTemplate} leftIcon={<Download size={13} />}>
-                    Download Simple Template
+                    Download Simple Template (.csv)
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleDownloadFullTemplate} leftIcon={<Download size={13} />}>
-                    Download Full Template
+                    Download Full Template (.xlsx)
                   </Button>
                 </div>
               </div>
@@ -1304,7 +1270,7 @@ export const BuyDataPage: React.FC = () => {
                   type="file"
                   ref={fileInputRef}
                   style={{ display: 'none' }}
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
                   onChange={(e) => {
                     if (e.target.files && e.target.files.length > 0) {
                       handleFileUpload(e.target.files[0]);
@@ -1373,11 +1339,16 @@ export const BuyDataPage: React.FC = () => {
               {/* Parsed Preview Table & Submission */}
               {excelFile && (
                 <Card style={{ padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <CheckCircle2 size={18} color="var(--color-success)" />
+                      {invalidExcelRows.length === 0 ? (
+                        <CheckCircle2 size={18} color="var(--color-success)" />
+                      ) : (
+                        <AlertTriangle size={18} color="var(--color-warning)" />
+                      )}
                       <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                        File Ready · {excelParsedRows.length} Recipients Detected
+                        {validExcelRows.length} Valid Recipients Detected
+                        {invalidExcelRows.length > 0 && ` (${invalidExcelRows.length} invalid)`}
                       </strong>
                     </div>
 
@@ -1386,6 +1357,22 @@ export const BuyDataPage: React.FC = () => {
                     </span>
                   </div>
 
+                  {invalidExcelRows.length > 0 && (
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'var(--color-warning-surface)',
+                        border: '1px solid var(--color-warning-border)',
+                        color: 'var(--color-warning)',
+                        fontSize: 'var(--font-size-2xs)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      ⚠️ {invalidExcelRows.length} row(s) contain invalid Ghana phone numbers and will be excluded upon checkout.
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     {excelParsedRows.slice(0, 5).map((row, i) => (
                       <div
@@ -1393,13 +1380,24 @@ export const BuyDataPage: React.FC = () => {
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
+                          alignItems: 'center',
                           padding: '6px 12px',
                           backgroundColor: 'var(--color-bg-base)',
                           borderRadius: 'var(--radius-sm)',
                           fontSize: 'var(--font-size-2xs)',
+                          border: row.isValid ? '1px solid var(--color-border-subtle)' : '1px solid var(--color-danger-border)',
                         }}
                       >
-                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{row.phone}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: row.isValid ? 'var(--color-text-primary)' : 'var(--color-danger)' }}>
+                            {row.phone || row.rawPhone || 'Missing Phone'}
+                          </span>
+                          {!row.isValid && (
+                            <span style={{ fontSize: '9px', color: 'var(--color-danger)', backgroundColor: 'var(--color-danger-surface)', padding: '1px 6px', borderRadius: '4px' }}>
+                              {row.error || 'Invalid'}
+                            </span>
+                          )}
+                        </div>
                         <span style={{ fontWeight: 800, color: 'var(--color-text-secondary)' }}>{row.data}</span>
                       </div>
                     ))}
@@ -1421,21 +1419,21 @@ export const BuyDataPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleExcelSubmit}
-                      disabled={isMaintenanceMode || excelParsedRows.length === 0}
+                      disabled={isMaintenanceMode || validExcelRows.length === 0}
                       style={{
                         padding: '0.55rem 1.5rem',
                         borderRadius: 'var(--radius-md)',
                         border: 'none',
-                        backgroundColor: isMaintenanceMode || excelParsedRows.length === 0 ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                        color: isMaintenanceMode || excelParsedRows.length === 0 ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                        backgroundColor: isMaintenanceMode || validExcelRows.length === 0 ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                        color: isMaintenanceMode || validExcelRows.length === 0 ? 'var(--color-text-muted)' : theme.buttonTextColor,
                         fontWeight: 900,
                         fontSize: 'var(--font-size-sm)',
-                        cursor: isMaintenanceMode || excelParsedRows.length === 0 ? 'not-allowed' : 'pointer',
-                        opacity: isMaintenanceMode || excelParsedRows.length === 0 ? 0.6 : 1,
-                        boxShadow: !isMaintenanceMode && excelParsedRows.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
+                        cursor: isMaintenanceMode || validExcelRows.length === 0 ? 'not-allowed' : 'pointer',
+                        opacity: isMaintenanceMode || validExcelRows.length === 0 ? 0.6 : 1,
+                        boxShadow: !isMaintenanceMode && validExcelRows.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
                       }}
                     >
-                      {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
+                      {isMaintenanceMode ? 'Platform in Maintenance' : `Continue to Payment (${validExcelRows.length} Valid) →`}
                     </button>
                   </div>
                 </Card>

@@ -19,6 +19,8 @@ import {
   ArrowRight,
   Zap,
   Package,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -39,6 +41,23 @@ export const CustomerProfilePage: React.FC = () => {
   );
   const [totalOrdersCount, setTotalOrdersCount] = useState<number>(0);
   const [totalVolumeGb, setTotalVolumeGb] = useState<number>(0);
+  const [isBalanceVisible, setIsBalanceVisible] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('bytebeacon_balance_visible') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleBalanceVisibility = () => {
+    setIsBalanceVisible((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('bytebeacon_balance_visible', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const fetchProfileStats = useCallback(async () => {
     try {
@@ -220,13 +239,37 @@ export const CustomerProfilePage: React.FC = () => {
               <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 800, color: 'rgba(255, 255, 255, 0.8)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Prepaid Wallet Balance
               </span>
-              <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255, 255, 255, 0.15)' }}>
-                <CreditCard size={15} color="#34D399" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                <button
+                  type="button"
+                  onClick={toggleBalanceVisibility}
+                  title={isBalanceVisible ? 'Hide Balance' : 'Show Balance'}
+                  aria-label={isBalanceVisible ? 'Hide Balance' : 'Show Balance'}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.12)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: '#D1FAE5',
+                    cursor: 'pointer',
+                    padding: '0.3rem 0.45rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 150ms ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.22)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.12)')}
+                >
+                  {isBalanceVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+                <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255, 255, 255, 0.15)' }}>
+                  <CreditCard size={15} color="#34D399" />
+                </div>
               </div>
             </div>
 
             <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#FFFFFF', fontFamily: 'var(--font-data)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-              GH₵ {walletBalanceGhs.toFixed(2)}
+              GH₵ {isBalanceVisible ? walletBalanceGhs.toFixed(2) : '••••••'}
             </div>
             <p style={{ fontSize: 'var(--font-size-3xs)', color: '#A7F3D0', margin: '4px 0 0 0' }}>
               Instant automated debit for all data bundle orders

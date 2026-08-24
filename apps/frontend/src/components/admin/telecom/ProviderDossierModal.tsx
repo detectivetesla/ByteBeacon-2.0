@@ -7,7 +7,7 @@ import { adminApi } from '../../../api/admin.api.js';
 import { Modal } from '../../ui/Modal/Modal.js';
 import { Button } from '../../ui/Button/Button.js';
 import { Badge, NetworkBadge } from '../../ui/Badge/Badge.js';
-import { ShieldCheck, RotateCcw, CheckCircle2, Lock } from 'lucide-react';
+import { ShieldCheck, RotateCcw } from 'lucide-react';
 
 interface ProviderDossierModalProps {
   provider: TelecomProviderDetailDto;

@@ -7,7 +7,6 @@ import {
 import { adminApi } from '../../../api/admin.api.js';
 import { Modal } from '../../ui/Modal/Modal.js';
 import { Button } from '../../ui/Button/Button.js';
-import { NetworkBadge } from '../../ui/Badge/Badge.js';
 
 interface NetworkEditModalProps {
   network: TelecomNetworkDto;

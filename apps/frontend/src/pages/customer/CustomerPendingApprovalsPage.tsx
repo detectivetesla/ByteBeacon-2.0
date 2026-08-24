@@ -576,7 +576,7 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
           value={stats.totalBeneficiaries.toLocaleString()}
           subvalue="Known customer recipients"
           accent="blue"
-          icon={<TactileIcon icon={ShieldCheck} color="brand" size="sm" />}
+          icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
         />
       </div>
 

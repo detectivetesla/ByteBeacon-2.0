@@ -12,7 +12,7 @@ import { Modal } from '../../ui/Modal/Modal.js';
 import { Button } from '../../ui/Button/Button.js';
 import { Badge, NetworkBadge } from '../../ui/Badge/Badge.js';
 import { Card } from '../../ui/Card/Card.js';
-import { CheckCircle2, ShieldCheck, Zap, Lock, Radio, Server, Sliders } from 'lucide-react';
+import { CheckCircle2, ShieldCheck, Zap } from 'lucide-react';
 
 interface AddProviderWizardModalProps {
   isOpen: boolean;

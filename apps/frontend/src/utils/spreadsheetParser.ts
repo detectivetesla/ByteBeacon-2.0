@@ -1,0 +1,346 @@
+import * as XLSX from 'xlsx';
+import { BundleItem } from '../components/commerce/BundleSelector.js';
+
+export interface ParsedSpreadsheetRow {
+  phone: string;
+  bundleId: string;
+  data: string;
+  pricePesewas: number;
+  isValid: boolean;
+  rawPhone?: string;
+  rawVolume?: string;
+  error?: string;
+}
+
+export interface SpreadsheetParseResult {
+  rows: ParsedSpreadsheetRow[];
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  totalPesewas: number;
+  error?: string;
+}
+
+/**
+ * Normalizes a phone number to standard Ghana 10-digit format (e.g. 0241234567).
+ * Handles numbers parsed from Excel cells (e.g. 241234567, 233241234567, 2.4123e8, etc.)
+ */
+export function normalizeGhanaPhoneNumber(input: string | number | undefined | null): string {
+  if (input === undefined || input === null) return '';
+
+  let str = String(input).trim();
+  // Remove non-numeric characters except leading +
+  str = str.replace(/[\s\-_()[\],]/g, '');
+
+  // Handle scientific notation e.g. 2.41234567e+8 or similar
+  if (/^[0-9.]+e\+[0-9]+$/i.test(str)) {
+    const num = Number(str);
+    if (!isNaN(num)) {
+      str = Math.floor(num).toString();
+    }
+  }
+
+  // Handle +233 or 233 country codes
+  if (str.startsWith('+233')) {
+    str = '0' + str.slice(4);
+  } else if (str.startsWith('233') && str.length >= 11) {
+    str = '0' + str.slice(3);
+  }
+
+  // If 9 digits starting with 2 or 5 (typical Ghana Excel numeric truncation of leading 0)
+  if (str.length === 9 && /^[25]/.test(str)) {
+    str = '0' + str;
+  }
+
+  return str;
+}
+
+export function isValidGhanaPhoneNumber(phone: string): boolean {
+  return /^(0|\+?233)[25][0-9]{8}$/.test(phone);
+}
+
+/**
+ * Match a raw volume string/number against available catalog bundles.
+ */
+export function matchBundleVolume(
+  rawVol: string | number | undefined | null,
+  availableBundles: BundleItem[],
+): BundleItem | undefined {
+  if (!availableBundles || availableBundles.length === 0) return undefined;
+  if (rawVol === undefined || rawVol === null) return availableBundles[0];
+
+  const volStr = String(rawVol).trim();
+  if (!volStr) return availableBundles[0];
+
+  const lower = volStr.toLowerCase().replace(/\s+/g, '');
+
+  // 1. Direct match by display string (e.g. "5gb", "5 gb", "10gb")
+  const exactDisplay = availableBundles.find(
+    (b) => b.dataDisplay.toLowerCase().replace(/\s+/g, '') === lower,
+  );
+  if (exactDisplay) return exactDisplay;
+
+  // 2. Direct match by SKU or ID
+  const exactSkuOrId = availableBundles.find(
+    (b) => b.sku.toLowerCase() === lower || b.id.toLowerCase() === lower,
+  );
+  if (exactSkuOrId) return exactSkuOrId;
+
+  // 3. Parse numeric volume
+  let numVal = parseFloat(lower.replace(/gb$/, '').replace(/mb$/, ''));
+  if (!isNaN(numVal)) {
+    // If unit explicitly says 'mb' or value >= 100 (e.g. 1024, 2048, 5120), convert MB to GB
+    if (lower.includes('mb') || numVal >= 100) {
+      numVal = numVal / 1024;
+    }
+
+    // Find bundle with dataAmountMb / 1024 matching numVal (within small tolerance)
+    const matchedGb = availableBundles.find((b) => {
+      const bGb = b.dataAmountMb / 1024;
+      return Math.abs(bGb - numVal) < 0.05;
+    });
+
+    if (matchedGb) return matchedGb;
+  }
+
+  // Fallback to default/first bundle
+  return availableBundles[0];
+}
+
+/**
+ * Parses an Excel (.xlsx, .xls) or CSV file or ArrayBuffer into validated batch rows.
+ */
+export async function parseSpreadsheetFile(
+  fileOrBuffer: File | Blob | ArrayBuffer,
+  availableBundles: BundleItem[],
+): Promise<SpreadsheetParseResult> {
+  let arrayBuffer: ArrayBuffer;
+
+  if (fileOrBuffer instanceof ArrayBuffer) {
+    arrayBuffer = fileOrBuffer;
+  } else if (typeof fileOrBuffer.arrayBuffer === 'function') {
+    try {
+      arrayBuffer = await fileOrBuffer.arrayBuffer();
+    } catch {
+      arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(fileOrBuffer);
+      });
+    }
+  } else {
+    arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(fileOrBuffer);
+    });
+  }
+
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    return {
+      rows: [],
+      totalRows: 0,
+      validRows: 0,
+      invalidRows: 0,
+      totalPesewas: 0,
+      error: 'The uploaded file is empty.',
+    };
+  }
+
+  let workbook: XLSX.WorkBook;
+  try {
+    workbook = XLSX.read(arrayBuffer, {
+      type: 'array',
+      raw: false, // Ensures values are parsed cleanly
+    });
+  } catch (err: any) {
+    return {
+      rows: [],
+      totalRows: 0,
+      validRows: 0,
+      invalidRows: 0,
+      totalPesewas: 0,
+      error: `Failed to parse spreadsheet: ${err?.message || 'Invalid file format.'}`,
+    };
+  }
+
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    return {
+      rows: [],
+      totalRows: 0,
+      validRows: 0,
+      invalidRows: 0,
+      totalPesewas: 0,
+      error: 'Spreadsheet has no worksheets.',
+    };
+  }
+
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  if (!worksheet) {
+    return {
+      rows: [],
+      totalRows: 0,
+      validRows: 0,
+      invalidRows: 0,
+      totalPesewas: 0,
+      error: 'Worksheet is unreadable.',
+    };
+  }
+
+  // Convert worksheet to 2D array of rows
+  const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    defval: '',
+    blankrows: false,
+  });
+
+  if (!rawRows || rawRows.length === 0) {
+    return {
+      rows: [],
+      totalRows: 0,
+      validRows: 0,
+      invalidRows: 0,
+      totalPesewas: 0,
+      error: 'No data found in spreadsheet.',
+    };
+  }
+
+  // Detect header row and column mappings
+  let phoneColIdx = 0;
+  let volumeColIdx = 1;
+  let startDataRowIdx = 0;
+
+  // Search first 5 rows for header row
+  for (let r = 0; r < Math.min(rawRows.length, 5); r++) {
+    const row = rawRows[r];
+    if (!Array.isArray(row)) continue;
+
+    let foundPhone = -1;
+    let foundVolume = -1;
+
+    for (let c = 0; c < row.length; c++) {
+      const cell = String(row[c] || '').trim().toLowerCase();
+      if (
+        cell.includes('phone') ||
+        cell.includes('msisdn') ||
+        cell.includes('recipient') ||
+        cell.includes('beneficiary') ||
+        cell.includes('mobile') ||
+        cell.includes('number') ||
+        cell.includes('contact')
+      ) {
+        foundPhone = c;
+      } else if (
+        cell.includes('data') ||
+        cell.includes('volume') ||
+        cell.includes('bundle') ||
+        cell.includes('capacity') ||
+        cell.includes('package') ||
+        cell.includes('size') ||
+        cell.includes('gb') ||
+        cell.includes('mb')
+      ) {
+        foundVolume = c;
+      }
+    }
+
+    if (foundPhone !== -1 || foundVolume !== -1) {
+      if (foundPhone !== -1) phoneColIdx = foundPhone;
+      if (foundVolume !== -1) volumeColIdx = foundVolume;
+      startDataRowIdx = r + 1;
+      break;
+    }
+  }
+
+  // If no header found, start from row 0
+  const parsedRows: ParsedSpreadsheetRow[] = [];
+  let totalPesewas = 0;
+
+  for (let r = startDataRowIdx; r < rawRows.length; r++) {
+    const row = rawRows[r];
+    if (!Array.isArray(row) || row.length === 0) continue;
+
+    // Extract raw cell values
+    const rawPhone = row[phoneColIdx] !== undefined ? String(row[phoneColIdx]).trim() : '';
+    const rawVol = row[volumeColIdx] !== undefined ? String(row[volumeColIdx]).trim() : '';
+
+    // Ignore completely empty rows
+    if (!rawPhone && !rawVol) continue;
+
+    const normalizedPhone = normalizeGhanaPhoneNumber(rawPhone);
+    const isValidPhone = isValidGhanaPhoneNumber(normalizedPhone);
+
+    const matched = matchBundleVolume(rawVol, availableBundles);
+
+    const isValid = isValidPhone && Boolean(matched?.id);
+    const price = matched?.pricePesewas || 0;
+    if (isValid) {
+      totalPesewas += price;
+    }
+
+    parsedRows.push({
+      phone: normalizedPhone || rawPhone,
+      bundleId: matched?.id || '',
+      data: matched?.dataDisplay || String(rawVol),
+      pricePesewas: price,
+      isValid,
+      rawPhone,
+      rawVolume: rawVol,
+      error: !isValidPhone
+        ? 'Invalid Ghana mobile number'
+        : !matched?.id
+        ? 'No matching data bundle'
+        : undefined,
+    });
+  }
+
+  const validRows = parsedRows.filter((r) => r.isValid).length;
+  const invalidRows = parsedRows.length - validRows;
+
+  return {
+    rows: parsedRows,
+    totalRows: parsedRows.length,
+    validRows,
+    invalidRows,
+    totalPesewas,
+  };
+}
+
+/**
+ * Helper to generate downloadable XLSX or CSV file templates.
+ */
+export function generateSpreadsheetTemplate(
+  format: 'xlsx' | 'csv',
+  templateType: 'simple' | 'full' = 'full',
+): { blob: Blob; filename: string } {
+  const headers =
+    templateType === 'full' ? ['Beneficiary Msisdn', 'Data (GB)'] : ['Recipient', 'Volume'];
+
+  const sampleData = [
+    ['0241234567', '5GB'],
+    ['0551234567', '10GB'],
+    ['0201234567', '2.5GB'],
+  ];
+
+  if (format === 'csv') {
+    const csvContent = [headers.join(','), ...sampleData.map((row) => row.join(','))].join('\n') + '\n';
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const filename = `bytebeacon_${templateType}_template.csv`;
+    return { blob, filename };
+  }
+
+  // XLSX format
+  const wb = XLSX.utils.book_new();
+  const wsData = [headers, ...sampleData];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+  const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbOut], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const filename = `bytebeacon_${templateType}_template.xlsx`;
+  return { blob, filename };
+}

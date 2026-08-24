@@ -37,7 +37,7 @@ interface CustomerOrderRow {
 
 export const CustomerDashboard: React.FC = () => {
   const { user } = useAuth();
-  const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
+  const { balanceGhs } = useWalletBalance();
   const [searchQuery, setSearchQuery] = useState('');
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetailData | null>(null);

@@ -137,9 +137,9 @@ export const useAuth = (): AuthContextType => {
   if (!context) {
     return {
       user: null,
-      token: null,
       isAuthenticated: false,
-      login: async () => {},
+      isLoading: false,
+      login: () => {},
       logout: () => {},
       updateUser: () => {},
     };

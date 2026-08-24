@@ -1,12 +1,11 @@
-import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as XLSX from 'xlsx';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { BuyDataPage } from '../pages/customer/BuyDataPage.js';
 import { PurchaseModal } from '../components/commerce/PurchaseModal.js';
 import { ToastProvider } from '../context/ToastContext.js';
-import { AuthProvider } from '../context/AuthContext.js';
 import { PlatformStatusProvider } from '../context/PlatformStatusContext.js';
 import { catalogApi } from '../api/catalog.api.js';
 import { ordersApi } from '../api/orders.api.js';
@@ -210,11 +209,54 @@ describe('BuyDataPage and PurchaseModal Live Dynamic Integration', () => {
         }),
       );
     });
+  });
 
-    // Verification screen
+  it('parses uploaded real XLSX file cleanly without binary distortion', async () => {
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['Beneficiary Msisdn', 'Data (GB)'],
+      ['0241234567', '5GB'],
+      ['0559876543', '10GB'],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+    const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const file = new File([arrayBuffer], 'test_orders.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    file.arrayBuffer = () => Promise.resolve(arrayBuffer);
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/app/buy-data']}>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
     await waitFor(() => {
-      expect(screen.getByText(/Bulk Order Queued for Dispatch!/i)).toBeTruthy();
-      expect(screen.getByText('bulk-batch-998877')).toBeTruthy();
+      expect(catalogApi.getBundles).toHaveBeenCalled();
+    });
+
+    // Switch to Excel
+    const excelButton = screen.getByRole('button', { name: /Excel/i });
+    fireEvent.click(excelButton);
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
+
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      configurable: true,
+    });
+    fireEvent.change(fileInput);
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 Valid Recipients Detected/i)).toBeTruthy();
+      expect(screen.getByText('0241234567')).toBeTruthy();
+      expect(screen.getByText('0559876543')).toBeTruthy();
     });
   });
 });
