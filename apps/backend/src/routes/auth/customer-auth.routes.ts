@@ -78,7 +78,7 @@ export async function customerAuthRoutes(
       let existing: any = null;
       try {
         existing = await db.query<{ id: string; email: string; phone: string }>(
-          'SELECT uuid as id, email, phone FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
+          'SELECT id, email, phone FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
           [email.trim(), phone.trim()],
         );
       } catch {
@@ -108,7 +108,7 @@ export async function customerAuthRoutes(
           userRes = {
             rows: [
               {
-                id: rawRow.uuid || rawRow.id,
+                id: rawRow.id,
                 email: rawRow.email,
                 phone: rawRow.phone,
                 fullName: rawRow.full_name || rawRow.name || fullName.trim(),
@@ -259,7 +259,7 @@ export async function customerAuthRoutes(
               mfaEnabled: boolean;
               walletBalancePesewas: string;
             }>(
-              `SELECT uuid as id, email, phone, full_name as "fullName", role, status,
+              `SELECT id, email, phone, full_name as "fullName", role, status,
                       security_domain as "securityDomain", phone_verified as "phoneVerified",
                       mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"
                FROM users
@@ -288,7 +288,7 @@ export async function customerAuthRoutes(
               }>(
                 `INSERT INTO users (email, phone, full_name, password_hash, role, security_domain, status, wallet_balance_pesewas)
                  VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE', 500000)
-                 RETURNING uuid as id, email, phone, full_name as "fullName", role, status,
+                 RETURNING id, email, phone, full_name as "fullName", role, status,
                            security_domain as "securityDomain", phone_verified as "phoneVerified",
                            mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"`,
                 [devMatch.email, devPhone, devMatch.name, devPassHash, devMatch.role, devMatch.domain],
@@ -409,7 +409,7 @@ export async function customerAuthRoutes(
           }
 
           const mappedUser = {
-            id: rawRow.uuid || rawRow.id,
+            id: rawRow.id,
             email: rawRow.email,
             phone: rawRow.phone,
             fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',
@@ -479,13 +479,13 @@ export async function customerAuthRoutes(
 
       if (!isValid) {
         const attempts = (user.failedLoginAttempts || 0) + 1;
-        let lockQuery = 'UPDATE users SET failed_login_attempts = $1 WHERE uuid = $2';
+        let lockQuery = 'UPDATE users SET failed_login_attempts = $1 WHERE id = $2';
         let lockParams: unknown[] = [attempts, user.id];
 
         if (attempts >= 5) {
           const lockMinutes = attempts >= 10 ? 60 : 15;
           const lockedUntil = new Date(Date.now() + lockMinutes * 60 * 1000);
-          lockQuery = 'UPDATE users SET failed_login_attempts = $1, locked_until = $2 WHERE uuid = $3';
+          lockQuery = 'UPDATE users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3';
           lockParams = [attempts, lockedUntil, user.id];
         }
 
@@ -513,12 +513,12 @@ export async function customerAuthRoutes(
         if (hasher.needsRehash(user.passwordHash)) {
           const upgradedHash = await hasher.hashPassword(password);
           await db.query(
-            'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP, password_hash = $2 WHERE uuid = $1',
+            'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP, password_hash = $2 WHERE id = $1',
             [user.id, upgradedHash],
           );
         } else {
           await db.query(
-            'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP WHERE uuid = $1',
+            'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP WHERE id = $1',
             [user.id],
           );
         }
@@ -657,7 +657,7 @@ export async function customerAuthRoutes(
           mfaEnabled: boolean;
           walletBalancePesewas: string;
         }>(
-          `SELECT uuid as id, email, phone, full_name as "fullName", role, status,
+          `SELECT id, email, phone, full_name as "fullName", role, status,
                   security_domain as "securityDomain", phone_verified as "phoneVerified",
                   mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"
            FROM users
@@ -688,7 +688,7 @@ export async function customerAuthRoutes(
           }>(
             `INSERT INTO users (email, phone, full_name, password_hash, role, security_domain, status, phone_verified)
              VALUES ($1, '', $2, 'OAUTH_GOOGLE', 'customer', 'CUSTOMER', 'ACTIVE', TRUE)
-             RETURNING uuid as id, email, phone, full_name as "fullName", role, status,
+             RETURNING id, email, phone, full_name as "fullName", role, status,
                        security_domain as "securityDomain", phone_verified as "phoneVerified",
                        mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"`,
             [email, fullName],
@@ -793,7 +793,7 @@ export async function customerAuthRoutes(
         role: UserRole;
         status: UserStatus;
         securityDomain: SecurityDomain;
-      }>('SELECT uuid as id, email, role, status, security_domain as "securityDomain" FROM users WHERE uuid = $1', [session.userId]);
+      }>('SELECT id, email, role, status, security_domain as "securityDomain" FROM users WHERE id = $1', [session.userId]);
 
       if (userRes.rows.length === 0 || userRes.rows[0].status === UserStatus.SUSPENDED) {
         throw new ForbiddenError('Account inactive or suspended');
@@ -855,7 +855,7 @@ export async function customerAuthRoutes(
     let userRes: any = null;
     try {
       userRes = await db.query<any>(
-        'SELECT * FROM users WHERE uuid = $1',
+        'SELECT * FROM users WHERE id = $1',
         [req.user!.sub],
       );
     } catch (err: any) {
@@ -884,7 +884,7 @@ export async function customerAuthRoutes(
     }
 
     const summary: UserSummaryDto = {
-      id: rawRow.uuid || rawRow.id,
+      id: rawRow.id,
       email: rawRow.email,
       phone: rawRow.phone || '',
       fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',
@@ -934,8 +934,8 @@ export async function customerAuthRoutes(
         throw new BadRequestError('Verification code has expired');
       }
 
-      await db.query('UPDATE phone_verifications SET is_verified = TRUE WHERE uuid = $1', [otp.id]);
-      await db.query('UPDATE users SET phone_verified = TRUE WHERE uuid = $1', [req.user!.sub]);
+      await db.query('UPDATE phone_verifications SET is_verified = TRUE WHERE id = $1', [otp.id]);
+      await db.query('UPDATE users SET phone_verified = TRUE WHERE id = $1', [req.user!.sub]);
 
       await auditService.logEvent({
         correlationId: req.id,
@@ -961,7 +961,7 @@ export async function customerAuthRoutes(
       }
 
       const userRes = await db.query<{ id: string; email: string }>(
-        'SELECT uuid as id, email FROM users WHERE LOWER(email) = LOWER($1) OR phone = $1',
+        'SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) OR phone = $1',
         [emailOrPhone.trim()],
       );
 
@@ -1024,8 +1024,8 @@ export async function customerAuthRoutes(
       const reset = resetRes.rows[0];
       const newHash = await hasher.hashPassword(newPassword);
 
-      await db.query('UPDATE users SET password_hash = $1 WHERE uuid = $2', [newHash, reset.userId]);
-      await db.query('UPDATE password_resets SET is_used = TRUE WHERE uuid = $1', [reset.id]);
+      await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, reset.userId]);
+      await db.query('UPDATE password_resets SET is_used = TRUE WHERE id = $1', [reset.id]);
 
       // Revoke all existing sessions across devices
       await sessionService.revokeAllUserSessions(reset.userId);
@@ -1079,7 +1079,7 @@ export async function customerAuthRoutes(
         mfaEnabled: boolean;
         walletBalancePesewas: string;
       }>(
-        `SELECT uuid as id, email, phone, full_name as "fullName", role, status,
+        `SELECT id, email, phone, full_name as "fullName", role, status,
                 security_domain as "securityDomain", phone_verified as "phoneVerified",
                 mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"
          FROM users
@@ -1108,7 +1108,7 @@ export async function customerAuthRoutes(
         }>(
           `INSERT INTO users (email, phone, full_name, password_hash, role, security_domain, status, wallet_balance_pesewas)
            VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE', 500000)
-           RETURNING uuid as id, email, phone, full_name as "fullName", role, status,
+           RETURNING id, email, phone, full_name as "fullName", role, status,
                      security_domain as "securityDomain", phone_verified as "phoneVerified",
                      mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas"`,
           [defaultEmail, phone, defaultName, dummyHash, userRole, securityDomain],

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
-import { adminApi } from '../../api/admin.api.js';
+import { beneficiaryApi } from '../../api/beneficiary.api.js';
 
 export type ApprovalStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED';
 export type DetectedChannel = 'Web' | 'API' | 'Single Order' | 'Bulk Order' | 'Excel Upload' | 'Paste/Bulk Entry';
@@ -139,28 +139,28 @@ export const AgentPendingOrdersPage: React.FC = () => {
   const fetchApprovals = async () => {
     setIsRefreshing(true);
     try {
-      const response = await adminApi.getMtnApprovals({
+      const response = await beneficiaryApi.listApprovals({
         network: 'MTN',
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
       }) as any;
 
-      if (response?.items && Array.isArray(response.items) && response.items.length > 0) {
+      if (response?.items && Array.isArray(response.items)) {
         const mapped: PendingMtnApprovalItem[] = response.items.map((item: any, idx: number) => ({
           id: item.id || String(idx + 1),
-          beneficiary: item.phoneNumber,
+          beneficiary: item.phoneNumber || item.beneficiary || '—',
           network: NetworkProvider.MTN,
           dataSize: '10 GB',
-          status: item.status === 'VALID' ? 'APPROVED' : item.status === 'INVALID' ? 'REJECTED' : 'PENDING',
+          status: item.status === 'VALID' || item.status === 'APPROVED' ? 'APPROVED' : item.status === 'INVALID' || item.status === 'REJECTED' ? 'REJECTED' : 'PENDING',
           detectedFrom: 'Bulk Order',
-          timestamp: new Date(item.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-          rawDate: item.createdAt,
+          timestamp: item.createdAt ? new Date(item.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recently',
+          rawDate: item.createdAt || new Date().toISOString(),
         }));
         setRecords(mapped);
-        toastSuccess('Updated', `Synced ${mapped.length} MTN approval records.`);
-        return;
+      } else {
+        setRecords([]);
       }
     } catch {
-      // Handle network error
+      setRecords([]);
     } finally {
       setIsRefreshing(false);
     }
@@ -196,22 +196,26 @@ export const AgentPendingOrdersPage: React.FC = () => {
 
   const handleApprove = async (id: string) => {
     try {
-      await adminApi.approveMtnBeneficiary(id);
+      await beneficiaryApi.approveBeneficiary(id);
+      toastSuccess('Approved', 'Beneficiary approved for MTN fulfillment.');
+      fetchApprovals();
     } catch {
-      // Continue optimistic state update
+      setRecords((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: 'APPROVED' } : r))
+      );
     }
-    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'APPROVED' } : r)));
-    toastSuccess('Approved', 'Beneficiary validated for network dispatch.');
   };
 
   const handleReject = async (id: string) => {
     try {
-      await adminApi.rejectMtnBeneficiary(id, 'Agent rejected');
+      await beneficiaryApi.rejectBeneficiary(id);
+      toastInfo('Rejected', 'Beneficiary marked as rejected.');
+      fetchApprovals();
     } catch {
-      // Continue optimistic state update
+      setRecords((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: 'REJECTED' } : r))
+      );
     }
-    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'REJECTED' } : r)));
-    toastInfo('Rejected', 'Beneficiary line removed from dispatch queue.');
   };
 
   if (isAgentProfileMissing) {

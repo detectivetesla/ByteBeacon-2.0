@@ -10,6 +10,7 @@ import { SettingsPage } from '../pages/customer/SettingsPage.js';
 import { CustomerProfilePage } from '../pages/customer/CustomerProfilePage.js';
 import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
 import { OrderTrackingPage } from '../pages/public/OrderTrackingPage.js';
+import { CustomerPendingApprovalsPage } from '../pages/customer/CustomerPendingApprovalsPage.js';
 
 export const customerRoutes: RouteObject[] = [
   {
@@ -51,6 +52,14 @@ export const customerRoutes: RouteObject[] = [
       {
         path: 'track-order',
         element: <Navigate to="/app/track" replace />,
+      },
+      {
+        path: 'pending-approvals',
+        element: <CustomerPendingApprovalsPage />,
+      },
+      {
+        path: 'pending-orders',
+        element: <CustomerPendingApprovalsPage />,
       },
       {
         path: 'wallet',

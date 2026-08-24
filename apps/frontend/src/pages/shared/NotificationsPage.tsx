@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { Bell, CheckCheck, Package, CreditCard, Shield } from 'lucide-react';
+import { notificationsApi, NotificationItemDto } from '../../api/wallet.api.js';
 
 interface NotificationItem {
   id: string;
@@ -13,28 +14,66 @@ interface NotificationItem {
   unread: boolean;
 }
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  { id: '1', category: 'orders', title: 'Data Bundle Delivered', detail: '5 GB MTN bundle successfully credited to 024 123 4567 in 1.4s.', time: '12m ago', unread: true },
-  { id: '2', category: 'payments', title: 'Wallet Balance Topped Up', detail: 'GH₵ 250.00 MoMo top-up authorized and confirmed by telecom carrier.', time: '1h ago', unread: true },
-  { id: '3', category: 'orders', title: 'Order Queued for Provisioning', detail: '10 GB Telecel bundle queued for SIM batch fulfillment.', time: '2h ago', unread: false },
-  { id: '4', category: 'security', title: 'New API Key Created', detail: 'Production REST API key was generated from 102.176.64.12.', time: '1d ago', unread: false },
-  { id: '5', category: 'payments', title: 'Commission Credited', detail: 'GH₵ 14.50 reseller margin added to your withdrawable balance.', time: '2d ago', unread: false },
-];
-
 export const NotificationsPage: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'orders' | 'payments' | 'security'>('all');
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await notificationsApi.listNotifications({ limit: 50 });
+
+      if (res?.items && Array.isArray(res.items)) {
+        const mapped: NotificationItem[] = res.items.map((n: NotificationItemDto) => {
+          let category: 'orders' | 'payments' | 'security' = 'orders';
+          if (n.type.toLowerCase().includes('wallet') || n.type.toLowerCase().includes('payment') || n.type.toLowerCase().includes('deposit')) {
+            category = 'payments';
+          } else if (n.type.toLowerCase().includes('security') || n.type.toLowerCase().includes('key') || n.type.toLowerCase().includes('auth')) {
+            category = 'security';
+          }
+
+          const d = new Date(n.createdAt);
+          const time = d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+          return {
+            id: n.id,
+            category,
+            title: n.title,
+            detail: n.body,
+            time,
+            unread: !n.isRead,
+          };
+        });
+        setNotifications(mapped);
+      } else {
+        setNotifications([]);
+      }
+    } catch {
+      setNotifications([]);
+    }
+  }, []);
+
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   const filtered = notifications.filter((n) => filter === 'all' || n.category === filter);
   const unreadTotal = notifications.filter((n) => n.unread).length;
 
-  const markAllRead = () => {
+  const markAllRead = async () => {
+    try {
+      await notificationsApi.markAllAsRead();
+    } catch {}
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
   };
 
-  const markSingleRead = (id: string) => {
+  const markSingleRead = async (id: string) => {
+    try {
+      await notificationsApi.markAsRead(id);
+    } catch {}
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
   };
+
 
   const getCategoryIcon = (category: string) => {
     switch (category) {

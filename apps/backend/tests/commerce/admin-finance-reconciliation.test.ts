@@ -30,7 +30,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
     mockDb = {
       query: vi.fn().mockImplementation(async (sql: string) => {
-        if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+        if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
           return {
             rows: [
               {
@@ -104,11 +104,11 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('1. GET /admin/finance/overview should return 12 core authoritative KPI metrics', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
-      if (sql.includes('"customerBalanceGhs"')) {
-        return { rows: [{ customerBalanceGhs: '120.50', agentBalanceGhs: '450.00', totalFloatGhs: '570.50' }] };
+      if (sql.includes('"customerBalancePesewas"') || sql.includes('"customerBalanceGhs"')) {
+        return { rows: [{ customerBalancePesewas: '12050', agentBalancePesewas: '45000', totalFloatPesewas: '57050', customerBalanceGhs: '120.50', agentBalanceGhs: '450.00', totalFloatGhs: '570.50' }] };
       }
       if (sql.includes('"totalRevenue"')) {
         return { rows: [{ totalRevenue: '500000', totalCommissions: '15000' }] };
@@ -151,7 +151,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('2. GET /admin/finance/transactions should return paginated transactions with multi-filter search', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
       if (sql.includes('COUNT(*) as total FROM payments')) {
@@ -196,7 +196,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('3. GET /admin/finance/transactions/:id should return complete financial dossier', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
       if (sql.includes('FROM payments p')) {
@@ -261,7 +261,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('4. GET /admin/finance/ledger should enforce continuous double-entry invariant verification', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
       if (sql.includes('COUNT(*) as total FROM financial_ledger')) {
@@ -301,7 +301,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('5. GET /admin/finance/ledger/anomalies should identify unbalanced journal transactions', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
       if (sql.includes('HAVING COALESCE(SUM(CASE WHEN entry_type = \'DEBIT\'')) {
@@ -336,7 +336,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('6. POST /admin/finance/refunds/:id/action should execute balanced ledger reversal', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
       if (sql.includes('FROM refunds r')) {
@@ -372,11 +372,11 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('7. POST /admin/finance/adjustments/request should queue float adjustment for Super Admin review', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
-      if (sql.includes('SELECT uuid, full_name, email FROM users WHERE uuid = $1')) {
-        return { rows: [{ uuid: 'usr_target_1', full_name: 'Target Customer', email: 'target@example.com' }] };
+      if (sql.includes('SELECT uuid, full_name, email FROM users WHERE uuid = $1') || sql.includes('SELECT id, full_name, email FROM users WHERE id = $1')) {
+        return { rows: [{ id: 'usr_target_1', uuid: 'usr_target_1', full_name: 'Target Customer', email: 'target@example.com' }] };
       }
       if (sql.includes('INSERT INTO financial_adjustments')) {
         return {
@@ -413,7 +413,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('8. POST /admin/finance/adjustments/:id/action should execute ledger voucher on Super Admin approval', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
       if (sql.includes('FROM financial_adjustments WHERE id = $1')) {
@@ -470,7 +470,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('10. POST /admin/finance/reprocess/preview and execute should validate and retry failed orders', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
       if (sql.includes('FROM provider_dlq dlq')) {
@@ -524,7 +524,7 @@ describe('Phase 11.8: Finance, Transactions & Reconciliation Control Plane', () 
 
   it('11. GET /admin/reconciliation/dashboard and trigger audits should verify cross-system integrity', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return { rows: [{ id: 'admin_1', uuid: 'admin_1', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }] };
       }
       if (sql.includes('FROM payments')) {

@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+
 import { useNavigate } from 'react-router-dom';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -40,72 +41,6 @@ export interface RefundRecord {
   rawDate: string;
   timeline: Array<{ stage: string; time: string; completed: boolean }>;
 }
-
-const SAMPLE_REFUNDS: RefundRecord[] = [
-  {
-    id: 'RF-00124',
-    orderId: 'BB-82931',
-    amountPesewas: 2500,
-    paymentMethod: 'Wallet',
-    reason: 'Recipient line inactive on carrier network',
-    status: 'Completed',
-    requestedAt: 'Aug 16, 2026 14:30',
-    processedAt: 'Aug 16, 2026 14:32',
-    rawDate: '2026-08-16T14:32:00Z',
-    timeline: [
-      { stage: 'Refund requested', time: '14:30:00', completed: true },
-      { stage: 'Refund processing', time: '14:31:00', completed: true },
-      { stage: 'Refund completed', time: '14:32:00', completed: true },
-    ],
-  },
-  {
-    id: 'RF-00123',
-    orderId: 'BB-81042',
-    amountPesewas: 5700,
-    paymentMethod: 'Paystack',
-    reason: 'Carrier gateway timeout after multiple dispatch retries',
-    status: 'Completed',
-    requestedAt: 'Aug 16, 2026 11:15',
-    processedAt: 'Aug 16, 2026 11:18',
-    rawDate: '2026-08-16T11:18:00Z',
-    timeline: [
-      { stage: 'Refund requested', time: '11:15:00', completed: true },
-      { stage: 'Refund processing', time: '11:16:30', completed: true },
-      { stage: 'Refund completed', time: '11:18:00', completed: true },
-    ],
-  },
-  {
-    id: 'RF-00122',
-    orderId: 'BB-79910',
-    amountPesewas: 1500,
-    paymentMethod: 'Mobile Money',
-    reason: 'Under carrier manual reconciliation review',
-    status: 'Pending',
-    requestedAt: 'Aug 16, 2026 09:40',
-    processedAt: 'Pending',
-    rawDate: '2026-08-16T09:40:00Z',
-    timeline: [
-      { stage: 'Refund requested', time: '09:40:00', completed: true },
-      { stage: 'Refund processing', time: '09:42:00', completed: false },
-    ],
-  },
-  {
-    id: 'RF-00121',
-    orderId: 'BB-78102',
-    amountPesewas: 4800,
-    paymentMethod: 'Card',
-    reason: 'Customer initiated cancellation prior to carrier fulfillment',
-    status: 'Completed',
-    requestedAt: 'Aug 15, 2026 18:20',
-    processedAt: 'Aug 15, 2026 18:22',
-    rawDate: '2026-08-15T18:22:00Z',
-    timeline: [
-      { stage: 'Refund requested', time: '18:20:00', completed: true },
-      { stage: 'Refund processing', time: '18:21:15', completed: true },
-      { stage: 'Refund completed', time: '18:22:00', completed: true },
-    ],
-  },
-];
 
 export const RefundStatusBadge: React.FC<{ status: RefundStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
@@ -154,7 +89,7 @@ export const AgentRefundReportsPage: React.FC = () => {
   const navigate = useNavigate();
   const { toastSuccess } = useToast();
 
-  const [refunds, setRefunds] = useState<RefundRecord[]>(SAMPLE_REFUNDS);
+  const [refunds, setRefunds] = useState<RefundRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [paymentFilter, setPaymentFilter] = useState<string>('ALL');
@@ -170,6 +105,32 @@ export const AgentRefundReportsPage: React.FC = () => {
   const [selectedRefund, setSelectedRefund] = useState<RefundRecord | null>(null);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
+  const fetchRefunds = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const data: any = await apiClient.get('/payments/refunds');
+      if (Array.isArray(data)) {
+        setRefunds(data);
+      } else if (Array.isArray(data?.data)) {
+        setRefunds(data.data);
+      } else if (Array.isArray(data?.refunds)) {
+        setRefunds(data.refunds);
+      } else {
+        setRefunds([]);
+      }
+    } catch {
+      setRefunds([]);
+    } finally {
+      setIsRefreshing(false);
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setLastUpdated(`Today, ${timeStr}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRefunds();
+  }, [fetchRefunds]);
+
   // 4 Summary KPI Cards
   const totalRefundsCount = refunds.length;
   const pendingCount = refunds.filter((r) => r.status === 'Pending' || r.status === 'Processing').length;
@@ -177,27 +138,10 @@ export const AgentRefundReportsPage: React.FC = () => {
   const totalRefundedPesewas = refunds.filter((r) => r.status === 'Completed').reduce((acc, r) => acc + r.amountPesewas, 0);
 
   const handleRefresh = async () => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
-
-    try {
-      const data: any = await apiClient.get('/payments/refunds');
-      if (Array.isArray(data)) {
-        setRefunds(data);
-      } else if (Array.isArray(data?.data)) {
-        setRefunds(data.data);
-      }
-    } catch {
-      // Graceful local development fallback
-    } finally {
-      setTimeout(() => {
-        setIsRefreshing(false);
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setLastUpdated(`Today, ${timeStr}`);
-        toastSuccess('Refunds Synchronized', 'Latest refund data reloaded.');
-      }, 500);
-    }
+    await fetchRefunds();
+    toastSuccess('Refunds Synchronized', 'Latest refund data reloaded.');
   };
+
 
   const clearFilters = () => {
     setSearchQuery('');

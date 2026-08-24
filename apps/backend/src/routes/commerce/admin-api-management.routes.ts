@@ -75,7 +75,7 @@ export async function adminApiManagementRoutes(
           COUNT(CASE WHEN u.role = 'agent' OR u.role = 'superagent' THEN 1 END) as "agentKeys",
           COUNT(CASE WHEN u.role = 'admin' OR u.role = 'super_admin' THEN 1 END) as "internalCredentials"
         FROM api_keys ak
-        LEFT JOIN users u ON ak.agent_id = u.uuid OR ak.owner_user_id = u.uuid
+        LEFT JOIN users u ON ak.agent_id = u.id OR ak.owner_user_id = u.id
       `).catch(() => ({
         rows: [{
           totalKeys: '0', activeKeys: '0', revokedKeys: '0', expiredKeys: '0',
@@ -254,7 +254,7 @@ export async function adminApiManagementRoutes(
       const countRes = await db.query(
         `SELECT COUNT(*) as total 
          FROM api_keys ak
-         LEFT JOIN users u ON (ak.owner_user_id = u.uuid OR ak.agent_id = u.uuid)
+         LEFT JOIN users u ON (ak.owner_user_id = u.id OR ak.agent_id = u.id)
          WHERE ${whereClause}`,
         params,
       );
@@ -282,7 +282,7 @@ export async function adminApiManagementRoutes(
            ak.expires_at as "expiresAt",
            ak.created_at as "createdAt"
          FROM api_keys ak
-         LEFT JOIN users u ON (ak.owner_user_id = u.uuid OR ak.agent_id = u.uuid)
+         LEFT JOIN users u ON (ak.owner_user_id = u.id OR ak.agent_id = u.id)
          WHERE ${whereClause}
          ORDER BY ak.created_at DESC
          LIMIT $${idx++} OFFSET $${idx++}`,
@@ -363,7 +363,7 @@ export async function adminApiManagementRoutes(
            ak.expires_at as "expiresAt",
            ak.created_at as "createdAt"
          FROM api_keys ak
-         LEFT JOIN users u ON (ak.owner_user_id = u.uuid OR ak.agent_id = u.uuid)
+         LEFT JOIN users u ON (ak.owner_user_id = u.id OR ak.agent_id = u.id)
          WHERE ak.id = $1`,
         [id],
       );
@@ -446,7 +446,7 @@ export async function adminApiManagementRoutes(
 
       // Verify owner exists
       const userRes = await db.query(
-        'SELECT uuid, full_name, email, role FROM users WHERE uuid = $1',
+        'SELECT id, full_name, email, role FROM users WHERE id = $1',
         [targetUserId],
       );
       if (userRes.rows.length === 0) {
@@ -826,15 +826,15 @@ export async function adminApiManagementRoutes(
       // Agent usage ranking
       const agentUsageRes = await db.query(`
         SELECT 
-          COALESCE(u.uuid, 'system') as "agentId",
+          COALESCE(u.id, 'system') as "agentId",
           COALESCE(u.full_name, u.email, 'Direct Developer') as "agentName",
           COUNT(m.id) as requests,
           COUNT(CASE WHEN m.status_code >= 400 THEN 1 END) as errors,
           MAX(m.created_at) as "lastUsedAt"
         FROM api_usage_metrics m
-        LEFT JOIN users u ON m.user_id = u.uuid
+        LEFT JOIN users u ON m.user_id = u.id
         WHERE m.created_at >= CURRENT_TIMESTAMP - INTERVAL '${interval}' ${envCondition}
-        GROUP BY u.uuid, u.full_name, u.email
+        GROUP BY u.id, u.full_name, u.email
         ORDER BY requests DESC
         LIMIT 10
       `).catch(() => ({
@@ -938,7 +938,7 @@ export async function adminApiManagementRoutes(
 
       const countRes = await db.query(
         `SELECT COUNT(*) as total FROM api_security_events sec
-         LEFT JOIN users u ON sec.user_id = u.uuid
+         LEFT JOIN users u ON sec.user_id = u.id
          WHERE ${whereClause}`,
         params,
       );
@@ -959,7 +959,7 @@ export async function adminApiManagementRoutes(
            sec.details,
            sec.created_at as "timestamp"
          FROM api_security_events sec
-         LEFT JOIN users u ON sec.user_id = u.uuid
+         LEFT JOIN users u ON sec.user_id = u.id
          WHERE ${whereClause}
          ORDER BY sec.created_at DESC
          LIMIT $${idx++} OFFSET $${idx++}`,
@@ -1055,7 +1055,7 @@ export async function adminApiManagementRoutes(
            w.last_delivery_status as "lastDeliveryStatus",
            w.created_at as "createdAt"
          FROM agent_webhooks w
-         LEFT JOIN users u ON w.agent_id = u.uuid
+         LEFT JOIN users u ON w.agent_id = u.id
          WHERE ${whereClause}
          ORDER BY w.created_at DESC
          LIMIT $${idx++} OFFSET $${idx++}`,
@@ -1517,7 +1517,7 @@ export async function adminApiManagementRoutes(
 
       const countRes = await db.query(
         `SELECT COUNT(*) as total FROM api_consumers c
-         LEFT JOIN users u ON c.owner_user_id = u.uuid
+         LEFT JOIN users u ON c.owner_user_id = u.id
          WHERE ${whereClause}`,
         params,
       ).catch(() => ({ rows: [{ total: '0' }] }));
@@ -1540,7 +1540,7 @@ export async function adminApiManagementRoutes(
            COALESCE((SELECT MAX(created_at) FROM api_usage_metrics WHERE user_id = c.owner_user_id), c.updated_at) as "lastActivityAt",
            c.created_at as "createdAt"
          FROM api_consumers c
-         LEFT JOIN users u ON c.owner_user_id = u.uuid
+         LEFT JOIN users u ON c.owner_user_id = u.id
          WHERE ${whereClause}
          ORDER BY c.created_at DESC
          LIMIT $${idx++} OFFSET $${idx++}`,
@@ -1791,7 +1791,7 @@ export async function adminApiManagementRoutes(
       const { agentId } = req.params;
 
       const userRes = await db.query(
-        'SELECT uuid as id, full_name as "fullName", email FROM users WHERE uuid = $1',
+        'SELECT id, full_name as "fullName", email FROM users WHERE id = $1',
         [agentId],
       );
       if (userRes.rows.length === 0) {
@@ -1822,7 +1822,7 @@ export async function adminApiManagementRoutes(
       ]);
 
       const dossier: AdminAgentApiDossierDto = {
-        agentId: user.id || user.uuid,
+        agentId: user.id,
         agentName: user.fullName || user.full_name || user.name || user.email,
         agentEmail: user.email,
         keys: keysRes.rows.map((r: any) => ({

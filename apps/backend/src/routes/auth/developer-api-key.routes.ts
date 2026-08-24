@@ -12,6 +12,7 @@ import {
   ApiKeySummaryDto,
   ApiResponse,
   Permission,
+  ApiKeyEnvironment,
 } from '@bytebeacon/shared';
 
 export interface DeveloperApiKeyRouteDependencies {
@@ -21,6 +22,35 @@ export interface DeveloperApiKeyRouteDependencies {
   rbacService: RbacService;
   auditService: AuditService;
 }
+
+function normalizeApiKeyEnvironment(env?: string): ApiKeyEnvironment {
+  if (!env) return ApiKeyEnvironment.TEST;
+  const upper = env.toUpperCase();
+  if (upper === 'LIVE') return ApiKeyEnvironment.LIVE;
+  return ApiKeyEnvironment.TEST;
+}
+
+function normalizeScope(scope: string): Permission {
+  const map: Record<string, Permission> = {
+    'orders:write': Permission.ORDERS_CREATE,
+    'orders:create': Permission.ORDERS_CREATE,
+    'orders:read': Permission.ORDERS_READ,
+    'orders.create': Permission.ORDERS_CREATE,
+    'orders.read': Permission.ORDERS_READ,
+    'catalog:read': Permission.ORDERS_READ,
+    'catalog.read': Permission.ORDERS_READ,
+    'wallet:read': Permission.WALLET_READ,
+    'wallet.read': Permission.WALLET_READ,
+    'wallet:write': Permission.WALLET_ADJUST,
+    'wallet.adjust': Permission.WALLET_ADJUST,
+    'api_keys:manage': Permission.API_KEYS_MANAGE,
+    'api_keys.manage': Permission.API_KEYS_MANAGE,
+    'webhooks:manage': Permission.WEBHOOKS_MANAGE,
+    'webhooks.manage': Permission.WEBHOOKS_MANAGE,
+  };
+  return map[scope] || (scope as Permission);
+}
+
 
 export async function developerApiKeyRoutes(
   app: FastifyInstance,
@@ -41,15 +71,21 @@ export async function developerApiKeyRoutes(
     async (req: FastifyRequest<{ Body: CreateApiKeyRequest }>, reply: FastifyReply) => {
       const { name, environment, scopes, expiresInDays } = req.body || {};
 
-      if (!name || !environment || !scopes || !Array.isArray(scopes)) {
-        throw new BadRequestError('Name, environment, and scopes array are required');
+      if (!name || name.trim().length === 0) {
+        throw new BadRequestError('API key name is required');
       }
+
+      const normalizedEnv = normalizeApiKeyEnvironment(environment);
+      const rawScopes = Array.isArray(scopes) && scopes.length > 0
+        ? scopes
+        : ['orders:create', 'orders:read'];
+      const normalizedScopes = rawScopes.map(normalizeScope);
 
       const generated = await apiKeyService.generateApiKey({
         agentId: req.user!.sub,
         name: name.trim(),
-        environment,
-        scopes,
+        environment: normalizedEnv,
+        scopes: normalizedScopes,
         expiresInDays,
       });
 
@@ -117,7 +153,55 @@ export async function developerApiKeyRoutes(
     },
   );
 
-  // 3. REVOKE API KEY
+  // 3. ROLL / ROTATE API KEY
+  app.post<{ Params: { id: string } }>(
+    '/developer/api-keys/:id/roll',
+    {
+      preHandler: [
+        authHooks.authenticateCustomer,
+        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
+      ],
+    },
+    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const { id } = req.params;
+
+      if (!id) {
+        throw new BadRequestError('API key ID is required');
+      }
+
+      const rolled = await apiKeyService.rollApiKey(id, req.user!.sub);
+
+      await auditService.logEvent({
+        correlationId: req.id,
+        actorId: req.user!.sub,
+        actorType: 'AGENT',
+        action: 'API_KEY_ROLLED',
+        resourceType: 'api_keys',
+        resourceId: id,
+        metadata: { name: rolled.name, environment: rolled.environment },
+        ipAddress: req.ip,
+      });
+
+      const responseData: ApiKeyCreatedDto = {
+        id: rolled.id,
+        name: rolled.name,
+        keyPrefix: rolled.keyPrefix,
+        apiKey: rolled.rawApiKey, // Shown once
+        environment: rolled.environment,
+        scopes: rolled.scopes,
+        createdAt: rolled.createdAt.toISOString(),
+        expiresAt: rolled.expiresAt ? rolled.expiresAt.toISOString() : null,
+      };
+
+      return reply.send({
+        success: true,
+        data: responseData,
+        message: 'API key secret rolled successfully. Please copy the new key.',
+      });
+    },
+  );
+
+  // 4. REVOKE API KEY
   app.delete<{ Params: { id: string } }>(
     '/developer/api-keys/:id',
     {
@@ -149,3 +233,4 @@ export async function developerApiKeyRoutes(
     },
   );
 }
+

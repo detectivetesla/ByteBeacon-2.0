@@ -25,7 +25,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
 
     mockDb = {
       query: vi.fn().mockImplementation(async (sql: string, params?: any[]) => {
-        if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+        if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
           return {
             rows: [
               {
@@ -97,7 +97,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 2. Key List Search
   it('GET /admin/api/keys returns paginated key items and masks hash secrets', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -148,7 +148,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 3. Key Detail Dossier
   it('GET /admin/api/keys/:id returns full key metadata dossier', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -193,7 +193,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 4. Create Key
   it('POST /admin/api/keys generates an API key, returns raw key once, and writes audit log', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string, params?: any[]) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', full_name: 'Admin', role: UserRole.SUPER_ADMIN }],
         };
@@ -241,7 +241,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 5. Rotate Key
   it('POST /admin/api/keys/:id/rotate rotates key, grants grace period, and returns replacement key', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -301,7 +301,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 6. Revoke Key
   it('POST /admin/api/keys/:id/revoke invalidates key with mandatory reason', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -349,7 +349,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 8. Security Events Stream
   it('GET /admin/api/security returns security violations stream', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -395,7 +395,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 9. Webhooks Registry & Test Ping
   it('POST /admin/api/webhooks registers webhook and returns one-time signing secret', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -436,7 +436,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
 
   it('POST /admin/api/webhooks/:id/test triggers simulated webhook event', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -463,7 +463,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 10. Telecom Provider Connections & Authoritative Switching
   it('GET /admin/api/providers returns provider connections list', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -517,7 +517,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
 
   it('POST /admin/api/providers/switch executes authoritative telecom provider switch', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -557,7 +557,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 11. API Policies & Emergency Kill Switches
   it('GET and PUT /admin/api/policies retrieves and updates global rate limits and emergency kill switches', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -612,7 +612,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
 
   it('14. should list, create, and update API consumers with audit logging', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string, params?: any[]) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
@@ -732,7 +732,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
 
   it('16. should retrieve a comprehensive API dossier for a specific agent', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string, params?: any[]) => {
-      if (typeof sql === 'string' && sql.includes('FROM users WHERE uuid = $1')) {
+      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
         return {
           rows: [{ id: 'agt_test', uuid: 'agt_test', email: 'agent@telecom.gh', full_name: 'Agent Kwesi', status: 'ACTIVE', role: UserRole.AGENT }],
         };

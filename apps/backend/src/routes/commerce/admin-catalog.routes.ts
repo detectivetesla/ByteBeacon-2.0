@@ -392,7 +392,7 @@ export async function adminCatalogRoutes(
       const historyRes = await db.query(
         `SELECT cph.*, u.full_name as "changedByName"
          FROM catalog_price_history cph
-         LEFT JOIN users u ON cph.changed_by = u.uuid
+         LEFT JOIN users u ON cph.changed_by = u.id
          WHERE cph.product_id = $1
          ORDER BY cph.created_at DESC
          LIMIT 20`,
@@ -425,7 +425,7 @@ export async function adminCatalogRoutes(
                 o.order_status as "orderStatus", o.provider_status as "providerStatus",
                 o.created_at as "createdAt", u.email as "customerEmail"
          FROM orders o
-         LEFT JOIN users u ON o.user_id = u.uuid
+         LEFT JOIN users u ON o.user_id = u.id
          WHERE o.product_id = $1
          ORDER BY o.created_at DESC
          LIMIT 10`,
@@ -1398,7 +1398,7 @@ export async function adminCatalogRoutes(
       const res = await db.query(
         `SELECT b.*, u.full_name as "initiatedByName"
          FROM provider_catalog_sync_batches b
-         LEFT JOIN users u ON b.initiated_by = u.uuid
+         LEFT JOIN users u ON b.initiated_by = u.id
          ORDER BY b.created_at DESC
          LIMIT 20`,
       ).catch(() => ({ rows: [] }));
@@ -1650,7 +1650,7 @@ export async function adminCatalogRoutes(
                 o.order_status as "orderStatus", o.provider_status as "providerStatus",
                 o.created_at as "createdAt", u.email as "customerEmail", u.full_name as "customerName"
          FROM orders o
-         LEFT JOIN users u ON o.user_id = u.uuid
+         LEFT JOIN users u ON o.user_id = u.id
          WHERE o.product_id = $1
          ORDER BY o.created_at DESC
          LIMIT $2 OFFSET $3`,
@@ -1693,7 +1693,7 @@ export async function adminCatalogRoutes(
       const res = await db.query(
         `SELECT cph.*, u.full_name as "changedByName"
          FROM catalog_price_history cph
-         LEFT JOIN users u ON cph.changed_by = u.uuid
+         LEFT JOIN users u ON cph.changed_by = u.id
          WHERE cph.product_id = $1
          ORDER BY cph.created_at DESC`,
         [id],

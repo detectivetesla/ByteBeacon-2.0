@@ -40,4 +40,24 @@ describe('Database Migration Framework', () => {
     expect(status[1].applied).toBe(false);
     expect(status[1].version).toBe('20260813000001');
   });
+
+  it('should execute legacy schema reconciliation before ensuring migrations table', async () => {
+    const executedQueries: string[] = [];
+    const mockPool = {
+      query: vi.fn().mockImplementation((query: string) => {
+        executedQueries.push(query);
+        if (query.includes('SELECT version')) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+    } as unknown as pg.Pool;
+
+    const migrator = new DatabaseMigrator(mockPool);
+    await migrator.ensureMigrationsTable();
+
+    expect(executedQueries.length).toBeGreaterThanOrEqual(2);
+    expect(executedQueries[0]).toContain('uuid TO id');
+    expect(executedQueries[1]).toContain('CREATE TABLE IF NOT EXISTS schema_migrations');
+  });
 });

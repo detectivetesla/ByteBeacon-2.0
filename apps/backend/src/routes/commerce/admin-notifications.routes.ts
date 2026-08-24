@@ -113,7 +113,7 @@ export async function adminNotificationsRoutes(
       const rulesRes = await db.query<any>(
         `SELECT r.*, u.full_name as creator_name
          FROM notification_rules r
-         LEFT JOIN users u ON u.uuid = r.created_by
+         LEFT JOIN users u ON u.id = r.created_by
          ORDER BY r.created_at DESC`,
       );
 
@@ -313,7 +313,7 @@ export async function adminNotificationsRoutes(
       const logRes = await db.query<any>(
         `SELECT l.*, u.full_name as recipient_name, u.role as recipient_user_role
          FROM communication_delivery_logs l
-         LEFT JOIN users u ON u.uuid = l.recipient_user_id
+         LEFT JOIN users u ON u.id = l.recipient_user_id
          WHERE l.id = $1`,
         [id],
       );
@@ -446,7 +446,7 @@ export async function adminNotificationsRoutes(
         db.query<any>(
           `SELECT l.*, u.full_name as recipient_name, u.role as recipient_user_role
            FROM communication_delivery_logs l
-           LEFT JOIN users u ON u.uuid = l.recipient_user_id
+           LEFT JOIN users u ON u.id = l.recipient_user_id
            ${where}
            ORDER BY l.created_at DESC
            LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -455,7 +455,7 @@ export async function adminNotificationsRoutes(
         db.query<any>(
           `SELECT COUNT(*) as total
            FROM communication_delivery_logs l
-           LEFT JOIN users u ON u.uuid = l.recipient_user_id
+           LEFT JOIN users u ON u.id = l.recipient_user_id
            ${where}`,
           conditions.length > 0 ? params.slice(0, params.length - 2) : [],
         ),

@@ -209,7 +209,7 @@ export async function adminOrdersRoutes(
       const countSql = `
         SELECT COUNT(DISTINCT o.id) as total
         FROM orders o
-        LEFT JOIN users u ON o.user_id = u.uuid
+        LEFT JOIN users u ON o.user_id = u.id
         LEFT JOIN provider_orders po ON o.id = po.order_id
         LEFT JOIN payment_transactions p ON o.id = p.order_id
         ${whereSql}
@@ -228,7 +228,7 @@ export async function adminOrdersRoutes(
                u.email as "userEmail", COALESCE(u.full_name, u.name, 'Customer') as "userName",
                po.provider_name as "providerName", po.provider_order_id as "providerOrderId"
         FROM orders o
-        LEFT JOIN users u ON o.user_id = u.uuid
+        LEFT JOIN users u ON o.user_id = u.id
         LEFT JOIN provider_orders po ON o.id = po.order_id
         LEFT JOIN payment_transactions p ON o.id = p.order_id
         ${whereSql}
@@ -280,8 +280,8 @@ export async function adminOrdersRoutes(
 
       // Customer Details
       const userRes = await db.query(
-        `SELECT uuid as id, email, phone, COALESCE(full_name, name, 'Customer') as "fullName", role, status
-         FROM users WHERE uuid = $1`,
+        `SELECT id, email, phone, COALESCE(full_name, name, 'Customer') as "fullName", role, status
+         FROM users WHERE id = $1`,
         [order.userId],
       ).catch(() => ({ rows: [] }));
 
@@ -568,7 +568,7 @@ export async function adminOrdersRoutes(
                o.order_status as "orderStatus", o.provider_status as "providerStatus",
                o.created_at as "createdAt", u.email as "userEmail"
         FROM orders o
-        LEFT JOIN users u ON o.user_id = u.uuid
+        LEFT JOIN users u ON o.user_id = u.id
         ORDER BY o.created_at DESC
         LIMIT 1000
       `);

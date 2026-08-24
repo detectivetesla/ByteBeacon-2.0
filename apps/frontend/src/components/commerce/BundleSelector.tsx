@@ -101,18 +101,22 @@ export const BundleSelector: React.FC<BundleSelectorProps> = ({
       .then((items) => {
         const productList = Array.isArray(items) ? items : [];
         if (isMounted && productList.length > 0) {
-          const mapped: BundleItem[] = productList.map((p) => ({
-            id: p.id,
-            sku: p.sku,
-            network: p.network as NetworkProvider,
-            dataAmountMb: p.dataAmountMb,
-            dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
-            pricePesewas: p.basePricePesewas,
-            priceDisplay: `GH₵ ${(p.basePricePesewas / 100).toFixed(2)}`,
-            validityDays: p.validityDays,
-            validityDisplay: p.validityDesc || `${p.validityDays} Days`,
-            popular: Boolean(p.popular),
-          }));
+          const isAgent = channel === 'AGENT';
+          const mapped: BundleItem[] = productList.map((p) => {
+            const price = isAgent && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
+            return {
+              id: p.id,
+              sku: p.sku,
+              network: p.network as NetworkProvider,
+              dataAmountMb: p.dataAmountMb,
+              dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+              pricePesewas: price,
+              priceDisplay: `GH₵ ${(price / 100).toFixed(2)}`,
+              validityDays: p.validityDays,
+              validityDisplay: p.validityDesc || `${p.validityDays} Days`,
+              popular: Boolean(p.popular),
+            };
+          });
           setLiveBundles(mapped);
         }
       })

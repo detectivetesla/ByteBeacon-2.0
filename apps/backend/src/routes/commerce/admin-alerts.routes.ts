@@ -119,9 +119,9 @@ export async function adminAlertsRoutes(
              res_user.full_name as resolved_by_name,
              COALESCE(ev.notes_count, 0) as notes_count
            FROM system_alerts a
-           LEFT JOIN users assignee ON assignee.uuid = a.assigned_to_id
-           LEFT JOIN users ack_user ON ack_user.uuid = a.acknowledged_by_id
-           LEFT JOIN users res_user ON res_user.uuid = a.resolved_by_id
+           LEFT JOIN users assignee ON assignee.id = a.assigned_to_id
+           LEFT JOIN users ack_user ON ack_user.id = a.acknowledged_by_id
+           LEFT JOIN users res_user ON res_user.id = a.resolved_by_id
            LEFT JOIN (
              SELECT alert_id, COUNT(*) as notes_count FROM alert_events GROUP BY alert_id
            ) ev ON ev.alert_id = a.id
@@ -169,9 +169,9 @@ export async function adminAlertsRoutes(
              res_user.full_name as resolved_by_name,
              COALESCE(ev.notes_count, 0) as notes_count
            FROM system_alerts a
-           LEFT JOIN users assignee ON assignee.uuid = a.assigned_to_id
-           LEFT JOIN users ack_user ON ack_user.uuid = a.acknowledged_by_id
-           LEFT JOIN users res_user ON res_user.uuid = a.resolved_by_id
+           LEFT JOIN users assignee ON assignee.id = a.assigned_to_id
+           LEFT JOIN users ack_user ON ack_user.id = a.acknowledged_by_id
+           LEFT JOIN users res_user ON res_user.id = a.resolved_by_id
            LEFT JOIN (
              SELECT alert_id, COUNT(*) as notes_count FROM alert_events GROUP BY alert_id
            ) ev ON ev.alert_id = a.id
@@ -215,7 +215,7 @@ export async function adminAlertsRoutes(
         throw new BadRequestError(`Alert cannot be acknowledged from status '${current.status}'.`);
       }
 
-      const actorRes = await db.query<any>('SELECT full_name FROM users WHERE uuid = $1', [actorId]);
+      const actorRes = await db.query<any>('SELECT full_name FROM users WHERE id = $1', [actorId]);
       const actorName = actorRes.rows[0]?.full_name ?? req.user!.email;
 
       await db.query(
@@ -259,8 +259,8 @@ export async function adminAlertsRoutes(
       if (alertRes.rows.length === 0) throw new NotFoundError(`Alert '${id}' not found.`);
 
       const [actorRes, assigneeRes] = await Promise.all([
-        db.query<any>('SELECT full_name FROM users WHERE uuid = $1', [actorId]),
-        db.query<any>('SELECT full_name FROM users WHERE uuid = $1', [assigneeUserId]),
+        db.query<any>('SELECT full_name FROM users WHERE id = $1', [actorId]),
+        db.query<any>('SELECT full_name FROM users WHERE id = $1', [assigneeUserId]),
       ]);
 
       if (assigneeRes.rows.length === 0) throw new NotFoundError(`Assignee user '${assigneeUserId}' not found.`);
@@ -313,7 +313,7 @@ export async function adminAlertsRoutes(
         throw new BadRequestError(`Alert must be ACKNOWLEDGED before investigation. Current status: '${current.status}'.`);
       }
 
-      const actorRes = await db.query<any>('SELECT full_name FROM users WHERE uuid = $1', [actorId]);
+      const actorRes = await db.query<any>('SELECT full_name FROM users WHERE id = $1', [actorId]);
       const actorName = actorRes.rows[0]?.full_name ?? req.user!.email;
 
       await db.query(
@@ -365,7 +365,7 @@ export async function adminAlertsRoutes(
         throw new BadRequestError(`Alert must be ACKNOWLEDGED or INVESTIGATING to resolve. Current status: '${current.status}'.`);
       }
 
-      const actorRes = await db.query<any>('SELECT full_name FROM users WHERE uuid = $1', [actorId]);
+      const actorRes = await db.query<any>('SELECT full_name FROM users WHERE id = $1', [actorId]);
       const actorName = actorRes.rows[0]?.full_name ?? req.user!.email;
 
       await db.query(
@@ -412,7 +412,7 @@ export async function adminAlertsRoutes(
       const alertRes = await db.query<any>('SELECT id FROM system_alerts WHERE id = $1', [id]);
       if (alertRes.rows.length === 0) throw new NotFoundError(`Alert '${id}' not found.`);
 
-      const actorRes = await db.query<any>('SELECT full_name FROM users WHERE uuid = $1', [actorId]);
+      const actorRes = await db.query<any>('SELECT full_name FROM users WHERE id = $1', [actorId]);
       const actorName = actorRes.rows[0]?.full_name ?? req.user!.email;
 
       await db.query(

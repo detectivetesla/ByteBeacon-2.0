@@ -71,7 +71,7 @@ describe('ByteBeacon 2.0 — Emergency Maintenance Mode Integration Suite', () =
 
     const mockDb: any = {
       query: vi.fn().mockImplementation((sql: string) => {
-        if (sql.includes('SELECT * FROM users WHERE uuid = $1')) {
+        if (sql.includes('SELECT * FROM users WHERE uuid = $1') || sql.includes('SELECT * FROM users WHERE id = $1')) {
           return {
             rows: [{
               id: '00000000-0000-0000-0000-000000000001',
@@ -133,7 +133,7 @@ describe('ByteBeacon 2.0 — Emergency Maintenance Mode Integration Suite', () =
 
     const mockDb: any = {
       query: vi.fn().mockImplementation((sql: string) => {
-        if (sql.includes('SELECT * FROM users WHERE uuid = $1')) {
+        if (sql.includes('SELECT * FROM users WHERE uuid = $1') || sql.includes('SELECT * FROM users WHERE id = $1')) {
           return {
             rows: [{
               id: '00000000-0000-0000-0000-000000000002',

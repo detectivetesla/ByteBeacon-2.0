@@ -109,9 +109,9 @@ export async function adminAgentsRoutes(
               WHERE agent_id IS NOT NULL AND payment_status = 'PAID'
             ), 0) as "totalRevenuePesewas"
           FROM agents a
-          JOIN users u ON a.user_id = u.uuid
+          JOIN users u ON a.user_id = u.id
           LEFT JOIN stores s ON s.agent_id = a.id
-          LEFT JOIN api_keys k ON k.agent_id = u.uuid AND k.status = 'ACTIVE'
+          LEFT JOIN api_keys k ON k.agent_id = u.id AND k.status = 'ACTIVE'
         `;
 
         const res = await db.query(statsQuery);
@@ -250,14 +250,14 @@ export async function adminAgentsRoutes(
       const countQuery = `
         SELECT COUNT(DISTINCT a.id) as total
         FROM agents a
-        JOIN users u ON a.user_id = u.uuid
+        JOIN users u ON a.user_id = u.id
         LEFT JOIN stores s ON s.agent_id = a.id
         LEFT JOIN (
           SELECT agent_id, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
           GROUP BY agent_id
-        ) k ON k.agent_id = u.uuid
+        ) k ON k.agent_id = u.id
         WHERE ${whereClause}
       `;
 
@@ -288,14 +288,14 @@ export async function adminAgentsRoutes(
           a.created_at as "createdAt",
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
         FROM agents a
-        JOIN users u ON a.user_id = u.uuid
+        JOIN users u ON a.user_id = u.id
         LEFT JOIN stores s ON s.agent_id = a.id
         LEFT JOIN (
           SELECT agent_id, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
           GROUP BY agent_id
-        ) k ON k.agent_id = u.uuid
+        ) k ON k.agent_id = u.id
         LEFT JOIN (
           SELECT agent_id, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
           FROM orders
@@ -364,14 +364,14 @@ export async function adminAgentsRoutes(
           a.created_at as "createdAt",
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
         FROM agents a
-        JOIN users u ON a.user_id = u.uuid
+        JOIN users u ON a.user_id = u.id
         LEFT JOIN stores s ON s.agent_id = a.id
         LEFT JOIN (
           SELECT agent_id, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
           GROUP BY agent_id
-        ) k ON k.agent_id = u.uuid
+        ) k ON k.agent_id = u.id
         LEFT JOIN (
           SELECT agent_id, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
           FROM orders
@@ -465,7 +465,7 @@ export async function adminAgentsRoutes(
                 COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE agent_id = a.id AND payment_status = 'PAID'), 0) as "revenuePesewas",
                 a.created_at as "createdAt"
          FROM agents a
-         JOIN users u ON a.user_id = u.uuid
+         JOIN users u ON a.user_id = u.id
          WHERE a.parent_agent_id = $1
          ORDER BY a.created_at DESC`,
         [agentId],
@@ -491,12 +491,12 @@ export async function adminAgentsRoutes(
       const customersRes = await db.query(
         `SELECT ac.id, ac.customer_id as "customerId", COALESCE(u.full_name, u.name, 'Customer') as "fullName",
                 u.email, u.phone,
-                COALESCE((SELECT COUNT(*) FROM orders WHERE user_id = u.uuid AND agent_id = $1), 0) as "ordersCount",
-                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE user_id = u.uuid AND agent_id = $1 AND payment_status = 'PAID'), 0) as "spentPesewas",
-                (SELECT MAX(created_at) FROM orders WHERE user_id = u.uuid AND agent_id = $1) as "lastOrderDate",
+                COALESCE((SELECT COUNT(*) FROM orders WHERE user_id = u.id AND agent_id = $1), 0) as "ordersCount",
+                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE user_id = u.id AND agent_id = $1 AND payment_status = 'PAID'), 0) as "spentPesewas",
+                (SELECT MAX(created_at) FROM orders WHERE user_id = u.id AND agent_id = $1) as "lastOrderDate",
                 ac.created_at as "createdAt"
          FROM agent_customers ac
-         JOIN users u ON ac.customer_id = u.uuid
+         JOIN users u ON ac.customer_id = u.id
          WHERE ac.agent_id = $1
          ORDER BY ac.created_at DESC
          LIMIT 20`,
@@ -624,7 +624,7 @@ export async function adminAgentsRoutes(
       }
 
       // Check existing email
-      const existingUser = await db.query('SELECT uuid FROM users WHERE LOWER(email) = LOWER($1)', [email.trim()]);
+      const existingUser = await db.query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email.trim()]);
       if (existingUser.rows.length > 0) {
         throw new ConflictError('A user with this email address already exists.');
       }
@@ -644,7 +644,7 @@ export async function adminAgentsRoutes(
       const userRes = await db.query(
         `INSERT INTO users (full_name, name, email, phone, password_hash, role, status, is_active, email_verified, wallet_balance)
          VALUES ($1, $1, $2, $3, $4, 'agent', 'ACTIVE', TRUE, TRUE, 0)
-         RETURNING uuid as id, email, phone, full_name as "fullName", created_at as "createdAt"`,
+         RETURNING id, email, phone, full_name as "fullName", created_at as "createdAt"`,
         [fullName.trim(), email.trim().toLowerCase(), phone.trim(), passwordHash],
       );
       const newUser = userRes.rows[0];
@@ -725,7 +725,7 @@ export async function adminAgentsRoutes(
                name = COALESCE($1, name),
                phone = COALESCE($2, phone),
                updated_at = CURRENT_TIMESTAMP
-           WHERE uuid = $3`,
+           WHERE id = $3`,
           [fullName?.trim(), phone?.trim(), agent.userId],
         );
       }
@@ -805,7 +805,7 @@ export async function adminAgentsRoutes(
 
       // Update user status
       await db.query(
-        `UPDATE users SET status = $1, is_active = $2, updated_at = CURRENT_TIMESTAMP WHERE uuid = $3`,
+        `UPDATE users SET status = $1, is_active = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
         [status, status === AgentAccountStatus.ACTIVE, agent.userId],
       );
 
@@ -851,7 +851,7 @@ export async function adminAgentsRoutes(
       }
 
       const agentRes = await db.query(
-        'SELECT a.id, a.user_id as "userId", u.wallet_balance as "walletBalance" FROM agents a JOIN users u ON a.user_id = u.uuid WHERE a.id = $1',
+        'SELECT a.id, a.user_id as "userId", u.wallet_balance as "walletBalance" FROM agents a JOIN users u ON a.user_id = u.id WHERE a.id = $1',
         [id],
       );
       if (agentRes.rows.length === 0) {
@@ -924,7 +924,7 @@ export async function adminAgentsRoutes(
              SET wallet_balance = COALESCE(wallet_balance, 0) + $1,
                  wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $2,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE uuid = $3`,
+             WHERE id = $3`,
             [delta, deltaPesewas, userId],
           );
 
@@ -1159,7 +1159,7 @@ export async function adminAgentsRoutes(
           COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE agent_id = a.id AND payment_status = 'PAID'), 0) / 100.0 as "revenueGhs",
           a.created_at as "createdAt"
         FROM agents a
-        JOIN users u ON a.user_id = u.uuid
+        JOIN users u ON a.user_id = u.id
       `;
 
       const params: any[] = [];

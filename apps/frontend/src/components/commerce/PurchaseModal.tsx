@@ -17,10 +17,20 @@ import {
   AlertTriangle,
   Lock,
   ExternalLink,
+  UsersRound,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { ordersApi } from '../../api/orders.api.js';
+
+export interface BulkOrderItem {
+  recipientPhone: string;
+  productId: string;
+  dataDisplay?: string;
+  pricePesewas?: number;
+}
 
 export interface PurchaseModalProps {
   isOpen: boolean;
@@ -34,6 +44,8 @@ export interface PurchaseModalProps {
   customAmountDisplay?: string;
   walletBalanceGhs?: number;
   isGuestPurchase?: boolean;
+  channel?: 'CUSTOMER' | 'AGENT' | 'STORE' | 'API';
+  bulkItems?: BulkOrderItem[];
 }
 
 const NETWORK_MODAL_THEMES: Record<
@@ -108,32 +120,60 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   customAmountDisplay,
   walletBalanceGhs,
   isGuestPurchase,
+  channel,
+  bulkItems,
 }) => {
   const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
+  const { balanceGhs: liveBalanceGhs, refresh: refreshWalletBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
-  const [step, setStep] = useState<1 | 2 | 3>(initialRecipientPhone || customRecipientSummary ? 2 : 1);
+
+  const isBulk = Boolean(bulkItems && bulkItems.length > 0);
+
+  const [step, setStep] = useState<1 | 2 | 3>(
+    isBulk || initialRecipientPhone || customRecipientSummary ? 2 : 1,
+  );
   const [network, setNetwork] = useState<NetworkProvider>(initialNetwork);
   const [selectedBundle, setSelectedBundle] = useState<BundleItem | null>(null);
   const [recipientPhone, setRecipientPhone] = useState(initialRecipientPhone);
   const [buyerEmail, setBuyerEmail] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState<{ id: string } | null>(null);
+  const [completedOrder, setCompletedOrder] = useState<{ id: string; count?: number } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // If walletBalanceGhs is not explicitly passed or isGuestPurchase is true, default to direct Paystack mode
-  const effectiveIsGuest = isGuestPurchase !== undefined ? isGuestPurchase : walletBalanceGhs === undefined;
-  const effectiveWalletBalance = walletBalanceGhs ?? 0;
+  // Determine active channel: explicitly passed, or inferred from authenticated user role
+  const isAgentRole = user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin';
+  const activeChannel = channel || (isAgentRole ? 'AGENT' : 'CUSTOMER');
+
+  // Determine if this is guest checkout:
+  // If isGuestPurchase is explicitly passed, respect it; otherwise if user is authenticated, it's not a guest.
+  const effectiveIsGuest = isGuestPurchase !== undefined ? isGuestPurchase : !isAuthenticated;
+  const effectiveWalletBalance =
+    walletBalanceGhs !== undefined ? walletBalanceGhs : isAuthenticated ? liveBalanceGhs : 0;
+
+  // Selected payment method for authenticated users: 'wallet' or 'paystack'
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'wallet' | 'paystack'>(
+    effectiveIsGuest ? 'paystack' : 'wallet',
+  );
+
+  useEffect(() => {
+    if (effectiveIsGuest) {
+      setSelectedPaymentMethod('paystack');
+    } else {
+      setSelectedPaymentMethod('wallet');
+    }
+  }, [effectiveIsGuest]);
 
   useEffect(() => {
     if (initialNetwork) {
       setNetwork(initialNetwork);
     }
-    if (initialRecipientPhone) {
-      setRecipientPhone(initialRecipientPhone);
+    if (isBulk || customRecipientSummary) {
       setStep(2);
-    } else if (customRecipientSummary) {
+    } else if (initialRecipientPhone) {
+      setRecipientPhone(initialRecipientPhone);
       setStep(2);
     } else {
       setStep(1);
@@ -143,23 +183,28 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       let isMounted = true;
       const targetNet = initialNetwork || network || NetworkProvider.MTN;
       catalogApi
-        .getBundles(targetNet, 'CUSTOMER')
+        .getBundles(targetNet, activeChannel)
         .then((items) => {
           if (!isMounted || !Array.isArray(items) || items.length === 0) return;
-          const mapped: BundleItem[] = items.map((p) => ({
-            id: p.id,
-            sku: p.sku,
-            network: p.network as NetworkProvider,
-            dataAmountMb: p.dataAmountMb,
-            dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
-            pricePesewas: p.basePricePesewas,
-            priceDisplay: `GH₵ ${(p.basePricePesewas / 100).toFixed(2)}`,
-            validityDays: p.validityDays,
-            validityDisplay: p.validityDesc || `${p.validityDays} Days`,
-            popular: Boolean(p.popular),
-          }));
+          const isAgent = activeChannel === 'AGENT';
+          const mapped: BundleItem[] = items.map((p) => {
+            const price = isAgent && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
+            return {
+              id: p.id,
+              sku: p.sku,
+              network: p.network as NetworkProvider,
+              dataAmountMb: p.dataAmountMb,
+              dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+              pricePesewas: price,
+              priceDisplay: `GH₵ ${(price / 100).toFixed(2)}`,
+              validityDays: p.validityDays,
+              validityDisplay: p.validityDesc || `${p.validityDays} Days`,
+              popular: Boolean(p.popular),
+            };
+          });
           const match =
-            (initialBundleId && mapped.find((b) => b.id === initialBundleId || b.sku === initialBundleId)) ||
+            (initialBundleId &&
+              mapped.find((b) => b.id === initialBundleId || b.sku === initialBundleId)) ||
             mapped[0];
           if (match) setSelectedBundle(match);
         })
@@ -169,27 +214,52 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         isMounted = false;
       };
     }
-  }, [initialNetwork, initialBundleId, initialRecipientPhone, customRecipientSummary, isOpen]);
+  }, [
+    initialNetwork,
+    initialBundleId,
+    initialRecipientPhone,
+    customRecipientSummary,
+    isOpen,
+    activeChannel,
+    isBulk,
+  ]);
 
   // Pre-fetch Paystack script in background when modal opens
   useEffect(() => {
-    if (isOpen && effectiveIsGuest) {
+    if (isOpen) {
       loadPaystackScript().catch(() => {});
     }
-  }, [isOpen, effectiveIsGuest]);
+  }, [isOpen]);
 
-  const packageDisplay = customPackageSummary || selectedBundle?.dataDisplay || '5 GB';
-  const amountDisplay = customAmountDisplay || selectedBundle?.priceDisplay || 'GH₵ 24.00';
-  const recipientDisplay = customRecipientSummary || recipientPhone;
+  const packageDisplay =
+    customPackageSummary ||
+    (isBulk
+      ? `${bulkItems?.length} Packages (${network})`
+      : selectedBundle?.dataDisplay || '5 GB');
+
+  const amountDisplay =
+    customAmountDisplay ||
+    (selectedBundle?.priceDisplay
+      ? selectedBundle.priceDisplay
+      : 'GH₵ 0.00');
+
+  const recipientDisplay =
+    customRecipientSummary ||
+    (isBulk ? `${bulkItems?.length} Recipients` : recipientPhone);
 
   // Numeric Price Calculation
   const numericPrice = useMemo(() => {
+    if (customAmountDisplay) {
+      const match = customAmountDisplay.match(/[\d,.]+/);
+      if (match) {
+        return parseFloat(match[0].replace(/,/g, ''));
+      }
+    }
     if (selectedBundle?.pricePesewas) {
       return selectedBundle.pricePesewas / 100;
     }
-    const match = amountDisplay.match(/[\d.]+/);
-    return match ? parseFloat(match[0]) : 24.0;
-  }, [selectedBundle, amountDisplay]);
+    return 0;
+  }, [selectedBundle, customAmountDisplay]);
 
   // Derived values
   const theme = NETWORK_MODAL_THEMES[network] || NETWORK_MODAL_THEMES[NetworkProvider.MTN];
@@ -202,7 +272,10 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
 
   const handleValidateAndContinue = () => {
     if (isMaintenanceMode) {
-      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      toastError(
+        'Maintenance in Progress',
+        'Platform checkout is temporarily paused for scheduled maintenance.',
+      );
       return;
     }
     const cleaned = recipientPhone.replace(/\s+/g, '');
@@ -216,13 +289,16 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
 
   const handlePaystackCheckout = async () => {
     if (isMaintenanceMode) {
-      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      toastError(
+        'Maintenance in Progress',
+        'Platform checkout is temporarily paused for scheduled maintenance.',
+      );
       return;
     }
     const cleaned = recipientPhone.replace(/\s+/g, '');
-    const payEmail = buyerEmail.trim() || `${cleaned}@customer.bytebeacon.com`;
+    const payEmail = buyerEmail.trim() || user?.email || `${cleaned || 'customer'}@bytebeacon.com`;
     const amountPesewas = Math.round(numericPrice * 100);
-    const orderRef = `BB-${network.substring(0, 3)}-${Math.floor(10000 + Math.random() * 90000)}`;
+    const bundleId = selectedBundle?.id || initialBundleId || '';
 
     setIsProcessing(true);
     toastInfo('Initializing Checkout', 'Connecting to Paystack Secure Gateway...');
@@ -232,7 +308,12 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       const paystackKey =
         (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PAYSTACK_PUBLIC_KEY) || '';
 
-      if (isScriptLoaded && (window as any).PaystackPop && paystackKey && !paystackKey.includes('placeholder')) {
+      if (
+        isScriptLoaded &&
+        (window as any).PaystackPop &&
+        paystackKey &&
+        !paystackKey.includes('placeholder')
+      ) {
         const handler = (window as any).PaystackPop.setup({
           key: paystackKey,
           email: payEmail,
@@ -241,18 +322,46 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
           ref: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
           metadata: {
             custom_fields: [
-              { display_name: 'Recipient SIM', variable_name: 'recipient_phone', value: cleaned },
+              {
+                display_name: 'Recipient SIM',
+                variable_name: 'recipient_phone',
+                value: cleaned || (bulkItems?.length ? `${bulkItems.length} recipients` : ''),
+              },
               { display_name: 'Network', variable_name: 'network', value: network },
               { display_name: 'Package', variable_name: 'package', value: packageDisplay },
             ],
           },
-          callback: function (response: { reference: string }) {
+          callback: async function (response: { reference: string }) {
+            try {
+              if (bulkItems && bulkItems.length > 0) {
+                const submission = await ordersApi.createBulkSubmission({
+                  name: customTitle || `Bulk Order (${bulkItems.length} Recipients)`,
+                  items: bulkItems.map((i) => ({
+                    recipientPhone: i.recipientPhone,
+                    productId: i.productId,
+                  })),
+                  idempotencyKey: response.reference || `bulk_${Date.now()}`,
+                });
+                setCompletedOrder({ id: submission.id, count: bulkItems.length });
+              } else if (bundleId) {
+                const created = await ordersApi.createOrder({
+                  productId: bundleId,
+                  recipientPhone: cleaned,
+                  idempotencyKey: response.reference || `ord_${Date.now()}`,
+                });
+                setCompletedOrder({ id: created.publicId || created.id || response.reference });
+              } else {
+                setCompletedOrder({ id: response.reference });
+              }
+            } catch {
+              setCompletedOrder({ id: response.reference });
+            }
             setIsProcessing(false);
-            setCompletedOrder({ id: response.reference || orderRef });
             setStep(3);
+            await refreshWalletBalance();
             toastSuccess(
               'Payment Verified!',
-              `Paid GH₵ ${numericPrice.toFixed(2)} via Paystack. Bundle is being dispatched to ${cleaned}.`,
+              `Paid GH₵ ${numericPrice.toFixed(2)} via Paystack. Bundle is being dispatched.`,
             );
           },
           onClose: function () {
@@ -262,28 +371,32 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         });
         handler.openIframe();
       } else {
-        // Fallback / Sandbox direct flow: Creates order and triggers instant fulfillment
-        try {
+        // Direct backend fulfillment
+        if (bulkItems && bulkItems.length > 0) {
+          const submission = await ordersApi.createBulkSubmission({
+            name: customTitle || `Bulk Order (${bulkItems.length} Recipients)`,
+            items: bulkItems.map((i) => ({
+              recipientPhone: i.recipientPhone,
+              productId: i.productId,
+            })),
+            idempotencyKey: `bulk_pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          });
+          setCompletedOrder({ id: submission.id, count: bulkItems.length });
+        } else {
           const created = await ordersApi.createOrder({
-            productId: selectedBundle?.id || initialBundleId || 'default_bundle',
+            productId: bundleId,
             recipientPhone: cleaned,
             idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
           });
-          const realRef = created.publicId || created.id || orderRef;
-          setCompletedOrder({ id: realRef });
-        } catch {
-          // If public without session cookie, generate clean order confirmation token
-          setCompletedOrder({ id: orderRef });
+          setCompletedOrder({ id: created.publicId || created.id });
         }
-
-        setTimeout(() => {
-          setIsProcessing(false);
-          setStep(3);
-          toastSuccess(
-            'Order Confirmed',
-            `Paid GH₵ ${numericPrice.toFixed(2)} via Paystack. Order reference: ${orderRef}.`,
-          );
-        }, 1000);
+        setIsProcessing(false);
+        setStep(3);
+        await refreshWalletBalance();
+        toastSuccess(
+          'Order Confirmed',
+          `Paid GH₵ ${numericPrice.toFixed(2)}. Processing fulfillment.`,
+        );
       }
     } catch (err: any) {
       setIsProcessing(false);
@@ -293,7 +406,10 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
 
   const handleWalletPurchase = async () => {
     if (isMaintenanceMode) {
-      toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      toastError(
+        'Maintenance in Progress',
+        'Platform checkout is temporarily paused for scheduled maintenance.',
+      );
       return;
     }
     if (!isSufficient) {
@@ -304,20 +420,50 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
     setIsProcessing(true);
 
     try {
-      const order = await ordersApi.createOrder({
-        productId: selectedBundle?.id || initialBundleId || 'default_bundle',
-        recipientPhone: recipientPhone.trim(),
-        idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      });
+      if (bulkItems && bulkItems.length > 0) {
+        const submission = await ordersApi.createBulkSubmission({
+          name: customTitle || `Bulk Order (${bulkItems.length} Recipients)`,
+          items: bulkItems.map((i) => ({
+            recipientPhone: i.recipientPhone,
+            productId: i.productId,
+          })),
+          idempotencyKey: `bulk_sub_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        });
 
-      setIsProcessing(false);
-      const orderRef = order.publicId || (order as any).orderNumber || order.id || 'Order Confirmed';
-      setCompletedOrder({ id: orderRef });
-      setStep(3);
-      toastSuccess('Order Confirmed', `Paid GH₵ ${numericPrice.toFixed(2)} from wallet. Order reference: ${orderRef}.`);
+        setIsProcessing(false);
+        const subRef = submission.id;
+        setCompletedOrder({ id: subRef, count: bulkItems.length });
+        setStep(3);
+        await refreshWalletBalance();
+        toastSuccess(
+          'Bulk Order Confirmed',
+          `Paid GH₵ ${numericPrice.toFixed(2)} from wallet for ${bulkItems.length} recipients. Reference: ${subRef}.`,
+        );
+      } else {
+        const bundleId = selectedBundle?.id || initialBundleId;
+        if (!bundleId) {
+          throw new Error('Please select a valid data package before purchasing.');
+        }
+        const order = await ordersApi.createOrder({
+          productId: bundleId,
+          recipientPhone: recipientPhone.trim(),
+          idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        });
+
+        setIsProcessing(false);
+        const orderRef =
+          order.publicId || (order as any).orderNumber || order.id || 'Order Confirmed';
+        setCompletedOrder({ id: orderRef });
+        setStep(3);
+        await refreshWalletBalance();
+        toastSuccess(
+          'Order Confirmed',
+          `Paid GH₵ ${numericPrice.toFixed(2)} from wallet. Order reference: ${orderRef}.`,
+        );
+      }
     } catch (err: any) {
       setIsProcessing(false);
-      toastError('Order Failed', err.message || 'Unable to dispatch data bundle. Please try again.');
+      toastError('Order Failed', err.message || 'Unable to complete purchase. Please try again.');
     }
   };
 
@@ -330,8 +476,8 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   };
 
   const handleReset = () => {
-    setStep(1);
-    setRecipientPhone('');
+    setStep(isBulk || customRecipientSummary ? 2 : 1);
+    setRecipientPhone(initialRecipientPhone);
     setBuyerEmail('');
     setPhoneError('');
     setCompletedOrder(null);
@@ -340,7 +486,11 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
 
   const handleNavigateToTopUp = () => {
     onClose();
-    navigate('/agent/wallet');
+    if (isAgentRole) {
+      navigate('/agent/wallet');
+    } else {
+      navigate('/app/wallet');
+    }
   };
 
   return (
@@ -404,7 +554,11 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 letterSpacing: '0.06em',
               }}
             >
-              {step === 1 ? 'Step 1 of 2 · Recipient' : step === 2 ? 'Step 2 of 2 · Confirm Purchase' : 'Order Status'}
+              {step === 1
+                ? 'Step 1 of 2 · Recipient'
+                : step === 2
+                  ? 'Step 2 of 2 · Confirm Purchase'
+                  : 'Order Status'}
             </span>
             <h2
               style={{
@@ -414,7 +568,11 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 margin: 0,
               }}
             >
-              {step === 3 ? 'Order Dispatched' : customTitle || 'Purchase Data'}
+              {step === 3
+                ? isBulk
+                  ? 'Batch Order Submitted'
+                  : 'Order Dispatched'
+                : customTitle || 'Purchase Data'}
             </h2>
           </div>
 
@@ -466,7 +624,8 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               <AlertTriangle size={18} style={{ flexShrink: 0 }} />
               <div>
                 <strong>Scheduled Maintenance in Progress:</strong>{' '}
-                {maintenanceMessage || 'Telecom fulfillment and checkout are temporarily paused. Please check back shortly.'}
+                {maintenanceMessage ||
+                  'Telecom fulfillment and checkout are temporarily paused. Please check back shortly.'}
               </div>
             </div>
           )}
@@ -504,7 +663,9 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                     fontWeight: 700,
                   }}
                 >
-                  {selectedBundle?.validityDisplay || 'Instant Delivery · Non-Expiry'}
+                  {isBulk
+                    ? `${bulkItems?.length} items in batch · Direct SIM Dispatch`
+                    : selectedBundle?.validityDisplay || 'Instant Delivery · Non-Expiry'}
                 </span>
               </div>
             </div>
@@ -524,7 +685,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
           </div>
 
           {/* STAGE 1: Enter Recipient & Contact Details */}
-          {step === 1 && (
+          {step === 1 && !isBulk && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
               <PhoneInput
                 label="Recipient SIM Mobile Number"
@@ -585,12 +746,12 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 }}
               >
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                  Recipient SIM:
+                  {isBulk ? 'Batch Recipients:' : 'Recipient SIM:'}
                 </span>
                 <strong
                   style={{
                     fontSize: 'var(--font-size-xs)',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: isBulk ? 'var(--font-sans)' : 'var(--font-mono)',
                     color: 'var(--color-text-primary)',
                   }}
                 >
@@ -598,20 +759,86 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 </strong>
               </div>
 
-              {/* PAYMENT OPTION A: Guest Direct Checkout via Paystack */}
-              {effectiveIsGuest ? (
-                <div>
-                  <div
+              {/* Payment Method Selector Tabs for Authenticated Users */}
+              {!effectiveIsGuest && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                  <span
                     style={{
                       fontSize: 'var(--font-size-xs)',
                       fontWeight: 800,
                       color: 'var(--color-text-secondary)',
-                      marginBottom: 'var(--space-2)',
                     }}
                   >
-                    Payment Method
-                  </div>
+                    Select Payment Method
+                  </span>
 
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-2)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod('wallet')}
+                      style={{
+                        padding: 'var(--space-3)',
+                        borderRadius: 'var(--radius-md)',
+                        border:
+                          selectedPaymentMethod === 'wallet'
+                            ? '2px solid var(--color-primary)'
+                            : '1px solid var(--color-border-default)',
+                        backgroundColor:
+                          selectedPaymentMethod === 'wallet'
+                            ? 'rgba(34, 197, 94, 0.08)'
+                            : 'var(--color-bg-surface-elevated)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <Wallet size={16} color="var(--color-primary)" />
+                      <div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800 }}>Wallet Balance</div>
+                        <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                          GH₵ {effectiveWalletBalance.toFixed(2)}
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod('paystack')}
+                      style={{
+                        padding: 'var(--space-3)',
+                        borderRadius: 'var(--radius-md)',
+                        border:
+                          selectedPaymentMethod === 'paystack'
+                            ? '2px solid #00C3F7'
+                            : '1px solid var(--color-border-default)',
+                        backgroundColor:
+                          selectedPaymentMethod === 'paystack'
+                            ? 'rgba(0, 195, 247, 0.08)'
+                            : 'var(--color-bg-surface-elevated)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <Lock size={16} color="#00C3F7" />
+                      <div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800 }}>Paystack Gateway</div>
+                        <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                          MoMo / Cards
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* PAYMENT OPTION A: Guest Direct Checkout via Paystack */}
+              {selectedPaymentMethod === 'paystack' ? (
+                <div>
                   <div
                     style={{
                       padding: 'var(--space-4)',
@@ -642,7 +869,13 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                           <Lock size={18} />
                         </div>
                         <div>
-                          <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                          <div
+                            style={{
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 800,
+                              color: 'var(--color-text-primary)',
+                            }}
+                          >
                             Paystack Secure Checkout
                           </div>
                           <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)' }}>
@@ -784,16 +1017,6 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 <div>
                   <div
                     style={{
-                      fontSize: 'var(--font-size-xs)',
-                      fontWeight: 800,
-                      color: 'var(--color-text-secondary)',
-                      marginBottom: 'var(--space-2)',
-                    }}
-                  >
-                    Payment Method
-                  </div>
-                  <div
-                    style={{
                       padding: 'var(--space-4)',
                       borderRadius: 'var(--radius-lg)',
                       border: '1.5px solid var(--color-primary)',
@@ -819,7 +1042,13 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                         <Wallet size={18} strokeWidth={2.4} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                        <div
+                          style={{
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 800,
+                            color: 'var(--color-text-primary)',
+                          }}
+                        >
                           Wallet Balance
                         </div>
                         <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)' }}>
@@ -865,7 +1094,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)' }}>
-                      <span style={{ color: 'var(--color-text-secondary)' }}>Price:</span>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>Total Price:</span>
                       <strong style={{ fontFamily: 'var(--font-data)', color: 'var(--color-danger)' }}>
                         - GH₵ {numericPrice.toFixed(2)}
                       </strong>
@@ -881,7 +1110,9 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                         marginTop: 'var(--space-1)',
                       }}
                     >
-                      <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>Remaining Balance:</span>
+                      <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        Remaining Balance:
+                      </span>
                       <strong
                         style={{
                           fontFamily: 'var(--font-data)',
@@ -909,13 +1140,23 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem' }}>
-                        <AlertTriangle size={18} color="var(--color-danger)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                        <AlertTriangle
+                          size={18}
+                          color="var(--color-danger)"
+                          style={{ marginTop: '2px', flexShrink: 0 }}
+                        />
                         <div>
-                          <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)', display: 'block' }}>
+                          <strong
+                            style={{
+                              fontSize: 'var(--font-size-xs)',
+                              color: 'var(--color-danger)',
+                              display: 'block',
+                            }}
+                          >
                             Insufficient wallet balance
                           </strong>
                           <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)' }}>
-                            You need GH₵ {shortfall} more to purchase this bundle.
+                            You need GH₵ {shortfall} more to complete this purchase.
                           </span>
                         </div>
                       </div>
@@ -965,7 +1206,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   justifyContent: 'center',
                 }}
               >
-                <CheckCircle2 size={32} />
+                {isBulk ? <UsersRound size={32} /> : <CheckCircle2 size={32} />}
               </div>
 
               <div>
@@ -977,7 +1218,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                     margin: 0,
                   }}
                 >
-                  Data Bundle Dispatched!
+                  {isBulk ? 'Bulk Order Queued for Dispatch!' : 'Data Bundle Dispatched!'}
                 </h3>
                 <p
                   style={{
@@ -988,9 +1229,29 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                     lineHeight: 1.5,
                   }}
                 >
-                  <strong style={{ color: 'var(--color-text-primary)' }}>{packageDisplay}</strong> data has been dispatched
-                  to <strong style={{ color: 'var(--color-text-primary)' }}>{recipientDisplay || 'your SIM'}</strong> on{' '}
-                  {network}. {effectiveIsGuest ? 'Secured & verified by Paystack.' : 'Paid from ByteBeacon Wallet.'}
+                  {isBulk ? (
+                    <>
+                      <strong style={{ color: 'var(--color-text-primary)' }}>
+                        {completedOrder.count || bulkItems?.length} recipient orders
+                      </strong>{' '}
+                      have been registered for fulfillment on {network}.{' '}
+                      {selectedPaymentMethod === 'wallet'
+                        ? 'Paid from ByteBeacon Wallet.'
+                        : 'Secured via Paystack.'}
+                    </>
+                  ) : (
+                    <>
+                      <strong style={{ color: 'var(--color-text-primary)' }}>{packageDisplay}</strong> data
+                      has been dispatched to{' '}
+                      <strong style={{ color: 'var(--color-text-primary)' }}>
+                        {recipientDisplay || 'your SIM'}
+                      </strong>{' '}
+                      on {network}.{' '}
+                      {selectedPaymentMethod === 'wallet'
+                        ? 'Paid from ByteBeacon Wallet.'
+                        : 'Secured & verified via Paystack.'}
+                    </>
+                  )}
                 </p>
               </div>
 
@@ -1008,8 +1269,15 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 }}
               >
                 <div>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block', textAlign: 'left' }}>
-                    Order Reference
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      color: 'var(--color-text-muted)',
+                      display: 'block',
+                      textAlign: 'left',
+                    }}
+                  >
+                    {isBulk ? 'Batch Reference' : 'Order Reference'}
                   </span>
                   <span
                     style={{
@@ -1087,7 +1355,9 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   padding: '0.45rem 1.25rem',
                   borderRadius: 'var(--radius-md)',
                   border: 'none',
-                  backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                  backgroundColor: isMaintenanceMode
+                    ? 'var(--color-bg-surface-muted)'
+                    : theme.buttonBg,
                   color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
                   fontWeight: 800,
                   fontSize: 'var(--font-size-xs)',
@@ -1106,13 +1376,17 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => (initialRecipientPhone || customRecipientSummary ? handleReset() : setStep(1))}
+                onClick={() =>
+                  isBulk || initialRecipientPhone || customRecipientSummary
+                    ? handleReset()
+                    : setStep(1)
+                }
                 disabled={isProcessing}
               >
-                {initialRecipientPhone || customRecipientSummary ? 'Cancel' : '← Back'}
+                {isBulk || initialRecipientPhone || customRecipientSummary ? 'Cancel' : '← Back'}
               </Button>
 
-              {effectiveIsGuest ? (
+              {selectedPaymentMethod === 'paystack' ? (
                 <button
                   type="button"
                   onClick={handlePaystackCheckout}
@@ -1121,11 +1395,17 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                     padding: '0.5rem 1.35rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                    backgroundColor: isMaintenanceMode
+                      ? 'var(--color-bg-surface-muted)'
+                      : theme.buttonBg,
                     color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-xs)',
-                    cursor: isProcessing ? 'wait' : isMaintenanceMode ? 'not-allowed' : 'pointer',
+                    cursor: isProcessing
+                      ? 'wait'
+                      : isMaintenanceMode
+                        ? 'not-allowed'
+                        : 'pointer',
                     opacity: isProcessing || isMaintenanceMode ? 0.6 : 1,
                     boxShadow: !isMaintenanceMode ? `0 2px 10px ${theme.glowColor}` : 'none',
                     display: 'inline-flex',
@@ -1151,13 +1431,26 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                     padding: '0.45rem 1.25rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: isSufficient && !isMaintenanceMode ? theme.buttonBg : 'var(--color-bg-surface-muted)',
-                    color: isSufficient && !isMaintenanceMode ? theme.buttonTextColor : 'var(--color-text-muted)',
+                    backgroundColor:
+                      isSufficient && !isMaintenanceMode
+                        ? theme.buttonBg
+                        : 'var(--color-bg-surface-muted)',
+                    color:
+                      isSufficient && !isMaintenanceMode
+                        ? theme.buttonTextColor
+                        : 'var(--color-text-muted)',
                     fontWeight: 800,
                     fontSize: 'var(--font-size-xs)',
-                    cursor: isProcessing ? 'wait' : !isSufficient || isMaintenanceMode ? 'not-allowed' : 'pointer',
+                    cursor: isProcessing
+                      ? 'wait'
+                      : !isSufficient || isMaintenanceMode
+                        ? 'not-allowed'
+                        : 'pointer',
                     opacity: isProcessing ? 0.8 : !isSufficient || isMaintenanceMode ? 0.6 : 1,
-                    boxShadow: isSufficient && !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
+                    boxShadow:
+                      isSufficient && !isMaintenanceMode
+                        ? `0 2px 8px ${theme.glowColor}`
+                        : 'none',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.35rem',

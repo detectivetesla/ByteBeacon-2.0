@@ -125,7 +125,7 @@ export async function adminAnalyticsRoutes(
           u.email as "userEmail",
           COALESCE(u.full_name, u.name) as "userName"
         FROM orders o
-        LEFT JOIN users u ON u.uuid = o.user_id
+        LEFT JOIN users u ON u.id = o.user_id
         ORDER BY o.created_at DESC
         LIMIT 6
       `).catch(() => ({ rows: [] }));
@@ -133,7 +133,7 @@ export async function adminAnalyticsRoutes(
       // 8. Recent Registered Users (last 5)
       const recentUsersRes = await db.query(`
         SELECT 
-          uuid as id,
+          id,
           COALESCE(full_name, name, email) as name,
           email,
           role,

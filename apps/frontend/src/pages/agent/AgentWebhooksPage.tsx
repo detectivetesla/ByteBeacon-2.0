@@ -7,6 +7,7 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { Webhook, Send, Eye, EyeOff, Copy } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { useAuth } from '../../context/AuthContext.js';
 
 interface WebhookDeliveryLog {
   id: string;
@@ -16,21 +17,21 @@ interface WebhookDeliveryLog {
   time: string;
 }
 
-const SAMPLE_DELIVERIES: WebhookDeliveryLog[] = [
-  { id: '1', event: 'order.fulfilled', url: 'https://api.mystore.com/webhooks/bytebeacon', statusCode: 200, time: '29 mins ago' },
-  { id: '2', event: 'order.created', url: 'https://api.mystore.com/webhooks/bytebeacon', statusCode: 200, time: '30 mins ago' },
-  { id: '3', event: 'wallet.debited', url: 'https://api.mystore.com/webhooks/bytebeacon', statusCode: 200, time: '2 hours ago' },
-];
-
 export const AgentWebhooksPage: React.FC = () => {
-  const { toastSuccess } = useToast();
-  const [webhookUrl, setWebhookUrl] = useState('https://api.mystore.com/webhooks/bytebeacon');
-  const [signingSecret] = useState('whsec_984f1092a83b27c65d4e10294819a8bc');
+  const { user } = useAuth();
+  const { toastSuccess, toastError } = useToast();
+
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [signingSecret] = useState(() => `whsec_${user?.id ? user.id.replace(/-/g, '').slice(0, 24) : 'live_secret_key'}`);
   const [showSecret, setShowSecret] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [deliveries, setDeliveries] = useState<WebhookDeliveryLog[]>(SAMPLE_DELIVERIES);
+  const [deliveries, setDeliveries] = useState<WebhookDeliveryLog[]>([]);
 
   const handleTestWebhook = () => {
+    if (!webhookUrl.trim()) {
+      toastError('URL Required', 'Please enter a webhook destination URL first.');
+      return;
+    }
     setTesting(true);
     setTimeout(() => {
       setTesting(false);
@@ -50,8 +51,13 @@ export const AgentWebhooksPage: React.FC = () => {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    toastSuccess('Webhook Saved', 'Your endpoint URL and signing secret are active.');
+    if (!webhookUrl.trim()) {
+      toastError('URL Required', 'Please provide a valid HTTPS destination URL.');
+      return;
+    }
+    toastSuccess('Webhook Saved', 'Your endpoint URL and signing secret have been saved.');
   };
+
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>

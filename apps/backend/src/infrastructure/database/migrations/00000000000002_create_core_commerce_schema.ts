@@ -6,6 +6,69 @@ export const migration00000000000002: MigrationFile = {
   upSql: `
     CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+    -- Pre-migration self-healing for legacy commerce tables
+    DO $$
+    BEGIN
+        -- Normalize legacy identifiers
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agents') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'uuid')
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'id') THEN
+                ALTER TABLE agents RENAME COLUMN uuid TO id;
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'agent_id')
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'id') THEN
+                ALTER TABLE agents RENAME COLUMN agent_id TO id;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'id') THEN
+                ALTER TABLE agents ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+            END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'orders') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'uuid')
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'id') THEN
+                ALTER TABLE orders RENAME COLUMN uuid TO id;
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'order_id')
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'id') THEN
+                ALTER TABLE orders RENAME COLUMN order_id TO id;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'id') THEN
+                ALTER TABLE orders ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+            END IF;
+
+            -- Reconcile required columns on orders if preexisting
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(50);
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(30);
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS network VARCHAR(30) DEFAULT 'MTN';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS data_amount_mb INT DEFAULT 1024;
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT DEFAULT 100;
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'GHS';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS pricing_snapshot JSONB DEFAULT '{}';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'PENDING';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_status VARCHAR(30) DEFAULT 'CREATED';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS provider_status VARCHAR(30) DEFAULT 'UNKNOWN';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_status VARCHAR(30) DEFAULT 'NONE';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payments') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'uuid')
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'payments' AND column_name = 'id') THEN
+                ALTER TABLE payments RENAME COLUMN uuid TO id;
+            END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'refunds') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'refunds' AND column_name = 'uuid')
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'refunds' AND column_name = 'id') THEN
+                ALTER TABLE refunds RENAME COLUMN uuid TO id;
+            END IF;
+        END IF;
+    END $$;
+
     CREATE TABLE IF NOT EXISTS catalog_products (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         sku VARCHAR(100) UNIQUE NOT NULL,

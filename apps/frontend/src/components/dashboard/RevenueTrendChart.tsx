@@ -27,61 +27,39 @@ export interface RevenueTrendChartProps {
   style?: React.CSSProperties;
 }
 
-const DEFAULT_DATA: Record<ChartPeriod, PeriodStats> = {
+const EMPTY_DATA: Record<ChartPeriod, PeriodStats> = {
   '7D': {
     label: '7 days',
-    revenueDisplay: 'GH₵ 6,420.00',
-    orderCount: 34,
-    trendDisplay: '↑ 8.4%',
-    points: [
-      { label: 'Mon', revenue: 750, orders: 4 },
-      { label: 'Tue', revenue: 920, orders: 5 },
-      { label: 'Wed', revenue: 840, orders: 4 },
-      { label: 'Thu', revenue: 1100, orders: 6 },
-      { label: 'Fri', revenue: 1350, orders: 7 },
-      { label: 'Sat', revenue: 880, orders: 5 },
-      { label: 'Sun', revenue: 580, orders: 3 },
-    ],
+    revenueDisplay: 'GH₵ 0.00',
+    orderCount: 0,
+    trendDisplay: '0.0%',
+    points: [],
   },
   '30D': {
     label: '30 days',
-    revenueDisplay: 'GH₵ 28,450.00',
-    orderCount: 142,
-    trendDisplay: '↑ 14.2%',
-    points: [
-      { label: 'W1', revenue: 6200, orders: 32 },
-      { label: 'W2', revenue: 7400, orders: 38 },
-      { label: 'W3', revenue: 8100, orders: 41 },
-      { label: 'W4', revenue: 6750, orders: 31 },
-    ],
+    revenueDisplay: 'GH₵ 0.00',
+    orderCount: 0,
+    trendDisplay: '0.0%',
+    points: [],
   },
   '90D': {
     label: '90 days',
-    revenueDisplay: 'GH₵ 82,100.00',
-    orderCount: 418,
-    trendDisplay: '↑ 22.5%',
-    points: [
-      { label: 'M1', revenue: 24500, orders: 125 },
-      { label: 'M2', revenue: 27800, orders: 141 },
-      { label: 'M3', revenue: 29800, orders: 152 },
-    ],
+    revenueDisplay: 'GH₵ 0.00',
+    orderCount: 0,
+    trendDisplay: '0.0%',
+    points: [],
   },
   '1Y': {
     label: '12 months',
-    revenueDisplay: 'GH₵ 312,800.00',
-    orderCount: 1620,
-    trendDisplay: '↑ 35.1%',
-    points: [
-      { label: 'Q1', revenue: 68000, orders: 350 },
-      { label: 'Q2', revenue: 76000, orders: 395 },
-      { label: 'Q3', revenue: 82500, orders: 425 },
-      { label: 'Q4', revenue: 86300, orders: 450 },
-    ],
+    revenueDisplay: 'GH₵ 0.00',
+    orderCount: 0,
+    trendDisplay: '0.0%',
+    points: [],
   },
 };
 
 export const RevenueTrendChart: React.FC<RevenueTrendChartProps> = ({
-  data = DEFAULT_DATA,
+  data,
   initialPeriod = '30D',
   onPeriodChange,
   title = 'Revenue',
@@ -90,10 +68,11 @@ export const RevenueTrendChart: React.FC<RevenueTrendChartProps> = ({
   const [selectedPeriod, setSelectedPeriod] = useState<ChartPeriod>(initialPeriod);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  const activeStats = data[selectedPeriod] || DEFAULT_DATA[selectedPeriod];
+  const activeStats = data?.[selectedPeriod] || EMPTY_DATA[selectedPeriod];
   const points = activeStats.points || [];
   const maxRevenue = Math.max(...points.map((p) => p.revenue), 1);
-  const hasSales = activeStats.orderCount > 0 && points.length > 0;
+  const hasSales = activeStats.orderCount > 0 && points.length > 0 && points.some((p) => p.revenue > 0);
+
 
   const handlePeriodClick = (p: ChartPeriod) => {
     setSelectedPeriod(p);

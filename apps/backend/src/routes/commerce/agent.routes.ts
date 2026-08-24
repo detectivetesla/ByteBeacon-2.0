@@ -109,7 +109,7 @@ export async function agentRoutes(
       );
 
       // Update user role to agent
-      await db.query("UPDATE users SET role = 'agent' WHERE uuid = $1", [req.user!.sub]);
+      await db.query("UPDATE users SET role = 'agent' WHERE id = $1", [req.user!.sub]);
 
       const r = insertRes.rows[0];
       const profile: AgentProfileDto = {
@@ -443,7 +443,7 @@ export async function agentRoutes(
       let currentBalancePesewas = 0;
       try {
         const balRes = await db.query<{ wallet_balance: string; wallet_balance_pesewas: string }>(
-          'SELECT wallet_balance, wallet_balance_pesewas FROM users WHERE uuid = $1',
+          'SELECT wallet_balance, wallet_balance_pesewas FROM users WHERE id = $1',
           [req.user!.sub],
         );
         if (balRes.rows[0]) {
@@ -498,7 +498,7 @@ export async function agentRoutes(
           `UPDATE users
            SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
                wallet_balance = GREATEST(0, COALESCE(wallet_balance, 0) - ($1::numeric / 100))
-           WHERE uuid = $2`,
+           WHERE id = $2`,
           [amountPesewas, req.user!.sub],
         );
       } catch {
@@ -522,6 +522,7 @@ export async function agentRoutes(
     },
   );
 
+  // 7. GET AGENT WITHDRAWALS
   app.get(
     '/agents/withdrawals',
     { preHandler: [authHooks.authenticateCustomer] },
@@ -535,7 +536,7 @@ export async function agentRoutes(
           created_at: string;
         }>(
           `SELECT id, reference_id, amount_pesewas, description, created_at
-           FROM ledger_entries
+           FROM financial_ledger
            WHERE account_id = $1 AND reference_type = 'WITHDRAWAL' AND entry_type = 'DEBIT'
            ORDER BY created_at DESC
            LIMIT 50`,
@@ -572,7 +573,544 @@ export async function agentRoutes(
     },
   );
 
-  // 8. SUB-AGENTS MANAGEMENT
+  // 8. LIST AGENT ORDERS (/agents/orders)
+  app.get<{
+    Querystring: {
+      status?: string;
+      paymentStatus?: string;
+      network?: string;
+      search?: string;
+      dateRange?: string;
+      startDate?: string;
+      endDate?: string;
+      sortBy?: string;
+      page?: string;
+      limit?: string;
+    };
+  }>(
+    '/agents/orders',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const {
+        status,
+        paymentStatus,
+        network,
+        search,
+        dateRange,
+        startDate,
+        endDate,
+        sortBy = 'newest',
+        page = '1',
+        limit = '20',
+      } = req.query;
+
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
+      const agentId = agentRes.rows[0]?.id;
+
+      const conditions: string[] = ['(o.user_id = $1' + (agentId ? ' OR o.agent_id = $2' : '') + ')'];
+      const params: any[] = [req.user!.sub];
+      if (agentId) {
+        params.push(agentId);
+      }
+
+      if (status && status !== 'ALL') {
+        params.push(status);
+        conditions.push(`o.order_status = $${params.length}`);
+      }
+
+      if (paymentStatus && paymentStatus !== 'ALL') {
+        params.push(paymentStatus);
+        conditions.push(`o.payment_status = $${params.length}`);
+      }
+
+      if (network && network !== 'ALL') {
+        params.push(network);
+        conditions.push(`o.network = $${params.length}`);
+      }
+
+      if (search && search.trim()) {
+        params.push(`%${search.trim()}%`);
+        conditions.push(`(o.public_id ILIKE $${params.length} OR o.recipient_phone ILIKE $${params.length})`);
+      }
+
+      if (startDate) {
+        params.push(startDate);
+        conditions.push(`o.created_at >= $${params.length}`);
+      } else if (dateRange && dateRange !== 'all') {
+        let days = 30;
+        if (dateRange === 'today') days = 1;
+        else if (dateRange === 'yesterday') days = 2;
+        else if (dateRange === '7d') days = 7;
+        else if (dateRange === '14d') days = 14;
+        else if (dateRange === '30d') days = 30;
+        else if (dateRange === '90d') days = 90;
+        else if (dateRange === '1y') days = 365;
+
+        conditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '${days} days'`);
+      }
+
+      if (endDate) {
+        params.push(endDate);
+        conditions.push(`o.created_at <= $${params.length}`);
+      }
+
+      const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+      let orderClause = 'ORDER BY o.created_at DESC';
+      if (sortBy === 'oldest') orderClause = 'ORDER BY o.created_at ASC';
+      else if (sortBy === 'highest') orderClause = 'ORDER BY o.amount_pesewas DESC';
+      else if (sortBy === 'lowest') orderClause = 'ORDER BY o.amount_pesewas ASC';
+      else if (sortBy === 'status') orderClause = 'ORDER BY o.order_status ASC';
+
+      const countRes = await db.query(`SELECT COUNT(*) as total FROM orders o ${whereClause}`, params);
+      const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+      const queryParams = [...params, limitNum, offset];
+      const ordersRes = await db.query(
+        `SELECT o.id, o.public_id as "publicId", o.user_id as "userId", o.agent_id as "agentId",
+                o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
+                o.amount_pesewas as "amountPesewas", o.currency,
+                o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+                o.provider_status as "providerStatus", o.refund_status as "refundStatus",
+                o.created_at as "createdAt", o.updated_at as "updatedAt"
+         FROM orders o
+         ${whereClause}
+         ${orderClause}
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        queryParams,
+      );
+
+      const orders = ordersRes.rows.map((r: any) => ({
+        id: r.id,
+        publicId: r.publicId,
+        userId: r.userId,
+        agentId: r.agentId,
+        recipientPhone: r.recipientPhone,
+        network: r.network,
+        dataAmountMb: r.dataAmountMb,
+        amountPesewas: parseInt(r.amountPesewas, 10) || 0,
+        currency: r.currency || 'GHS',
+        paymentStatus: r.paymentStatus,
+        orderStatus: r.orderStatus,
+        providerStatus: r.providerStatus,
+        refundStatus: r.refundStatus,
+        createdAt: new Date(r.createdAt).toISOString(),
+        updatedAt: new Date(r.updatedAt).toISOString(),
+      }));
+
+      return reply.send({
+        success: true,
+        data: {
+          orders,
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum) || 1,
+        },
+      });
+    },
+  );
+
+  // 9. GET AGENT REVENUE TREND ANALYTICS (/agents/analytics/revenue)
+  app.get(
+    '/agents/analytics/revenue',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
+      const agentId = agentRes.rows[0]?.id;
+
+      const userClause = agentId
+        ? '(user_id = $1 OR agent_id = $2)'
+        : 'user_id = $1';
+      const userParams = agentId ? [req.user!.sub, agentId] : [req.user!.sub];
+
+      // Fetch completed orders in last 365 days
+      const ordersRes = await db.query(
+        `SELECT amount_pesewas, created_at, order_status, payment_status
+         FROM orders
+         WHERE ${userClause}
+           AND (order_status = 'COMPLETED' OR payment_status = 'PAID')
+           AND created_at >= CURRENT_TIMESTAMP - INTERVAL '365 days'
+         ORDER BY created_at ASC`,
+        userParams,
+      );
+
+      const completedOrders = ordersRes.rows;
+      const now = new Date();
+
+      // Helper for period aggregation
+      const calculatePeriodStats = (days: number, intervalCount: number, labelPrefix: string, type: 'daily' | 'weekly' | 'monthly' | 'quarterly') => {
+        const periodStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+        const periodOrders = completedOrders.filter((o) => new Date(o.created_at) >= periodStart);
+
+        const totalPesewas = periodOrders.reduce((acc, o) => acc + (parseInt(o.amount_pesewas, 10) || 0), 0);
+        const orderCount = periodOrders.length;
+        const totalGhs = totalPesewas / 100;
+
+        // Bucket points
+        const points: Array<{ label: string; revenue: number; orders: number }> = [];
+        const intervalMs = (days * 24 * 60 * 60 * 1000) / intervalCount;
+
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        for (let i = 0; i < intervalCount; i++) {
+          const bucketStart = new Date(periodStart.getTime() + i * intervalMs);
+          const bucketEnd = new Date(periodStart.getTime() + (i + 1) * intervalMs);
+
+          const bucketOrders = periodOrders.filter((o) => {
+            const d = new Date(o.created_at);
+            return d >= bucketStart && d < bucketEnd;
+          });
+
+          const bucketRevenue = bucketOrders.reduce((acc, o) => acc + (parseInt(o.amount_pesewas, 10) || 0), 0) / 100;
+
+          let label = `${labelPrefix}${i + 1}`;
+          if (type === 'daily') {
+            label = dayNames[bucketStart.getDay()];
+          }
+
+          points.push({
+            label,
+            revenue: Math.round(bucketRevenue * 100) / 100,
+            orders: bucketOrders.length,
+          });
+        }
+
+        return {
+          label: `${days} days`,
+          revenueDisplay: `GH₵ ${totalGhs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          orderCount,
+          trendDisplay: orderCount > 0 ? '↑ Live' : '0.0%',
+          points,
+        };
+      };
+
+      const result = {
+        '7D': calculatePeriodStats(7, 7, '', 'daily'),
+        '30D': calculatePeriodStats(30, 4, 'W', 'weekly'),
+        '90D': calculatePeriodStats(90, 3, 'M', 'monthly'),
+        '1Y': calculatePeriodStats(365, 4, 'Q', 'quarterly'),
+      };
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
+  // 10. GET AGENT SALES & MARGIN ANALYTICS (/agents/analytics/sales-margins)
+  app.get<{
+    Querystring: {
+      period?: string;
+      network?: string;
+      source?: string;
+      startDate?: string;
+      endDate?: string;
+    };
+  }>(
+    '/agents/analytics/sales-margins',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const { period = '30d', network = 'ALL', startDate, endDate } = req.query;
+
+      const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
+      const agentId = agentRes.rows[0]?.id;
+
+      const conditions: string[] = ['(o.user_id = $1' + (agentId ? ' OR o.agent_id = $2' : '') + ')'];
+      const params: any[] = [req.user!.sub];
+      if (agentId) params.push(agentId);
+
+      if (network && network !== 'ALL') {
+        params.push(network);
+        conditions.push(`o.network = $${params.length}`);
+      }
+
+      if (startDate) {
+        params.push(startDate);
+        conditions.push(`o.created_at >= $${params.length}`);
+      } else {
+        let days = 30;
+        if (period === 'today') days = 1;
+        else if (period === '7d') days = 7;
+        else if (period === '30d') days = 30;
+        else if (period === '90d') days = 90;
+        else if (period === '1y') days = 365;
+        conditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '${days} days'`);
+      }
+
+      if (endDate) {
+        params.push(endDate);
+        conditions.push(`o.created_at <= $${params.length}`);
+      }
+
+      const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+      const ordersRes = await db.query(
+        `SELECT o.id, o.network, o.data_amount_mb, o.amount_pesewas, o.order_status, o.payment_status, o.refund_status, o.created_at
+         FROM orders o
+         ${whereClause}`,
+        params,
+      );
+
+      const allOrders = ordersRes.rows;
+      const completedOrders = allOrders.filter((o) => o.order_status === 'COMPLETED' || o.payment_status === 'PAID');
+      const refundedOrders = allOrders.filter((o) => o.refund_status === 'COMPLETED');
+
+      const grossSalesPesewas = completedOrders.reduce((sum, o) => sum + (parseInt(o.amount_pesewas, 10) || 0), 0);
+      const refundsPesewas = refundedOrders.reduce((sum, o) => sum + (parseInt(o.amount_pesewas, 10) || 0), 0);
+      const netSalesPesewas = Math.max(0, grossSalesPesewas - refundsPesewas);
+
+      // Estimated wholesale base cost (82% of sales price on average)
+      const totalCostPesewas = Math.round(netSalesPesewas * 0.82);
+      const grossProfitPesewas = netSalesPesewas - totalCostPesewas;
+      const marginPercent = netSalesPesewas > 0 ? Math.round((grossProfitPesewas / netSalesPesewas) * 1000) / 10 : 0;
+      const totalOrders = completedOrders.length;
+      const avgOrderValueGhs = totalOrders > 0 ? (netSalesPesewas / totalOrders / 100) : 0;
+
+      // Network Breakdown
+      const networks = ['MTN', 'TELECEL', 'AIRTELTIGO'];
+      const networkBreakdown = networks.map((net) => {
+        const netOrders = completedOrders.filter((o) => o.network === net);
+        const netSales = netOrders.reduce((sum, o) => sum + (parseInt(o.amount_pesewas, 10) || 0), 0) / 100;
+        const netCost = netSales * 0.82;
+        const netProfit = netSales - netCost;
+        const netMargin = netSales > 0 ? Math.round((netProfit / netSales) * 1000) / 10 : 0;
+        const share = grossSalesPesewas > 0 ? Math.round((netSales * 100 / (grossSalesPesewas / 100)) * 10) / 10 : 0;
+
+        return {
+          network: net,
+          name: net === 'MTN' ? 'MTN Ghana' : net === 'TELECEL' ? 'Telecel Ghana' : 'AirtelTigo Ghana',
+          color: net === 'MTN' ? '#FFCC00' : net === 'TELECEL' ? '#E7192D' : '#0066B2',
+          orders: netOrders.length,
+          sales: Math.round(netSales * 100) / 100,
+          cost: Math.round(netCost * 100) / 100,
+          profit: Math.round(netProfit * 100) / 100,
+          margin: netMargin,
+          share,
+        };
+      });
+
+      // Bundle Breakdown
+      const bundleGroups = new Map<string, { name: string; network: string; orders: number; salesPesewas: number }>();
+      completedOrders.forEach((o) => {
+        const sizeGb = (o.data_amount_mb || 0) / 1024;
+        const name = `${sizeGb >= 1 ? `${sizeGb} GB` : `${o.data_amount_mb} MB`} ${o.network}`;
+        const key = `${o.network}_${o.data_amount_mb}`;
+        const curr = bundleGroups.get(key) || { name, network: o.network, orders: 0, salesPesewas: 0 };
+        curr.orders += 1;
+        curr.salesPesewas += parseInt(o.amount_pesewas, 10) || 0;
+        bundleGroups.set(key, curr);
+      });
+
+      const bundleBreakdown = Array.from(bundleGroups.entries()).map(([id, b]) => {
+        const costPesewas = Math.round(b.salesPesewas * 0.82);
+        const profitPesewas = b.salesPesewas - costPesewas;
+        const marginPct = b.salesPesewas > 0 ? Math.round((profitPesewas / b.salesPesewas) * 1000) / 10 : 0;
+        return {
+          id,
+          name: b.name,
+          network: b.network,
+          orders: b.orders,
+          salesPesewas: b.salesPesewas,
+          costPesewas,
+          profitPesewas,
+          marginPercent: marginPct,
+        };
+      });
+
+      return reply.send({
+        success: true,
+        data: {
+          totals: {
+            grossSalesGhs: grossSalesPesewas / 100,
+            refundsGhs: refundsPesewas / 100,
+            netSalesGhs: netSalesPesewas / 100,
+            totalCostGhs: totalCostPesewas / 100,
+            grossProfitGhs: grossProfitPesewas / 100,
+            marginPercent,
+            totalOrders,
+            avgOrderValueGhs: Math.round(avgOrderValueGhs * 100) / 100,
+          },
+          networkBreakdown,
+          bundleBreakdown,
+        },
+      });
+    },
+  );
+
+  // 11. GET AGENT PENDING MTN BENEFICIARY APPROVALS (/agents/pending-approvals)
+  app.get<{
+    Querystring: {
+      status?: string;
+      page?: string;
+      limit?: string;
+    };
+  }>(
+    '/agents/pending-approvals',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const { status = 'ALL', page = '1', limit = '20' } = req.query;
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const conditions: string[] = ['ba.user_id = $1'];
+      const params: any[] = [req.user!.sub];
+
+      if (status && status !== 'ALL') {
+        params.push(status);
+        conditions.push(`ba.status = $${params.length}`);
+      }
+
+      const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+      try {
+        const countRes = await db.query(`SELECT COUNT(*) as total FROM beneficiary_approvals ba ${whereClause}`, params);
+        const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const itemsRes = await db.query(
+          `SELECT ba.id, ba.phone_number as "phoneNumber", ba.network, ba.status,
+                  ba.created_at as "createdAt", ba.updated_at as "updatedAt"
+           FROM beneficiary_approvals ba
+           ${whereClause}
+           ORDER BY ba.created_at DESC
+           LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+          [...params, limitNum, offset],
+        );
+
+        return reply.send({
+          success: true,
+          data: {
+            items: itemsRes.rows,
+            total,
+            page: pageNum,
+            limit: limitNum,
+          },
+        });
+      } catch {
+        return reply.send({
+          success: true,
+          data: {
+            items: [],
+            total: 0,
+            page: pageNum,
+            limit: limitNum,
+          },
+        });
+      }
+    },
+  );
+
+  // 12. UPDATE AGENT SETTINGS & PROFILE (/agents/settings & /agents/profile)
+  app.put<{
+    Body: {
+      businessName?: string;
+      businessPhone?: string;
+      businessEmail?: string;
+      whatsAppNumber?: string;
+      fullName?: string;
+      personalEmail?: string;
+      personalPhone?: string;
+    };
+  }>(
+    '/agents/settings',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const {
+        businessName,
+        businessPhone,
+        businessEmail,
+        whatsAppNumber,
+        fullName,
+        personalEmail,
+        personalPhone,
+      } = req.body || {};
+
+      const userId = req.user!.sub;
+
+      // Update user details
+      if (fullName || personalPhone || personalEmail) {
+        await db.query(
+          `UPDATE users
+           SET full_name = COALESCE($1, full_name),
+               name = COALESCE($1, name),
+               phone = COALESCE($2, phone),
+               email = COALESCE($3, email),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $4`,
+          [fullName || null, personalPhone || null, personalEmail ? personalEmail.toLowerCase().trim() : null, userId],
+        );
+      }
+
+      // Update agent details if present
+      if (businessName) {
+        await db.query(
+          `UPDATE agents
+           SET business_name = $1,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = $2`,
+          [businessName.trim(), userId],
+        );
+      }
+
+      // Also update store details if present
+      if (businessName || businessPhone || businessEmail || whatsAppNumber) {
+        await db.query(
+          `UPDATE stores
+           SET store_name = COALESCE($1, store_name),
+               contact_phone = COALESCE($2, contact_phone),
+               contact_email = COALESCE($3, contact_email),
+               contact_whatsapp = COALESCE($4, contact_whatsapp),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = $5`,
+          [businessName || null, businessPhone || null, businessEmail || null, whatsAppNumber || null, userId],
+        );
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Agent settings and profile updated successfully.',
+      });
+    },
+  );
+
+  app.patch<{
+    Body: {
+      fullName?: string;
+      phone?: string;
+      email?: string;
+    };
+  }>(
+    '/agents/profile',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const { fullName, phone, email } = req.body || {};
+      const userId = req.user!.sub;
+
+      await db.query(
+        `UPDATE users
+         SET full_name = COALESCE($1, full_name),
+             name = COALESCE($1, name),
+             phone = COALESCE($2, phone),
+             email = COALESCE($3, email),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [fullName || null, phone || null, email ? email.toLowerCase().trim() : null, userId],
+      );
+
+      return reply.send({
+        success: true,
+        message: 'Profile updated successfully.',
+      });
+    },
+  );
+
+  // 13. SUB-AGENTS MANAGEMENT
   app.get(
     '/agents/sub-agents',
     { preHandler: [authHooks.authenticateCustomer] },
@@ -586,9 +1124,9 @@ export async function agentRoutes(
           status: string;
           created_at: string;
         }>(
-          `SELECT uuid as id, email, phone, full_name as "fullName", status, created_at
+          `SELECT id, email, phone, full_name as "fullName", status, created_at
            FROM users
-           WHERE role = 'agent' AND uuid != $1
+           WHERE role = 'agent' AND id != $1
            ORDER BY created_at DESC
            LIMIT 50`,
           [req.user!.sub],
@@ -660,7 +1198,7 @@ export async function agentRoutes(
         throw new BadRequestError('Name, email, and phone are required for sub-agent enrollment');
       }
 
-      const existing = await db.query('SELECT uuid FROM users WHERE email = $1 OR phone = $2', [
+      const existing = await db.query('SELECT id FROM users WHERE email = $1 OR phone = $2', [
         email.toLowerCase().trim(),
         phone.trim(),
       ]);
@@ -672,7 +1210,7 @@ export async function agentRoutes(
       const insertRes = await db.query<{ id: string; created_at: string }>(
         `INSERT INTO users (email, phone, full_name, name, password_hash, role, status, security_domain)
          VALUES ($1, $2, $3, $3, $4, 'agent', 'ACTIVE', 'CUSTOMER')
-         RETURNING uuid as id, created_at`,
+         RETURNING id, created_at`,
         [email.toLowerCase().trim(), phone.trim(), name.trim(), defaultHash],
       );
 
@@ -695,4 +1233,5 @@ export async function agentRoutes(
     },
   );
 }
+
 

@@ -163,6 +163,59 @@ export class ApiKeyService {
     );
   }
 
+  public async rollApiKey(keyId: string, agentId: string): Promise<GeneratedApiKeyResult> {
+    const keyRes = await this.db.query<{
+      id: string;
+      name: string;
+      environment: ApiKeyEnvironment;
+      scopes: Permission[];
+      expires_at: Date | null;
+      status: ApiKeyStatus;
+    }>(
+      'SELECT id, name, environment, scopes, expires_at, status FROM api_keys WHERE id = $1 AND agent_id = $2',
+      [keyId, agentId],
+    );
+
+    if (keyRes.rows.length === 0) {
+      throw new UnauthorizedError('API key not found or unauthorized');
+    }
+
+    const current = keyRes.rows[0];
+    const prefixType = current.environment === ApiKeyEnvironment.LIVE ? 'ak_live' : 'ak_test';
+    const randomEntropy = crypto.randomBytes(24).toString('base64url');
+    const rawApiKey = `${prefixType}_${randomEntropy}`;
+    const keyPrefix = rawApiKey.substring(0, 16);
+    const keyHash = this.hashKey(rawApiKey);
+
+    const updateRes = await this.db.query<{
+      id: string;
+      name: string;
+      keyPrefix: string;
+      environment: ApiKeyEnvironment;
+      scopes: Permission[];
+      createdAt: Date;
+      expiresAt: Date | null;
+    }>(
+      `UPDATE api_keys
+       SET key_prefix = $1, key_hash = $2, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3 AND agent_id = $4
+       RETURNING id, name, key_prefix as "keyPrefix", environment, scopes, created_at as "createdAt", expires_at as "expiresAt"`,
+      [keyPrefix, keyHash, keyId, agentId],
+    );
+
+    const row = updateRes.rows[0];
+    return {
+      id: row.id,
+      name: row.name,
+      keyPrefix: row.keyPrefix,
+      rawApiKey,
+      environment: row.environment,
+      scopes: row.scopes,
+      createdAt: row.createdAt,
+      expiresAt: row.expiresAt,
+    };
+  }
+
   public async listAgentApiKeys(agentId: string): Promise<Array<{
     id: string;
     name: string;
@@ -190,3 +243,4 @@ export class ApiKeyService {
     return crypto.createHash('sha256').update(rawKey).digest('hex');
   }
 }
+

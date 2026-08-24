@@ -103,7 +103,61 @@ export async function beneficiaryRoutes(
     },
   );
 
-  // 4. ADMIN: LIST MTN BENEFICIARY APPROVALS
+  // 4. CUSTOMER/AGENT: LIST BENEFICIARY APPROVALS
+  app.get<{
+    Querystring: {
+      network?: string;
+      status?: string;
+      page?: string;
+      limit?: string;
+    };
+  }>(
+    '/beneficiaries/approvals',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const { network, status, page, limit } = req.query;
+      const pageNum = page ? parseInt(page, 10) : 1;
+      const limitNum = limit ? parseInt(limit, 10) : 20;
+
+      const result = await beneficiaryService.listBeneficiaryApprovals({
+        network: network as NetworkProvider,
+        status,
+        page: pageNum,
+        limit: limitNum,
+      });
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/beneficiaries/approvals/:id/approve',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const updated = await beneficiaryService.approveBeneficiary(req.params.id);
+      return reply.send({
+        success: true,
+        data: updated,
+      });
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/beneficiaries/approvals/:id/reject',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const updated = await beneficiaryService.rejectBeneficiary(req.params.id);
+      return reply.send({
+        success: true,
+        data: updated,
+      });
+    },
+  );
+
+  // 5. ADMIN: LIST MTN BENEFICIARY APPROVALS
   app.get<{
     Querystring: {
       network?: string;
@@ -133,7 +187,7 @@ export async function beneficiaryRoutes(
     },
   );
 
-  // 5. ADMIN: APPROVE MTN BENEFICIARY
+  // 6. ADMIN: APPROVE MTN BENEFICIARY
   app.post<{ Params: { id: string } }>(
     '/admin/mtn-approvals/:id/approve',
     { preHandler: [authHooks.authenticateAdmin] },
@@ -146,7 +200,7 @@ export async function beneficiaryRoutes(
     },
   );
 
-  // 6. ADMIN: REJECT MTN BENEFICIARY
+  // 7. ADMIN: REJECT MTN BENEFICIARY
   app.post<{ Params: { id: string } }>(
     '/admin/mtn-approvals/:id/reject',
     { preHandler: [authHooks.authenticateAdmin] },
@@ -159,3 +213,4 @@ export async function beneficiaryRoutes(
     },
   );
 }
+

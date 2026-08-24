@@ -294,7 +294,7 @@ export const AgentProfilePage: React.FC = () => {
           >
             <div>
               <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>Email Address</span>
-              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>nomotsumartin@gmail.com</strong>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>{user?.email || '—'}</strong>
             </div>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-success)' }}>
               ✓ Verified
@@ -314,12 +314,13 @@ export const AgentProfilePage: React.FC = () => {
           >
             <div>
               <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>Phone Number</span>
-              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>0541349282</strong>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>{user?.phone || '—'}</strong>
             </div>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-success)' }}>
               ✓ Verified
             </span>
           </div>
+
         </div>
       </Card>
 

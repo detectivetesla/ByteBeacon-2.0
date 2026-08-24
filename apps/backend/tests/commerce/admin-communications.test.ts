@@ -392,10 +392,11 @@ describe('Phase 11.11 — Communication Center & System Messaging Administration
   it('POST /admin/communication/campaigns should reject large audience (>1000) without step-up confirmation', async () => {
     const prevImpl = mockDb.query;
     mockDb.query = vi.fn().mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM users WHERE uuid = $1')) {
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
         return {
           rows: [
             {
+              id: '00000000-0000-0000-0000-000000000001',
               uuid: '00000000-0000-0000-0000-000000000001',
               status: 'ACTIVE',
               is_active: true,

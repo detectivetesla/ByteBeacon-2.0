@@ -54,13 +54,18 @@ export async function adminFinanceRoutes(
       // 1. Customer & Agent Wallet Balances
       const userBalancesRes = await db.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN role = 'customer' THEN wallet_balance ELSE 0 END), 0) as "customerBalanceGhs",
-          COALESCE(SUM(CASE WHEN role IN ('agent', 'superagent') THEN wallet_balance ELSE 0 END), 0) as "agentBalanceGhs",
-          COALESCE(SUM(wallet_balance), 0) as "totalFloatGhs"
+          COALESCE(SUM(CASE WHEN role = 'customer' THEN COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) ELSE 0 END), 0) as "customerBalancePesewas",
+          COALESCE(SUM(CASE WHEN role IN ('agent', 'superagent') THEN COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) ELSE 0 END), 0) as "agentBalancePesewas",
+          COALESCE(SUM(COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100))), 0) as "totalFloatPesewas"
         FROM users
       `);
-      const customerWalletBalancePesewas = Math.round(parseFloat(userBalancesRes.rows[0]?.customerBalanceGhs || '0') * 100);
-      const agentWalletBalancePesewas = Math.round(parseFloat(userBalancesRes.rows[0]?.agentBalanceGhs || '0') * 100);
+      const row = userBalancesRes.rows[0] || {};
+      const customerWalletBalancePesewas = row.customerBalancePesewas !== undefined
+        ? parseInt(row.customerBalancePesewas || '0', 10)
+        : Math.round(parseFloat(row.customerBalanceGhs || '0') * 100);
+      const agentWalletBalancePesewas = row.agentBalancePesewas !== undefined
+        ? parseInt(row.agentBalancePesewas || '0', 10)
+        : Math.round(parseFloat(row.agentBalanceGhs || '0') * 100);
       const totalFloatPesewas = customerWalletBalancePesewas + agentWalletBalancePesewas;
 
       // 2. Revenue from Completed Orders
@@ -292,7 +297,7 @@ export async function adminFinanceRoutes(
         `SELECT COUNT(*) as total 
          FROM payments p
          LEFT JOIN orders o ON p.order_id = o.id
-         LEFT JOIN users u ON p.user_id = u.uuid
+         LEFT JOIN users u ON p.user_id = u.id
          WHERE ${whereSql}`,
         queryParams,
       );
@@ -324,7 +329,7 @@ export async function adminFinanceRoutes(
           p.paid_at as "completedAt"
         FROM payments p
         LEFT JOIN orders o ON p.order_id = o.id
-        LEFT JOIN users u ON p.user_id = u.uuid
+        LEFT JOIN users u ON p.user_id = u.id
         WHERE ${whereSql}
         ORDER BY p.created_at DESC
         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -384,7 +389,7 @@ export async function adminFinanceRoutes(
           o.provider_status as "fulfillmentStatus"
         FROM payments p
         LEFT JOIN orders o ON p.order_id = o.id
-        LEFT JOIN users u ON p.user_id = u.uuid
+        LEFT JOIN users u ON p.user_id = u.id
         WHERE p.id::text = $1 OR p.provider_reference = $1`,
         [id],
       );
@@ -680,7 +685,7 @@ export async function adminFinanceRoutes(
           r.admin_notes as "adminNotes"
         FROM refunds r
         LEFT JOIN orders o ON r.order_id = o.id
-        LEFT JOIN users u ON o.user_id = u.uuid
+        LEFT JOIN users u ON o.user_id = u.id
         WHERE ${whereSql}
         ORDER BY r.created_at DESC
         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -769,8 +774,8 @@ export async function adminFinanceRoutes(
 
           // Update user wallet projection
           await client.query(
-            `UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1, updated_at = CURRENT_TIMESTAMP WHERE uuid = $2`,
-            [amountPesewas / 100, refund.user_id],
+            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, wallet_balance = COALESCE(wallet_balance, 0) + $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+            [amountPesewas, amountPesewas / 100, refund.user_id],
           );
 
           // Update refund status
@@ -872,7 +877,7 @@ export async function adminFinanceRoutes(
         FROM store_payouts p
         JOIN stores s ON p.store_id = s.id
         LEFT JOIN agents a ON p.agent_id = a.id
-        LEFT JOIN users u ON a.user_id = u.uuid
+        LEFT JOIN users u ON a.user_id = u.id
         WHERE ${whereSql}
         ORDER BY p.created_at DESC
         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -922,9 +927,9 @@ export async function adminFinanceRoutes(
           fa.created_at as "createdAt",
           fa.updated_at as "updatedAt"
         FROM financial_adjustments fa
-        JOIN users u ON fa.user_id = u.uuid
-        LEFT JOIN users req_u ON fa.requested_by = req_u.uuid
-        LEFT JOIN users app_u ON fa.approved_by = app_u.uuid
+        JOIN users u ON fa.user_id = u.id
+        LEFT JOIN users req_u ON fa.requested_by = req_u.id
+        LEFT JOIN users app_u ON fa.approved_by = app_u.id
         ORDER BY fa.created_at DESC
       `);
 
@@ -946,7 +951,7 @@ export async function adminFinanceRoutes(
         throw new BadRequestError('User ID, positive amount in pesewas, direction (CREDIT/DEBIT), and detailed reason (min 5 chars) are required.');
       }
 
-      const userRes = await db.query('SELECT uuid, full_name, email FROM users WHERE uuid = $1', [userId]);
+      const userRes = await db.query('SELECT id, full_name, email FROM users WHERE id = $1', [userId]);
       if (userRes.rows.length === 0) {
         throw new NotFoundError(`Target user account not found with ID '${userId}'`);
       }
@@ -1071,9 +1076,10 @@ export async function adminFinanceRoutes(
 
           // Update user wallet balance projection
           const delta = adj.direction === 'CREDIT' ? (amountPesewas / 100) : -(amountPesewas / 100);
+          const deltaPesewas = adj.direction === 'CREDIT' ? amountPesewas : -amountPesewas;
           await client.query(
-            `UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + $1, updated_at = CURRENT_TIMESTAMP WHERE uuid = $2`,
-            [delta, userId],
+            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, wallet_balance = COALESCE(wallet_balance, 0) + $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+            [deltaPesewas, delta, userId],
           );
 
           // Update adjustment status
@@ -1389,7 +1395,7 @@ export async function adminFinanceRoutes(
             u.email as "Customer Email",
             p.created_at as "Created Date"
           FROM payments p
-          LEFT JOIN users u ON p.user_id = u.uuid
+          LEFT JOIN users u ON p.user_id = u.id
           WHERE 1=1 ${dateFilter}
           ORDER BY p.created_at DESC
           LIMIT 5000

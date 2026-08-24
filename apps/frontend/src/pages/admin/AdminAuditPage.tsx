@@ -44,17 +44,17 @@ export const AdminAuditPage: React.FC = () => {
 
   // Overview stats
   const [stats, setStats] = useState<AdminAuditOverviewStatsDto>({
-    totalEvents: 4832,
+    totalEvents: 0,
     criticalEventsCount: 0,
-    highSeverityCount: 3,
-    warningCount: 18,
-    failedLogins24h: 2,
-    rateLimitViolations24h: 5,
-    securityIncidentsCount: 1,
+    highSeverityCount: 0,
+    warningCount: 0,
+    failedLogins24h: 0,
+    rateLimitViolations24h: 0,
+    securityIncidentsCount: 0,
     overallSecurityHealth: SecurityHealthStatus.HEALTHY,
     tamperEvidenceStatus: 'VERIFIED',
-    lastChainedHash: '9e7b4a2c1f8e6d0a3c5b7e9f1a2d4c6e8b0a2c4e6f8a0b2d4e6f8a0b2d4e6f8a',
-    verifiedBlocksCount: 4832,
+    lastChainedHash: '0000000000000000000000000000000000000000000000000000000000000000',
+    verifiedBlocksCount: 0,
   });
 
   // Audit Stream State

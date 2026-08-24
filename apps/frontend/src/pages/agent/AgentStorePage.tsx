@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Input, PhoneInput } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { storesApi } from '../../api/stores.api.js';
 import {
   Store,
   CreditCard,
@@ -26,24 +28,55 @@ export type StoreSetupState =
   | 'ACTIVE';
 
 export const AgentStorePage: React.FC = () => {
-  const { toastSuccess, toastError } = useToast();
+  const { user } = useAuth();
+  const { toastSuccess, toastError, toastInfo } = useToast();
 
   // Hard paywall state machine (defaults to LOCKED_PAYWALL)
   const [setupState, setSetupState] = useState<StoreSetupState>('LOCKED_PAYWALL');
 
   // Store profile fields
-  const [storeName, setStoreName] = useState('DataHub Express');
-  const [slug, setSlug] = useState('datahub-express');
-  const [phone, setPhone] = useState('0244123456');
-  const [email, setEmail] = useState('support@datahubexpress.com');
+  const [storeName, setStoreName] = useState(user?.fullName ? `${user.fullName}'s Store` : '');
+  const [slug, setSlug] = useState(user?.fullName ? user.fullName.toLowerCase().replace(/[^a-z0-9]/g, '-') : '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [email, setEmail] = useState(user?.email || '');
+
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   const activationFeeGhs = 500.00;
   const publicStoreUrl = `/store/${slug}`;
 
+  const fetchStore = useCallback(async () => {
+    try {
+      const store = await storesApi.getStore();
+      if (store) {
+        setStoreName(store.storeName || '');
+        setSlug(store.slug || '');
+        setPhone(store.contactPhone || user?.phone || '');
+        setEmail(store.contactEmail || user?.email || '');
+
+        if (store.storeStatus === 'ACTIVE' && store.approvalStatus === 'APPROVED') {
+          setSetupState('ACTIVE');
+        } else if (store.approvalStatus === 'AWAITING_APPROVAL') {
+          setSetupState('AWAITING_APPROVAL');
+        } else if (store.paymentStatus === 'PAYMENT_PENDING') {
+          setSetupState('PAYMENT_PENDING');
+        } else {
+          setSetupState('LOCKED_PAYWALL');
+        }
+      }
+    } catch {
+      setSetupState('LOCKED_PAYWALL');
+    }
+  }, [user]);
+
+
+  useEffect(() => {
+    fetchStore();
+  }, [fetchStore]);
+
   // Handle Paystack Hard Paywall Checkout
-  const handlePayActivationFee = (e: React.FormEvent) => {
+  const handlePayActivationFee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!storeName || !slug) {
       toastError('Missing fields', 'Please enter your Store Name and custom URL slug.');
@@ -51,14 +84,28 @@ export const AgentStorePage: React.FC = () => {
     }
 
     setIsProcessingPayment(true);
-    setSetupState('PAYMENT_PENDING');
+    try {
+      const res = await storesApi.initializeActivation({
+        storeName: storeName.trim(),
+        slug: slug.trim().toLowerCase(),
+        contactPhone: phone.trim() || undefined,
+        contactEmail: email.trim() || undefined,
+      });
 
-    setTimeout(() => {
+      if (res?.authorizationUrl) {
+        toastInfo('Redirecting', 'Redirecting to secure Paystack checkout...');
+        window.location.href = res.authorizationUrl;
+      } else {
+        setSetupState('AWAITING_APPROVAL');
+        toastSuccess('Store Submitted', 'Store submitted for activation review.');
+      }
+    } catch (err: any) {
+      toastError('Activation Error', err?.message || 'Could not initialize store payment.');
+    } finally {
       setIsProcessingPayment(false);
-      setSetupState('AWAITING_APPROVAL');
-      toastSuccess('Payment Verified', 'Paystack activation fee verified. Store submitted for admin review.');
-    }, 1500);
+    }
   };
+
 
   return (
     <div style={{ maxWidth: '1050px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -441,63 +488,7 @@ export const AgentStorePage: React.FC = () => {
           </Card>
         </div>
       )}
-
-      {/* Demo Switcher for fast evaluation */}
-      <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px dashed var(--color-border-default)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-        <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700 }}>
-          DEMO LIFECYCLE SWITCHER:
-        </span>
-        <div style={{ display: 'flex', gap: '0.35rem' }}>
-          <button
-            type="button"
-            onClick={() => setSetupState('LOCKED_PAYWALL')}
-            style={{
-              padding: '0.2rem 0.5rem',
-              borderRadius: '4px',
-              border: setupState === 'LOCKED_PAYWALL' ? '1px solid #F97316' : '1px solid var(--color-border-default)',
-              backgroundColor: setupState === 'LOCKED_PAYWALL' ? 'rgba(249, 115, 22, 0.15)' : 'transparent',
-              color: 'var(--color-text-primary)',
-              fontSize: '11px',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            1. Hard Paywall
-          </button>
-          <button
-            type="button"
-            onClick={() => setSetupState('AWAITING_APPROVAL')}
-            style={{
-              padding: '0.2rem 0.5rem',
-              borderRadius: '4px',
-              border: setupState === 'AWAITING_APPROVAL' ? '1px solid #8B5CF6' : '1px solid var(--color-border-default)',
-              backgroundColor: setupState === 'AWAITING_APPROVAL' ? 'rgba(139, 92, 246, 0.15)' : 'transparent',
-              color: 'var(--color-text-primary)',
-              fontSize: '11px',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            2. Awaiting Review
-          </button>
-          <button
-            type="button"
-            onClick={() => setSetupState('ACTIVE')}
-            style={{
-              padding: '0.2rem 0.5rem',
-              borderRadius: '4px',
-              border: setupState === 'ACTIVE' ? '1px solid #10B981' : '1px solid var(--color-border-default)',
-              backgroundColor: setupState === 'ACTIVE' ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
-              color: 'var(--color-text-primary)',
-              fontSize: '11px',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            3. Active / Unlocked
-          </button>
-        </div>
-      </div>
     </div>
   );
 };
+

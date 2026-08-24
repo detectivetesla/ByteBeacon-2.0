@@ -6,6 +6,8 @@ import { Input, PasswordInput, PhoneInput, Switch } from '../../components/ui/in
 import { validatePassword } from '../../utils/password.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useTheme } from '../../context/ThemeContext.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { settingsApi } from '../../api/wallet.api.js';
 import {
   Building,
   User,
@@ -25,6 +27,7 @@ import {
 type SettingsTab = 'business' | 'personal' | 'security' | 'appearance' | 'notifications' | 'privacy';
 
 export const AgentSettingsPage: React.FC = () => {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toastSuccess, toastError, toastInfo } = useToast();
@@ -45,15 +48,16 @@ export const AgentSettingsPage: React.FC = () => {
   };
 
   // Business State
-  const [businessName, setBusinessName] = useState('DataHub Enterprise');
-  const [businessPhone, setBusinessPhone] = useState('054 134 9282');
-  const [businessEmail, setBusinessEmail] = useState('support@datahubgh.com');
-  const [whatsAppNumber, setWhatsAppNumber] = useState('054 134 9282');
+  const [businessName, setBusinessName] = useState(user?.fullName ? `${user.fullName}'s Agency` : 'Agent Store');
+  const [businessPhone, setBusinessPhone] = useState(user?.phone || '');
+  const [businessEmail, setBusinessEmail] = useState(user?.email || '');
+  const [whatsAppNumber, setWhatsAppNumber] = useState(user?.phone || '');
+  const [isSavingBusiness, setIsSavingBusiness] = useState(false);
 
   // Personal Info State
-  const [fullName, setFullName] = useState('Martin Teye Nomotsu');
-  const [personalEmail, setPersonalEmail] = useState('nomotsumartin@gmail.com');
-  const [personalPhone, setPersonalPhone] = useState('054 134 9282');
+  const [fullName, setFullName] = useState(user?.fullName || '');
+  const [personalEmail, setPersonalEmail] = useState(user?.email || '');
+  const [personalPhone, setPersonalPhone] = useState(user?.phone || '');
   const [isSavingPersonal, setIsSavingPersonal] = useState(false);
 
   // Security State
@@ -85,14 +89,44 @@ export const AgentSettingsPage: React.FC = () => {
   const [phoneDiscoverability, setPhoneDiscoverability] = useState(true);
   const [anonymizedAnalytics, setAnonymizedAnalytics] = useState(true);
 
+  const displayName = user?.fullName || user?.email?.split('@')[0] || 'Agent';
+
+  const initial = (displayName.charAt(0) || 'A').toUpperCase();
+
   // Handlers
-  const handleSavePersonal = (e: React.FormEvent) => {
+  const handleSaveBusiness = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingBusiness(true);
+    try {
+      await settingsApi.updateSettings({
+        businessName: businessName.trim(),
+        businessPhone: businessPhone.trim(),
+        businessEmail: businessEmail.trim().toLowerCase(),
+        whatsAppNumber: whatsAppNumber.trim(),
+      });
+      toastSuccess('Business Profile Saved', 'Your business details and support contacts have been updated.');
+    } catch (err: any) {
+      toastError('Save Failed', err?.message || 'Could not update business settings.');
+    } finally {
+      setIsSavingBusiness(false);
+    }
+  };
+
+  const handleSavePersonal = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingPersonal(true);
-    setTimeout(() => {
-      setIsSavingPersonal(false);
+    try {
+      await settingsApi.updateSettings({
+        fullName: fullName.trim(),
+        personalEmail: personalEmail.trim().toLowerCase(),
+        personalPhone: personalPhone.trim(),
+      });
       toastSuccess('Personal Information Saved', 'Your profile details have been successfully updated.');
-    }, 600);
+    } catch (err: any) {
+      toastError('Save Failed', err?.message || 'Could not update personal details.');
+    } finally {
+      setIsSavingPersonal(false);
+    }
   };
 
   const handleUpdatePassword = (e: React.FormEvent) => {
@@ -162,12 +196,12 @@ export const AgentSettingsPage: React.FC = () => {
               boxShadow: 'var(--shadow-tactile-sm)',
             }}
           >
-            MN
+            {initial}
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <strong style={{ fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
-                Martin Nomotsu
+                {displayName}
               </strong>
               <span
                 style={{
@@ -181,11 +215,11 @@ export const AgentSettingsPage: React.FC = () => {
                   textTransform: 'uppercase',
                 }}
               >
-                Active
+                Active Agent
               </span>
             </div>
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
-              nomotsumartin@gmail.com
+              {user?.email || '—'}
             </span>
           </div>
         </div>
@@ -199,6 +233,7 @@ export const AgentSettingsPage: React.FC = () => {
           View Profile
         </Button>
       </Card>
+
 
       {/* Settings Navigation Tabs */}
       <div
@@ -254,10 +289,7 @@ export const AgentSettingsPage: React.FC = () => {
           ========================================================================= */}
       {activeTab === 'business' && (
         <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            toastSuccess('Business Profile Saved', 'Your business details and support contacts have been updated.');
-          }}
+          onSubmit={handleSaveBusiness}
           style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}
         >
           <Card style={{ padding: 'var(--space-6)' }}>
@@ -276,7 +308,9 @@ export const AgentSettingsPage: React.FC = () => {
 
               <div>
                 <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Agent ID</span>
-                <div style={{ fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-primary)', marginTop: '2px' }}>AGT-84920</div>
+                <div style={{ fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-primary)', marginTop: '2px' }}>
+                  {`AGT-${user?.id ? user.id.slice(0, 6).toUpperCase() : 'LIVE'}`}
+                </div>
               </div>
 
               <div>
@@ -286,7 +320,9 @@ export const AgentSettingsPage: React.FC = () => {
 
               <div>
                 <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Storefront</span>
-                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>datahub.bytebeacon.com</div>
+                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
+                  {`https://bytebeacon.online/store/${(businessName || 'store').toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                </div>
               </div>
 
               <div>
@@ -295,8 +331,8 @@ export const AgentSettingsPage: React.FC = () => {
               </div>
 
               <div>
-                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Date Joined</span>
-                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>Jan 12, 2025</div>
+                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Account Status</span>
+                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-success)', marginTop: '2px' }}>Active & Verified</div>
               </div>
             </div>
           </Card>
@@ -325,21 +361,22 @@ export const AgentSettingsPage: React.FC = () => {
                 onChange={(e) => setWhatsAppNumber(e.target.value)}
               />
               <Input
-                label="MoMo Payout Line (Masked)"
-                value="054 ••• •282 (MTN)"
+                label="MoMo Payout Line"
+                value={user?.phone || 'Configured upon withdrawal'}
                 disabled
-                hint="Locked for security. Contact admin to modify."
+                hint="Used for automated earnings settlement."
               />
             </div>
           </Card>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="primary" size="md" type="submit">
-              Save Business Details
+            <Button variant="primary" size="md" type="submit" disabled={isSavingBusiness}>
+              {isSavingBusiness ? 'Saving...' : 'Save Business Details'}
             </Button>
           </div>
         </form>
       )}
+
 
       {/* =========================================================================
           TAB 2: PERSONAL INFORMATION

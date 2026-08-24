@@ -5,6 +5,20 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Pre-migration self-healing for legacy stores
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'stores') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stores' AND column_name = 'uuid')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stores' AND column_name = 'id') THEN
+            ALTER TABLE stores RENAME COLUMN uuid TO id;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stores' AND column_name = 'id') THEN
+            ALTER TABLE stores ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
+        END IF;
+    END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS stores (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     agent_id UUID REFERENCES agents(id) ON DELETE CASCADE,

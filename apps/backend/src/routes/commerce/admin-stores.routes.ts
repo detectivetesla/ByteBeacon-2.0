@@ -188,7 +188,7 @@ export async function adminStoresRoutes(
       const countQuery = `
         SELECT COUNT(*) as total
         FROM stores s
-        JOIN users u ON s.user_id = u.uuid
+        JOIN users u ON s.user_id = u.id
         WHERE ${whereClause}
       `;
 
@@ -217,7 +217,7 @@ export async function adminStoresRoutes(
           s.created_at as "createdAt",
           s.updated_at as "updatedAt"
         FROM stores s
-        JOIN users u ON s.user_id = u.uuid
+        JOIN users u ON s.user_id = u.id
         WHERE ${whereClause}
         ORDER BY s.created_at DESC
         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
@@ -278,7 +278,7 @@ export async function adminStoresRoutes(
           s.created_at as "createdAt",
           s.updated_at as "updatedAt"
         FROM stores s
-        JOIN users u ON s.user_id = u.uuid
+        JOIN users u ON s.user_id = u.id
         WHERE s.id = $1 OR s.slug = $1
       `;
 
@@ -839,7 +839,7 @@ export async function adminStoresRoutes(
           COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE store_id = s.id AND payment_status = 'PAID'), 0) / 100.0 as "salesGhs",
           s.created_at as "createdAt"
         FROM stores s
-        JOIN users u ON s.user_id = u.uuid
+        JOIN users u ON s.user_id = u.id
       `;
 
       const params: any[] = [];

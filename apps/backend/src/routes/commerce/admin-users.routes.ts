@@ -150,11 +150,11 @@ export async function adminUsersRoutes(
         }
       }
 
-      // Server-side search across Name, Email, Phone, UUID
+      // Server-side search across Name, Email, Phone, ID
       if (search && search.trim() !== '') {
         const searchTerm = `%${search.trim().toLowerCase()}%`;
         whereConditions.push(
-          `(LOWER(email) LIKE $${paramIndex} OR phone LIKE $${paramIndex} OR LOWER(COALESCE(full_name, name, '')) LIKE $${paramIndex} OR CAST(uuid AS TEXT) LIKE $${paramIndex})`,
+          `(LOWER(email) LIKE $${paramIndex} OR phone LIKE $${paramIndex} OR LOWER(COALESCE(full_name, name, '')) LIKE $${paramIndex} OR CAST(id AS TEXT) LIKE $${paramIndex})`,
         );
         queryParams.push(searchTerm);
         paramIndex++;
@@ -198,7 +198,7 @@ export async function adminUsersRoutes(
       const totalFiltered = parseInt(countRes.rows[0]?.total || '0', 10);
 
       const listSql = `
-        SELECT uuid as id, email, phone,
+        SELECT id, email, phone,
                COALESCE(full_name, name, '') as "fullName",
                role,
                COALESCE(status, CASE WHEN is_active = false THEN 'SUSPENDED' ELSE 'ACTIVE' END) as status,
@@ -285,7 +285,7 @@ export async function adminUsersRoutes(
       }
 
       const existingRes = await db.query(
-        'SELECT uuid FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
+        'SELECT id FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
         [email.trim(), phone.trim()],
       );
 
@@ -308,7 +308,7 @@ export async function adminUsersRoutes(
       const insertRes = await db.query(
         `INSERT INTO users (email, phone, full_name, name, password_hash, role, security_domain, status, is_active, email_verified, phone_verified, wallet_balance_pesewas, wallet_balance)
          VALUES ($1, $2, $3, $3, $4, $5, $6, 'ACTIVE', true, true, true, 0, 0)
-         RETURNING uuid as id, email, phone, full_name as "fullName", role, status, created_at as "createdAt"`,
+         RETURNING id, email, phone, full_name as "fullName", role, status, created_at as "createdAt"`,
         [email.trim().toLowerCase(), phone.trim(), fullName.trim(), passwordHash, normalizedRole, securityDomain],
       );
 
@@ -340,7 +340,7 @@ export async function adminUsersRoutes(
     { preHandler: [authHooks.authenticateAdmin] },
     async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const userRes = await db.query(
-        `SELECT uuid as id, email, phone,
+        `SELECT id, email, phone,
                 COALESCE(full_name, name, '') as "fullName",
                 role,
                 COALESCE(status, CASE WHEN is_active = false THEN 'SUSPENDED' ELSE 'ACTIVE' END) as status,
@@ -354,7 +354,7 @@ export async function adminUsersRoutes(
                 created_at as "createdAt",
                 updated_at as "updatedAt",
                 last_login_at as "lastLoginAt"
-         FROM users WHERE uuid = $1`,
+         FROM users WHERE id = $1`,
         [req.params.id],
       );
 
@@ -595,7 +595,7 @@ export async function adminUsersRoutes(
     { preHandler: [authHooks.authenticateAdmin] },
     async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const userRes = await db.query(
-        `SELECT uuid as id, email, COALESCE(wallet_balance_pesewas, 0) as "walletBalance" FROM users WHERE uuid = $1`,
+        `SELECT id, email, COALESCE(wallet_balance_pesewas, 0) as "walletBalance" FROM users WHERE id = $1`,
         [req.params.id],
       );
       if (userRes.rows.length === 0) {
@@ -647,7 +647,7 @@ export async function adminUsersRoutes(
       const { format = 'JSON' } = req.body || {};
 
       const userRes = await db.query(
-        `SELECT uuid as id, email, phone, full_name as "fullName", role, status, security_domain as "securityDomain", phone_verified, email_verified, mfa_enabled, wallet_balance_pesewas, created_at, last_login_at FROM users WHERE uuid = $1`,
+        `SELECT id, email, phone, full_name as "fullName", role, status, security_domain as "securityDomain", phone_verified, email_verified, mfa_enabled, wallet_balance_pesewas, created_at, last_login_at FROM users WHERE id = $1`,
         [req.params.id],
       );
       if (userRes.rows.length === 0) {
@@ -784,7 +784,7 @@ export async function adminUsersRoutes(
     }>, reply: FastifyReply) => {
       const { fullName, phone, phoneVerified, emailVerified } = req.body || {};
 
-      const existing = await db.query('SELECT uuid, role, email FROM users WHERE uuid = $1', [req.params.id]);
+      const existing = await db.query('SELECT id, role, email FROM users WHERE id = $1', [req.params.id]);
       if (existing.rows.length === 0) {
         throw new NotFoundError('User not found');
       }
@@ -819,7 +819,7 @@ export async function adminUsersRoutes(
       }
 
       updates.push(`updated_at = CURRENT_TIMESTAMP`);
-      const updateSql = `UPDATE users SET ${updates.join(', ')} WHERE uuid = $${valIdx} RETURNING uuid as id, email, phone, full_name as "fullName"`;
+      const updateSql = `UPDATE users SET ${updates.join(', ')} WHERE id = $${valIdx} RETURNING id, email, phone, full_name as "fullName"`;
       values.push(req.params.id);
 
       const updateRes = await db.query(updateSql, values);
@@ -856,7 +856,7 @@ export async function adminUsersRoutes(
       Body: { reason?: string; duration?: string; revokeSessions?: boolean };
     }>, reply: FastifyReply) => {
       const { reason, revokeSessions = true } = req.body || {};
-      const targetRes = await db.query('SELECT role, email FROM users WHERE uuid = $1', [req.params.id]);
+      const targetRes = await db.query('SELECT role, email FROM users WHERE id = $1', [req.params.id]);
       if (targetRes.rows.length === 0) {
         throw new NotFoundError('User not found');
       }
@@ -873,7 +873,7 @@ export async function adminUsersRoutes(
       }
 
       await db.query(
-        `UPDATE users SET status = 'SUSPENDED', is_active = false, updated_at = CURRENT_TIMESTAMP WHERE uuid = $1`,
+        `UPDATE users SET status = 'SUSPENDED', is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
         [req.params.id],
       );
 
@@ -910,7 +910,7 @@ export async function adminUsersRoutes(
     '/admin/users/:id/reactivate',
     { preHandler: [authHooks.authenticateAdmin] },
     async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const targetRes = await db.query('SELECT role, email FROM users WHERE uuid = $1', [req.params.id]);
+      const targetRes = await db.query('SELECT role, email FROM users WHERE id = $1', [req.params.id]);
       if (targetRes.rows.length === 0) {
         throw new NotFoundError('User not found');
       }
@@ -923,7 +923,7 @@ export async function adminUsersRoutes(
       }
 
       await db.query(
-        `UPDATE users SET status = 'ACTIVE', is_active = true, updated_at = CURRENT_TIMESTAMP WHERE uuid = $1`,
+        `UPDATE users SET status = 'ACTIVE', is_active = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
         [req.params.id],
       );
 
@@ -956,7 +956,7 @@ export async function adminUsersRoutes(
         throw new BadRequestError('Role is required');
       }
 
-      const targetRes = await db.query('SELECT role, email FROM users WHERE uuid = $1', [req.params.id]);
+      const targetRes = await db.query('SELECT role, email FROM users WHERE id = $1', [req.params.id]);
       if (targetRes.rows.length === 0) {
         throw new NotFoundError('User not found');
       }
@@ -988,7 +988,7 @@ export async function adminUsersRoutes(
       else if (proposedRole === UserRole.ADMIN || proposedRole === UserRole.SUPER_ADMIN) newDomain = SecurityDomain.ADMIN;
 
       await db.query(
-        `UPDATE users SET role = $1, security_domain = $2, updated_at = CURRENT_TIMESTAMP WHERE uuid = $3`,
+        `UPDATE users SET role = $1, security_domain = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
         [proposedRole, newDomain, req.params.id],
       );
 
@@ -1042,9 +1042,9 @@ export async function adminUsersRoutes(
       }
 
       const userRes = await db.query(
-        `SELECT uuid as id, email, role,
+        `SELECT id, email, role,
                 COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) as "currentBalance"
-         FROM users WHERE uuid = $1 FOR UPDATE`,
+         FROM users WHERE id = $1 FOR UPDATE`,
         [req.params.id],
       );
 
@@ -1116,7 +1116,7 @@ export async function adminUsersRoutes(
 
         // Update projected balance on user
         await client.query(
-          `UPDATE users SET wallet_balance_pesewas = $1, wallet_balance = $2, updated_at = CURRENT_TIMESTAMP WHERE uuid = $3`,
+          `UPDATE users SET wallet_balance_pesewas = $1, wallet_balance = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
           [newBalance, newBalance / 100, req.params.id],
         );
 
@@ -1200,7 +1200,7 @@ export async function adminUsersRoutes(
     '/admin/users/:id/password-reset',
     { preHandler: [authHooks.authenticateAdmin] },
     async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const userRes = await db.query('SELECT uuid, email FROM users WHERE uuid = $1', [req.params.id]);
+      const userRes = await db.query('SELECT id, email FROM users WHERE id = $1', [req.params.id]);
       if (userRes.rows.length === 0) {
         throw new NotFoundError('User not found');
       }
@@ -1245,7 +1245,7 @@ export async function adminUsersRoutes(
         throw new BadRequestError('Subject and message content are required.');
       }
 
-      const userRes = await db.query('SELECT uuid, email, phone FROM users WHERE uuid = $1', [req.params.id]);
+      const userRes = await db.query('SELECT id, email, phone FROM users WHERE id = $1', [req.params.id]);
       if (userRes.rows.length === 0) {
         throw new NotFoundError('User not found');
       }
@@ -1307,7 +1307,7 @@ export async function adminUsersRoutes(
       const whereSql = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
       const usersRes = await db.query(
-        `SELECT uuid as id, email, phone, COALESCE(full_name, name, '') as "fullName",
+        `SELECT id, email, phone, COALESCE(full_name, name, '') as "fullName",
                 role, COALESCE(status, 'ACTIVE') as status,
                 COALESCE(wallet_balance_pesewas, 0) as "walletBalancePesewas",
                 created_at as "createdAt"
@@ -1369,12 +1369,12 @@ export async function adminUsersRoutes(
 
       if (action === 'SUSPEND') {
         await db.query(
-          `UPDATE users SET status = 'SUSPENDED', is_active = false, updated_at = CURRENT_TIMESTAMP WHERE uuid = ANY($1)`,
+          `UPDATE users SET status = 'SUSPENDED', is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($1)`,
           [userIds],
         );
       } else if (action === 'ACTIVATE') {
         await db.query(
-          `UPDATE users SET status = 'ACTIVE', is_active = true, updated_at = CURRENT_TIMESTAMP WHERE uuid = ANY($1)`,
+          `UPDATE users SET status = 'ACTIVE', is_active = true, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($1)`,
           [userIds],
         );
       }

@@ -83,6 +83,13 @@ export const CUSTOMER_NAVIGATION_GROUPS: NavGroupConfig[] = [
         permission: 'orders.view_own',
         color: '#8B5CF6',
       },
+      {
+        label: 'Pending MTN Approvals',
+        path: '/app/pending-approvals',
+        icon: React.createElement(Clock, { size: 18, strokeWidth: 2.4, color: '#FFCC00' }),
+        permission: 'orders.view_own',
+        color: '#FFCC00',
+      },
     ],
   },
   {

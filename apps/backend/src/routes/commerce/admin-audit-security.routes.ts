@@ -197,7 +197,7 @@ export async function adminAuditSecurityRoutes(
 
     const countRes = await db.query(
       `SELECT COUNT(*) as total FROM audit_logs l
-       LEFT JOIN users u ON l.actor_id = u.uuid
+       LEFT JOIN users u ON l.actor_id = u.id
        WHERE ${whereClause}`,
       params,
     ).catch(() => ({ rows: [{ total: '0' }] }));
@@ -217,7 +217,7 @@ export async function adminAuditSecurityRoutes(
          l.reason, l.event_hash as "eventHash", l.previous_event_hash as "previousEventHash",
          l.created_at as "timestamp"
        FROM audit_logs l
-       LEFT JOIN users u ON l.actor_id = u.uuid
+       LEFT JOIN users u ON l.actor_id = u.id
        WHERE ${whereClause}
        ORDER BY l.created_at DESC
        LIMIT $${idx++} OFFSET $${idx++}`,
@@ -334,7 +334,7 @@ export async function adminAuditSecurityRoutes(
            l.event_hash as "eventHash", l.previous_event_hash as "previousEventHash",
            l.created_at as "timestamp"
          FROM audit_logs l
-         LEFT JOIN users u ON l.actor_id = u.uuid
+         LEFT JOIN users u ON l.actor_id = u.id
          WHERE l.id = $1`,
         [id],
       );
@@ -523,7 +523,7 @@ export async function adminAuditSecurityRoutes(
                 l.resource_id as "resourceId", l.severity, l.result,
                 l.ip_address as "ipAddress", l.event_hash as "eventHash"
          FROM audit_logs l
-         LEFT JOIN users u ON l.actor_id = u.uuid
+         LEFT JOIN users u ON l.actor_id = u.id
          WHERE ${conditions.join(' AND ')}
          ORDER BY l.created_at DESC
          LIMIT 1000`,
@@ -628,8 +628,8 @@ export async function adminAuditSecurityRoutes(
            i.resolved_at as "resolvedAt", i.created_at as "createdAt",
            i.updated_at as "updatedAt"
          FROM security_incidents i
-         LEFT JOIN users u_adm ON i.assigned_admin_id = u_adm.uuid
-         LEFT JOIN users u_aff ON i.affected_user_id = u_aff.uuid
+         LEFT JOIN users u_adm ON i.assigned_admin_id = u_adm.id
+         LEFT JOIN users u_aff ON i.affected_user_id = u_aff.id
          WHERE ${conditions.join(' AND ')}
          ORDER BY i.created_at DESC`,
         params,

@@ -191,7 +191,7 @@ export async function adminApprovalsRoutes(
                 o.amount_pesewas as "amountPesewas", o.order_status as "orderStatus", o.created_at as "createdAt",
                 COALESCE(u.full_name, u.name, 'Customer') as "userName", u.email as "userEmail"
          FROM orders o
-         LEFT JOIN users u ON o.user_id = u.uuid
+         LEFT JOIN users u ON o.user_id = u.id
          WHERE o.recipient_phone = $1
          ORDER BY o.created_at DESC LIMIT 20`,
         [record.phoneNumber],

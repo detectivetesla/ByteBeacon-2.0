@@ -26,6 +26,7 @@ import {
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
+import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { apiClient } from '../../api/httpClient.js';
 import { walletApi } from '../../api/wallet.api.js';
 
@@ -46,21 +47,6 @@ export interface WalletTransactionItem {
   date: string;
   rawDate: string;
 }
-
-// Initial Comprehensive Mock Dataset for Server/Client Fallback
-const COMPREHENSIVE_TRANSACTIONS: WalletTransactionItem[] = [
-  { id: 'DEP-88491', type: 'DEPOSIT', method: 'Paystack', description: 'Wallet Top-up via Paystack', amountPesewas: 50000, feePesewas: 1500, isCredit: true, balanceAfterPesewas: 145000, status: 'SUCCESSFUL', date: 'Aug 17, 2026, 02:40', rawDate: '2026-08-17T02:40:00Z' },
-  { id: 'ORD-94821', type: 'PURCHASE', method: 'Wallet', description: 'MTN 10GB Bundle Dispatch (024 111 2233)', amountPesewas: 5700, feePesewas: 0, isCredit: false, balanceAfterPesewas: 95000, status: 'SUCCESSFUL', date: 'Aug 16, 2026, 20:15', rawDate: '2026-08-16T20:15:00Z' },
-  { id: 'ORD-94820', type: 'PURCHASE', method: 'Wallet', description: 'Telecel 5GB Bundle Dispatch (020 444 5566)', amountPesewas: 3500, feePesewas: 0, isCredit: false, balanceAfterPesewas: 100700, status: 'SUCCESSFUL', date: 'Aug 16, 2026, 17:30', rawDate: '2026-08-16T17:30:00Z' },
-  { id: 'REF-88120', type: 'REFUND', method: 'Internal', description: 'Auto-refund for timeout order ORD-8812', amountPesewas: 3000, feePesewas: 0, isCredit: true, balanceAfterPesewas: 104200, status: 'SUCCESSFUL', date: 'Aug 15, 2026, 19:10', rawDate: '2026-08-15T19:10:00Z' },
-  { id: 'DEP-87302', type: 'DEPOSIT', method: 'Paystack', description: 'Wallet Top-up via Paystack MoMo', amountPesewas: 100000, feePesewas: 3000, isCredit: true, balanceAfterPesewas: 101200, status: 'SUCCESSFUL', date: 'Aug 15, 2026, 10:15', rawDate: '2026-08-15T10:15:00Z' },
-  { id: 'ADJ-89601', type: 'ADJUSTMENT', method: 'Internal', description: 'Early-bird reseller promotional float bonus', amountPesewas: 1200, feePesewas: 0, isCredit: true, balanceAfterPesewas: 1200, status: 'SUCCESSFUL', date: 'Aug 10, 2026, 08:00', rawDate: '2026-08-10T08:00:00Z' },
-  { id: 'DEP-86194', type: 'DEPOSIT', method: 'Paystack', description: 'Wallet Top-up via Card', amountPesewas: 25000, feePesewas: 750, isCredit: true, balanceAfterPesewas: 26200, status: 'SUCCESSFUL', date: 'Aug 05, 2026, 16:00', rawDate: '2026-08-05T16:00:00Z' },
-  { id: 'ORD-93101', type: 'PURCHASE', method: 'Wallet', description: 'AT 25GB SME Bundle Dispatch (027 888 9900)', amountPesewas: 12000, feePesewas: 0, isCredit: false, balanceAfterPesewas: 1200, status: 'SUCCESSFUL', date: 'Aug 04, 2026, 11:20', rawDate: '2026-08-04T11:20:00Z' },
-  { id: 'DEP-85002', type: 'DEPOSIT', method: 'Paystack', description: 'Pending deposit authorization', amountPesewas: 15000, feePesewas: 450, isCredit: true, balanceAfterPesewas: 13200, status: 'PENDING', date: 'Aug 02, 2026, 09:30', rawDate: '2026-08-02T09:30:00Z' },
-  { id: 'DEP-84011', type: 'DEPOSIT', method: 'Paystack', description: 'Failed OTP authentication on card', amountPesewas: 5000, feePesewas: 150, isCredit: true, balanceAfterPesewas: 13200, status: 'FAILED', date: 'Jul 28, 2026, 14:10', rawDate: '2026-07-28T14:10:00Z' },
-  { id: 'ORD-91022', type: 'PURCHASE', method: 'Wallet', description: 'Reversed MTN 2GB Order (Carrier timeout)', amountPesewas: 1400, feePesewas: 0, isCredit: false, balanceAfterPesewas: 13200, status: 'REVERSED', date: 'Jul 20, 2026, 18:45', rawDate: '2026-07-20T18:45:00Z' },
-];
 
 export const StatusBadge: React.FC<{ status: TransactionStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
@@ -112,11 +98,10 @@ export const TypeBadge: React.FC<{ type: WalletTransactionType; isCredit?: boole
 
 export const AgentWalletPage: React.FC = () => {
   const { user } = useAuth();
+  const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const [searchParams, setSearchParams] = useSearchParams();
-
-  const [floatBalance] = useState('1,450.00');
 
   // Balance Visibility Toggle (Stored in sessionStorage for privacy, never in DB)
   const [isBalanceVisible, setIsBalanceVisible] = useState<boolean>(() => {
@@ -180,70 +165,29 @@ export const AgentWalletPage: React.FC = () => {
       });
 
       const json: any = await apiClient.get(`/agents/wallet/transactions?${params.toString()}`);
-      if (json?.items && Array.isArray(json.items) && json.items.length > 0) {
+      if (json?.items && Array.isArray(json.items)) {
         setTransactions(json.items);
-        setTotalCount(json.pagination.total);
-        setTotalPages(json.pagination.totalPages);
-        setIsLoading(false);
-        return;
+        setTotalCount(json.pagination?.total || json.items.length);
+        setTotalPages(json.pagination?.totalPages || 1);
+      } else if (json?.transactions && Array.isArray(json.transactions)) {
+        setTransactions(json.transactions);
+        setTotalCount(json.total || json.transactions.length);
+        setTotalPages(json.totalPages || 1);
+      } else {
+        setTransactions([]);
+        setTotalCount(0);
+        setTotalPages(1);
       }
-
-      // Fallback: Perform accurate in-memory server simulation
-      let filtered = [...COMPREHENSIVE_TRANSACTIONS];
-
-      if (typeFilter !== 'ALL') {
-        filtered = filtered.filter((t) => t.type === typeFilter);
-      }
-      if (statusFilter !== 'ALL') {
-        filtered = filtered.filter((t) => t.status === statusFilter);
-      }
-
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        filtered = filtered.filter(
-          (t) => t.id.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.method.toLowerCase().includes(q),
-        );
-      }
-
-      if (dateFilter !== 'all') {
-        const now = new Date().getTime();
-        filtered = filtered.filter((t) => {
-          const tTime = new Date(t.rawDate).getTime();
-          const diffDays = (now - tTime) / (1000 * 60 * 60 * 24);
-          if (dateFilter === 'today') return diffDays <= 1;
-          if (dateFilter === '7d') return diffDays <= 7;
-          if (dateFilter === '30d') return diffDays <= 30;
-          if (dateFilter === '90d') return diffDays <= 90;
-          if (dateFilter === '1y') return diffDays <= 365;
-          return true;
-        });
-      }
-
-      // Sort
-      filtered.sort((a, b) => {
-        if (sortBy === 'newest') return new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime();
-        if (sortBy === 'oldest') return new Date(a.rawDate).getTime() - new Date(b.rawDate).getTime();
-        if (sortBy === 'highest') return b.amountPesewas - a.amountPesewas;
-        if (sortBy === 'lowest') return a.amountPesewas - b.amountPesewas;
-        return 0;
-      });
-
-      const total = filtered.length;
-      const start = (page - 1) * pageSize;
-      const paginated = filtered.slice(start, start + pageSize);
-
-      setTransactions(paginated);
-      setTotalCount(total);
-      setTotalPages(Math.ceil(total / pageSize) || 1);
     } catch {
-      // Graceful fallback
-      setTransactions(COMPREHENSIVE_TRANSACTIONS.slice(0, pageSize));
-      setTotalCount(COMPREHENSIVE_TRANSACTIONS.length);
-      setTotalPages(Math.ceil(COMPREHENSIVE_TRANSACTIONS.length / pageSize) || 1);
+      setTransactions([]);
+      setTotalCount(0);
+      setTotalPages(1);
     } finally {
       setIsLoading(false);
+      refreshBalance();
     }
-  }, [typeFilter, statusFilter, dateFilter, customStartDate, customEndDate, sortBy, page, pageSize, searchQuery]);
+  }, [typeFilter, statusFilter, dateFilter, sortBy, page, pageSize, searchQuery, customStartDate, customEndDate, refreshBalance]);
+
 
   // Paystack Return Verification
   useEffect(() => {
@@ -452,9 +396,10 @@ export const AgentWalletPage: React.FC = () => {
             </div>
 
             <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#FFFFFF', fontFamily: 'var(--font-data)', letterSpacing: '-0.03em', lineHeight: 1.1, marginTop: 'var(--space-2)' }}>
-              GH₵ {isBalanceVisible ? floatBalance : '••••••'}
+              GH₵ {isBalanceVisible ? balanceGhs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '••••••'}
             </div>
           </div>
+
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: 'var(--space-4)', padding: '0.35rem 0.75rem', backgroundColor: 'rgba(0, 0, 0, 0.25)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255, 255, 255, 0.1)', width: 'fit-content' }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#34D399', boxShadow: '0 0 6px #34D399' }} />

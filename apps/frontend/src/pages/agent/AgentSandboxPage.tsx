@@ -6,40 +6,42 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { Terminal, Play, Copy } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { apiClient } from '../../api/httpClient.js';
 
 export const AgentSandboxPage: React.FC = () => {
-  const { toastSuccess } = useToast();
+  const { toastSuccess, toastError } = useToast();
   const [network, setNetwork] = useState('MTN');
   const [phone, setPhone] = useState('0240000000');
   const [volume, setVolume] = useState('5GB');
   const [running, setRunning] = useState(false);
   const [responseJson, setResponseJson] = useState<string | null>(null);
 
-  const handleSimulate = (e: React.FormEvent) => {
+  const handleSimulate = async (e: React.FormEvent) => {
     e.preventDefault();
     setRunning(true);
     setResponseJson(null);
 
-    setTimeout(() => {
-      setRunning(false);
-      const mockResult = {
-        success: true,
-        environment: 'SANDBOX_SIMULATOR',
-        data: {
-          transactionId: `sbx_${Date.now()}`,
-          network,
-          recipient: phone,
-          package: volume,
-          status: 'DELIVERED',
-          simulatedCost: 'GH₵ 25.00',
-          mockCarrierResponse: 'SIM_CREDITED_SUCCESS',
-          timestamp: new Date().toISOString(),
-        },
-      };
-      setResponseJson(JSON.stringify(mockResult, null, 2));
+    const gbMatch = volume.match(/(\d+)/);
+    const gb = gbMatch ? parseInt(gbMatch[1], 10) : 5;
+    const mb = gb * 1024;
+
+    try {
+      const res: any = await apiClient.post('/developer/sandbox/simulate-fulfillment', {
+        network,
+        recipientPhone: phone.trim(),
+        dataAmountMb: mb,
+        simulateStatus: phone.includes('9999') ? 'FAILED' : 'COMPLETED',
+      });
+
+      setResponseJson(JSON.stringify(res?.data || res, null, 2));
       toastSuccess('Sandbox Simulation Passed', 'Simulated carrier delivery completed successfully.');
-    }, 600);
+    } catch (err: any) {
+      toastError('Simulation Error', err?.message || 'Sandbox simulator failed.');
+    } finally {
+      setRunning(false);
+    }
   };
+
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>

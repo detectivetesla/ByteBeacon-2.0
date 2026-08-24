@@ -13,7 +13,8 @@ import { NetworkProvider, OrderStatus } from '@bytebeacon/shared';
 import { useAuth } from '../../context/AuthContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { ordersApi } from '../../api/orders.api.js';
-import { walletApi, WalletTransactionDto } from '../../api/wallet.api.js';
+import { walletApi, WalletTransactionDto, analyticsApi } from '../../api/wallet.api.js';
+import { PeriodStats } from '../../components/dashboard/RevenueTrendChart.js';
 import {
   Wallet,
   ShoppingBag,
@@ -49,6 +50,7 @@ export const AgentDashboard: React.FC = () => {
 
   const [orders, setOrders] = useState<AgentOrderRow[]>([]);
   const [recentDeposits, setRecentDeposits] = useState<WalletTransactionDto[]>([]);
+  const [revenueData, setRevenueData] = useState<Record<ChartPeriod, PeriodStats> | undefined>(undefined);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const fetchAgentDashboardData = useCallback(async () => {
@@ -57,7 +59,7 @@ export const AgentDashboard: React.FC = () => {
       refreshBalance();
 
       // Fetch live agent orders
-      const ordersRes = await ordersApi.listOrders({ limit: 20 }).catch(() => null);
+      const ordersRes = await ordersApi.listAgentOrders({ limit: 20 }).catch(() => null);
       if (ordersRes && Array.isArray(ordersRes.orders)) {
         const mapped: AgentOrderRow[] = ordersRes.orders.map((o: any) => ({
           id: o.id,
@@ -92,6 +94,12 @@ export const AgentDashboard: React.FC = () => {
       } else {
         setRecentDeposits([]);
       }
+
+      // Fetch live revenue trend analytics
+      const revRes = await analyticsApi.getRevenueTrend().catch(() => null);
+      if (revRes) {
+        setRevenueData(revRes as Record<ChartPeriod, PeriodStats>);
+      }
     } catch {
       setOrders([]);
       setRecentDeposits([]);
@@ -103,6 +111,7 @@ export const AgentDashboard: React.FC = () => {
   useEffect(() => {
     fetchAgentDashboardData();
   }, [fetchAgentDashboardData]);
+
 
   // Derived live metrics from real backend database data
   const orderCount = orders.length;
@@ -351,11 +360,13 @@ export const AgentDashboard: React.FC = () => {
 
         {/* Right: Revenue Trend SVG Area Chart */}
         <RevenueTrendChart
+          data={revenueData}
           initialPeriod={activePeriod}
           onPeriodChange={(p) => setActivePeriod(p)}
           title="Revenue Trend"
         />
       </div>
+
 
       {/* 4. Mid Row: Recent Deposits & Operations Stream */}
       <div className="agent-mid-grid">

@@ -336,13 +336,15 @@ export async function storeRoutes(
       const ordersRes = await db.query(
         `SELECT COUNT(*) as total_orders,
                 COALESCE(SUM(amount_pesewas), 0) as total_sales_pesewas,
+                COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_pesewas ELSE 0 END), 0) as today_sales_pesewas,
+                COUNT(DISTINCT recipient_phone) as customers_count,
                 COUNT(CASE WHEN order_status = 'COMPLETED' THEN 1 END) as completed_orders,
                 COUNT(CASE WHEN order_status = 'PROCESSING' THEN 1 END) as processing_orders,
                 COUNT(CASE WHEN order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT' THEN 1 END) as pending_orders,
                 COUNT(CASE WHEN order_status = 'FAILED' THEN 1 END) as failed_orders
          FROM orders
-         WHERE store_id = $1`,
-        [store.id],
+         WHERE store_id = $1 OR agent_id = $2`,
+        [store.id, req.user!.sub],
       );
 
       const stats = ordersRes.rows[0];
@@ -358,17 +360,17 @@ export async function storeRoutes(
             accentColor: store.accentColor,
           },
           kpis: {
-            todaySalesGhs: 420.00,
-            totalSalesGhs: Number(stats.total_sales_pesewas) / 100,
-            ordersCount: Number(stats.total_orders),
-            customersCount: 18,
-            storeVisits: 142,
+            todaySalesGhs: Number(stats.today_sales_pesewas || 0) / 100,
+            totalSalesGhs: Number(stats.total_sales_pesewas || 0) / 100,
+            ordersCount: Number(stats.total_orders || 0),
+            customersCount: Number(stats.customers_count || 0),
+            storeVisits: Number(stats.customers_count || 0),
           },
           orderHealth: {
-            completed: Number(stats.completed_orders) || 28,
-            processing: Number(stats.processing_orders) || 2,
-            pending: Number(stats.pending_orders) || 1,
-            failed: Number(stats.failed_orders) || 0,
+            completed: Number(stats.completed_orders || 0),
+            processing: Number(stats.processing_orders || 0),
+            pending: Number(stats.pending_orders || 0),
+            failed: Number(stats.failed_orders || 0),
           },
         },
       });

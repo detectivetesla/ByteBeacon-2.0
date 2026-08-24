@@ -201,7 +201,7 @@ export async function adminReconciliationRoutes(
           c.created_at as "createdAt",
           c.updated_at as "updatedAt"
         FROM reconciliation_cases c
-        LEFT JOIN users u_ass ON c.assigned_to = u_ass.uuid
+        LEFT JOIN users u_ass ON c.assigned_to = u_ass.id
         WHERE ${whereSql}
         ORDER BY 
           CASE c.severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END,
@@ -256,8 +256,8 @@ export async function adminReconciliationRoutes(
           c.created_at as "createdAt",
           c.updated_at as "updatedAt"
         FROM reconciliation_cases c
-        LEFT JOIN users u_ass ON c.assigned_to = u_ass.uuid
-        LEFT JOIN users u_res ON c.resolved_by = u_res.uuid
+        LEFT JOIN users u_ass ON c.assigned_to = u_ass.id
+        LEFT JOIN users u_res ON c.resolved_by = u_res.id
         WHERE c.id::text = $1 OR c.case_number = $1`,
         [id],
       );
@@ -350,7 +350,7 @@ export async function adminReconciliationRoutes(
       const discRes = await db.query(`
         SELECT p.id, p.provider_reference, p.amount_pesewas, p.status, p.user_id, u.email
         FROM payments p
-        JOIN users u ON p.user_id = u.uuid
+        JOIN users u ON p.user_id = u.id
         WHERE p.status = 'PROCESSING' AND p.created_at < (CURRENT_TIMESTAMP - INTERVAL '15 minutes')
         LIMIT 50
       `);

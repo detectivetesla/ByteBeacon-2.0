@@ -434,7 +434,7 @@ export class RbacService {
         FROM users
         WHERE (role = 'super_admin' OR role = 'SUPER_ADMIN')
           AND (is_active = true OR status = 'ACTIVE')
-          AND uuid != $1
+          AND id != $1
       `;
       const result = await this.db.query<{ count: string }>(query, [targetUserId]);
       const otherSuperAdmins = parseInt(result.rows[0]?.count || '0', 10);

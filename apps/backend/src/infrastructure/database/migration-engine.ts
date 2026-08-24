@@ -119,7 +119,7 @@ export class MigrationEngine {
             `INSERT INTO users (email, phone, password_hash, role, status)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (email) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-             RETURNING uuid as id`,
+             RETURNING id`,
             [
               legacyUser.email,
               legacyUser.phone || null,

@@ -70,7 +70,7 @@ export async function adminAuthRoutes(
         if (rawRes && rawRes.rows && rawRes.rows.length > 0) {
           const rawRow = rawRes.rows[0];
           const mappedUser = {
-            id: rawRow.uuid || rawRow.id,
+            id: rawRow.id,
             email: rawRow.email,
             phone: rawRow.phone,
             fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',
@@ -203,7 +203,7 @@ export async function adminAuthRoutes(
       const { rawCodes } = MfaService.generateRecoveryCodes();
 
       // Store unconfirmed MFA secret in database
-      await db.query('UPDATE users SET mfa_secret = $1 WHERE uuid = $2', [secret, req.user!.sub]);
+      await db.query('UPDATE users SET mfa_secret = $1 WHERE id = $2', [secret, req.user!.sub]);
 
       await auditService.logEvent({
         correlationId: req.id,
@@ -250,7 +250,7 @@ export async function adminAuthRoutes(
         mfaEnabled: boolean;
         walletBalancePesewas: string;
       }>(
-        'SELECT uuid as id, email, phone, full_name as "fullName", role, status, mfa_secret as "mfaSecret", mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas" FROM users WHERE uuid = $1',
+        'SELECT id, email, phone, full_name as "fullName", role, status, mfa_secret as "mfaSecret", mfa_enabled as "mfaEnabled", wallet_balance_pesewas as "walletBalancePesewas" FROM users WHERE id = $1',
         [payload.sub],
       );
 
@@ -274,7 +274,7 @@ export async function adminAuthRoutes(
 
       // Mark MFA enabled if not already
       if (!user.mfaEnabled) {
-        await db.query('UPDATE users SET mfa_enabled = TRUE WHERE uuid = $1', [user.id]);
+        await db.query('UPDATE users SET mfa_enabled = TRUE WHERE id = $1', [user.id]);
       }
 
       const { rawToken, tokenHash } = tokenService.generateRefreshToken();
@@ -333,7 +333,7 @@ export async function adminAuthRoutes(
     let userRes: any = null;
     try {
       userRes = await db.query<any>(
-        'SELECT * FROM users WHERE (uuid = $1 OR id = $1) AND (role = $2 OR role = $3)',
+        'SELECT * FROM users WHERE id = $1 AND (role = $2 OR role = $3)',
         [req.user!.sub, 'admin', 'super_admin'],
       );
     } catch {
@@ -348,7 +348,7 @@ export async function adminAuthRoutes(
     const isSuperAdmin = (rawRow.role || '').toLowerCase().includes('super');
 
     const adminSummary: UserSummaryDto = {
-      id: rawRow.uuid || rawRow.id,
+      id: rawRow.id,
       email: rawRow.email,
       phone: rawRow.phone || '',
       fullName: rawRow.full_name || rawRow.name || rawRow.fullName || '',

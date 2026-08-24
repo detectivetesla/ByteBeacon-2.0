@@ -84,6 +84,7 @@ describe('ByteBeacon 2.0 — Navigation Permission Filtering', () => {
     expect(paths).toContain('/app/dashboard');
     expect(paths).toContain('/app/buy-data');
     expect(paths).toContain('/app/orders');
+    expect(paths).toContain('/app/pending-approvals');
     expect(paths).toContain('/app/wallet');
     expect(paths).toContain('/app/transactions');
     expect(paths).toContain('/app/settings');

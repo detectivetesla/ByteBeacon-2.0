@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { NetworkSelector } from '../../components/commerce/NetworkSelector.js';
 import { BundleSelector, BundleItem } from '../../components/commerce/BundleSelector.js';
 import { catalogApi } from '../../api/catalog.api.js';
-import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
+import { PurchaseModal, BulkOrderItem } from '../../components/commerce/PurchaseModal.js';
 import { Card } from '../../components/ui/Card/Card.js';
 import { PhoneInput, Select, Checkbox, Textarea } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -29,6 +30,8 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
+import { useAuth } from '../../context/AuthContext.js';
+import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 
 type OrderMode = 'single' | 'bulk' | 'excel';
 type BulkSubMode = 'normal' | 'free';
@@ -78,8 +81,20 @@ const NETWORK_THEMES: Record<
 };
 
 export const BuyDataPage: React.FC = () => {
+  const location = useLocation();
+  const { user } = useAuth();
+  const { balanceGhs } = useWalletBalance();
   const { toastSuccess, toastError } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+
+  // Role and portal channel detection
+  const isAgentPortal =
+    location.pathname.startsWith('/agent') ||
+    user?.role === 'agent' ||
+    user?.role === 'admin' ||
+    user?.role === 'super_admin';
+
+  const channel: 'AGENT' | 'CUSTOMER' = isAgentPortal ? 'AGENT' : 'CUSTOMER';
 
   // Page level state
   const [orderMode, setOrderMode] = useState<OrderMode>('single');
@@ -89,6 +104,7 @@ export const BuyDataPage: React.FC = () => {
 
   // Bundles for current network loaded dynamically from authoritative database / catalog API
   const [availableBundles, setAvailableBundles] = useState<BundleItem[]>([]);
+  const [isLoadingBundles, setIsLoadingBundles] = useState(false);
 
   // Single order state
   const [singlePhone, setSinglePhone] = useState('');
@@ -97,25 +113,29 @@ export const BuyDataPage: React.FC = () => {
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringFrequency, setRecurringFrequency] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
 
-  // Load catalog bundles dynamically on network change
-  React.useEffect(() => {
+  // Load catalog bundles dynamically on network or channel change
+  useEffect(() => {
     let isMounted = true;
+    setIsLoadingBundles(true);
     catalogApi
-      .getBundles(selectedNetwork, 'CUSTOMER')
+      .getBundles(selectedNetwork, channel)
       .then((items) => {
         if (!isMounted || !Array.isArray(items)) return;
-        const mapped: BundleItem[] = items.map((p) => ({
-          id: p.id,
-          sku: p.sku,
-          network: p.network as NetworkProvider,
-          dataAmountMb: p.dataAmountMb,
-          dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
-          pricePesewas: p.basePricePesewas,
-          priceDisplay: `GH₵ ${(p.basePricePesewas / 100).toFixed(2)}`,
-          validityDays: p.validityDays,
-          validityDisplay: p.validityDesc || `${p.validityDays} Days`,
-          popular: Boolean(p.popular),
-        }));
+        const mapped: BundleItem[] = items.map((p) => {
+          const price = isAgentPortal && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
+          return {
+            id: p.id,
+            sku: p.sku,
+            network: p.network as NetworkProvider,
+            dataAmountMb: p.dataAmountMb,
+            dataDisplay: `${(p.dataAmountMb / 1024).toFixed(p.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+            pricePesewas: price,
+            priceDisplay: `GH₵ ${(price / 100).toFixed(2)}`,
+            validityDays: p.validityDays,
+            validityDisplay: p.validityDesc || `${p.validityDays} Days`,
+            popular: Boolean(p.popular),
+          };
+        });
         setAvailableBundles(mapped);
         if (mapped.length > 0) {
           setSingleBundleId((prev) => {
@@ -126,12 +146,15 @@ export const BuyDataPage: React.FC = () => {
       })
       .catch(() => {
         if (isMounted) setAvailableBundles([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingBundles(false);
       });
 
     return () => {
       isMounted = false;
     };
-  }, [selectedNetwork]);
+  }, [selectedNetwork, channel, isAgentPortal]);
 
   // Bulk Normal state
   const [bulkRecipients, setBulkRecipients] = useState<BulkRecipientEntry[]>([
@@ -139,14 +162,14 @@ export const BuyDataPage: React.FC = () => {
   ]);
 
   // Bulk Free state
-  const [freePasteText, setFreePasteText] = useState(
-    '0241234567, 5GB\n0551234567, 10GB\n0201234567, 2.5GB'
-  );
+  const [freePasteText, setFreePasteText] = useState('');
 
   // Excel Order state
   const [isDragging, setIsDragging] = useState(false);
   const [excelFile, setExcelFile] = useState<File | null>(null);
-  const [excelParsedRows, setExcelParsedRows] = useState<{ phone: string; data: string; pricePesewas: number }[]>([]);
+  const [excelParsedRows, setExcelParsedRows] = useState<
+    Array<{ phone: string; bundleId: string; data: string; pricePesewas: number }>
+  >([]);
   const [excelLoading, setExcelLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -159,6 +182,7 @@ export const BuyDataPage: React.FC = () => {
     amountDisplay?: string;
     bundleId?: string;
     recipientPhone?: string;
+    bulkItems?: BulkOrderItem[];
   }>({});
 
   const theme = NETWORK_THEMES[selectedNetwork] || NETWORK_THEMES[NetworkProvider.MTN];
@@ -210,6 +234,7 @@ export const BuyDataPage: React.FC = () => {
       amountDisplay: currentSingleBundle.priceDisplay,
       bundleId: currentSingleBundle.id,
       recipientPhone: cleaned,
+      bulkItems: undefined,
     });
     setPurchaseModalOpen(true);
   };
@@ -221,7 +246,7 @@ export const BuyDataPage: React.FC = () => {
       {
         id: String(Date.now()),
         phone: '',
-        bundleId: currentSingleBundle?.id || '',
+        bundleId: currentSingleBundle?.id || availableBundles[0]?.id || '',
         frequency: 'once',
       },
     ]);
@@ -253,15 +278,33 @@ export const BuyDataPage: React.FC = () => {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
-    const hasInvalid = bulkRecipients.some((r) => {
-      const cleaned = r.phone.replace(/\s+/g, '');
-      return !/^(0|\+?233)[25][0-9]{8}$/.test(cleaned);
-    });
 
-    if (hasInvalid) {
-      toastError('Validation Failed', 'Please verify all recipient mobile numbers before continuing.');
+    const cleanedRecipients = bulkRecipients.map((r) => ({
+      ...r,
+      cleanPhone: r.phone.replace(/\s+/g, ''),
+    }));
+
+    const hasEmpty = cleanedRecipients.some((r) => !r.cleanPhone);
+    if (hasEmpty) {
+      toastError('Missing Phone', 'Please enter a mobile number for each recipient row.');
       return;
     }
+
+    const hasInvalid = cleanedRecipients.some((r) => !/^(0|\+?233)[25][0-9]{8}$/.test(r.cleanPhone));
+    if (hasInvalid) {
+      toastError('Validation Failed', 'Please verify all recipient mobile numbers (must be valid 10-digit Ghana numbers).');
+      return;
+    }
+
+    const bulkItems: BulkOrderItem[] = cleanedRecipients.map((r) => {
+      const b = availableBundles.find((pkg) => pkg.id === r.bundleId) || currentSingleBundle;
+      return {
+        recipientPhone: r.cleanPhone,
+        productId: b.id || currentSingleBundle.id,
+        dataDisplay: b.dataDisplay,
+        pricePesewas: b.pricePesewas,
+      };
+    });
 
     setModalPayload({
       title: 'Bulk Order Purchase',
@@ -269,6 +312,7 @@ export const BuyDataPage: React.FC = () => {
       recipientSummary: `${bulkRecipients.length} Mobile Recipients`,
       amountDisplay: `GH₵ ${bulkNormalTotal}`,
       bundleId: currentSingleBundle.id,
+      bulkItems,
     });
     setPurchaseModalOpen(true);
   };
@@ -281,21 +325,37 @@ export const BuyDataPage: React.FC = () => {
     const entries = lines.map((line, idx) => {
       const parts = line.split(/[,\t]+/).map((s) => s.trim());
       const phone = parts[0] || '';
-      const sizeStr = parts[1] || '5GB';
+      const rawSize = parts[1] || '5GB';
 
-      const isValidPhone = /^(0|\+?233)[25][0-9]{8}$/.test(phone.replace(/\s+/g, ''));
-      const matchingBundle = availableBundles.find(
-        (b) => b.dataDisplay.toLowerCase().replace(/\s+/g, '') === sizeStr.toLowerCase().replace(/\s+/g, '')
-      ) || availableBundles[2] || availableBundles[0];
+      const cleanPhone = phone.replace(/\s+/g, '');
+      const isValidPhone = /^(0|\+?233)[25][0-9]{8}$/.test(cleanPhone);
 
-      totalPesewas += matchingBundle ? matchingBundle.pricePesewas : 2800;
+      // Normalize volume in GB: e.g. "5GB", "5 GB", "5.0", "5" -> 5
+      const cleanSize = rawSize.toLowerCase().replace(/\s+/g, '').replace(/gb$/, '');
+      const numVal = parseFloat(cleanSize);
+
+      let matchingBundle = availableBundles.find((b) => {
+        const gbAmount = b.dataAmountMb / 1024;
+        return (
+          b.dataDisplay.toLowerCase().replace(/\s+/g, '') === rawSize.toLowerCase().replace(/\s+/g, '') ||
+          (!isNaN(numVal) && Math.abs(gbAmount - numVal) < 0.05)
+        );
+      });
+
+      if (!matchingBundle) {
+        matchingBundle = availableBundles[2] || availableBundles[0];
+      }
+
+      const price = matchingBundle ? matchingBundle.pricePesewas : 0;
+      totalPesewas += price;
 
       return {
         id: idx,
-        phone,
-        sizeStr: matchingBundle ? matchingBundle.dataDisplay : sizeStr,
-        isValid: isValidPhone,
-        pricePesewas: matchingBundle ? matchingBundle.pricePesewas : 2800,
+        phone: cleanPhone || phone,
+        bundleId: matchingBundle?.id || '',
+        sizeStr: matchingBundle ? matchingBundle.dataDisplay : `${rawSize}`,
+        isValid: isValidPhone && Boolean(matchingBundle?.id),
+        pricePesewas: price,
       };
     });
 
@@ -313,13 +373,20 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
     if (parsedFreeEntries.invalidCount > 0) {
-      toastError('Invalid Entries', 'Please fix any invalid recipient phone numbers.');
+      toastError('Invalid Entries', 'Please fix any invalid recipient phone numbers before proceeding.');
       return;
     }
     if (parsedFreeEntries.entries.length === 0) {
-      toastError('No Entries', 'Please paste at least one recipient line.');
+      toastError('No Entries', 'Please paste at least one recipient line (e.g. 0241234567, 5GB).');
       return;
     }
+
+    const bulkItems: BulkOrderItem[] = parsedFreeEntries.entries.map((e) => ({
+      recipientPhone: e.phone,
+      productId: e.bundleId,
+      dataDisplay: e.sizeStr,
+      pricePesewas: e.pricePesewas,
+    }));
 
     setModalPayload({
       title: 'Bulk Free Order',
@@ -327,6 +394,7 @@ export const BuyDataPage: React.FC = () => {
       recipientSummary: `${parsedFreeEntries.entries.length} Recipients (Free Paste)`,
       amountDisplay: `GH₵ ${(parsedFreeEntries.totalPesewas / 100).toFixed(2)}`,
       bundleId: currentSingleBundle.id,
+      bulkItems,
     });
     setPurchaseModalOpen(true);
   };
@@ -346,7 +414,7 @@ export const BuyDataPage: React.FC = () => {
   };
 
   const handleDownloadFullTemplate = () => {
-    const csvContent = 'Beneficiary Msisdn,Data (MB)\n0241234567,5120\n0551234567,10240\n0201234567,2560\n';
+    const csvContent = 'Beneficiary Msisdn,Data (GB)\n0241234567,5\n0551234567,10\n0201234567,2.5\n';
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -355,10 +423,10 @@ export const BuyDataPage: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toastSuccess('Template Downloaded', 'Full template downloaded (Beneficiary Msisdn, Data (MB)).');
+    toastSuccess('Template Downloaded', 'Full template downloaded (Beneficiary Msisdn, Data (GB)).');
   };
 
-  // File Upload Handlers
+  // File Upload Handlers (Standardized in GB)
   const handleFileUpload = (file: File) => {
     setExcelFile(file);
     setExcelLoading(true);
@@ -373,23 +441,51 @@ export const BuyDataPage: React.FC = () => {
       }
 
       const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-      const parsedRows: Array<{ phone: string; data: string; pricePesewas: number }> = [];
+      const parsedRows: Array<{ phone: string; bundleId: string; data: string; pricePesewas: number }> = [];
 
-      // Skip header if first row contains non-digits
+      // Skip header if first row contains non-digits header
       const startIdx = lines[0] && /[a-zA-Z]/.test(lines[0]) ? 1 : 0;
       for (let i = startIdx; i < lines.length; i++) {
         const parts = lines[i].split(',').map((p) => p.trim().replace(/^["']|["']$/g, ''));
         if (parts.length >= 2) {
           const phone = parts[0];
-          const dataMb = parseInt(parts[1], 10) || 1024;
-          const dataDisplay = dataMb >= 1024 ? `${(dataMb / 1024).toFixed(1)} GB` : `${dataMb} MB`;
-          const estimatedPrice = Math.round(dataMb * 0.55);
-          parsedRows.push({ phone, data: dataDisplay, pricePesewas: estimatedPrice });
+          const rawVol = parts[1];
+
+          // Parse GB volume: e.g. "5", "5GB", "10", "2.5", "5120"
+          const cleanVol = rawVol.toLowerCase().replace(/\s+/g, '').replace(/gb$/, '');
+          let numGb = parseFloat(cleanVol);
+
+          // If user entered MB value >= 100 (e.g. 5120), convert to GB
+          if (!isNaN(numGb) && numGb >= 100) {
+            numGb = numGb / 1024;
+          }
+
+          // Match bundle in authoritative catalog
+          let matchingBundle = availableBundles.find((b) => {
+            const bGb = b.dataAmountMb / 1024;
+            return (
+              b.dataDisplay.toLowerCase().replace(/\s+/g, '') === rawVol.toLowerCase().replace(/\s+/g, '') ||
+              (!isNaN(numGb) && Math.abs(bGb - numGb) < 0.05)
+            );
+          });
+
+          if (!matchingBundle) {
+            matchingBundle = availableBundles[0];
+          }
+
+          if (matchingBundle) {
+            parsedRows.push({
+              phone,
+              bundleId: matchingBundle.id,
+              data: matchingBundle.dataDisplay,
+              pricePesewas: matchingBundle.pricePesewas,
+            });
+          }
         }
       }
 
       if (parsedRows.length === 0) {
-        toastError('Format Error', 'No valid rows found. Please use the format: Beneficiary Msisdn, Data (MB)');
+        toastError('Format Error', 'No valid rows found. Please use the format: Beneficiary Msisdn, Data (GB)');
         return;
       }
 
@@ -413,22 +509,34 @@ export const BuyDataPage: React.FC = () => {
     }
   };
 
+  const excelTotalPesewas = useMemo(() => {
+    return excelParsedRows.reduce((sum, r) => sum + r.pricePesewas, 0);
+  }, [excelParsedRows]);
+
   const handleExcelSubmit = () => {
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
-    if (!excelFile) {
-      toastError('No File', 'Please upload an Excel or CSV file first.');
+    if (!excelFile || excelParsedRows.length === 0) {
+      toastError('No File', 'Please upload a valid Excel or CSV file first.');
       return;
     }
 
+    const bulkItems: BulkOrderItem[] = excelParsedRows.map((r) => ({
+      recipientPhone: r.phone.replace(/\s+/g, ''),
+      productId: r.bundleId,
+      dataDisplay: r.data,
+      pricePesewas: r.pricePesewas,
+    }));
+
     setModalPayload({
       title: 'Excel Bulk Order',
-      packageSummary: `24 Recipients (${excelFile.name})`,
-      recipientSummary: '24 Beneficiaries from Excel',
-      amountDisplay: 'GH₵ 680.00',
+      packageSummary: `${excelParsedRows.length} Packages (${selectedNetwork})`,
+      recipientSummary: `${excelParsedRows.length} Recipients (${excelFile.name})`,
+      amountDisplay: `GH₵ ${(excelTotalPesewas / 100).toFixed(2)}`,
       bundleId: currentSingleBundle.id,
+      bulkItems,
     });
     setPurchaseModalOpen(true);
   };
@@ -445,7 +553,9 @@ export const BuyDataPage: React.FC = () => {
             </h1>
           </div>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
-            Instant telecom fulfillment for Single, Multi-Recipient Bulk, and Excel batch orders.
+            {isAgentPortal
+              ? 'Wholesale reseller pricing for Single, Multi-Recipient Bulk, and Excel batch orders.'
+              : 'Instant telecom fulfillment for Single, Multi-Recipient Bulk, and Excel batch orders.'}
           </p>
         </div>
 
@@ -564,11 +674,12 @@ export const BuyDataPage: React.FC = () => {
         <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Available {selectedNetwork} Packages (Grid View)
+              Available {selectedNetwork} Packages ({channel === 'AGENT' ? 'Wholesale Agent Pricing' : 'Grid View'})
             </h2>
           </div>
           <BundleSelector
             network={selectedNetwork}
+            channel={channel}
             selectedBundleId={singleBundleId}
             onSelectBundle={(b) => {
               setSingleBundleId(b.id);
@@ -742,34 +853,40 @@ export const BuyDataPage: React.FC = () => {
                   <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>
                     Select Data Package
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 'var(--space-2)' }}>
-                    {availableBundles.map((pkg) => {
-                      const isSelected = pkg.id === singleBundleId;
-                      return (
-                        <button
-                          key={pkg.id}
-                          type="button"
-                          onClick={() => setSingleBundleId(pkg.id)}
-                          style={{
-                            padding: 'var(--space-3)',
-                            borderRadius: 'var(--radius-md)',
-                            border: isSelected ? `2px solid ${theme.brandColor}` : '1px solid var(--color-border-default)',
-                            backgroundColor: isSelected ? theme.accentBg : 'var(--color-bg-surface-elevated)',
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                            transition: 'all 120ms ease',
-                          }}
-                        >
-                          <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 900, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>
-                            {pkg.dataDisplay}
-                          </div>
-                          <div style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                            {pkg.priceDisplay}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {isLoadingBundles && availableBundles.length === 0 ? (
+                    <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
+                      Loading data packages...
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 'var(--space-2)' }}>
+                      {availableBundles.map((pkg) => {
+                        const isSelected = pkg.id === singleBundleId;
+                        return (
+                          <button
+                            key={pkg.id}
+                            type="button"
+                            onClick={() => setSingleBundleId(pkg.id)}
+                            style={{
+                              padding: 'var(--space-3)',
+                              borderRadius: 'var(--radius-md)',
+                              border: isSelected ? `2px solid ${theme.brandColor}` : '1px solid var(--color-border-default)',
+                              backgroundColor: isSelected ? theme.accentBg : 'var(--color-bg-surface-elevated)',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              transition: 'all 120ms ease',
+                            }}
+                          >
+                            <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 900, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>
+                              {pkg.dataDisplay}
+                            </div>
+                            <div style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                              {pkg.priceDisplay}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Recurring Order Toggle */}
@@ -932,7 +1049,7 @@ export const BuyDataPage: React.FC = () => {
                     <div>
                       <Select
                         label="Bundle"
-                        value={recipient.bundleId}
+                        value={recipient.bundleId || currentSingleBundle?.id || availableBundles[0]?.id || ''}
                         onChange={(e) => handleUpdateRecipient(recipient.id, { bundleId: e.target.value })}
                         options={availableBundles.map((b) => ({
                           label: `${b.dataDisplay} — ${b.priceDisplay}`,
@@ -1029,7 +1146,7 @@ export const BuyDataPage: React.FC = () => {
                     Paste Bulk Entries
                   </h3>
                   <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.2rem 0 0 0' }}>
-                    Enter one recipient per line in format: <code>Phone, Size</code>
+                    Enter one recipient per line in format: <code>Phone, Volume in GB</code> (e.g. 0241234567, 5GB)
                   </p>
                 </div>
 
@@ -1058,42 +1175,52 @@ export const BuyDataPage: React.FC = () => {
                         fontWeight: 800,
                         padding: '0.15rem 0.5rem',
                         borderRadius: 'var(--radius-full)',
-                        backgroundColor: parsedFreeEntries.invalidCount === 0 ? 'var(--color-success-surface)' : 'var(--color-warning-surface)',
-                        color: parsedFreeEntries.invalidCount === 0 ? 'var(--color-success)' : 'var(--color-warning)',
-                        border: parsedFreeEntries.invalidCount === 0 ? '1px solid var(--color-success-border)' : '1px solid var(--color-warning-border)',
+                        backgroundColor: parsedFreeEntries.invalidCount === 0 && parsedFreeEntries.validCount > 0 ? 'var(--color-success-surface)' : 'var(--color-warning-surface)',
+                        color: parsedFreeEntries.invalidCount === 0 && parsedFreeEntries.validCount > 0 ? 'var(--color-success)' : 'var(--color-warning)',
+                        border: parsedFreeEntries.invalidCount === 0 && parsedFreeEntries.validCount > 0 ? '1px solid var(--color-success-border)' : '1px solid var(--color-warning-border)',
                       }}
                     >
-                      {parsedFreeEntries.invalidCount === 0 ? `✓ ${parsedFreeEntries.validCount} valid entries` : `⚠ ${parsedFreeEntries.invalidCount} need attention`}
+                      {parsedFreeEntries.entries.length === 0
+                        ? '0 entries'
+                        : parsedFreeEntries.invalidCount === 0
+                          ? `✓ ${parsedFreeEntries.validCount} valid entries`
+                          : `⚠ ${parsedFreeEntries.invalidCount} need attention`}
                     </span>
                   </div>
 
                   <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {parsedFreeEntries.entries.map((item) => (
-                      <div
-                        key={item.id}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '6px 10px',
-                          backgroundColor: 'var(--color-bg-base)',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: 'var(--font-size-2xs)',
-                          border: item.isValid ? '1px solid var(--color-border-subtle)' : '1px solid var(--color-danger-border)',
-                        }}
-                      >
-                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: item.isValid ? 'var(--color-text-primary)' : 'var(--color-danger)' }}>
-                          {item.phone}
-                        </span>
-                        <span style={{ fontWeight: 800, color: 'var(--color-text-secondary)' }}>{item.sizeStr}</span>
+                    {parsedFreeEntries.entries.length === 0 ? (
+                      <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
+                        Paste phone numbers and data packages on the left to see live preview
                       </div>
-                    ))}
+                    ) : (
+                      parsedFreeEntries.entries.map((item) => (
+                        <div
+                          key={item.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '6px 10px',
+                            backgroundColor: 'var(--color-bg-base)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 'var(--font-size-2xs)',
+                            border: item.isValid ? '1px solid var(--color-border-subtle)' : '1px solid var(--color-danger-border)',
+                          }}
+                        >
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: item.isValid ? 'var(--color-text-primary)' : 'var(--color-danger)' }}>
+                            {item.phone}
+                          </span>
+                          <span style={{ fontWeight: 800, color: 'var(--color-text-secondary)' }}>{item.sizeStr}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-3)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-secondary)' }}>Estimated Total</span>
+                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-secondary)' }}>Total Batch Estimate</span>
                     <strong style={{ fontSize: 'var(--font-size-lg)', fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>
                       GH₵ {(parsedFreeEntries.totalPesewas / 100).toFixed(2)}
                     </strong>
@@ -1108,13 +1235,13 @@ export const BuyDataPage: React.FC = () => {
                       padding: '0.6rem',
                       borderRadius: 'var(--radius-md)',
                       border: 'none',
-                      backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                      color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                      backgroundColor: isMaintenanceMode || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                      color: isMaintenanceMode || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-text-muted)' : theme.buttonTextColor,
                       fontWeight: 900,
                       fontSize: 'var(--font-size-sm)',
-                      cursor: parsedFreeEntries.invalidCount > 0 || isMaintenanceMode ? 'not-allowed' : 'pointer',
-                      opacity: parsedFreeEntries.invalidCount > 0 || isMaintenanceMode ? 0.6 : 1,
-                      boxShadow: !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
+                      cursor: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode ? 'not-allowed' : 'pointer',
+                      opacity: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode ? 0.6 : 1,
+                      boxShadow: !isMaintenanceMode && parsedFreeEntries.invalidCount === 0 && parsedFreeEntries.entries.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
                     }}
                   >
                     {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
@@ -1136,7 +1263,7 @@ export const BuyDataPage: React.FC = () => {
                     Excel Batch Order Templates
                   </div>
                   <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)' }}>
-                    Simple format: <code>Recipient, Volume</code> · Full format: <code>Beneficiary Msisdn, Data (MB)</code>
+                    Simple format: <code>Recipient, Volume</code> · Full format: <code>Beneficiary Msisdn, Data (GB)</code>
                   </div>
                 </div>
 
@@ -1201,7 +1328,7 @@ export const BuyDataPage: React.FC = () => {
                         marginBottom: 'var(--space-3)',
                       }}
                     >
-                      <Loader2 size={24} />
+                      <Loader2 size={24} className="animate-spin" />
                     </div>
                     <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
                       Checking your file...
@@ -1250,17 +1377,17 @@ export const BuyDataPage: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <CheckCircle2 size={18} color="var(--color-success)" />
                       <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                        File Ready · 24 Recipients Detected
+                        File Ready · {excelParsedRows.length} Recipients Detected
                       </strong>
                     </div>
 
                     <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                      Showing preview of top 5 entries
+                      Showing preview of top {Math.min(5, excelParsedRows.length)} entries
                     </span>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {excelParsedRows.map((row, i) => (
+                    {excelParsedRows.slice(0, 5).map((row, i) => (
                       <div
                         key={i}
                         style={{
@@ -1276,34 +1403,36 @@ export const BuyDataPage: React.FC = () => {
                         <span style={{ fontWeight: 800, color: 'var(--color-text-secondary)' }}>{row.data}</span>
                       </div>
                     ))}
-                    <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textAlign: 'center', paddingTop: '4px' }}>
-                      + 19 more recipients in batch
-                    </div>
+                    {excelParsedRows.length > 5 && (
+                      <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textAlign: 'center', paddingTop: '4px' }}>
+                        + {excelParsedRows.length - 5} more recipients in batch
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-3)' }}>
                     <div>
                       <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>Total Batch Estimate</span>
                       <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>
-                        GH₵ 680.00
+                        GH₵ {(excelTotalPesewas / 100).toFixed(2)}
                       </div>
                     </div>
 
                     <button
                       type="button"
                       onClick={handleExcelSubmit}
-                      disabled={isMaintenanceMode}
+                      disabled={isMaintenanceMode || excelParsedRows.length === 0}
                       style={{
                         padding: '0.55rem 1.5rem',
                         borderRadius: 'var(--radius-md)',
                         border: 'none',
-                        backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                        color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                        backgroundColor: isMaintenanceMode || excelParsedRows.length === 0 ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                        color: isMaintenanceMode || excelParsedRows.length === 0 ? 'var(--color-text-muted)' : theme.buttonTextColor,
                         fontWeight: 900,
                         fontSize: 'var(--font-size-sm)',
-                        cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
-                        opacity: isMaintenanceMode ? 0.6 : 1,
-                        boxShadow: !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
+                        cursor: isMaintenanceMode || excelParsedRows.length === 0 ? 'not-allowed' : 'pointer',
+                        opacity: isMaintenanceMode || excelParsedRows.length === 0 ? 0.6 : 1,
+                        boxShadow: !isMaintenanceMode && excelParsedRows.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
                       }}
                     >
                       {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
@@ -1374,6 +1503,9 @@ export const BuyDataPage: React.FC = () => {
         customPackageSummary={modalPayload.packageSummary}
         customRecipientSummary={modalPayload.recipientSummary}
         customAmountDisplay={modalPayload.amountDisplay}
+        channel={channel}
+        walletBalanceGhs={balanceGhs}
+        bulkItems={modalPayload.bulkItems}
       />
     </div>
   );

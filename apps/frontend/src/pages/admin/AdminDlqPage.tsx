@@ -14,11 +14,10 @@ export const AdminDlqPage: React.FC = () => {
   const fetchDlq = async () => {
     try {
       const res = await adminApi.getDlq() as any;
-      if (res?.data?.items) {
-        setDlqItems(res.data.items);
-      }
+      const items = res?.items || res?.data?.items || (Array.isArray(res) ? res : []);
+      setDlqItems(items);
     } catch {
-      // Fallback
+      setDlqItems([]);
     }
   };
 
@@ -30,7 +29,7 @@ export const AdminDlqPage: React.FC = () => {
     setReplaying(true);
     try {
       const res = await adminApi.replayAllDlq() as any;
-      const count = res?.data?.replayedCount || 0;
+      const count = res?.replayedCount ?? res?.data?.replayedCount ?? 0;
       toastSuccess('DLQ Replay complete', `${count} pending events replayed successfully.`);
       fetchDlq();
     } catch {

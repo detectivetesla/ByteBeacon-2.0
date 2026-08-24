@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { AppShell } from './AppShell.js';
 import { AGENT_NAVIGATION_GROUPS } from '../components/navigation/navigation.config.js';
@@ -8,13 +8,22 @@ import { WhatsAppFloat } from '../components/ui/WhatsAppFloat.js';
 import { MaintenanceBanner } from '../components/navigation/MaintenanceBanner.js';
 import { usePlatformStatus } from '../context/PlatformStatusContext.js';
 import { NetworkProvider } from '@bytebeacon/shared';
-
 import { useWalletBalance } from '../hooks/useWalletBalance.js';
+import { storesApi } from '../api/stores.api.js';
 
 export const AgentLayout: React.FC = () => {
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const { balancePesewas } = useWalletBalance();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const [storeSlug, setStoreSlug] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    storesApi.getStore().then((store) => {
+      if (store?.slug) {
+        setStoreSlug(store.slug);
+      }
+    }).catch(() => {});
+  }, []);
 
   return (
     <>
@@ -29,7 +38,7 @@ export const AgentLayout: React.FC = () => {
         userRole="agent"
         balancePesewas={balancePesewas}
         onTopUpClick={() => (window.location.href = '/agent/wallet')}
-        storeSlug="datahub-express"
+        storeSlug={storeSlug}
       >
         <Outlet />
       </AppShell>
@@ -44,3 +53,4 @@ export const AgentLayout: React.FC = () => {
     </>
   );
 };
+

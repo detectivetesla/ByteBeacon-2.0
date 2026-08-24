@@ -175,7 +175,7 @@ export async function adminSettingsRoutes(
                u.full_name as "lastModifiedByName",
                c.last_modified_at as "lastModifiedAt", c.created_at as "createdAt"
         FROM system_configurations c
-        LEFT JOIN users u ON c.last_modified_by = u.uuid
+        LEFT JOIN users u ON c.last_modified_by = u.id
         WHERE 1=1
       `;
       const params: any[] = [];
@@ -529,7 +529,7 @@ export async function adminSettingsRoutes(
                 f.last_toggled_at as "lastToggledAt", f.reason,
                 f.created_at as "createdAt", f.updated_at as "updatedAt"
          FROM platform_feature_flags f
-         LEFT JOIN users u ON f.last_toggled_by = u.uuid
+         LEFT JOIN users u ON f.last_toggled_by = u.id
          ORDER BY f.created_at ASC`,
       );
 
@@ -657,7 +657,7 @@ export async function adminSettingsRoutes(
                 s.created_at as "lastActiveAt", s.created_at as "createdAt",
                 s.expires_at as "expiresAt"
          FROM sessions s
-         JOIN users u ON s.user_id = u.uuid
+         JOIN users u ON s.user_id = u.id
          WHERE s.expires_at > CURRENT_TIMESTAMP
          ORDER BY s.created_at DESC
          LIMIT 100`,

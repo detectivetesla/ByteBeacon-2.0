@@ -100,9 +100,9 @@ export async function adminPermissionsRoutes(
 
       // Fetch user profile from database
       const userRes = await db.query<any>(
-        `SELECT uuid as id, email, full_name as "fullName", name, role, admin_sub_role as "adminSubRole", status, is_active, mfa_enabled, security_domain
+        `SELECT id, email, full_name as "fullName", name, role, admin_sub_role as "adminSubRole", status, is_active, mfa_enabled, security_domain
          FROM users
-         WHERE uuid = $1`,
+         WHERE id = $1`,
         [userId],
       );
 

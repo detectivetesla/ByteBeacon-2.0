@@ -22,7 +22,61 @@ export class DatabaseMigrator {
     this.pool = pool;
   }
 
+  public async reconcileLegacySchema(): Promise<void> {
+    const reconciliationSql = `
+      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+      DO $$
+      DECLARE
+          r RECORD;
+      BEGIN
+          -- 1. Automatically rename legacy 'uuid' column to 'id' across all existing public tables where 'id' does not exist
+          FOR r IN (
+              SELECT table_name 
+              FROM information_schema.columns 
+              WHERE table_schema = 'public' AND column_name = 'uuid'
+          ) LOOP
+              IF NOT EXISTS (
+                  SELECT 1 FROM information_schema.columns 
+                  WHERE table_schema = 'public' AND table_name = r.table_name AND column_name = 'id'
+              ) THEN
+                  EXECUTE format('ALTER TABLE %I RENAME COLUMN uuid TO id', r.table_name);
+              END IF;
+          END LOOP;
+
+          -- 2. Specific legacy column normalization if present
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users') THEN
+              IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'user_id')
+                 AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'id') THEN
+                  ALTER TABLE users RENAME COLUMN user_id TO id;
+              END IF;
+          END IF;
+
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'orders') THEN
+              IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'order_id')
+                 AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'id') THEN
+                  ALTER TABLE orders RENAME COLUMN order_id TO id;
+              END IF;
+          END IF;
+
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agents') THEN
+              IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'agent_id')
+                 AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'agents' AND column_name = 'id') THEN
+                  ALTER TABLE agents RENAME COLUMN agent_id TO id;
+              END IF;
+          END IF;
+      END $$;
+    `;
+    try {
+      await this.pool.query(reconciliationSql);
+      logger.info('[MIGRATOR] Pre-migration legacy schema reconciliation completed.');
+    } catch (err) {
+      logger.warn({ err }, '[MIGRATOR] Legacy schema reconciliation notice (proceeding to migration)');
+    }
+  }
+
   public async ensureMigrationsTable(): Promise<void> {
+    await this.reconcileLegacySchema();
     const query = `
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version VARCHAR(255) PRIMARY KEY,

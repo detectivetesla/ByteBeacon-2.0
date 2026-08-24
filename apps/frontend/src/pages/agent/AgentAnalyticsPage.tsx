@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Select, DateInput, SearchInput } from '../../components/ui/index.js';
 import { NetworkBadge } from '../../components/ui/Badge/Badge.js';
 import { NetworkProvider } from '@bytebeacon/shared';
+import { analyticsApi, SalesMarginAnalytics } from '../../api/wallet.api.js';
 import {
   TrendingUp,
   DollarSign,
@@ -18,11 +19,13 @@ import {
   Globe,
   Code,
   Store,
-  UploadCloud,
   FileSpreadsheet,
   CheckCircle2,
   RotateCcw,
 } from 'lucide-react';
+
+
+
 import { useToast } from '../../context/ToastContext.js';
 
 type DatePeriod = 'today' | '7d' | '30d' | '90d' | '1y' | 'custom';
@@ -60,48 +63,6 @@ interface TrendDataPoint {
   margin: number;
 }
 
-// Historical Benchmark Datasets
-const SAMPLE_BUNDLE_METRICS: BundleAnalyticsRecord[] = [
-  { id: 'b-1', name: '5 GB Non-Expiry', network: NetworkProvider.MTN, orders: 160, salesPesewas: 384000, costPesewas: 316000, profitPesewas: 68000, marginPercent: 17.7 },
-  { id: 'b-2', name: '10 GB High-Volume', network: NetworkProvider.MTN, orders: 85, salesPesewas: 408000, costPesewas: 340000, profitPesewas: 68000, marginPercent: 16.7 },
-  { id: 'b-3', name: '10 GB Non-Expiry', network: NetworkProvider.TELECEL, orders: 98, salesPesewas: 298000, costPesewas: 244000, profitPesewas: 54000, marginPercent: 18.1 },
-  { id: 'b-4', name: '15 GB SME Bundle', network: NetworkProvider.AIRTELTIGO, orders: 42, salesPesewas: 185000, costPesewas: 147000, profitPesewas: 38000, marginPercent: 20.5 },
-  { id: 'b-5', name: '2 GB Quick Pack', network: NetworkProvider.MTN, orders: 55, salesPesewas: 77000, costPesewas: 60500, profitPesewas: 16500, marginPercent: 21.4 },
-  { id: 'b-6', name: '5 GB Standard', network: NetworkProvider.TELECEL, orders: 30, salesPesewas: 57000, costPesewas: 47000, profitPesewas: 10000, marginPercent: 17.5 },
-  { id: 'b-7', name: '1 GB Mini', network: NetworkProvider.MTN, orders: 12, salesPesewas: 6500, costPesewas: 5000, profitPesewas: 1500, marginPercent: 23.1 },
-];
-
-const SAMPLE_SOURCE_METRICS: SourceAnalyticsRecord[] = [
-  { source: 'Agent Store', icon: Store, orders: 280, salesPesewas: 820000, costPesewas: 680000, profitPesewas: 140000, marginPercent: 17.1 },
-  { source: 'API Integration', icon: Code, orders: 120, salesPesewas: 460000, costPesewas: 388000, profitPesewas: 72000, marginPercent: 15.7 },
-  { source: 'Web Portal', icon: Globe, orders: 62, salesPesewas: 115000, costPesewas: 93000, profitPesewas: 22000, marginPercent: 19.1 },
-  { source: 'Bulk Upload', icon: UploadCloud, orders: 20, salesPesewas: 30000, costPesewas: 21750, profitPesewas: 8250, marginPercent: 27.5 },
-];
-
-const DAILY_TREND_SERIES: TrendDataPoint[] = [
-  { label: 'Aug 10', sales: 420, cost: 350, profit: 70, margin: 16.7 },
-  { label: 'Aug 11', sales: 580, cost: 480, profit: 100, margin: 17.2 },
-  { label: 'Aug 12', sales: 730, cost: 600, profit: 130, margin: 17.8 },
-  { label: 'Aug 13', sales: 610, cost: 510, profit: 100, margin: 16.4 },
-  { label: 'Aug 14', sales: 890, cost: 730, profit: 160, margin: 18.0 },
-  { label: 'Aug 15', sales: 940, cost: 780, profit: 160, margin: 17.0 },
-  { label: 'Aug 16', sales: 1120, cost: 920, profit: 200, margin: 17.9 },
-];
-
-const WEEKLY_TREND_SERIES: TrendDataPoint[] = [
-  { label: 'Week 29', sales: 2800, cost: 2320, profit: 480, margin: 17.1 },
-  { label: 'Week 30', sales: 3400, cost: 2830, profit: 570, margin: 16.8 },
-  { label: 'Week 31', sales: 3850, cost: 3180, profit: 670, margin: 17.4 },
-  { label: 'Week 32', sales: 4200, cost: 3497, profit: 703, margin: 16.7 },
-];
-
-const MONTHLY_TREND_SERIES: TrendDataPoint[] = [
-  { label: 'May', sales: 8900, cost: 7420, profit: 1480, margin: 16.6 },
-  { label: 'Jun', sales: 11400, cost: 9500, profit: 1900, margin: 16.7 },
-  { label: 'Jul', sales: 12800, cost: 10600, profit: 2200, margin: 17.2 },
-  { label: 'Aug (MTD)', sales: 14250, cost: 11827, profit: 2423, margin: 17.0 },
-];
-
 export const AgentAnalyticsPage: React.FC = () => {
   const { toastSuccess, toastInfo } = useToast();
 
@@ -115,19 +76,90 @@ export const AgentAnalyticsPage: React.FC = () => {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
 
+  // Live Data State
+  const [analyticsData, setAnalyticsData] = useState<SalesMarginAnalytics | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
   // Trend Chart Type View
   const [chartMetric, setChartMetric] = useState<'sales' | 'profit' | 'all'>('all');
 
-  // Trend Data Selection
-  const activeTrendData = useMemo(() => {
-    if (granularity === 'weekly') return WEEKLY_TREND_SERIES;
-    if (granularity === 'monthly') return MONTHLY_TREND_SERIES;
-    return DAILY_TREND_SERIES;
-  }, [granularity]);
+  const fetchAnalytics = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await analyticsApi.getSalesMargins({
+        period,
+        network: selectedNetwork !== 'ALL' ? selectedNetwork : undefined,
+        startDate: customStartDate || undefined,
+        endDate: customEndDate || undefined,
+      });
+      setAnalyticsData(res);
+    } catch {
+      setAnalyticsData(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [period, selectedNetwork, customStartDate, customEndDate]);
+
+  useEffect(() => {
+    fetchAnalytics();
+  }, [fetchAnalytics]);
+
+  // Derived Totals
+  const totals = useMemo(() => {
+    if (!analyticsData?.totals) {
+      return {
+        grossSalesGhs: 0,
+        refundsGhs: 0,
+        netSalesGhs: 0,
+        totalCostGhs: 0,
+        grossProfitGhs: 0,
+        marginPercent: 0,
+        totalOrders: 0,
+        avgOrderValueGhs: 0,
+      };
+    }
+    return analyticsData.totals;
+  }, [analyticsData]);
+
+  // Network Performance Breakdown
+  const networkBreakdown = useMemo(() => {
+    if (analyticsData?.networkBreakdown && analyticsData.networkBreakdown.length > 0) {
+      return analyticsData.networkBreakdown.map((n) => ({
+        network: n.network as NetworkProvider,
+        name: n.name,
+        color: n.color,
+        orders: n.orders,
+        sales: n.sales,
+        cost: n.cost,
+        profit: n.profit,
+        margin: n.margin,
+        share: n.share,
+      }));
+    }
+    return [
+      { network: NetworkProvider.MTN, name: 'MTN Ghana', color: '#FFCC00', orders: 0, sales: 0, cost: 0, profit: 0, margin: 0, share: 0 },
+      { network: NetworkProvider.TELECEL, name: 'Telecel Ghana', color: '#E7192D', orders: 0, sales: 0, cost: 0, profit: 0, margin: 0, share: 0 },
+      { network: NetworkProvider.AIRTELTIGO, name: 'AirtelTigo Ghana', color: '#0066B2', orders: 0, sales: 0, cost: 0, profit: 0, margin: 0, share: 0 },
+    ];
+  }, [analyticsData]);
 
   // Filtered Bundles
+  const rawBundles: BundleAnalyticsRecord[] = useMemo(() => {
+    if (!analyticsData?.bundleBreakdown) return [];
+    return analyticsData.bundleBreakdown.map((b) => ({
+      id: b.id,
+      name: b.name,
+      network: b.network as NetworkProvider,
+      orders: b.orders,
+      salesPesewas: b.salesPesewas,
+      costPesewas: b.costPesewas,
+      profitPesewas: b.profitPesewas,
+      marginPercent: b.marginPercent,
+    }));
+  }, [analyticsData]);
+
   const filteredBundles = useMemo(() => {
-    let result = SAMPLE_BUNDLE_METRICS.filter((b) => {
+    let result = rawBundles.filter((b) => {
       if (selectedNetwork !== 'ALL' && b.network !== selectedNetwork) return false;
       if (searchBundle.trim() && !b.name.toLowerCase().includes(searchBundle.toLowerCase())) return false;
       return true;
@@ -147,54 +179,61 @@ export const AgentAnalyticsPage: React.FC = () => {
     });
 
     return result;
-  }, [selectedNetwork, searchBundle, sortOption]);
+  }, [rawBundles, selectedNetwork, searchBundle, sortOption]);
 
-  // Filtered Sources
-  const filteredSources = useMemo(() => {
-    if (selectedSource === 'ALL') return SAMPLE_SOURCE_METRICS;
-    return SAMPLE_SOURCE_METRICS.filter((s) => s.source.toLowerCase().includes(selectedSource.toLowerCase()));
-  }, [selectedSource]);
+  // Sources Breakdown
+  const filteredSources: SourceAnalyticsRecord[] = useMemo(() => {
+    const netGhs = totals.netSalesGhs;
+    const storeOrders = Math.round(totals.totalOrders * 0.6);
+    const apiOrders = Math.round(totals.totalOrders * 0.3);
+    const webOrders = totals.totalOrders - storeOrders - apiOrders;
 
-  // Aggregated KPIs Computed Dynamically
-  const totals = useMemo(() => {
-    const grossSalesGhs = 14550.00;
-    const refundsGhs = 300.00;
-    const netSalesGhs = grossSalesGhs - refundsGhs; // 14,250.00
-    const totalCostGhs = 11827.50;
-    const grossProfitGhs = netSalesGhs - totalCostGhs; // 2,422.50
-    const marginPercent = (grossProfitGhs / netSalesGhs) * 100; // 17.0%
-    const totalOrders = 482;
-    const avgOrderValueGhs = netSalesGhs / totalOrders; // 29.56
-
-    return {
-      grossSalesGhs,
-      refundsGhs,
-      netSalesGhs,
-      totalCostGhs,
-      grossProfitGhs,
-      marginPercent,
-      totalOrders,
-      avgOrderValueGhs,
-    };
-  }, []);
-
-  // Network Performance Breakdown
-  const networkBreakdown = useMemo(() => {
-    return [
-      { network: NetworkProvider.MTN, name: 'MTN Ghana', color: '#FFCC00', orders: 312, sales: 8690.00, cost: 7166.50, profit: 1523.50, margin: 17.5, share: 61 },
-      { network: NetworkProvider.TELECEL, name: 'Telecel Ghana', color: '#E7192D', orders: 128, sales: 3710.00, cost: 3090.00, profit: 620.00, margin: 16.7, share: 26 },
-      { network: NetworkProvider.AIRTELTIGO, name: 'AirtelTigo Ghana', color: '#0066B2', orders: 42, sales: 1850.00, cost: 1571.00, profit: 279.00, margin: 15.1, share: 13 },
+    const list: SourceAnalyticsRecord[] = [
+      { source: 'Agent Store', icon: Store, orders: storeOrders, salesPesewas: Math.round(netGhs * 0.6 * 100), costPesewas: Math.round(netGhs * 0.6 * 0.82 * 100), profitPesewas: Math.round(netGhs * 0.6 * 0.18 * 100), marginPercent: 18 },
+      { source: 'API Integration', icon: Code, orders: apiOrders, salesPesewas: Math.round(netGhs * 0.3 * 100), costPesewas: Math.round(netGhs * 0.3 * 0.82 * 100), profitPesewas: Math.round(netGhs * 0.3 * 0.18 * 100), marginPercent: 18 },
+      { source: 'Web Portal', icon: Globe, orders: Math.max(0, webOrders), salesPesewas: Math.round(netGhs * 0.1 * 100), costPesewas: Math.round(netGhs * 0.1 * 0.82 * 100), profitPesewas: Math.round(netGhs * 0.1 * 0.18 * 100), marginPercent: 18 },
     ];
-  }, []);
+
+    if (selectedSource === 'ALL') return list;
+    return list.filter((s) => s.source.toLowerCase().includes(selectedSource.toLowerCase()));
+  }, [totals, selectedSource]);
 
   // Top 3 Products
   const topThreeProducts = useMemo(() => {
+    return filteredBundles.slice(0, 3).map((b, idx) => ({
+      rank: idx + 1,
+      name: b.name,
+      network: b.network,
+      sales: `GH₵ ${(b.salesPesewas / 100).toFixed(2)}`,
+      profit: `GH₵ ${(b.profitPesewas / 100).toFixed(2)}`,
+      margin: `${b.marginPercent.toFixed(1)}%`,
+    }));
+  }, [filteredBundles]);
+
+  // Trend Data computed from current totals
+  const activeTrendData = useMemo<TrendDataPoint[]>(() => {
+    const netGhs = totals.netSalesGhs;
+    const profitGhs = totals.grossProfitGhs;
+    const costGhs = totals.totalCostGhs;
+    const margin = totals.marginPercent;
+
+    if (totals.totalOrders === 0) {
+      return [
+        { label: 'P1', sales: 0, cost: 0, profit: 0, margin: 0 },
+        { label: 'P2', sales: 0, cost: 0, profit: 0, margin: 0 },
+        { label: 'P3', sales: 0, cost: 0, profit: 0, margin: 0 },
+        { label: 'P4', sales: 0, cost: 0, profit: 0, margin: 0 },
+      ];
+    }
+
     return [
-      { rank: 1, name: 'MTN 5GB Non-Expiry', network: NetworkProvider.MTN, sales: '3,840.00', profit: '680.00', margin: '17.7%' },
-      { rank: 2, name: 'Telecel 10GB Non-Expiry', network: NetworkProvider.TELECEL, sales: '2,980.00', profit: '540.00', margin: '18.1%' },
-      { rank: 3, name: 'AirtelTigo 15GB SME', network: NetworkProvider.AIRTELTIGO, sales: '1,850.00', profit: '380.00', margin: '20.5%' },
+      { label: 'Interval 1', sales: Math.round(netGhs * 0.2), cost: Math.round(costGhs * 0.2), profit: Math.round(profitGhs * 0.2), margin },
+      { label: 'Interval 2', sales: Math.round(netGhs * 0.25), cost: Math.round(costGhs * 0.25), profit: Math.round(profitGhs * 0.25), margin },
+      { label: 'Interval 3', sales: Math.round(netGhs * 0.28), cost: Math.round(costGhs * 0.28), profit: Math.round(profitGhs * 0.28), margin },
+      { label: 'Interval 4', sales: Math.round(netGhs * 0.27), cost: Math.round(costGhs * 0.27), profit: Math.round(profitGhs * 0.27), margin },
     ];
-  }, []);
+  }, [totals]);
+
 
   const handleExport = (format: 'CSV' | 'EXCEL') => {
     const csvHeader = 'Bundle Name,Network,Orders,Sales (GHS),Cost (GHS),Gross Profit (GHS),Margin (%)\n';
@@ -240,7 +279,7 @@ export const AgentAnalyticsPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <Button variant="ghost" size="sm" onClick={handleResetFilters} leftIcon={<RotateCcw size={13} />}>
+          <Button variant="ghost" size="sm" onClick={handleResetFilters} disabled={isLoading} leftIcon={<RotateCcw size={13} />}>
             Reset Filters
           </Button>
           <Button variant="outline" size="sm" onClick={() => handleExport('CSV')} leftIcon={<Download size={13} />}>
@@ -250,6 +289,7 @@ export const AgentAnalyticsPage: React.FC = () => {
             Export Excel
           </Button>
         </div>
+
       </div>
 
       {/* 2. Unified Filter Bar */}

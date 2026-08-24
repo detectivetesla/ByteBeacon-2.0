@@ -226,18 +226,18 @@ export async function adminCommunicationsRoutes(
       }
 
       // Resolve audience recipients
-      let targetUsers: Array<{ uuid: string; full_name?: string; email: string; phone?: string; role: string }> = [];
+      let targetUsers: Array<{ id: string; full_name?: string; email: string; phone?: string; role: string }> = [];
 
       if (targetType === CommunicationTargetType.INDIVIDUAL) {
         if (recipientIds && recipientIds.length > 0) {
           const res = await db.query(
-            'SELECT uuid, full_name, email, phone, role FROM users WHERE uuid = $1',
+            'SELECT id, full_name, email, phone, role FROM users WHERE id = $1',
             [recipientIds[0]],
           );
           targetUsers = res.rows;
         } else if (recipientEmails && recipientEmails.length > 0) {
           const res = await db.query(
-            'SELECT uuid, full_name, email, phone, role FROM users WHERE email = $1',
+            'SELECT id, full_name, email, phone, role FROM users WHERE email = $1',
             [recipientEmails[0].trim().toLowerCase()],
           );
           targetUsers = res.rows;
@@ -249,38 +249,38 @@ export async function adminCommunicationsRoutes(
           throw new BadRequestError('Recipient IDs list is required for CUSTOM_GROUP target.');
         }
         const res = await db.query(
-          'SELECT uuid, full_name, email, phone, role FROM users WHERE uuid = ANY($1)',
+          'SELECT id, full_name, email, phone, role FROM users WHERE id = ANY($1)',
           [recipientIds],
         );
         targetUsers = res.rows;
       } else if (targetType === CommunicationTargetType.ROLE) {
         const roleFilter = recipientRole || UserRole.CUSTOMER;
         const res = await db.query(
-          'SELECT uuid, full_name, email, phone, role FROM users WHERE role = $1 AND is_active = true LIMIT 500',
+          'SELECT id, full_name, email, phone, role FROM users WHERE role = $1 AND is_active = true LIMIT 500',
           [roleFilter],
         );
         targetUsers = res.rows;
       } else if (targetType === CommunicationTargetType.AGENT_SEGMENT) {
-        let agentSql = "SELECT uuid, full_name, email, phone, role FROM users WHERE role IN ('agent', 'superagent') AND is_active = true";
+        let agentSql = "SELECT id, full_name, email, phone, role FROM users WHERE role IN ('agent', 'superagent') AND is_active = true";
         if (segment === 'AGENTS_WITH_STORE') {
-          agentSql += ' AND uuid IN (SELECT agent_id FROM agent_stores WHERE status = \'ACTIVE\')';
+          agentSql += ' AND id IN (SELECT user_id FROM stores WHERE store_status = \'ACTIVE\')';
         } else if (segment === 'AGENTS_WITHOUT_STORE') {
-          agentSql += ' AND uuid NOT IN (SELECT agent_id FROM agent_stores)';
+          agentSql += ' AND id NOT IN (SELECT user_id FROM stores)';
         }
         agentSql += ' LIMIT 500';
         const res = await db.query(agentSql);
         targetUsers = res.rows;
       } else if (targetType === CommunicationTargetType.CUSTOMER_SEGMENT) {
-        let custSql = "SELECT uuid, full_name, email, phone, role FROM users WHERE role = 'customer' AND is_active = true";
+        let custSql = "SELECT id, full_name, email, phone, role FROM users WHERE role = 'customer' AND is_active = true";
         if (segment === 'RECENT_ORDER_CUSTOMERS') {
-          custSql += " AND uuid IN (SELECT user_id FROM orders WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')";
+          custSql += " AND id IN (SELECT user_id FROM orders WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')";
         }
         custSql += ' LIMIT 500';
         const res = await db.query(custSql);
         targetUsers = res.rows;
       } else if (targetType === CommunicationTargetType.BROADCAST) {
         const res = await db.query(
-          'SELECT uuid, full_name, email, phone, role FROM users WHERE is_active = true LIMIT 1000',
+          'SELECT id, full_name, email, phone, role FROM users WHERE is_active = true LIMIT 1000',
         );
         targetUsers = res.rows;
       }
@@ -288,7 +288,7 @@ export async function adminCommunicationsRoutes(
       if (targetUsers.length === 0) {
         // Fallback default target user for synthetic or sandbox environment
         targetUsers = [{
-          uuid: req.user!.sub,
+          id: req.user!.sub,
           full_name: 'Recipient User',
           email: 'recipient@bytebeacon.com',
           phone: '0240000000',
@@ -301,7 +301,7 @@ export async function adminCommunicationsRoutes(
       // Insert delivery logs and notifications for each resolved recipient
       for (const u of targetUsers) {
         for (const ch of channels) {
-          const idempotencyKey = `deliv_${messageId}_${u.uuid}_${ch}`;
+          const idempotencyKey = `deliv_${messageId}_${u.id}_${ch}`;
           await db.query(
             `INSERT INTO communication_delivery_logs (
                message_id, recipient_user_id, recipient_email, recipient_phone,
@@ -310,7 +310,7 @@ export async function adminCommunicationsRoutes(
              ON CONFLICT (idempotency_key) DO NOTHING`,
             [
               messageId,
-              u.uuid,
+              u.id,
               u.email,
               u.phone,
               ch,
@@ -326,7 +326,7 @@ export async function adminCommunicationsRoutes(
             await db.query(
               `INSERT INTO notifications (user_id, title, message, channel, is_read, created_at)
                VALUES ($1, $2, $3, 'IN_APP', false, CURRENT_TIMESTAMP)`,
-              [u.uuid, subject.trim(), body.trim()],
+              [u.id, subject.trim(), body.trim()],
             ).catch(() => null);
           }
         }
@@ -422,7 +422,7 @@ export async function adminCommunicationsRoutes(
            c.created_by as "createdBy", COALESCE(u.full_name, u.email, 'Admin') as "createdByName",
            c.created_at as "createdAt", c.updated_at as "updatedAt"
          FROM communication_campaigns c
-         LEFT JOIN users u ON c.created_by = u.uuid
+         LEFT JOIN users u ON c.created_by = u.id
          WHERE ${whereClause}
          ORDER BY c.created_at DESC
          LIMIT $${idx++} OFFSET $${idx++}`,
@@ -970,7 +970,7 @@ export async function adminCommunicationsRoutes(
 
       const countRes = await db.query(
         `SELECT COUNT(*) as total FROM communication_delivery_logs l
-         LEFT JOIN users u ON l.recipient_user_id = u.uuid
+         LEFT JOIN users u ON l.recipient_user_id = u.id
          WHERE ${whereClause}`,
         params,
       ).catch(() => ({ rows: [{ total: '0' }] }));
@@ -990,7 +990,7 @@ export async function adminCommunicationsRoutes(
            l.sent_at as "sentAt", l.delivered_at as "deliveredAt",
            l.created_at as "createdAt"
          FROM communication_delivery_logs l
-         LEFT JOIN users u ON l.recipient_user_id = u.uuid
+         LEFT JOIN users u ON l.recipient_user_id = u.id
          WHERE ${whereClause}
          ORDER BY l.created_at DESC
          LIMIT $${idx++} OFFSET $${idx++}`,

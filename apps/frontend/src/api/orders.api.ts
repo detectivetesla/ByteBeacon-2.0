@@ -1,5 +1,14 @@
 import { apiClient } from './httpClient.js';
-import { OrderDetailsDto, OrderSummaryDto, CreateOrderRequest, NetworkProvider, OrderStatus, PaymentStatus } from '@bytebeacon/shared';
+import {
+  OrderDetailsDto,
+  OrderSummaryDto,
+  CreateOrderRequest,
+  CreateBulkSubmissionRequest,
+  BulkSubmissionDetailsDto,
+  NetworkProvider,
+  OrderStatus,
+  PaymentStatus,
+} from '@bytebeacon/shared';
 
 export interface OrderListFilters {
   page?: number;
@@ -23,6 +32,17 @@ export interface PaginatedOrdersResponse {
 export const ordersApi = {
   createOrder: async (input: CreateOrderRequest, idempotencyKey?: string): Promise<OrderDetailsDto> => {
     return apiClient.post<OrderDetailsDto>('/orders', input, { idempotencyKey });
+  },
+
+  createBulkSubmission: async (
+    input: CreateBulkSubmissionRequest,
+    idempotencyKey?: string,
+  ): Promise<BulkSubmissionDetailsDto> => {
+    return apiClient.post<BulkSubmissionDetailsDto>('/bulk-orders', input, { idempotencyKey });
+  },
+
+  getBulkSubmission: async (submissionId: string): Promise<BulkSubmissionDetailsDto> => {
+    return apiClient.get<BulkSubmissionDetailsDto>(`/bulk-orders/${submissionId}`);
   },
 
   getOrder: async (orderId: string): Promise<OrderDetailsDto> => {

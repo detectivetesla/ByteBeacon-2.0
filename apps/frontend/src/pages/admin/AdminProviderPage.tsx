@@ -325,20 +325,20 @@ export const AdminProviderPage: React.FC = () => {
       ]);
 
       if (overviewData) setOverview(overviewData);
-      if (networksData && Array.isArray(networksData) && networksData.length > 0) {
+      if (networksData && Array.isArray(networksData)) {
         setNetworks(networksData);
       }
-      if (providersData && Array.isArray(providersData) && providersData.length > 0) {
+      if (providersData && Array.isArray(providersData)) {
         setProviders(providersData);
         if (!targetSwitchProvider) {
           const nonAuth = providersData.find((p) => !p.isAuthoritative);
           if (nonAuth) setTargetSwitchProvider(nonAuth.name);
         }
       }
-      if (routingData && Array.isArray(routingData) && routingData.length > 0) {
+      if (routingData && Array.isArray(routingData)) {
         setRoutingMatrix(routingData);
       }
-      if (incidentsData && Array.isArray(incidentsData) && incidentsData.length > 0) {
+      if (incidentsData && Array.isArray(incidentsData)) {
         setIncidents(incidentsData);
       }
     } catch (err: any) {
