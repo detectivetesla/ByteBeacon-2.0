@@ -73,6 +73,29 @@ export const AgentStorePage: React.FC = () => {
 
   useEffect(() => {
     fetchStore();
+
+    if (typeof window !== 'undefined') {
+      const query = new URLSearchParams(window.location.search);
+      const reference = query.get('reference') || query.get('trxref') || query.get('verify');
+      if (reference) {
+        setIsProcessingPayment(true);
+        storesApi.verifyActivation(reference)
+          .then((res) => {
+            if (res?.success) {
+              setSetupState('ACTIVE');
+              toastSuccess('Store Activated', 'Payment verified! Your storefront has been submitted for review.');
+              fetchStore();
+            }
+          })
+          .catch((err) => {
+            toastError('Payment Verification Failed', err?.message || 'Unable to verify payment.');
+          })
+          .finally(() => {
+            setIsProcessingPayment(false);
+            window.history.replaceState({}, '', window.location.pathname);
+          });
+      }
+    }
   }, [fetchStore]);
 
   // Handle Paystack Hard Paywall Checkout
@@ -95,6 +118,17 @@ export const AgentStorePage: React.FC = () => {
       if (res?.authorizationUrl) {
         toastInfo('Redirecting', 'Redirecting to secure Paystack checkout...');
         window.location.href = res.authorizationUrl;
+      } else if (res?.reference) {
+        // Direct verify for sandbox / instant settlement
+        const verifyRes = await storesApi.verifyActivation(res.reference);
+        if (verifyRes?.success) {
+          setSetupState('AWAITING_APPROVAL');
+          toastSuccess('Store Submitted', 'Store submitted for activation review.');
+          fetchStore();
+        } else {
+          setSetupState('AWAITING_APPROVAL');
+          toastSuccess('Store Submitted', 'Store submitted for activation review.');
+        }
       } else {
         setSetupState('AWAITING_APPROVAL');
         toastSuccess('Store Submitted', 'Store submitted for activation review.');

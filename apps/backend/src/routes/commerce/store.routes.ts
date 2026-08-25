@@ -72,40 +72,39 @@ export async function storeRoutes(
     return res.rows[0] as StoreDto | undefined;
   }
 
-  // 1. GET STORE ENTITLEMENT & PROFILE (/stores/me)
-  app.get(
-    '/stores/me',
-    { preHandler: [authHooks.authenticateCustomer] },
-    async (req: FastifyRequest, reply: FastifyReply) => {
-      const store = await getAgentStore(req.user!.sub);
-      if (!store) {
-        return reply.send({
-          success: true,
-          data: {
-            hasStore: false,
-            paymentStatus: 'NOT_STARTED',
-            approvalStatus: 'NOT_SUBMITTED',
-            storeStatus: 'NOT_STARTED',
-            isEntitled: false,
-          },
-        });
-      }
-
-      const isEntitled =
-        store.paymentStatus === 'PAID' &&
-        store.approvalStatus === 'APPROVED' &&
-        store.storeStatus === 'ACTIVE';
-
+  // 1. GET STORE ENTITLEMENT & PROFILE (/stores/me and /stores/my-store)
+  const getStoreProfileHandler = async (req: FastifyRequest, reply: FastifyReply) => {
+    const store = await getAgentStore(req.user!.sub);
+    if (!store) {
       return reply.send({
         success: true,
         data: {
-          hasStore: true,
-          store,
-          isEntitled,
+          hasStore: false,
+          paymentStatus: 'NOT_STARTED',
+          approvalStatus: 'NOT_SUBMITTED',
+          storeStatus: 'NOT_STARTED',
+          isEntitled: false,
         },
       });
-    },
-  );
+    }
+
+    const isEntitled =
+      store.paymentStatus === 'PAID' &&
+      store.approvalStatus === 'APPROVED' &&
+      store.storeStatus === 'ACTIVE';
+
+    return reply.send({
+      success: true,
+      data: {
+        hasStore: true,
+        store,
+        isEntitled,
+      },
+    });
+  };
+
+  app.get('/stores/me', { preHandler: [authHooks.authenticateCustomer] }, getStoreProfileHandler);
+  app.get('/stores/my-store', { preHandler: [authHooks.authenticateCustomer] }, getStoreProfileHandler);
 
   // 2. INITIALIZE STOREFRONT SETUP (/stores/setup)
   app.post<{
@@ -131,7 +130,17 @@ export async function storeRoutes(
 
       // Check agent profile
       const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
-      const agentId = agentRes.rows[0]?.id || null;
+      let agentId = agentRes.rows[0]?.id || null;
+      if (!agentId) {
+        const insertAgent = await db.query(
+          `INSERT INTO agents (user_id, business_name, status)
+           VALUES ($1, $2, 'ACTIVE')
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [req.user!.sub, storeName.trim()],
+        );
+        agentId = insertAgent.rows[0]?.id || null;
+      }
 
       // Check slug collision
       const slugCheck = await db.query('SELECT id FROM stores WHERE slug = $1 AND user_id != $2', [cleanSlug, req.user!.sub]);
@@ -214,13 +223,124 @@ export async function storeRoutes(
   );
 
   // 3. INITIALIZE STORE ACTIVATION PAYMENT (/stores/payment/initialize)
-  app.post(
+  app.post<{
+    Body?: {
+      storeName?: string;
+      slug?: string;
+      tagline?: string;
+      description?: string;
+      contactPhone?: string;
+      contactEmail?: string;
+      contactWhatsapp?: string;
+    };
+  }>(
     '/stores/payment/initialize',
     { preHandler: [authHooks.authenticateCustomer, maintenanceHook] },
-    async (req: FastifyRequest, reply: FastifyReply) => {
-      const store = await getAgentStore(req.user!.sub);
+    async (req: FastifyRequest<{
+      Body?: {
+        storeName?: string;
+        slug?: string;
+        tagline?: string;
+        description?: string;
+        contactPhone?: string;
+        contactEmail?: string;
+        contactWhatsapp?: string;
+      };
+    }>, reply: FastifyReply) => {
+      let store = await getAgentStore(req.user!.sub);
+
+      const { storeName, slug, tagline, description, contactPhone, contactEmail, contactWhatsapp } = req.body || {};
+
+      // Auto-provision or update store configuration if provided or if store does not exist yet
       if (!store) {
-        throw new BadRequestError('Please complete your StoreFront Setup before making payment.');
+        const userRes = await db.query('SELECT full_name, email, phone FROM users WHERE id = $1', [req.user!.sub]);
+        const userRow = userRes.rows[0];
+
+        const rawName = (storeName || userRow?.full_name || 'Agent Store').trim();
+        const rawSlug = (slug || rawName.toLowerCase().replace(/[^a-z0-9-]/g, '-') || `store-${req.user!.sub.slice(0, 8)}`).trim();
+        const cleanSlug = rawSlug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+        const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
+        let agentId = agentRes.rows[0]?.id || null;
+        if (!agentId) {
+          const insertAgent = await db.query(
+            `INSERT INTO agents (user_id, business_name, status)
+             VALUES ($1, $2, 'ACTIVE')
+             ON CONFLICT DO NOTHING
+             RETURNING id`,
+            [req.user!.sub, rawName],
+          );
+          agentId = insertAgent.rows[0]?.id || null;
+        }
+
+        const insertRes = await db.query(
+          `INSERT INTO stores (
+              agent_id, user_id, store_name, slug, tagline, description,
+              contact_phone, contact_email, contact_whatsapp, payment_status, approval_status, store_status, activation_fee_pesewas
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PAYMENT_PENDING', 'NOT_SUBMITTED', 'INACTIVE', 50000)
+           RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
+                     slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
+                     primary_color as "primaryColor", accent_color as "accentColor",
+                     contact_email as "contactEmail", contact_phone as "contactPhone",
+                     contact_whatsapp as "contactWhatsapp", payment_status as "paymentStatus",
+                     approval_status as "approvalStatus", store_status as "storeStatus",
+                     activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
+                     created_at as "createdAt", updated_at as "updatedAt"`,
+          [
+            agentId,
+            req.user!.sub,
+            rawName,
+            cleanSlug,
+            tagline || '',
+            description || '',
+            contactPhone || userRow?.phone || '',
+            contactEmail || userRow?.email || '',
+            contactWhatsapp || '',
+          ],
+        );
+        store = insertRes.rows[0];
+
+        // Populate default store products from catalog if not present
+        await db.query(
+          `INSERT INTO store_products (store_id, catalog_product_id, markup_pesewas, is_available, is_visible)
+           SELECT $1, id, 200, TRUE, TRUE
+           FROM catalog_products
+           WHERE is_active = TRUE
+           ON CONFLICT (store_id, catalog_product_id) DO NOTHING`,
+          [store.id],
+        );
+      } else if (storeName || slug || contactPhone || contactEmail) {
+        const cleanSlug = (slug || store.slug).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        const updateRes = await db.query(
+          `UPDATE stores
+           SET store_name = COALESCE($1, store_name),
+               slug = COALESCE($2, slug),
+               contact_phone = COALESCE($3, contact_phone),
+               contact_email = COALESCE($4, contact_email),
+               contact_whatsapp = COALESCE($5, contact_whatsapp),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $6
+           RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
+                     slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
+                     primary_color as "primaryColor", accent_color as "accentColor",
+                     contact_email as "contactEmail", contact_phone as "contactPhone",
+                     contact_whatsapp as "contactWhatsapp", payment_status as "paymentStatus",
+                     approval_status as "approvalStatus", store_status as "storeStatus",
+                     activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
+                     created_at as "createdAt", updated_at as "updatedAt"`,
+          [
+            storeName?.trim() || null,
+            cleanSlug,
+            contactPhone?.trim() || null,
+            contactEmail?.trim() || null,
+            contactWhatsapp?.trim() || null,
+            store.id,
+          ],
+        );
+        if (updateRes.rows[0]) {
+          store = updateRes.rows[0];
+        }
       }
 
       if (store.paymentStatus === 'PAID') {
@@ -244,14 +364,32 @@ export async function storeRoutes(
         [reference, store.id],
       );
 
+      let authorizationUrl: string | undefined;
+      if (deps.paymentProvider) {
+        try {
+          const payRes = await deps.paymentProvider.initializePayment({
+            email: store.contactEmail || req.user?.email || 'agent@bytebeacon.com',
+            amountPesewas: store.activationFeePesewas || 50000,
+            reference,
+            callbackUrl: `${process.env.APP_URL || 'https://bytebeacon.com'}/agent/store?verify=${reference}`,
+          });
+          if (payRes?.authorizationUrl) {
+            authorizationUrl = payRes.authorizationUrl;
+          }
+        } catch {
+          // Fallback to reference
+        }
+      }
+
       return reply.send({
         success: true,
         data: {
           reference,
-          amountPesewas: store.activationFeePesewas,
-          amountGhs: store.activationFeePesewas / 100,
+          amountPesewas: store.activationFeePesewas || 50000,
+          amountGhs: (store.activationFeePesewas || 50000) / 100,
           currency: 'GHS',
           storeName: store.storeName,
+          authorizationUrl,
         },
       });
     },

@@ -188,6 +188,42 @@ describe('Agent Store & Custom Catalog Suite', () => {
       expect(json.data.isEntitled).toBe(true);
       expect(json.data.store.slug).toBe('fastdata');
     });
+
+    it('GET /stores/my-store should return the store profile alias', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/stores/my-store',
+        headers: {
+          authorization: 'Bearer valid_token',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.hasStore).toBe(true);
+      expect(json.data.store.storeName).toBe('FastData Reseller');
+    });
+
+    it('POST /stores/payment/initialize should initialize store activation payment', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/stores/payment/initialize',
+        headers: {
+          authorization: 'Bearer valid_token',
+        },
+        payload: {
+          storeName: 'FastData Reseller',
+          slug: 'fastdata',
+          contactPhone: '0241234567',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.alreadyPaid).toBe(true);
+    });
   });
 
   describe('Custom Product Markup Operations', () => {

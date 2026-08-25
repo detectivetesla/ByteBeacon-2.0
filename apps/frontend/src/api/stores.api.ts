@@ -40,8 +40,28 @@ export interface StoreProductDto {
 }
 
 export const storesApi = {
-  getStore: async (identifier?: string): Promise<StoreProfileDto> => {
-    return apiClient.get<StoreProfileDto>(`/stores/${identifier || 'my-store'}`);
+  getStore: async (identifier?: string): Promise<StoreProfileDto | null> => {
+    try {
+      const res = await apiClient.get<any>(`/stores/${identifier || 'my-store'}`);
+      if (res && res.store) return res.store;
+      if (res && res.data && res.data.store) return res.data.store;
+      if (res && res.storeName) return res;
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
+  setupStore: async (payload: {
+    storeName: string;
+    slug: string;
+    tagline?: string;
+    description?: string;
+    contactPhone?: string;
+    contactEmail?: string;
+    contactWhatsapp?: string;
+  }): Promise<StoreProfileDto> => {
+    return apiClient.post<StoreProfileDto>('/stores/setup', payload);
   },
 
   getPublicStore: async (slug: string): Promise<StoreProfileDto> => {
@@ -49,7 +69,7 @@ export const storesApi = {
   },
 
   saveStoreConfig: async (payload: Partial<StoreProfileDto>): Promise<StoreProfileDto> => {
-    return apiClient.post<StoreProfileDto>('/stores/config', payload);
+    return apiClient.post<StoreProfileDto>('/stores/setup', payload);
   },
 
   initializeActivation: async (payload: {
@@ -57,8 +77,8 @@ export const storesApi = {
     slug: string;
     contactPhone?: string;
     contactEmail?: string;
-  }): Promise<{ authorizationUrl: string; reference: string }> => {
-    return apiClient.post<{ authorizationUrl: string; reference: string }>('/stores/payment/initialize', payload);
+  }): Promise<{ authorizationUrl?: string; reference: string; amountGhs?: number }> => {
+    return apiClient.post<{ authorizationUrl?: string; reference: string; amountGhs?: number }>('/stores/payment/initialize', payload);
   },
 
   verifyActivation: async (reference: string): Promise<{ success: boolean; store: StoreProfileDto }> => {
