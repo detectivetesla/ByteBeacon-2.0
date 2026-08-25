@@ -35,6 +35,7 @@ import {
   UserCheck,
   UserX,
   Sliders,
+  ExternalLink,
 } from 'lucide-react';
 
 export const AdminAgentsPage: React.FC = () => {
@@ -131,11 +132,12 @@ export const AdminAgentsPage: React.FC = () => {
         limit: 20,
       });
 
-      if (res?.items) {
-        setAgents(res.items);
-        setTotalPages(res.pagination.totalPages || 1);
-        setTotalAgents(res.pagination.total || 0);
-      }
+      const items = (res as any)?.items || (res as any)?.data?.items || (Array.isArray(res) ? res : []);
+      const pagination = (res as any)?.pagination || (res as any)?.data?.pagination;
+
+      setAgents(items);
+      setTotalPages(pagination?.totalPages || 1);
+      setTotalAgents(pagination?.total !== undefined ? pagination.total : items.length);
     } catch (err: any) {
       toastError('Failed to Load Agents', err.message || 'Error communicating with backend');
     } finally {
@@ -1148,6 +1150,50 @@ export const AdminAgentsPage: React.FC = () => {
                   </div>
                 )}
 
+                {dossierTab === 'ORDERS' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 'var(--space-3)' }}>
+                      <Card style={{ padding: 'var(--space-3)' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total Orders</span>
+                        <div style={{ fontSize: '18px', fontWeight: 800 }}>{agentDetail.ordersSummary.total.toLocaleString()}</div>
+                      </Card>
+                      <Card style={{ padding: 'var(--space-3)' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Completed</span>
+                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-success)' }}>{agentDetail.ordersSummary.completed.toLocaleString()}</div>
+                      </Card>
+                      <Card style={{ padding: 'var(--space-3)' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Processing</span>
+                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-warning)' }}>{agentDetail.ordersSummary.processing.toLocaleString()}</div>
+                      </Card>
+                      <Card style={{ padding: 'var(--space-3)' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Failed</span>
+                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-danger)' }}>{agentDetail.ordersSummary.failed.toLocaleString()}</div>
+                      </Card>
+                      <Card style={{ padding: 'var(--space-3)' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Refunded</span>
+                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-text-muted)' }}>{agentDetail.ordersSummary.refunded.toLocaleString()}</div>
+                      </Card>
+                    </div>
+
+                    <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>Agent Order History</h3>
+                    <Table
+                      columns={[
+                        { header: 'Public ID', accessor: 'publicId', render: (r: any) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700 }}>{r.publicId || r.id}</span> },
+                        { header: 'Recipient', accessor: 'recipientPhone', render: (r: any) => <span>{r.recipientPhone || 'N/A'}</span> },
+                        { header: 'Network', accessor: 'network', render: (r: any) => <Badge variant="info" size="sm">{r.network || 'UNKNOWN'}</Badge> },
+                        { header: 'Data', accessor: 'dataAmountMb', render: (r: any) => <span>{r.dataAmountMb >= 1000 ? `${(r.dataAmountMb / 1000).toFixed(1)} GB` : `${r.dataAmountMb} MB`}</span> },
+                        { header: 'Amount', accessor: 'amountPesewas', render: (r: any) => `GH₵ ${(r.amountPesewas / 100).toFixed(2)}` },
+                        { header: 'Order Status', accessor: 'orderStatus', render: (r: any) => <Badge variant={r.orderStatus === 'COMPLETED' ? 'success' : r.orderStatus === 'FAILED' ? 'danger' : 'warning'} size="sm">{r.orderStatus}</Badge> },
+                        { header: 'Payment Status', accessor: 'paymentStatus', render: (r: any) => <Badge variant={r.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">{r.paymentStatus}</Badge> },
+                        { header: 'Date', accessor: 'createdAt', render: (r: any) => new Date(r.createdAt).toLocaleString() },
+                      ]}
+                      data={agentDetail.recentOrders}
+                      keyExtractor={(r: any) => r.id}
+                      emptyMessage="No order records found for this agent."
+                    />
+                  </div>
+                )}
+
                 {dossierTab === 'PRICING' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1164,13 +1210,125 @@ export const AdminAgentsPage: React.FC = () => {
                         { header: 'Network', accessor: 'network' },
                         { header: 'Retail Price', accessor: 'basePricePesewas', render: (r: any) => `GH₵ ${(r.basePricePesewas / 100).toFixed(2)}` },
                         { header: 'Default Wholesale', accessor: 'defaultAgentPricePesewas', render: (r: any) => `GH₵ ${(r.defaultAgentPricePesewas / 100).toFixed(2)}` },
-                        { header: 'Custom Wholesale', accessor: 'customPricePesewas', render: (r: any) => r.customPricePesewas ? <span style={{ fontWeight: 800, color: 'var(--color-brand)' }}>GH₵ {(r.customPricePesewas / 100).toFixed(2)}</span> : <span style={{ color: 'var(--color-text-muted)' }}>Default</span> },
+                        { header: 'Custom Wholesale', accessor: 'customPricePesewas', render: (r: any) => r.customPricePesewas ? <span style={{ fontWeight: 800, color: 'var(--color-brand)' }}>GH₵ ${(r.customPricePesewas / 100).toFixed(2)}</span> : <span style={{ color: 'var(--color-text-muted)' }}>Default</span> },
                         { header: 'Effective Margin', accessor: 'effectivePricePesewas', render: (r: any) => `GH₵ ${((r.basePricePesewas - r.effectivePricePesewas) / 100).toFixed(2)}` },
                       ]}
                       data={agentDetail.customPricing}
                       keyExtractor={(r: any) => r.productId}
                       emptyMessage="No custom pricing overrides defined for this agent."
                     />
+                  </div>
+                )}
+
+                {dossierTab === 'STORE' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                    {agentDetail.storeSummary ? (
+                      <>
+                        <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                            <div style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-md)', background: agentDetail.storeSummary.primaryColor || 'var(--color-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                              <Store size={24} />
+                            </div>
+                            <div>
+                              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>{agentDetail.storeSummary.storeName || 'Custom Storefront'}</h3>
+                              <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+                                Slug: <code style={{ fontFamily: 'var(--font-mono)' }}>{agentDetail.storeSummary.slug}</code>
+                              </span>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                            <a
+                              href={`/store/${agentDetail.storeSummary.slug}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ textDecoration: 'none' }}
+                            >
+                              <Button variant="primary" size="sm">
+                                <ExternalLink size={13} style={{ marginRight: '4px' }} />
+                                View Live Storefront
+                              </Button>
+                            </a>
+                          </div>
+                        </Card>
+
+                        {/* Store Statistics */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--space-3)' }}>
+                          <Card style={{ padding: 'var(--space-3)' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Store Status</span>
+                            <div style={{ marginTop: '4px' }}>
+                              <Badge variant={agentDetail.storeSummary.storeStatus === 'ACTIVE' ? 'success' : 'warning'}>
+                                {agentDetail.storeSummary.storeStatus}
+                              </Badge>
+                            </div>
+                          </Card>
+                          <Card style={{ padding: 'var(--space-3)' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Approval Status</span>
+                            <div style={{ marginTop: '4px' }}>
+                              <Badge variant={agentDetail.storeSummary.approvalStatus === 'APPROVED' ? 'success' : 'warning'}>
+                                {agentDetail.storeSummary.approvalStatus}
+                              </Badge>
+                            </div>
+                          </Card>
+                          <Card style={{ padding: 'var(--space-3)' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Products Listed</span>
+                            <div style={{ fontSize: '18px', fontWeight: 800 }}>{agentDetail.storeSummary.productsCount}</div>
+                          </Card>
+                          <Card style={{ padding: 'var(--space-3)' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Storefront Sales</span>
+                            <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-brand)' }}>
+                              GH₵ {(agentDetail.storeSummary.totalSalesPesewas / 100).toFixed(2)}
+                            </div>
+                          </Card>
+                        </div>
+
+                        {/* Store Info & Branding Details */}
+                        <Card style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                          <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0 }}>Store Details & Contact Metadata</h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', fontSize: '12px' }}>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Tagline: </span>
+                              <strong>{agentDetail.storeSummary.tagline || 'None'}</strong>
+                            </div>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Contact Email: </span>
+                              <strong>{agentDetail.storeSummary.contactEmail || agentDetail.agent.email}</strong>
+                            </div>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Contact Phone: </span>
+                              <strong>{agentDetail.storeSummary.contactPhone || agentDetail.agent.phone || 'N/A'}</strong>
+                            </div>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>WhatsApp Contact: </span>
+                              <strong>{agentDetail.storeSummary.contactWhatsapp || 'N/A'}</strong>
+                            </div>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Brand Colors: </span>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', verticalAlign: 'middle' }}>
+                                <span style={{ width: '14px', height: '14px', borderRadius: '3px', background: agentDetail.storeSummary.primaryColor || '#0066FF', display: 'inline-block', border: '1px solid rgba(0,0,0,0.1)' }} />
+                                <span style={{ width: '14px', height: '14px', borderRadius: '3px', background: agentDetail.storeSummary.accentColor || '#00E599', display: 'inline-block', border: '1px solid rgba(0,0,0,0.1)' }} />
+                              </span>
+                            </div>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Activation Fee: </span>
+                              <strong>GH₵ {((agentDetail.storeSummary.activationFeePesewas || 50000) / 100).toFixed(2)} ({agentDetail.storeSummary.paymentStatus || 'PAID'})</strong>
+                            </div>
+                          </div>
+                          {agentDetail.storeSummary.description && (
+                            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--color-text-secondary)', background: 'var(--color-bg-secondary)', padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-sm)' }}>
+                              {agentDetail.storeSummary.description}
+                            </div>
+                          )}
+                        </Card>
+                      </>
+                    ) : (
+                      <Card style={{ padding: 'var(--space-6)', textAlign: 'center' }}>
+                        <Store size={36} color="var(--color-text-muted)" style={{ margin: '0 auto var(--space-3) auto' }} />
+                        <h4 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 6px 0' }}>No Active Storefront</h4>
+                        <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', margin: 0 }}>
+                          This agent has not registered or activated an online storefront yet.
+                        </p>
+                      </Card>
+                    )}
                   </div>
                 )}
 

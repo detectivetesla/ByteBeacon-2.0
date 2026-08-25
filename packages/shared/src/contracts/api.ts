@@ -923,7 +923,17 @@ export interface AdminAgentDetail {
     approvalStatus: string;
     totalSalesPesewas: number;
     productsCount: number;
+    tagline?: string;
+    description?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    contactWhatsapp?: string;
+    primaryColor?: string;
+    accentColor?: string;
+    activationFeePesewas?: number;
+    paymentStatus?: string;
   };
+
   subAgents: AgentSubAgentSummaryDto[];
   customers: AgentCustomerSummaryDto[];
   customPricing: AgentCustomPricingItemDto[];

@@ -94,25 +94,50 @@ export async function adminAgentsRoutes(
       try {
         const statsQuery = `
           SELECT
-            COUNT(DISTINCT a.id) as "totalAgents",
-            COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, 'ACTIVE')) = 'ACTIVE' AND UPPER(COALESCE(a.status, 'ACTIVE')) = 'ACTIVE') as "activeAgents",
-            COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'SUSPENDED' OR UPPER(COALESCE(a.status, '')) = 'SUSPENDED') as "suspendedAgents",
-            COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'PENDING' OR UPPER(COALESCE(a.status, '')) = 'PENDING') as "pendingAgents",
-            COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.status, '')) = 'ACTIVE') as "agentsWithStores",
-            COUNT(DISTINCT k.user_id) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
+            COUNT(DISTINCT COALESCE(a.id, u.id)) as "totalAgents",
+            COUNT(DISTINCT COALESCE(a.id, u.id)) FILTER (WHERE UPPER(COALESCE(u.status, 'ACTIVE')) = 'ACTIVE' AND UPPER(COALESCE(a.status, 'ACTIVE')) = 'ACTIVE') as "activeAgents",
+            COUNT(DISTINCT COALESCE(a.id, u.id)) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'SUSPENDED' OR UPPER(COALESCE(a.status, '')) = 'SUSPENDED') as "suspendedAgents",
+            COUNT(DISTINCT COALESCE(a.id, u.id)) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'PENDING' OR UPPER(COALESCE(a.status, '')) = 'PENDING') as "pendingAgents",
+            COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.store_status, s.status, '')) = 'ACTIVE') as "agentsWithStores",
+            COUNT(DISTINCT COALESCE(k.agent_id, k.owner_user_id)) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
             COALESCE(SUM(u.wallet_balance_pesewas), 0) as "totalWalletFloatPesewas",
             COALESCE((
               SELECT SUM(amount_pesewas)
               FROM orders
-              WHERE agent_id IS NOT NULL AND payment_status = 'PAID'
+              WHERE (agent_id IS NOT NULL OR user_id IN (SELECT id FROM users WHERE LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller') OR security_domain = 'AGENT')) AND payment_status = 'PAID'
             ), 0) as "totalRevenuePesewas"
-          FROM agents a
-          JOIN users u ON a.user_id = u.id
-          LEFT JOIN agent_stores s ON s.agent_id = a.id
-          LEFT JOIN api_keys k ON k.user_id = u.id AND k.status = 'ACTIVE'
+          FROM users u
+          LEFT JOIN agents a ON a.user_id = u.id
+          LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
+          LEFT JOIN api_keys k ON (k.agent_id = u.id OR k.owner_user_id = u.id) AND k.status = 'ACTIVE'
+          WHERE LOWER(COALESCE(u.role::text, '')) IN ('agent', 'superagent', 'reseller')
+             OR u.security_domain = 'AGENT'
+             OR a.id IS NOT NULL
         `;
 
-        const res = await db.query(statsQuery);
+        const res = await db.query(statsQuery).catch(async (err) => {
+          logger.warn({ err }, 'Primary agent stats query failed, attempting legacy agents-table fallback');
+          return db.query(`
+            SELECT
+              COUNT(DISTINCT a.id) as "totalAgents",
+              COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, 'ACTIVE')) = 'ACTIVE' AND UPPER(COALESCE(a.status, 'ACTIVE')) = 'ACTIVE') as "activeAgents",
+              COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'SUSPENDED' OR UPPER(COALESCE(a.status, '')) = 'SUSPENDED') as "suspendedAgents",
+              COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'PENDING' OR UPPER(COALESCE(a.status, '')) = 'PENDING') as "pendingAgents",
+              COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.status, '')) = 'ACTIVE') as "agentsWithStores",
+              COUNT(DISTINCT k.agent_id) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
+              COALESCE(SUM(u.wallet_balance_pesewas), 0) as "totalWalletFloatPesewas",
+              COALESCE((
+                SELECT SUM(amount_pesewas)
+                FROM orders
+                WHERE agent_id IS NOT NULL AND payment_status = 'PAID'
+              ), 0) as "totalRevenuePesewas"
+            FROM agents a
+            JOIN users u ON a.user_id = u.id
+            LEFT JOIN stores s ON s.agent_id = a.id
+            LEFT JOIN api_keys k ON k.agent_id = u.id AND k.status = 'ACTIVE'
+          `);
+        });
+
         const row = res.rows[0] || {};
 
         const stats: AdminAgentStats = {
@@ -197,14 +222,14 @@ export async function adminAgentsRoutes(
           LOWER(COALESCE(a.slug, '')) LIKE $${paramIdx} OR
           LOWER(COALESCE(s.store_name, '')) LIKE $${paramIdx} OR
           LOWER(COALESCE(s.slug, '')) LIKE $${paramIdx} OR
-          a.id::text LIKE $${paramIdx}
+          COALESCE(a.id, u.id)::text LIKE $${paramIdx}
         )`);
         params.push(q);
         paramIdx++;
       }
 
       if (status !== 'ALL') {
-        whereConditions.push(`(UPPER(COALESCE(a.status, '')) = $${paramIdx} OR UPPER(COALESCE(u.status, '')) = $${paramIdx})`);
+        whereConditions.push(`(UPPER(COALESCE(a.status, u.status, '')) = $${paramIdx})`);
         params.push(status.toUpperCase());
         paramIdx++;
       }
@@ -214,15 +239,15 @@ export async function adminAgentsRoutes(
       } else if (store === 'NO_STORE') {
         whereConditions.push(`s.id IS NULL`);
       } else if (store === 'ACTIVE_STORE') {
-        whereConditions.push(`s.status = 'ACTIVE'`);
+        whereConditions.push(`(s.store_status = 'ACTIVE' OR s.status = 'ACTIVE')`);
       } else if (store === 'PENDING_STORE') {
-        whereConditions.push(`s.status = 'PENDING' OR s.approval_status = 'AWAITING_APPROVAL'`);
+        whereConditions.push(`(s.store_status = 'PENDING' OR s.status = 'PENDING' OR s.approval_status = 'AWAITING_APPROVAL')`);
       } else if (store === 'SUSPENDED_STORE') {
-        whereConditions.push(`s.status = 'SUSPENDED'`);
+        whereConditions.push(`(s.store_status = 'SUSPENDED' OR s.status = 'SUSPENDED')`);
       }
 
       if (api === 'ENABLED') {
-        whereConditions.push(`(a.api_access_enabled = TRUE OR k.key_count > 0)`);
+        whereConditions.push(`(a.api_access_enabled = TRUE OR COALESCE(k.key_count, 0) > 0)`);
       } else if (api === 'DISABLED') {
         whereConditions.push(`((a.api_access_enabled IS NULL OR a.api_access_enabled = FALSE) AND (k.key_count IS NULL OR k.key_count = 0))`);
       }
@@ -236,27 +261,28 @@ export async function adminAgentsRoutes(
       }
 
       if (dateRange === '7d') {
-        whereConditions.push(`a.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`);
+        whereConditions.push(`COALESCE(a.created_at, u.created_at) >= CURRENT_TIMESTAMP - INTERVAL '7 days'`);
       } else if (dateRange === '30d') {
-        whereConditions.push(`a.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`);
+        whereConditions.push(`COALESCE(a.created_at, u.created_at) >= CURRENT_TIMESTAMP - INTERVAL '30 days'`);
       } else if (dateRange === '90d') {
-        whereConditions.push(`a.created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days'`);
+        whereConditions.push(`COALESCE(a.created_at, u.created_at) >= CURRENT_TIMESTAMP - INTERVAL '90 days'`);
       }
 
       const whereClause = whereConditions.join(' AND ');
 
       const countQuery = `
-        SELECT COUNT(DISTINCT a.id) as total
-        FROM agents a
-        JOIN users u ON a.user_id = u.id
-        LEFT JOIN agent_stores s ON s.agent_id = a.id
+        SELECT COUNT(DISTINCT COALESCE(a.id, u.id)) as total
+        FROM users u
+        LEFT JOIN agents a ON a.user_id = u.id
+        LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
         LEFT JOIN (
-          SELECT user_id, COUNT(*) as key_count
+          SELECT COALESCE(owner_user_id, agent_id) as uid, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY user_id
-        ) k ON k.user_id = u.id
-        WHERE ${whereClause}
+          GROUP BY COALESCE(owner_user_id, agent_id)
+        ) k ON k.uid = u.id
+        WHERE (LOWER(COALESCE(u.role::text, '')) IN ('agent', 'superagent', 'reseller') OR u.security_domain = 'AGENT' OR a.id IS NOT NULL)
+          AND ${whereClause}
       `;
 
       const countRes = await db.query(countQuery, params).catch(() => ({ rows: [{ total: '0' }] }));
@@ -264,50 +290,51 @@ export async function adminAgentsRoutes(
 
       const listQuery = `
         SELECT
-          a.id,
-          a.user_id as "userId",
+          COALESCE(a.id, u.id) as id,
+          u.id as "userId",
           COALESCE(u.full_name, 'Unnamed Agent') as "fullName",
           u.email,
           u.phone,
           COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
-          a.slug,
+          COALESCE(a.slug, s.slug, 'agent-' || SUBSTRING(u.id::text, 1, 8)) as slug,
           COALESCE(a.status, u.status, 'ACTIVE') as "agentStatus",
-          COALESCE(s.status, 'NOT_STARTED') as "storeStatus",
+          COALESCE(s.store_status, s.status, 'NOT_STARTED') as "storeStatus",
           s.id as "storeId",
           s.store_name as "storeName",
           s.slug as "storeSlug",
-          COALESCE(a.api_access_enabled, FALSE) as "apiAccessEnabled",
+          COALESCE(a.api_access_enabled, (COALESCE(k.key_count, 0) > 0), FALSE) as "apiAccessEnabled",
           COALESCE(k.key_count, 0) as "activeKeysCount",
           COALESCE(u.wallet_balance_pesewas, 0) as "walletBalancePesewas",
           COALESCE(o.orders_count, 0) as "ordersCount",
           COALESCE(o.revenue_pesewas, 0) as "revenuePesewas",
           COALESCE(sub.sub_count, 0) as "subAgentsCount",
           COALESCE(a.agent_tier, 'STANDARD') as "agentTier",
-          a.created_at as "createdAt",
+          COALESCE(a.created_at, u.created_at) as "createdAt",
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
-        FROM agents a
-        JOIN users u ON a.user_id = u.id
-        LEFT JOIN agent_stores s ON s.agent_id = a.id
+        FROM users u
+        LEFT JOIN agents a ON a.user_id = u.id
+        LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
         LEFT JOIN (
-          SELECT user_id, COUNT(*) as key_count
+          SELECT COALESCE(owner_user_id, agent_id) as uid, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY user_id
-        ) k ON k.user_id = u.id
+          GROUP BY COALESCE(owner_user_id, agent_id)
+        ) k ON k.uid = u.id
         LEFT JOIN (
-          SELECT agent_id, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
+          SELECT COALESCE(agent_id, user_id) as aid, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
           FROM orders
           WHERE payment_status = 'PAID'
-          GROUP BY agent_id
-        ) o ON o.agent_id = a.id
+          GROUP BY COALESCE(agent_id, user_id)
+        ) o ON (o.aid = a.id OR o.aid = u.id)
         LEFT JOIN (
           SELECT parent_agent_id, COUNT(*) as sub_count
           FROM agents
           WHERE parent_agent_id IS NOT NULL
           GROUP BY parent_agent_id
         ) sub ON sub.parent_agent_id = a.id
-        WHERE ${whereClause}
-        ORDER BY a.created_at DESC
+        WHERE (LOWER(COALESCE(u.role::text, '')) IN ('agent', 'superagent', 'reseller') OR u.security_domain = 'AGENT' OR a.id IS NOT NULL)
+          AND ${whereClause}
+        ORDER BY COALESCE(a.created_at, u.created_at) DESC
         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
       `;
 
@@ -343,49 +370,49 @@ export async function adminAgentsRoutes(
 
       const agentQuery = `
         SELECT
-          a.id,
-          a.user_id as "userId",
+          COALESCE(a.id, u.id) as id,
+          u.id as "userId",
           COALESCE(u.full_name, 'Unnamed Agent') as "fullName",
           u.email,
           u.phone,
           COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
-          a.slug,
+          COALESCE(a.slug, s.slug, 'agent-' || SUBSTRING(u.id::text, 1, 8)) as slug,
           COALESCE(a.status, u.status, 'ACTIVE') as "agentStatus",
-          COALESCE(s.status, 'NOT_STARTED') as "storeStatus",
+          COALESCE(s.store_status, s.status, 'NOT_STARTED') as "storeStatus",
           s.id as "storeId",
           s.store_name as "storeName",
           s.slug as "storeSlug",
-          COALESCE(a.api_access_enabled, FALSE) as "apiAccessEnabled",
+          COALESCE(a.api_access_enabled, (COALESCE(k.key_count, 0) > 0), FALSE) as "apiAccessEnabled",
           COALESCE(k.key_count, 0) as "activeKeysCount",
           COALESCE(u.wallet_balance_pesewas, 0) as "walletBalancePesewas",
           COALESCE(o.orders_count, 0) as "ordersCount",
           COALESCE(o.revenue_pesewas, 0) as "revenuePesewas",
           COALESCE(sub.sub_count, 0) as "subAgentsCount",
           COALESCE(a.agent_tier, 'STANDARD') as "agentTier",
-          a.created_at as "createdAt",
+          COALESCE(a.created_at, u.created_at) as "createdAt",
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
-        FROM agents a
-        JOIN users u ON a.user_id = u.id
-        LEFT JOIN agent_stores s ON s.agent_id = a.id
+        FROM users u
+        LEFT JOIN agents a ON a.user_id = u.id
+        LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
         LEFT JOIN (
-          SELECT user_id, COUNT(*) as key_count
+          SELECT COALESCE(owner_user_id, agent_id) as uid, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY user_id
-        ) k ON k.user_id = u.id
+          GROUP BY COALESCE(owner_user_id, agent_id)
+        ) k ON k.uid = u.id
         LEFT JOIN (
-          SELECT agent_id, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
+          SELECT COALESCE(agent_id, user_id) as aid, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
           FROM orders
           WHERE payment_status = 'PAID'
-          GROUP BY agent_id
-        ) o ON o.agent_id = a.id
+          GROUP BY COALESCE(agent_id, user_id)
+        ) o ON (o.aid = a.id OR o.aid = u.id)
         LEFT JOIN (
           SELECT parent_agent_id, COUNT(*) as sub_count
           FROM agents
           WHERE parent_agent_id IS NOT NULL
           GROUP BY parent_agent_id
         ) sub ON sub.parent_agent_id = a.id
-        WHERE a.id::text = $1 OR a.user_id::text = $1 OR a.slug = $1
+        WHERE a.id::text = $1 OR a.user_id::text = $1 OR u.id::text = $1 OR a.slug = $1 OR s.slug = $1
       `;
 
       const agentRes = await db.query(agentQuery, [id]).catch((err) => {
@@ -436,7 +463,7 @@ export async function adminAgentsRoutes(
           COUNT(*) FILTER (WHERE status = 'ACTIVE') as "activeKeys",
           MAX(last_used_at) as "lastRequestAt"
         FROM api_keys
-        WHERE user_id = $1
+        WHERE (agent_id = $1 OR owner_user_id = $1)
       `;
       const apiSumRes = await db.query(apiSumQuery, [userId]).catch(() => ({ rows: [{}] }));
       const as = apiSumRes.rows[0] || {};
@@ -444,19 +471,45 @@ export async function adminAgentsRoutes(
       // 4. Store summary
       const storeRes = await db.query(
         `SELECT s.id, s.store_name as "storeName", s.slug,
-                COALESCE(s.status, 'ACTIVE') as "storeStatus",
-                COALESCE(s.status, 'APPROVED') as "approvalStatus",
+                s.tagline, s.description, s.logo_url as "logoUrl", s.banner_url as "bannerUrl",
+                s.primary_color as "primaryColor", s.accent_color as "accentColor",
+                s.contact_email as "contactEmail", s.contact_phone as "contactPhone", s.contact_whatsapp as "contactWhatsapp",
+                s.payment_status as "paymentStatus", s.activation_fee_pesewas as "activationFeePesewas",
+                COALESCE(s.store_status, s.status, 'ACTIVE') as "storeStatus",
+                COALESCE(s.approval_status, 'APPROVED') as "approvalStatus",
                 COALESCE((SELECT COUNT(*) FROM store_products WHERE store_id = s.id), 0) as "productsCount",
                 COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (store_id = s.id OR agent_id = s.agent_id) AND payment_status = 'PAID'), 0) as "totalSalesPesewas"
-         FROM agent_stores s
+         FROM stores s
          WHERE s.agent_id::text = $1 OR s.user_id::text = $2`,
         [agentId, userId],
-      ).catch(() => ({ rows: [] }));
+      ).catch(async () => {
+        return db.query(
+          `SELECT s.id, s.store_name as "storeName", s.slug,
+                  COALESCE(s.status, 'ACTIVE') as "storeStatus",
+                  COALESCE(s.status, 'APPROVED') as "approvalStatus",
+                  COALESCE((SELECT COUNT(*) FROM store_products WHERE store_id = s.id), 0) as "productsCount",
+                  COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (store_id = s.id OR agent_id = s.agent_id) AND payment_status = 'PAID'), 0) as "totalSalesPesewas"
+           FROM agent_stores s
+           WHERE s.agent_id::text = $1 OR s.user_id::text = $2`,
+          [agentId, userId],
+        ).catch(() => ({ rows: [] }));
+      });
 
       const storeSummary = storeRes.rows[0] ? {
         id: storeRes.rows[0].id,
         storeName: storeRes.rows[0].storeName,
         slug: storeRes.rows[0].slug,
+        tagline: storeRes.rows[0].tagline || undefined,
+        description: storeRes.rows[0].description || undefined,
+        logoUrl: storeRes.rows[0].logoUrl || undefined,
+        bannerUrl: storeRes.rows[0].bannerUrl || undefined,
+        primaryColor: storeRes.rows[0].primaryColor || '#0066FF',
+        accentColor: storeRes.rows[0].accentColor || '#00E599',
+        contactEmail: storeRes.rows[0].contactEmail || undefined,
+        contactPhone: storeRes.rows[0].contactPhone || undefined,
+        contactWhatsapp: storeRes.rows[0].contactWhatsapp || undefined,
+        paymentStatus: storeRes.rows[0].paymentStatus || 'PAID',
+        activationFeePesewas: parseInt(storeRes.rows[0].activationFeePesewas || '50000', 10),
         storeStatus: storeRes.rows[0].storeStatus,
         approvalStatus: storeRes.rows[0].approvalStatus,
         totalSalesPesewas: parseInt(storeRes.rows[0].totalSalesPesewas || '0', 10),
@@ -568,14 +621,14 @@ export async function adminAgentsRoutes(
 
       // 8. Recent orders
       const ordersRes = await db.query(
-        `SELECT id, recipient_phone as "recipientPhone", network,
+        `SELECT id, public_id as "publicId", recipient_phone as "recipientPhone", network,
                 data_amount_mb as "dataAmountMb", amount_pesewas as "amountPesewas",
                 order_status as "orderStatus", payment_status as "paymentStatus",
                 COALESCE(provider_status, 'COMPLETED') as "providerStatus", created_at as "createdAt"
          FROM orders
          WHERE agent_id::text = $1 OR user_id::text = $2
          ORDER BY created_at DESC
-         LIMIT 10`,
+         LIMIT 20`,
         [agentId, userId],
       ).catch(() => ({ rows: [] }));
 
@@ -586,7 +639,7 @@ export async function adminAgentsRoutes(
          FROM audit_logs
          WHERE actor_id::text = $1 OR resource_id::text = $1 OR resource_id::text = $2
          ORDER BY created_at DESC
-         LIMIT 10`,
+         LIMIT 15`,
         [userId, agentId],
       ).catch(() => ({ rows: [] }));
 
@@ -718,19 +771,36 @@ export async function adminAgentsRoutes(
       const { id } = req.params;
       const { fullName, phone, businessName, slug, agentTier, commissionRate, enableApiAccess } = req.body || {};
 
-      const existingAgent = await db.query(
-        'SELECT a.id, a.user_id as "userId", a.slug, a.business_name FROM agents a WHERE a.id = $1',
+      const lookupRes = await db.query(
+        `SELECT a.id as "agentId", u.id as "userId", a.slug, COALESCE(a.business_name, u.full_name) as "businessName"
+         FROM users u
+         LEFT JOIN agents a ON a.user_id = u.id
+         WHERE a.id::text = $1 OR u.id::text = $1 OR a.slug = $1`,
         [id],
       );
-      if (existingAgent.rows.length === 0) {
+      if (lookupRes.rows.length === 0) {
         throw new NotFoundError(`Agent not found with ID '${id}'`);
       }
 
-      const agent = existingAgent.rows[0];
+      const agent = lookupRes.rows[0];
+      const targetUserId = agent.userId;
+      let targetAgentId = agent.agentId;
+
+      if (!targetAgentId) {
+        const cleanDefaultSlug = `agent-${String(targetUserId).slice(0, 8)}`;
+        const insAgent = await db.query(
+          `INSERT INTO agents (user_id, business_name, slug, agent_tier, status, is_active)
+           VALUES ($1, $2, $3, 'STANDARD', 'ACTIVE', TRUE)
+           ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+           RETURNING id`,
+          [targetUserId, businessName?.trim() || 'Individual Reseller', cleanDefaultSlug],
+        );
+        targetAgentId = insAgent.rows[0]?.id;
+      }
 
       if (slug && slug !== agent.slug) {
         const cleanSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
-        const slugCheck = await db.query('SELECT id FROM agents WHERE slug = $1 AND id != $2', [cleanSlug, id]);
+        const slugCheck = await db.query('SELECT id FROM agents WHERE slug = $1 AND id != $2', [cleanSlug, targetAgentId]);
         if (slugCheck.rows.length > 0) {
           throw new ConflictError(`Slug '${cleanSlug}' is already registered by another merchant.`);
         }
@@ -743,7 +813,7 @@ export async function adminAgentsRoutes(
                phone = COALESCE($2, phone),
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $3`,
-          [fullName?.trim(), phone?.trim(), agent.userId],
+          [fullName?.trim(), phone?.trim(), targetUserId],
         );
       }
 
@@ -765,7 +835,7 @@ export async function adminAgentsRoutes(
           agentTier,
           commissionRate,
           enableApiAccess,
-          id,
+          targetAgentId,
         ],
       );
 
@@ -776,7 +846,7 @@ export async function adminAgentsRoutes(
           actorType: 'ADMIN',
           action: 'ADMIN_UPDATE_AGENT',
           resourceType: 'agents',
-          resourceId: id,
+          resourceId: targetAgentId,
           metadata: { businessName, slug, agentTier, enableApiAccess },
           ipAddress: req.ip,
         });
@@ -807,23 +877,42 @@ export async function adminAgentsRoutes(
         throw new BadRequestError(`Invalid status '${status}'. Must be one of: ${validStatuses.join(', ')}`);
       }
 
-      const agentRes = await db.query('SELECT id, user_id as "userId", status FROM agents WHERE id = $1', [id]);
-      if (agentRes.rows.length === 0) {
+      const lookupRes = await db.query(
+        `SELECT a.id as "agentId", u.id as "userId", COALESCE(a.status, u.status) as status
+         FROM users u
+         LEFT JOIN agents a ON a.user_id = u.id
+         WHERE a.id::text = $1 OR u.id::text = $1 OR a.slug = $1`,
+        [id],
+      );
+      if (lookupRes.rows.length === 0) {
         throw new NotFoundError(`Agent not found with ID '${id}'`);
       }
 
-      const agent = agentRes.rows[0];
+      const agent = lookupRes.rows[0];
+      const targetUserId = agent.userId;
+      let targetAgentId = agent.agentId;
 
-      // Update agent status
-      await db.query(
-        `UPDATE agents SET status = $1, is_active = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
-        [status, status === AgentAccountStatus.ACTIVE, id],
-      );
+      if (!targetAgentId) {
+        const cleanDefaultSlug = `agent-${String(targetUserId).slice(0, 8)}`;
+        const insAgent = await db.query(
+          `INSERT INTO agents (user_id, business_name, slug, agent_tier, status, is_active)
+           VALUES ($1, 'Individual Reseller', $2, 'STANDARD', $3, $4)
+           ON CONFLICT (user_id) DO UPDATE SET status = EXCLUDED.status, updated_at = CURRENT_TIMESTAMP
+           RETURNING id`,
+          [targetUserId, cleanDefaultSlug, status, status === AgentAccountStatus.ACTIVE],
+        );
+        targetAgentId = insAgent.rows[0]?.id;
+      } else {
+        await db.query(
+          `UPDATE agents SET status = $1, is_active = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+          [status, status === AgentAccountStatus.ACTIVE, targetAgentId],
+        );
+      }
 
       // Update user status
       await db.query(
         `UPDATE users SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-        [status, agent.userId],
+        [status, targetUserId],
       );
 
       if (auditService) {
@@ -833,7 +922,7 @@ export async function adminAgentsRoutes(
           actorType: 'ADMIN',
           action: 'ADMIN_CHANGE_AGENT_STATUS',
           resourceType: 'agents',
-          resourceId: id,
+          resourceId: targetAgentId || id,
           metadata: { previousStatus: agent.status, newStatus: status, reason },
           ipAddress: req.ip,
         });
@@ -867,15 +956,18 @@ export async function adminAgentsRoutes(
         throw new BadRequestError('Positive amount in pesewas, direction (CREDIT/DEBIT), and mandatory reason (min 5 chars) are required.');
       }
 
-      const agentRes = await db.query(
-        'SELECT a.id, a.user_id as "userId", u.wallet_balance_pesewas as "walletBalancePesewas" FROM agents a JOIN users u ON a.user_id = u.id WHERE a.id = $1',
+      const lookupRes = await db.query(
+        `SELECT a.id as "agentId", u.id as "userId", COALESCE(u.wallet_balance_pesewas, 0) as "walletBalancePesewas"
+         FROM users u
+         LEFT JOIN agents a ON a.user_id = u.id
+         WHERE a.id::text = $1 OR u.id::text = $1`,
         [id],
       );
-      if (agentRes.rows.length === 0) {
+      if (lookupRes.rows.length === 0) {
         throw new NotFoundError(`Agent not found with ID '${id}'`);
       }
 
-      const agent = agentRes.rows[0];
+      const agent = lookupRes.rows[0];
       const userId = agent.userId;
 
       // Post balanced double-entry voucher
@@ -980,6 +1072,15 @@ export async function adminAgentsRoutes(
     async (req, reply) => {
       const { id } = req.params;
 
+      const lookupRes = await db.query(
+        `SELECT a.id as "agentId", u.id as "userId"
+         FROM users u
+         LEFT JOIN agents a ON a.user_id = u.id
+         WHERE a.id::text = $1 OR u.id::text = $1`,
+        [id],
+      );
+      const targetAgentId = lookupRes.rows[0]?.agentId || id;
+
       const pricingRes = await db.query(
         `SELECT cp.id as "productId", cp.name as "productName", cp.sku, cp.network,
                 cp.data_amount_mb as "dataAmountMb", cp.base_price_pesewas as "basePricePesewas",
@@ -990,7 +1091,7 @@ export async function adminAgentsRoutes(
          LEFT JOIN agent_pricing ap ON ap.product_id = cp.id AND ap.agent_id = $1
          WHERE cp.is_active = TRUE
          ORDER BY cp.network ASC, cp.data_amount_mb ASC`,
-        [id],
+        [targetAgentId],
       );
 
       const items: AgentCustomPricingItemDto[] = pricingRes.rows.map((r) => {
@@ -1031,6 +1132,29 @@ export async function adminAgentsRoutes(
         throw new BadRequestError('Pricing array is required.');
       }
 
+      const lookupRes = await db.query(
+        `SELECT a.id as "agentId", u.id as "userId", u.full_name as "fullName"
+         FROM users u
+         LEFT JOIN agents a ON a.user_id = u.id
+         WHERE a.id::text = $1 OR u.id::text = $1`,
+        [id],
+      );
+      let targetAgentId = lookupRes.rows[0]?.agentId;
+
+      if (!targetAgentId && lookupRes.rows[0]?.userId) {
+        const targetUserId = lookupRes.rows[0].userId;
+        const cleanDefaultSlug = `agent-${String(targetUserId).slice(0, 8)}`;
+        const insAgent = await db.query(
+          `INSERT INTO agents (user_id, business_name, slug, agent_tier, status, is_active)
+           VALUES ($1, $2, $3, 'STANDARD', 'ACTIVE', TRUE)
+           ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+           RETURNING id`,
+          [targetUserId, lookupRes.rows[0].fullName || 'Individual Reseller', cleanDefaultSlug],
+        );
+        targetAgentId = insAgent.rows[0]?.id;
+      }
+      targetAgentId = targetAgentId || id;
+
       const client = await db.connect();
       try {
         await client.query('BEGIN');
@@ -1040,7 +1164,7 @@ export async function adminAgentsRoutes(
             // Delete custom price override
             await client.query(
               'DELETE FROM agent_pricing WHERE agent_id = $1 AND product_id = $2',
-              [id, item.productId],
+              [targetAgentId, item.productId],
             );
           } else if (item.customPricePesewas > 0) {
             // Upsert custom price override
@@ -1049,7 +1173,7 @@ export async function adminAgentsRoutes(
                VALUES ($1, $2, $3, TRUE, CURRENT_TIMESTAMP)
                ON CONFLICT (agent_id, product_id)
                DO UPDATE SET custom_price_pesewas = EXCLUDED.custom_price_pesewas, is_active = TRUE, updated_at = CURRENT_TIMESTAMP`,
-              [id, item.productId, item.customPricePesewas],
+              [targetAgentId, item.productId, item.customPricePesewas],
             );
           }
         }
@@ -1069,7 +1193,7 @@ export async function adminAgentsRoutes(
           actorType: 'ADMIN',
           action: 'ADMIN_UPDATE_AGENT_PRICING',
           resourceType: 'agents',
-          resourceId: id,
+          resourceId: targetAgentId,
           metadata: { pricingUpdatesCount: pricing.length },
           ipAddress: req.ip,
         });
@@ -1089,17 +1213,23 @@ export async function adminAgentsRoutes(
     async (req, reply) => {
       const { id } = req.params;
 
-      const agentRes = await db.query('SELECT user_id FROM agents WHERE id = $1', [id]);
-      if (agentRes.rows.length === 0) {
+      const lookupRes = await db.query(
+        `SELECT a.id as "agentId", u.id as "userId"
+         FROM users u
+         LEFT JOIN agents a ON a.user_id = u.id
+         WHERE a.id::text = $1 OR u.id::text = $1`,
+        [id],
+      );
+      if (lookupRes.rows.length === 0) {
         throw new NotFoundError(`Agent not found with ID '${id}'`);
       }
-      const userId = agentRes.rows[0].user_id;
+      const userId = lookupRes.rows[0].userId;
 
       const keysRes = await db.query(
         `SELECT id, name, key_prefix as "keyPrefix", environment, scopes,
                 status, last_used_at as "lastUsedAt", expires_at as "expiresAt", created_at as "createdAt"
          FROM api_keys
-         WHERE agent_id = $1
+         WHERE (agent_id = $1 OR owner_user_id = $1)
          ORDER BY created_at DESC`,
         [userId],
       );
@@ -1162,33 +1292,35 @@ export async function adminAgentsRoutes(
 
       let query = `
         SELECT
-          a.id as "agentId",
+          COALESCE(a.id, u.id) as "agentId",
           COALESCE(u.full_name, '') as "fullName",
           u.email,
           u.phone,
           COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
-          a.slug,
-          COALESCE(a.status, 'ACTIVE') as status,
+          COALESCE(a.slug, s.slug, 'agent-' || SUBSTRING(u.id::text, 1, 8)) as "slug",
+          COALESCE(a.status, u.status, 'ACTIVE') as status,
           ROUND(COALESCE(u.wallet_balance_pesewas, 0) / 100.0, 2) as "walletBalanceGhs",
-          COALESCE((SELECT COUNT(*) FROM orders WHERE agent_id = a.id), 0) as "ordersCount",
-          COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE agent_id = a.id AND payment_status = 'PAID'), 0) / 100.0 as "revenueGhs",
-          a.created_at as "createdAt"
-        FROM agents a
-        JOIN users u ON a.user_id = u.id
+          COALESCE((SELECT COUNT(*) FROM orders WHERE agent_id = a.id OR user_id = u.id), 0) as "ordersCount",
+          COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND payment_status = 'PAID'), 0) / 100.0 as "revenueGhs",
+          COALESCE(a.created_at, u.created_at) as "createdAt"
+        FROM users u
+        LEFT JOIN agents a ON a.user_id = u.id
+        LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
+        WHERE (LOWER(COALESCE(u.role::text, '')) IN ('agent', 'superagent', 'reseller') OR u.security_domain = 'AGENT' OR a.id IS NOT NULL)
       `;
 
       const params: any[] = [];
       if (status !== 'ALL') {
-        query += ' WHERE UPPER(a.status) = $1';
+        query += ' AND UPPER(COALESCE(a.status, u.status, \'\')) = $1';
         params.push(status.toUpperCase());
       }
-      query += ' ORDER BY a.created_at DESC';
+      query += ' ORDER BY COALESCE(a.created_at, u.created_at) DESC';
 
-      const res = await db.query(query, params);
+      const res = await db.query(query, params).catch(() => ({ rows: [] }));
 
       if (format === 'csv') {
         const headers = ['Agent ID', 'Full Name', 'Email', 'Phone', 'Business Name', 'Slug', 'Status', 'Wallet Balance GHS', 'Orders', 'Revenue GHS', 'Created At'];
-        const rows = res.rows.map((r) => [
+        const rows = res.rows.map((r: any) => [
           `"${r.agentId}"`,
           `"${(r.fullName || '').replace(/"/g, '""')}"`,
           `"${r.email}"`,

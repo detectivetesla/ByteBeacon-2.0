@@ -317,6 +317,18 @@ export async function adminUsersRoutes(
 
       const newUser = insertRes.rows[0];
 
+      if (normalizedRole === 'agent' && newUser?.id) {
+        const cleanSlug = `agent-${String(newUser.id).slice(0, 8)}`;
+        await db.query(
+          `INSERT INTO agents (user_id, business_name, slug, agent_tier, status, is_active)
+           VALUES ($1, $2, $3, 'STANDARD', 'ACTIVE', TRUE)
+           ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+          [newUser.id, fullName.trim() || 'Individual Reseller', cleanSlug],
+        ).catch((err) => {
+          app.log.warn({ err, userId: newUser.id }, 'Failed to auto-create agent record on user creation');
+        });
+      }
+
       if (auditService) {
         await auditService.log({
           correlationId: req.id,
@@ -994,6 +1006,18 @@ export async function adminUsersRoutes(
         `UPDATE users SET role = $1, security_domain = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
         [proposedRole, newDomain, req.params.id],
       );
+
+      if (proposedRole === UserRole.AGENT) {
+        const cleanSlug = `agent-${String(req.params.id).slice(0, 8)}`;
+        await db.query(
+          `INSERT INTO agents (user_id, business_name, slug, agent_tier, status, is_active)
+           VALUES ($1, $2, $3, 'STANDARD', 'ACTIVE', TRUE)
+           ON CONFLICT (user_id) DO UPDATE SET status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP`,
+          [req.params.id, targetRes.rows[0].fullName || targetRes.rows[0].email || 'Individual Reseller', cleanSlug],
+        ).catch((err) => {
+          app.log.warn({ err, userId: req.params.id }, 'Failed to auto-create agent record on role promotion');
+        });
+      }
 
       if (sessionService) {
         await sessionService.revokeAllUserSessions(req.params.id);

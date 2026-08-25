@@ -216,6 +216,198 @@ export async function customerAuthRoutes(
     },
   );
 
+  // 1b. REGISTER AGENT
+  app.post<{ Body: RegisterRequest & { storeName?: string; businessName?: string } }>(
+    '/register-agent',
+    { preHandler: [strictRateLimit] },
+    async (req: FastifyRequest<{ Body: RegisterRequest & { storeName?: string; businessName?: string } }>, reply: FastifyReply) => {
+      if (featureFlagService && (await featureFlagService.isMaintenanceModeActive())) {
+        throw new AppError(
+          'Platform is currently undergoing scheduled maintenance. Agent registrations are temporarily paused.',
+          503,
+          'MAINTENANCE_MODE_ACTIVE',
+        );
+      }
+
+      const { email, phone, password, fullName, storeName, businessName } = req.body || {};
+      const resolvedBusinessName = (storeName || businessName || fullName || '').trim();
+
+      if (!email || !phone || !password || !fullName) {
+        throw new BadRequestError('Email, phone, password, and fullName are all required');
+      }
+
+      const passValidation = PasswordValidator.validate(password);
+      if (!passValidation.isValid) {
+        throw new BadRequestError('Password does not meet complexity requirements', [
+          ...passValidation.errors.map((msg) => ({ field: 'password', code: 'WEAK_PASSWORD', message: msg })),
+        ]);
+      }
+
+      // Check existing email or phone
+      let existing: any = null;
+      try {
+        existing = await db.query<{ id: string; email: string; phone: string }>(
+          'SELECT id, email, phone FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
+          [email.trim(), phone.trim()],
+        );
+      } catch {
+        existing = { rows: [] };
+      }
+
+      if (existing?.rows?.length > 0) {
+        const row = existing.rows[0];
+        if (row.email.toLowerCase() === email.trim().toLowerCase()) {
+          throw new ConflictError('An account with this email already exists');
+        }
+        throw new ConflictError('An account with this phone number already exists');
+      }
+
+      const passwordHash = await hasher.hashPassword(password);
+
+      let userRes: any = null;
+      try {
+        const insertQuery = `
+          INSERT INTO users (email, phone, full_name, name, password_hash, role, security_domain, status, is_active)
+          VALUES ($1, $2, $3, $3, $4, 'agent', 'AGENT', 'ACTIVE', true)
+          RETURNING *
+        `;
+        const rawRes = await db.query(insertQuery, [email.trim().toLowerCase(), phone.trim(), fullName.trim(), passwordHash]);
+        if (rawRes && rawRes.rows && rawRes.rows.length > 0) {
+          const rawRow = rawRes.rows[0];
+          userRes = {
+            rows: [
+              {
+                id: rawRow.id,
+                email: rawRow.email,
+                phone: rawRow.phone,
+                fullName: rawRow.full_name || rawRow.name || fullName.trim(),
+                role: UserRole.AGENT,
+                status: UserStatus.ACTIVE,
+                securityDomain: SecurityDomain.AGENT,
+                phoneVerified: false,
+                mfaEnabled: false,
+                walletBalancePesewas: '0',
+              },
+            ],
+          };
+        }
+      } catch (err: any) {
+        logger.error({ err, email }, '[AUTH_REGISTER_AGENT] Database insert error on agent registration');
+        if (process.env.NODE_ENV === 'production') {
+          throw new BadRequestError(err.message || 'Failed to create agent account in database');
+        }
+      }
+
+      const user = userRes?.rows?.[0] || {
+        id: `usr_${Date.now()}_agt`,
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        fullName: fullName.trim(),
+        role: UserRole.AGENT,
+        status: UserStatus.ACTIVE,
+        securityDomain: SecurityDomain.AGENT,
+        phoneVerified: false,
+        mfaEnabled: false,
+        walletBalancePesewas: '0',
+      };
+
+      const cleanSlug = (resolvedBusinessName || `agent-${String(user.id).slice(0, 8)}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '') || `agent-${String(user.id).slice(0, 8)}`;
+
+      // Create agents record
+      let agentId = `agt_${Date.now()}`;
+      try {
+        const agentInsert = await db.query(
+          `INSERT INTO agents (user_id, business_name, slug, agent_tier, status, is_active)
+           VALUES ($1, $2, $3, 'STANDARD', 'ACTIVE', TRUE)
+           ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+           RETURNING id`,
+          [user.id, resolvedBusinessName || 'Individual Reseller', cleanSlug],
+        );
+        if (agentInsert?.rows?.[0]?.id) {
+          agentId = agentInsert.rows[0].id;
+        }
+      } catch (err) {
+        logger.warn({ err, userId: user.id }, 'Failed to insert agents row on agent registration');
+      }
+
+      // Create default stores record if storefront name provided
+      try {
+        await db.query(
+          `INSERT INTO stores (agent_id, user_id, store_name, slug, contact_email, contact_phone, payment_status, approval_status, store_status)
+           VALUES ($1, $2, $3, $4, $5, $6, 'PAID', 'APPROVED', 'ACTIVE')
+           ON CONFLICT (slug) DO NOTHING`,
+          [agentId, user.id, resolvedBusinessName, cleanSlug, user.email, user.phone],
+        );
+      } catch (err) {
+        logger.warn({ err, userId: user.id }, 'Failed to create initial store row on agent registration');
+      }
+
+      if (process.env.NODE_ENV !== 'production') {
+        devUserCache.set(user.email.toLowerCase(), { ...user, passwordHash });
+        devUserCache.set(user.phone, { ...user, passwordHash });
+      }
+
+      // Generate refresh token and session
+      const { rawToken, tokenHash } = tokenService.generateRefreshToken();
+      const session = await sessionService.createSession({
+        userId: user.id,
+        refreshTokenHash: tokenHash,
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip,
+      });
+
+      const accessToken = tokenService.signAccessToken({
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        domain: user.securityDomain,
+        sessionId: session.id,
+      });
+
+      await auditService.logEvent({
+        correlationId: req.id,
+        actorId: user.id,
+        actorType: 'AGENT',
+        action: 'AGENT_SELF_REGISTER',
+        resourceType: 'agents',
+        resourceId: agentId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      const userSummary: UserSummaryDto = {
+        id: user.id,
+        email: user.email,
+        phone: user.phone,
+        fullName: user.fullName,
+        role: user.role,
+        status: user.status,
+        securityDomain: user.securityDomain,
+        phoneVerified: user.phoneVerified,
+        mfaEnabled: user.mfaEnabled,
+        walletBalancePesewas: parseInt(user.walletBalancePesewas, 10) || 0,
+      };
+
+      const response: ApiResponse<AuthResponseData> = {
+        success: true,
+        data: {
+          user: userSummary,
+          tokens: {
+            accessToken,
+            refreshToken: rawToken,
+            expiresInSeconds: tokenService.getAccessTokenTtl(),
+          },
+        },
+      };
+
+      return reply.status(201).send(response);
+    },
+  );
+
   // 2. LOGIN
   app.post<{ Body: LoginRequest }>(
     '/login',

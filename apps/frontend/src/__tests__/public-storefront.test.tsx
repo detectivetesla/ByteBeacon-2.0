@@ -382,5 +382,66 @@ describe('Public Customer Storefront Integration Tests', () => {
 
     expect(await screen.findByText('Storefront Unavailable')).toBeInTheDocument();
     expect(screen.getByText(/is currently undergoing maintenance/i)).toBeInTheDocument();
+    expect(screen.getByText(/Visit ByteBeacon Platform/i)).toBeInTheDocument();
+  });
+
+  it('correctly detects apisolutions.store host and extracts subdomain slug', async () => {
+    const { isStorefrontHostname, extractStoreSlugFromHost, STOREFRONT_CONFIG } = await import('../config/storefront.config.js');
+
+    // Apex domain
+    expect(isStorefrontHostname('apisolutions.store')).toBe(true);
+    expect(isStorefrontHostname('www.apisolutions.store')).toBe(true);
+    expect(isStorefrontHostname('fastdata.apisolutions.store')).toBe(true);
+    expect(isStorefrontHostname('bytebeacon.online')).toBe(false);
+    expect(isStorefrontHostname('localhost')).toBe(false);
+
+    // Subdomain extraction
+    expect(extractStoreSlugFromHost('fastdata.apisolutions.store')).toBe('fastdata');
+    expect(extractStoreSlugFromHost('express-data.apisolutions.store')).toBe('express-data');
+    expect(extractStoreSlugFromHost('www.apisolutions.store')).toBeNull();
+    expect(extractStoreSlugFromHost('apisolutions.store')).toBeNull();
+
+    // Canonical store URLs
+    expect(STOREFRONT_CONFIG.getStoreUrl('fastdata')).toContain('apisolutions.store/store/fastdata');
+    expect(STOREFRONT_CONFIG.getMainPlatformUrl('/signin')).toContain('bytebeacon.online/signin');
+  });
+
+  it('renders storefront via direct /:slug route for customer links', async () => {
+    vi.mocked(storesApi.getPublicStore).mockResolvedValueOnce({
+      store: {
+        id: 'str_direct_1',
+        userId: 'usr_agent_direct',
+        storeName: 'Direct Agent Store',
+        slug: 'direct-slug',
+        tagline: 'Instant Direct Data',
+        description: 'Direct slug customer purchase.',
+        primaryColor: '#0066FF',
+        accentColor: '#10B981',
+        paymentStatus: 'PAID',
+        approvalStatus: 'APPROVED',
+        storeStatus: 'ACTIVE',
+        activationFeePesewas: 50000,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      products: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/direct-slug']}>
+        <PlatformStatusProvider>
+          <ToastProvider>
+            <Routes>
+              <Route path="/:slug" element={<PublicStorefrontPage />} />
+            </Routes>
+          </ToastProvider>
+        </PlatformStatusProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Direct Agent Store')).toBeInTheDocument();
+    expect(screen.getByText('Verified Merchant')).toBeInTheDocument();
+    expect(screen.getByText('Merchant Portal')).toBeInTheDocument();
   });
 });
+

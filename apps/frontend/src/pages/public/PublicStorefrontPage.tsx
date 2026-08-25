@@ -60,13 +60,17 @@ export const PublicStorefrontPage: React.FC = () => {
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
-  const storeSlug = (slug || 'default').trim().toLowerCase();
+  // Extract slug from route params, subdomain, or query string (e.g. fastdata.apisolutions.store or ?store=fastdata)
+  const subdomainSlug = STOREFRONT_CONFIG.extractSlugFromSubdomain();
+  const querySlug = searchParams.get('store') || searchParams.get('slug');
+  const storeSlug = (slug || subdomainSlug || querySlug || 'default').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
   // Store state
   const [store, setStore] = useState<StoreProfileDto | null>(null);
   const [products, setProducts] = useState<PublicStoreProductDto[]>([]);
   const [isLoadingStore, setIsLoadingStore] = useState(true);
   const [storeNotFound, setStoreNotFound] = useState(false);
+  const [notFoundSearch, setNotFoundSearch] = useState('');
 
   // Filter & Network state
   const [activeNetwork, setActiveNetwork] = useState<NetworkProvider>(NetworkProvider.MTN);
@@ -97,6 +101,9 @@ export const PublicStorefrontPage: React.FC = () => {
       const res = await storesApi.getPublicStore(storeSlug);
       if (res && res.store) {
         setStore(res.store);
+        if (typeof document !== 'undefined') {
+          document.title = `${res.store.storeName || 'Data Store'} · Instant Data Bundles`;
+        }
         const prods = Array.isArray(res.products) ? res.products : [];
         setProducts(prods);
 
@@ -114,6 +121,7 @@ export const PublicStorefrontPage: React.FC = () => {
       setIsLoadingStore(false);
     }
   }, [storeSlug, activeNetwork]);
+
 
   useEffect(() => {
     loadStore();
@@ -349,28 +357,50 @@ export const PublicStorefrontPage: React.FC = () => {
           </p>
 
           <div style={{ marginTop: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <Link
-              to="/track"
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const target = notFoundSearch.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                if (target) {
+                  window.location.href = `/store/${target}`;
+                }
+              }}
+              style={{ display: 'flex', gap: '0.4rem' }}
+            >
+              <Input
+                placeholder="Find store by slug (e.g. fastdata)"
+                value={notFoundSearch}
+                onChange={(e) => setNotFoundSearch(e.target.value)}
+              />
+              <Button variant="primary" size="sm" type="submit">
+                Search
+              </Button>
+            </form>
+
+            <button
+              type="button"
+              onClick={() => setShowTrackModal(true)}
               style={{
                 padding: '0.65rem 1rem',
                 borderRadius: '10px',
                 backgroundColor: 'rgba(255, 255, 255, 0.08)',
                 color: '#FFFFFF',
-                textDecoration: 'none',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
                 fontSize: 'var(--font-size-xs)',
                 fontWeight: 700,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '0.4rem',
+                cursor: 'pointer',
               }}
             >
               <Search size={14} />
               <span>Track an Existing Order</span>
-            </Link>
+            </button>
 
-            <Link
-              to="/"
+            <a
+              href={STOREFRONT_CONFIG.getMainPlatformUrl()}
               style={{
                 padding: '0.65rem 1rem',
                 borderRadius: '10px',
@@ -388,12 +418,13 @@ export const PublicStorefrontPage: React.FC = () => {
             >
               <span>Visit ByteBeacon Platform</span>
               <ArrowRight size={14} />
-            </Link>
+            </a>
           </div>
         </Card>
       </div>
     );
   }
+
 
   const primaryBrandColor = store.primaryColor || '#0066FF';
   const merchantWhatsApp = store.contactWhatsapp || store.contactPhone || '';
@@ -1253,11 +1284,24 @@ export const PublicStorefrontPage: React.FC = () => {
       >
         <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div>
-            <span>© {new Date().getFullYear()} {store.storeName} · Powered by </span>
-            <strong style={{ color: '#94A3B8' }}>ByteBeacon Telecom Platform</strong>
+            <span>© {new Date().getFullYear()} {store.storeName} · Direct High-Speed Data Fulfillment</span>
           </div>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            <Link to="/track" style={{ color: '#94A3B8', textDecoration: 'none' }}>Order Tracking</Link>
+            <button
+              type="button"
+              onClick={() => setShowTrackModal(true)}
+              style={{ background: 'none', border: 'none', color: '#94A3B8', textDecoration: 'none', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+            >
+              Order Tracking
+            </button>
+            <span style={{ color: '#334155' }}>•</span>
+            <a
+              href={STOREFRONT_CONFIG.getMainPlatformUrl('/signin')}
+              style={{ color: '#94A3B8', textDecoration: 'none', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+            >
+              <span>Merchant Portal</span>
+              <ExternalLink size={10} />
+            </a>
             <span style={{ color: '#334155' }}>•</span>
             <span style={{ color: '#10B981', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
               <ShieldCheck size={13} /> Secured by Paystack
@@ -1265,6 +1309,7 @@ export const PublicStorefrontPage: React.FC = () => {
           </div>
         </div>
       </footer>
+
     </div>
   );
 };

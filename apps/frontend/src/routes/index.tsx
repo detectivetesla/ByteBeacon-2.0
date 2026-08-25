@@ -5,10 +5,11 @@ import { customerRoutes } from './customer.routes.js';
 import { agentRoutes } from './agent.routes.js';
 import { storeRoutes } from './store.routes.js';
 import { adminRoutes } from './admin.routes.js';
+import { PublicStorefrontPage } from '../pages/public/PublicStorefrontPage.js';
 
 export const routes: RouteObject[] = [
   // Public Marketing & Tracking Routes
-  publicRoutes,
+  ...publicRoutes,
 
   // Authentication Routes
   ...authRoutes,
@@ -35,9 +36,16 @@ export const routes: RouteObject[] = [
     element: <Navigate to="/app/buy-data" replace />,
   },
 
+  // Standalone Custom Agent Storefront Direct Slug (e.g. apisolutions.store/fastdata)
+  {
+    path: '/:slug',
+    element: <PublicStorefrontPage />,
+  },
+
   // Fallback Wildcard
   {
     path: '*',
     element: <Navigate to="/" replace />,
   },
 ];
+

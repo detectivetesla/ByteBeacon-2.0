@@ -123,7 +123,7 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
         }
 
         // 2. Agent Stats Query
-        if (sql.includes('COUNT(DISTINCT a.id) as "totalAgents"') && sql.includes('FROM agents a')) {
+        if (sql.includes('totalAgents') && (sql.includes('FROM agents a') || sql.includes('FROM users u'))) {
           return Promise.resolve({
             rows: [{
               totalAgents: '42',
@@ -139,21 +139,21 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
         }
 
         // 3. Agent Count Query
-        if (sql.includes('SELECT COUNT(DISTINCT a.id) as total FROM agents a')) {
+        if (sql.includes('SELECT COUNT(DISTINCT') && (sql.includes('FROM agents a') || sql.includes('FROM users u'))) {
           return Promise.resolve({
             rows: [{ total: '1' }],
           });
         }
 
         // 4. Agent List Query
-        if (sql.includes('FROM agents a') && sql.includes('ORDER BY a.created_at DESC')) {
+        if ((sql.includes('FROM agents a') || sql.includes('FROM users u')) && (sql.includes('ORDER BY a.created_at DESC') || sql.includes('ORDER BY COALESCE(a.created_at, u.created_at) DESC'))) {
           return Promise.resolve({
             rows: [mockAgentRow],
           });
         }
 
         // 5. Single Agent Detail Query
-        if (sql.includes('FROM agents a') && (sql.includes('WHERE a.id = $1') || sql.includes('WHERE a.id::text = $1'))) {
+        if ((sql.includes('FROM agents a') || sql.includes('FROM users u')) && (sql.includes('WHERE a.id = $1') || sql.includes('WHERE a.id::text = $1') || sql.includes('a.id::text = $1 OR a.user_id::text = $1'))) {
           return Promise.resolve({
             rows: [mockAgentRow],
           });
@@ -439,7 +439,7 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
         }
 
         // 15. Export Queries
-        if (sql.includes('SELECT a.id as "agentId"')) {
+        if (sql.includes('SELECT a.id as "agentId"') || sql.includes('as "agentId"') || sql.includes('walletBalanceGhs')) {
           return Promise.resolve({
             rows: [{
               agentId: 'agt_uuid_101',
