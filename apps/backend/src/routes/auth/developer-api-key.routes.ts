@@ -202,6 +202,28 @@ export async function developerApiKeyRoutes(
   );
 
   // 4. REVOKE API KEY
+  const handleRevokeKey = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const { id } = req.params;
+
+    if (!id) {
+      throw new BadRequestError('API key ID is required');
+    }
+
+    await apiKeyService.revokeApiKey(id, req.user!.sub);
+
+    await auditService.logEvent({
+      correlationId: req.id,
+      actorId: req.user!.sub,
+      actorType: 'AGENT',
+      action: 'API_KEY_REVOKED',
+      resourceType: 'api_keys',
+      resourceId: id,
+      ipAddress: req.ip,
+    });
+
+    return reply.send({ success: true, message: 'API key revoked successfully' });
+  };
+
   app.delete<{ Params: { id: string } }>(
     '/developer/api-keys/:id',
     {
@@ -210,27 +232,18 @@ export async function developerApiKeyRoutes(
         authHooks.requirePermission(Permission.API_KEYS_MANAGE),
       ],
     },
-    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const { id } = req.params;
+    handleRevokeKey,
+  );
 
-      if (!id) {
-        throw new BadRequestError('API key ID is required');
-      }
-
-      await apiKeyService.revokeApiKey(id, req.user!.sub);
-
-      await auditService.logEvent({
-        correlationId: req.id,
-        actorId: req.user!.sub,
-        actorType: 'AGENT',
-        action: 'API_KEY_REVOKED',
-        resourceType: 'api_keys',
-        resourceId: id,
-        ipAddress: req.ip,
-      });
-
-      return reply.send({ success: true, message: 'API key revoked successfully' });
+  app.post<{ Params: { id: string } }>(
+    '/developer/api-keys/:id/revoke',
+    {
+      preHandler: [
+        authHooks.authenticateCustomer,
+        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
+      ],
     },
+    handleRevokeKey,
   );
 }
 

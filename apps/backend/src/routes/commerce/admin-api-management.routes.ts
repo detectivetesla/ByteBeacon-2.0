@@ -364,9 +364,10 @@ export async function adminApiManagementRoutes(
            ak.created_at as "createdAt"
          FROM api_keys ak
          LEFT JOIN users u ON (ak.owner_user_id = u.id OR ak.agent_id = u.id)
-         WHERE ak.id = $1`,
+         WHERE ak.id::text = $1`,
         [id],
       );
+
 
       if (keyRes.rows.length === 0) {
         throw new NotFoundError('API key not found');
@@ -446,7 +447,7 @@ export async function adminApiManagementRoutes(
 
       // Verify owner exists
       const userRes = await db.query(
-        'SELECT id, full_name, email, role FROM users WHERE id = $1',
+        'SELECT id, full_name, email, role FROM users WHERE id::text = $1',
         [targetUserId],
       );
       if (userRes.rows.length === 0) {
@@ -542,7 +543,7 @@ export async function adminApiManagementRoutes(
       }
 
       const existingRes = await db.query(
-        'SELECT * FROM api_keys WHERE id = $1',
+        'SELECT * FROM api_keys WHERE id::text = $1',
         [id],
       );
       if (existingRes.rows.length === 0) {
@@ -559,7 +560,7 @@ export async function adminApiManagementRoutes(
         `UPDATE api_keys 
          SET expires_at = LEAST(COALESCE(expires_at, $2), $2),
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
+         WHERE id::text = $1`,
         [id, oldExpiresAt],
       );
 
@@ -641,7 +642,7 @@ export async function adminApiManagementRoutes(
       const { id } = req.params;
       const { name, scopes, rateLimitPerMinute, ipRestrictions, status, reason } = req.body || {};
 
-      const existingRes = await db.query('SELECT * FROM api_keys WHERE id = $1', [id]);
+      const existingRes = await db.query('SELECT * FROM api_keys WHERE id::text = $1', [id]);
       if (existingRes.rows.length === 0) {
         throw new NotFoundError('API key not found');
       }
@@ -672,7 +673,7 @@ export async function adminApiManagementRoutes(
       }
 
       await db.query(
-        `UPDATE api_keys SET ${updates.join(', ')} WHERE id = $1`,
+        `UPDATE api_keys SET ${updates.join(', ')} WHERE id::text = $1`,
         params,
       );
 
@@ -697,6 +698,46 @@ export async function adminApiManagementRoutes(
   // =========================================================================
   // 7. POST /admin/api/keys/:id/revoke — Revoke Key Immediately
   // =========================================================================
+  const handleAdminRevokeKey = async (
+    req: FastifyRequest<{ Params: { id: string }; Body?: { reason?: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { id } = req.params;
+    const { reason = 'Revoked by administrator' } = req.body || {};
+
+    const res = await db.query(
+      `UPDATE api_keys 
+       SET status = 'REVOKED', 
+           revoked_at = CURRENT_TIMESTAMP, 
+           revoked_by = $2, 
+           revocation_reason = $3,
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id::text = $1
+       RETURNING id, name, key_prefix as "keyPrefix"`,
+      [id, req.user!.sub, (reason || 'Revoked by administrator').trim()],
+    );
+
+    if (res.rows.length === 0) {
+      throw new NotFoundError('API key not found');
+    }
+
+    await auditService.logEvent({
+      correlationId: req.id,
+      actorId: req.user!.sub,
+      actorType: 'ADMIN',
+      action: 'ADMIN_API_KEY_REVOKED',
+      resourceType: 'api_keys',
+      resourceId: id,
+      metadata: { reason },
+      ipAddress: req.ip,
+    });
+
+    return reply.send({
+      success: true,
+      message: `API Key ${res.rows[0].keyPrefix} has been revoked immediately.`,
+    });
+  };
+
   app.post<{ Params: { id: string }; Body: { reason: string } }>(
     '/admin/api/keys/:id/revoke',
     {
@@ -705,47 +746,31 @@ export async function adminApiManagementRoutes(
         authHooks.requirePermission(Permission.API_KEYS_MANAGE),
       ],
     },
-    async (req, reply) => {
-      const { id } = req.params;
-      const { reason } = req.body || {};
-
-      if (!reason || reason.trim().length === 0) {
-        throw new BadRequestError('A justification is required to revoke an API key');
-      }
-
-      const res = await db.query(
-        `UPDATE api_keys 
-         SET status = 'REVOKED', 
-             revoked_at = CURRENT_TIMESTAMP, 
-             revoked_by = $2, 
-             revocation_reason = $3,
-             updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $1
-         RETURNING id, name, key_prefix as "keyPrefix"`,
-        [id, req.user!.sub, reason.trim()],
-      );
-
-      if (res.rows.length === 0) {
-        throw new NotFoundError('API key not found');
-      }
-
-      await auditService.logEvent({
-        correlationId: req.id,
-        actorId: req.user!.sub,
-        actorType: 'ADMIN',
-        action: 'ADMIN_API_KEY_REVOKED',
-        resourceType: 'api_keys',
-        resourceId: id,
-        metadata: { reason },
-        ipAddress: req.ip,
-      });
-
-      return reply.send({
-        success: true,
-        message: `API Key ${res.rows[0].keyPrefix} has been revoked immediately.`,
-      });
-    },
+    handleAdminRevokeKey,
   );
+
+  app.delete<{ Params: { id: string }; Body?: { reason?: string } }>(
+    '/admin/api/keys/:id',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
+      ],
+    },
+    handleAdminRevokeKey,
+  );
+
+  app.delete<{ Params: { id: string }; Body?: { reason?: string } }>(
+    '/admin/api/keys/:id/revoke',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
+      ],
+    },
+    handleAdminRevokeKey,
+  );
+
 
   // =========================================================================
   // 8. GET /admin/api/usage — Traffic & Latency Analytics

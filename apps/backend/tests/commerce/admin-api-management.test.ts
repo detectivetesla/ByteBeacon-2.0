@@ -153,7 +153,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
       }
-      if (typeof sql === 'string' && sql.includes('FROM api_keys') && sql.includes('WHERE ak.id = $1')) {
+      if (typeof sql === 'string' && sql.includes('FROM api_keys') && sql.includes('WHERE ak.id')) {
         return {
           rows: [
             {
@@ -193,7 +193,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 4. Create Key
   it('POST /admin/api/keys generates an API key, returns raw key once, and writes audit log', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string, params?: any[]) => {
-      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
+      if (typeof sql === 'string' && sql.includes('FROM users WHERE')) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', full_name: 'Admin', role: UserRole.SUPER_ADMIN }],
         };
@@ -241,12 +241,12 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   // 5. Rotate Key
   it('POST /admin/api/keys/:id/rotate rotates key, grants grace period, and returns replacement key', async () => {
     vi.spyOn(mockDb, 'query').mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
+      if (typeof sql === 'string' && sql.includes('FROM users WHERE')) {
         return {
           rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
       }
-      if (typeof sql === 'string' && sql.includes('SELECT * FROM api_keys WHERE id = $1')) {
+      if (typeof sql === 'string' && sql.includes('SELECT * FROM api_keys WHERE')) {
         return {
           rows: [
             {
@@ -261,6 +261,7 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
           ],
         };
       }
+
       if (typeof sql === 'string' && sql.includes('INSERT INTO api_keys')) {
         return {
           rows: [

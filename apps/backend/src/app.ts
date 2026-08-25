@@ -171,6 +171,21 @@ export function createApp(options: AppOptions = {}) {
   // 3. Register Multipart Plugin for file uploads
   app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
 
+  // 3b. Graceful JSON Content-Type Parser (tolerates empty bodies on POST/DELETE/PUT/PATCH)
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    if (!body || (typeof body === 'string' && body.trim() === '')) {
+      done(null, {});
+      return;
+    }
+    try {
+      const json = JSON.parse(body as string);
+      done(null, json);
+    } catch (err: any) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
   // 4. Register Global Error Handler
   app.setErrorHandler(errorHandler);
 

@@ -162,11 +162,16 @@ export class HttpClient {
     const requestId = this.generateRequestId();
 
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
       'x-request-id': requestId,
       'x-correlation-id': requestId,
       ...(customHeaders as Record<string, string>),
     };
+
+    if (fetchOptions.body !== undefined && fetchOptions.body !== null) {
+      if (!headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+      }
+    }
 
     if (idempotencyKey) {
       headers['idempotency-key'] = idempotencyKey;
@@ -314,8 +319,16 @@ export class HttpClient {
     });
   }
 
-  public delete<T = any>(endpoint: string, options?: RequestOptions): Promise<T> {
-    return this.request<T>(endpoint, { ...options, method: 'DELETE' });
+  public delete<T = any>(endpoint: string, bodyOrOptions?: unknown, options?: RequestOptions): Promise<T> {
+    const isOptions = bodyOrOptions && typeof bodyOrOptions === 'object' && ('headers' in bodyOrOptions || 'params' in bodyOrOptions || 'skipAuth' in bodyOrOptions);
+    const actualOptions = (isOptions ? bodyOrOptions : options) as RequestOptions | undefined;
+    const body = !isOptions ? bodyOrOptions : undefined;
+
+    return this.request<T>(endpoint, {
+      ...actualOptions,
+      method: 'DELETE',
+      body: body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined,
+    });
   }
 }
 

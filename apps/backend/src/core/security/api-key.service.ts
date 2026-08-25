@@ -158,7 +158,7 @@ export class ApiKeyService {
 
   public async revokeApiKey(keyId: string, agentId: string): Promise<void> {
     await this.db.query(
-      "UPDATE api_keys SET status = 'REVOKED', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND agent_id = $2",
+      "UPDATE api_keys SET status = 'REVOKED', updated_at = CURRENT_TIMESTAMP WHERE id::text = $1 AND (agent_id::text = $2 OR owner_user_id::text = $2)",
       [keyId, agentId],
     );
   }
@@ -172,7 +172,7 @@ export class ApiKeyService {
       expires_at: Date | null;
       status: ApiKeyStatus;
     }>(
-      'SELECT id, name, environment, scopes, expires_at, status FROM api_keys WHERE id = $1 AND agent_id = $2',
+      'SELECT id, name, environment, scopes, expires_at, status FROM api_keys WHERE id::text = $1 AND (agent_id::text = $2 OR owner_user_id::text = $2)',
       [keyId, agentId],
     );
 
@@ -198,7 +198,7 @@ export class ApiKeyService {
     }>(
       `UPDATE api_keys
        SET key_prefix = $1, key_hash = $2, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3 AND agent_id = $4
+       WHERE id::text = $3 AND (agent_id::text = $4 OR owner_user_id::text = $4)
        RETURNING id, name, key_prefix as "keyPrefix", environment, scopes, created_at as "createdAt", expires_at as "expiresAt"`,
       [keyPrefix, keyHash, keyId, agentId],
     );
@@ -232,7 +232,7 @@ export class ApiKeyService {
              status, last_used_at as "lastUsedAt", expires_at as "expiresAt",
              created_at as "createdAt"
       FROM api_keys
-      WHERE agent_id = $1
+      WHERE agent_id::text = $1 OR owner_user_id::text = $1
       ORDER BY created_at DESC
     `;
     const result = await this.db.query(query, [agentId]);
