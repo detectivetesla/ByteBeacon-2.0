@@ -1,12 +1,17 @@
 import * as XLSX from 'xlsx';
 import { BundleItem } from '../components/commerce/BundleSelector.js';
 
+export type RecipientRowStatus = 'APPROVED' | 'UNAPPROVED' | 'REJECTED';
+
 export interface ParsedSpreadsheetRow {
   phone: string;
   bundleId: string;
   data: string;
   pricePesewas: number;
   isValid: boolean;
+  status: RecipientRowStatus;
+  statusReason?: string;
+  isKnown?: boolean;
   rawPhone?: string;
   rawVolume?: string;
   error?: string;
@@ -17,6 +22,9 @@ export interface SpreadsheetParseResult {
   totalRows: number;
   validRows: number;
   invalidRows: number;
+  approvedRows: number;
+  unapprovedRows: number;
+  rejectedRows: number;
   totalPesewas: number;
   error?: string;
 }
@@ -144,6 +152,9 @@ export async function parseSpreadsheetFile(
       totalRows: 0,
       validRows: 0,
       invalidRows: 0,
+      approvedRows: 0,
+      unapprovedRows: 0,
+      rejectedRows: 0,
       totalPesewas: 0,
       error: 'The uploaded file is empty.',
     };
@@ -161,6 +172,9 @@ export async function parseSpreadsheetFile(
       totalRows: 0,
       validRows: 0,
       invalidRows: 0,
+      approvedRows: 0,
+      unapprovedRows: 0,
+      rejectedRows: 0,
       totalPesewas: 0,
       error: `Failed to parse spreadsheet: ${err?.message || 'Invalid file format.'}`,
     };
@@ -172,6 +186,9 @@ export async function parseSpreadsheetFile(
       totalRows: 0,
       validRows: 0,
       invalidRows: 0,
+      approvedRows: 0,
+      unapprovedRows: 0,
+      rejectedRows: 0,
       totalPesewas: 0,
       error: 'Spreadsheet has no worksheets.',
     };
@@ -185,6 +202,9 @@ export async function parseSpreadsheetFile(
       totalRows: 0,
       validRows: 0,
       invalidRows: 0,
+      approvedRows: 0,
+      unapprovedRows: 0,
+      rejectedRows: 0,
       totalPesewas: 0,
       error: 'Worksheet is unreadable.',
     };
@@ -203,6 +223,9 @@ export async function parseSpreadsheetFile(
       totalRows: 0,
       validRows: 0,
       invalidRows: 0,
+      approvedRows: 0,
+      unapprovedRows: 0,
+      rejectedRows: 0,
       totalPesewas: 0,
       error: 'No data found in spreadsheet.',
     };
@@ -281,30 +304,43 @@ export async function parseSpreadsheetFile(
       totalPesewas += price;
     }
 
+    const errorMsg = !isValidPhone
+      ? 'Invalid Ghana mobile number'
+      : !matched?.id
+      ? 'No matching data bundle'
+      : undefined;
+
+    const status: RecipientRowStatus = isValid ? 'APPROVED' : 'REJECTED';
+    const statusReason = isValid ? 'Valid recipient and bundle' : errorMsg;
+
     parsedRows.push({
       phone: normalizedPhone || rawPhone,
       bundleId: matched?.id || '',
       data: matched?.dataDisplay || String(rawVol),
       pricePesewas: price,
       isValid,
+      status,
+      statusReason,
       rawPhone,
       rawVolume: rawVol,
-      error: !isValidPhone
-        ? 'Invalid Ghana mobile number'
-        : !matched?.id
-        ? 'No matching data bundle'
-        : undefined,
+      error: errorMsg,
     });
   }
 
   const validRows = parsedRows.filter((r) => r.isValid).length;
   const invalidRows = parsedRows.length - validRows;
+  const approvedRows = parsedRows.filter((r) => r.status === 'APPROVED').length;
+  const unapprovedRows = parsedRows.filter((r) => r.status === 'UNAPPROVED').length;
+  const rejectedRows = parsedRows.filter((r) => r.status === 'REJECTED').length;
 
   return {
     rows: parsedRows,
     totalRows: parsedRows.length,
     validRows,
     invalidRows,
+    approvedRows,
+    unapprovedRows,
+    rejectedRows,
     totalPesewas,
   };
 }
@@ -344,3 +380,32 @@ export function generateSpreadsheetTemplate(
   const filename = `bytebeacon_${templateType}_template.xlsx`;
   return { blob, filename };
 }
+
+/**
+ * Generates an exported CSV audit report of uploaded spreadsheet rows (approved vs rejected vs unapproved).
+ */
+export function generateSpreadsheetReport(
+  rows: ParsedSpreadsheetRow[],
+  filter?: RecipientRowStatus | 'ALL',
+): { blob: Blob; filename: string } {
+  const headers = ['Phone Number', 'Data Volume', 'Estimated Price (GH₵)', 'Status', 'Details / Reason'];
+
+  const filteredRows =
+    filter && filter !== 'ALL' ? rows.filter((r) => r.status === filter) : rows;
+
+  const dataRows = filteredRows.map((r) => [
+    `"${r.phone || r.rawPhone || ''}"`,
+    `"${r.data || r.rawVolume || ''}"`,
+    `"${(r.pricePesewas / 100).toFixed(2)}"`,
+    `"${r.status}"`,
+    `"${(r.statusReason || r.error || '').replace(/"/g, '""')}"`,
+  ]);
+
+  const csvContent = [headers.join(','), ...dataRows.map((cols) => cols.join(','))].join('\n') + '\n';
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const suffix = filter && filter !== 'ALL' ? `_${filter.toLowerCase()}` : '_report';
+  const filename = `excel_validation${suffix}_${Date.now()}.csv`;
+
+  return { blob, filename };
+}
+

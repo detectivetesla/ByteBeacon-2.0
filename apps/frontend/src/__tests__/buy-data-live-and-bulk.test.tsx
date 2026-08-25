@@ -254,9 +254,72 @@ describe('BuyDataPage and PurchaseModal Live Dynamic Integration', () => {
     fireEvent.change(fileInput);
 
     await waitFor(() => {
-      expect(screen.getByText(/2 Valid Recipients Detected/i)).toBeTruthy();
+      expect(screen.getByText('Total Rows')).toBeTruthy();
       expect(screen.getByText('0241234567')).toBeTruthy();
       expect(screen.getByText('0559876543')).toBeTruthy();
+      expect(screen.getAllByText(/Approved/i).length).toBeGreaterThan(0);
     });
   });
+
+  it('displays approved, unapproved, and rejected numbers with status badges and filter tabs when an Excel with mixed numbers is uploaded', async () => {
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['Beneficiary Msisdn', 'Data (GB)'],
+      ['0241234567', '5GB'], // Valid approved
+      ['0240000000', '2.5GB'], // Valid
+      ['12345', '10GB'], // Invalid / Rejected
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+    const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const file = new File([arrayBuffer], 'mixed_orders.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    file.arrayBuffer = () => Promise.resolve(arrayBuffer);
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/app/buy-data']}>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(catalogApi.getBundles).toHaveBeenCalled();
+    });
+
+    // Switch to Excel
+    const excelButton = screen.getByRole('button', { name: /Excel/i });
+    fireEvent.click(excelButton);
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
+
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      configurable: true,
+    });
+    fireEvent.change(fileInput);
+
+    await waitFor(() => {
+      // Summary cards
+      expect(screen.getByText('Total Rows')).toBeTruthy();
+      expect(screen.getByText('Rejected / Invalid')).toBeTruthy();
+      // Badges
+      expect(screen.getByText('0241234567')).toBeTruthy();
+      expect(screen.getByText('12345')).toBeTruthy();
+      expect(screen.getAllByText(/Rejected/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Export Report \(\.csv\)/i)).toBeTruthy();
+    });
+
+    // Filter by Rejected tab
+    const rejectedTab = screen.getByRole('button', { name: /✗ Rejected/i });
+    fireEvent.click(rejectedTab);
+
+    expect(screen.getByText('12345')).toBeTruthy();
+  });
 });
+
