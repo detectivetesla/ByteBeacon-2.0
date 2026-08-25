@@ -1,6 +1,7 @@
 import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { Redis } from 'ioredis';
@@ -167,7 +168,10 @@ export function createApp(options: AppOptions = {}) {
     credentials: true,
   });
 
-  // 3. Register Global Error Handler
+  // 3. Register Multipart Plugin for file uploads
+  app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
+
+  // 4. Register Global Error Handler
   app.setErrorHandler(errorHandler);
 
   // 4. Initialize Core & Security Services with test fallbacks

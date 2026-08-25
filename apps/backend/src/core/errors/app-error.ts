@@ -57,6 +57,12 @@ export class RateLimitExceededError extends AppError {
   }
 }
 
+export class UnprocessableEntityError extends AppError {
+  constructor(message = 'Unprocessable entity', details?: Array<{ field?: string; code: string; message: string }>) {
+    super(message, 422, 'UNPROCESSABLE_ENTITY', details);
+  }
+}
+
 export class ServiceUnavailableError extends AppError {
   constructor(message = 'Service temporarily unavailable') {
     super(message, 503, 'SERVICE_UNAVAILABLE');

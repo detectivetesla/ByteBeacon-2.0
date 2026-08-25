@@ -2782,4 +2782,43 @@ export interface AgentOrderDetailData {
   beneficiaries: AgentOrderBeneficiaryItem[];
 }
 
+// --- Agent Bulk Order Contracts ---
+
+export interface AgentBulkOrderRecipient {
+  phoneNumber: string;
+  dataSizeGb: number;
+}
+
+export interface AgentBulkOrderRequest {
+  network: NetworkProvider | string;
+  recipients: AgentBulkOrderRecipient[];
+  idempotencyKey: string;
+  confirmedPorted?: string[];
+  onUnvalidated?: 'set_aside' | 'reject';
+}
+
+export interface AgentBulkChildOrderDto {
+  id: string;
+  publicId: string;
+  referenceCode: string;
+  sizeGb: number;
+  beneficiaryCount: number;
+  amount: string;
+  status: string;
+}
+
+export interface AgentBulkOrderResult {
+  id: string;
+  referenceCode: string;
+  network: string;
+  amount: string;
+  status: string;
+  createdAt: string;
+  beneficiaryCount: number;
+  groupCount: number;
+  orders: AgentBulkChildOrderDto[];
+  blocked: string[];
+}
+
+
 
