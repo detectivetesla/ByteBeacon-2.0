@@ -162,16 +162,11 @@ export class HttpClient {
     const requestId = this.generateRequestId();
 
     const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
       'x-request-id': requestId,
       'x-correlation-id': requestId,
       ...(customHeaders as Record<string, string>),
     };
-
-    if (fetchOptions.body !== undefined && fetchOptions.body !== null) {
-      if (!headers['Content-Type']) {
-        headers['Content-Type'] = 'application/json';
-      }
-    }
 
     if (idempotencyKey) {
       headers['idempotency-key'] = idempotencyKey;

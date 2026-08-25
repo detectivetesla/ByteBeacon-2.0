@@ -276,7 +276,7 @@ export const AgentStorePage: React.FC = () => {
                   Custom Public Storefront
                 </strong>
                 <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                  Your branded link at https://apisolutions.store/store/{slug || 'your-slug'}
+                  Your branded link at {STOREFRONT_CONFIG.getStoreUrl(slug || 'your-slug')}
                 </span>
 
               </div>

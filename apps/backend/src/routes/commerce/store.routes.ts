@@ -948,10 +948,10 @@ export async function storeRoutes(
             orderId: orderRow.id,
             amountPesewas: retailPricePesewas,
             currency: 'GHS' as any,
-            email: customerEmail || store.contactEmail || 'customer@apisolutions.store',
+            email: customerEmail || store.contactEmail || 'customer@bytebeacon.online',
             paymentMethod: 'PAYSTACK' as any,
             channel: channel as any,
-            callbackUrl: callbackUrl || `https://apisolutions.store/store/${store.slug}?ref=${paymentRef}`,
+            callbackUrl: callbackUrl || `https://bytebeacon.online/store/${store.slug}?ref=${paymentRef}`,
             metadata: {
               orderId: orderRow.id,
               orderPublicId: orderRow.publicId,

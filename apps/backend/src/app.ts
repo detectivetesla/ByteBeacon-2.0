@@ -150,21 +150,92 @@ export function createApp(options: AppOptions = {}) {
     crossOriginEmbedderPolicy: false,
   });
 
-  // 2. Strict CORS Configuration
+  // 2. Strict & Resilient CORS Configuration
   app.register(cors, {
     origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
       if (!origin) {
         cb(null, true);
         return;
       }
-      if (config.CORS_ORIGINS.includes(origin)) {
+
+      const clean = origin.trim().replace(/\/+$/, '').toLowerCase();
+
+      // Explicit configured origins
+      const configured = new Set(
+        (config.CORS_ORIGINS || []).map((o) => o.trim().replace(/\/+$/, '').toLowerCase()),
+      );
+
+      if (configured.has(clean)) {
         cb(null, true);
         return;
       }
+
+      // Check apex / www variation of configured origins
+      for (const allowed of Array.from(configured)) {
+        try {
+          const u = new URL(allowed);
+          const hostname = u.hostname.toLowerCase();
+          if (hostname.startsWith('www.')) {
+            const apex = `${u.protocol}//${hostname.slice(4)}${u.port ? ':' + u.port : ''}`;
+            if (clean === apex) {
+              cb(null, true);
+              return;
+            }
+          } else {
+            const www = `${u.protocol}//www.${hostname}${u.port ? ':' + u.port : ''}`;
+            if (clean === www) {
+              cb(null, true);
+              return;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Built-in official domains and subdomains (bytebeacon.online, apisolutions.store, bytebeacon.com, vercel preview apps)
+      try {
+        const u = new URL(clean);
+        const host = u.hostname.toLowerCase();
+        if (
+          host === 'bytebeacon.online' ||
+          host.endsWith('.bytebeacon.online') ||
+          host === 'apisolutions.store' ||
+          host.endsWith('.apisolutions.store') ||
+          host === 'bytebeacon.com' ||
+          host.endsWith('.bytebeacon.com') ||
+          host.endsWith('.vercel.app')
+        ) {
+          cb(null, true);
+          return;
+        }
+      } catch {
+        // ignore
+      }
+
+      // Development / test local loopback origins
+      if (config.NODE_ENV !== 'production') {
+        if (clean.includes('localhost') || clean.includes('127.0.0.1')) {
+          cb(null, true);
+          return;
+        }
+      }
+
       cb(new Error('CORS origin denied by ByteBeacon security policy'), false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-api-key', 'idempotency-key', 'x-gmpl-signature', 'x-telecom-signature', 'x-datahouse-signature', 'x-webhook-signature', 'x-correlation-id'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-request-id',
+      'x-api-key',
+      'idempotency-key',
+      'x-gmpl-signature',
+      'x-telecom-signature',
+      'x-datahouse-signature',
+      'x-webhook-signature',
+      'x-correlation-id',
+    ],
     credentials: true,
   });
 

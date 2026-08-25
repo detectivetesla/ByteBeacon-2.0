@@ -12,7 +12,10 @@ const getBaseUrl = (): string => {
       return envUrl.trim().replace(/\/+$/, '');
     }
   }
-  return 'https://apisolutions.store/store';
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return `${window.location.origin}/store`;
+  }
+  return 'https://www.bytebeacon.online/store';
 };
 
 export const STOREFRONT_CONFIG = {
