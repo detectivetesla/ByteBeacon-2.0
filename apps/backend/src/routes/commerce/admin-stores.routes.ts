@@ -509,6 +509,159 @@ export async function adminStoresRoutes(
     },
   );
 
+  // 4b. GET STORE ACTIVATION FEE SETTING (/admin/stores/settings/activation-fee)
+  app.get(
+    '/admin/stores/settings/activation-fee',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (_req: FastifyRequest, reply: FastifyReply) => {
+      const configRes = await db.query(
+        `SELECT value FROM system_configurations WHERE config_key = 'agent_store_activation_fee_pesewas'`,
+      );
+      let feePesewas = 50000; // Default GH₵ 500.00
+      if (configRes.rows.length > 0) {
+        const val = configRes.rows[0].value;
+        const parsed = typeof val === 'number' ? val : parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          feePesewas = parsed;
+        }
+      }
+      return reply.send({
+        success: true,
+        data: {
+          activationFeePesewas: feePesewas,
+          activationFeeGhs: Number((feePesewas / 100).toFixed(2)),
+          configKey: 'agent_store_activation_fee_pesewas',
+        },
+      });
+    },
+  );
+
+  // 4c. UPDATE STORE ACTIVATION FEE SETTING (/admin/stores/settings/activation-fee)
+  const handleUpdateActivationFee = async (
+    req: FastifyRequest<{
+      Body: { activationFeeGhs?: number; activationFeePesewas?: number; reason?: string };
+    }>,
+    reply: FastifyReply,
+  ) => {
+    const { activationFeeGhs, activationFeePesewas, reason } = req.body || {};
+    let newPesewas: number;
+
+    if (activationFeeGhs !== undefined && !isNaN(Number(activationFeeGhs))) {
+      newPesewas = Math.round(Number(activationFeeGhs) * 100);
+    } else if (activationFeePesewas !== undefined && !isNaN(Number(activationFeePesewas))) {
+      newPesewas = Math.round(Number(activationFeePesewas));
+    } else {
+      throw new BadRequestError('activationFeeGhs or activationFeePesewas is required.');
+    }
+
+    if (newPesewas < 0) {
+      throw new BadRequestError('Activation fee cannot be negative.');
+    }
+
+    await db.query(
+      `INSERT INTO system_configurations (category, config_key, scope, value, data_type, is_read_only, risk_level, requires_audit, description, version)
+       VALUES ('AGENTS', 'agent_store_activation_fee_pesewas', 'AGENTS', $1::jsonb, 'NUMBER', false, 'HIGH', true, 'One-time store activation fee in pesewas', 1)
+       ON CONFLICT (config_key)
+       DO UPDATE SET
+         value = $1::jsonb,
+         version = system_configurations.version + 1,
+         updated_at = CURRENT_TIMESTAMP`,
+      [JSON.stringify(newPesewas)],
+    );
+
+    if (auditService) {
+      await auditService.logEvent({
+        correlationId: req.id,
+        actorId: req.user!.sub,
+        actorType: 'ADMIN',
+        action: 'UPDATE_SYSTEM_CONFIG',
+        resourceType: 'system_configurations',
+        resourceId: 'agent_store_activation_fee_pesewas',
+        metadata: { newPesewas, newGhs: newPesewas / 100, reason },
+        ipAddress: req.ip,
+      });
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        activationFeePesewas: newPesewas,
+        activationFeeGhs: Number((newPesewas / 100).toFixed(2)),
+      },
+      message: `Store activation fee successfully updated to GH₵ ${(newPesewas / 100).toFixed(2)}.`,
+    });
+  };
+
+  app.put<{ Body: { activationFeeGhs?: number; activationFeePesewas?: number; reason?: string } }>(
+    '/admin/stores/settings/activation-fee',
+    { preHandler: [authHooks.authenticateAdmin] },
+    handleUpdateActivationFee,
+  );
+  app.patch<{ Body: { activationFeeGhs?: number; activationFeePesewas?: number; reason?: string } }>(
+    '/admin/stores/settings/activation-fee',
+    { preHandler: [authHooks.authenticateAdmin] },
+    handleUpdateActivationFee,
+  );
+
+  // 4d. VERIFY STORE ACTIVATION PAYMENT (/admin/stores/:id/verify-payment)
+  app.post<{ Params: { id: string }; Body: { notes?: string; autoApprove?: boolean } }>(
+    '/admin/stores/:id/verify-payment',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { id } = req.params;
+      const { notes = 'Payment verified by administrator', autoApprove = true } = req.body || {};
+
+      const approvalClause = autoApprove ? "approval_status = 'APPROVED', store_status = 'ACTIVE'," : "approval_status = CASE WHEN approval_status = 'NOT_SUBMITTED' THEN 'AWAITING_APPROVAL' ELSE approval_status END,";
+
+      const storeRes = await db.query(
+        `UPDATE stores
+         SET payment_status = 'PAID',
+             ${approvalClause}
+             paystack_reference = COALESCE(paystack_reference, 'ADMIN-VERIFY-' || id),
+             admin_notes = COALESCE($1, admin_notes),
+             approved_by = CASE WHEN ${autoApprove ? 'TRUE' : 'FALSE'} THEN $2 ELSE approved_by END,
+             approved_at = CASE WHEN ${autoApprove ? 'TRUE' : 'FALSE'} THEN CURRENT_TIMESTAMP ELSE approved_at END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3
+         RETURNING id, store_name as "storeName", slug, payment_status as "paymentStatus", approval_status as "approvalStatus", store_status as "storeStatus"`,
+        [notes, req.user!.sub, id],
+      );
+
+      if (storeRes.rows.length === 0) {
+        throw new NotFoundError(`Store not found with ID '${id}'`);
+      }
+
+      // Ensure default catalog products exist for this store
+      await db.query(
+        `INSERT INTO store_products (store_id, catalog_product_id, markup_pesewas, is_available, is_visible)
+         SELECT $1, id, 200, TRUE, TRUE
+         FROM catalog_products
+         WHERE is_active = TRUE
+         ON CONFLICT (store_id, catalog_product_id) DO NOTHING`,
+        [id],
+      );
+
+      if (auditService) {
+        await auditService.logEvent({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_VERIFY_STORE_PAYMENT',
+          resourceType: 'stores',
+          resourceId: id,
+          metadata: { notes, autoApprove },
+          ipAddress: req.ip,
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: storeRes.rows[0],
+        message: 'Store payment verified and store updated successfully.',
+      });
+    },
+  );
+
   // 5. APPROVE STORE APPLICATION (/admin/stores/:id/approve)
   app.post<{ Params: { id: string }; Body: { adminNotes?: string } }>(
     '/admin/stores/:id/approve',
@@ -521,18 +674,29 @@ export async function adminStoresRoutes(
         `UPDATE stores
          SET approval_status = 'APPROVED',
              store_status = 'ACTIVE',
+             payment_status = 'PAID',
              approved_by = $1,
              approved_at = CURRENT_TIMESTAMP,
              admin_notes = $2,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $3
-         RETURNING id, store_name as "storeName", slug, approval_status as "approvalStatus", store_status as "storeStatus"`,
+         RETURNING id, store_name as "storeName", slug, payment_status as "paymentStatus", approval_status as "approvalStatus", store_status as "storeStatus"`,
         [req.user!.sub, adminNotes, id],
       );
 
       if (storeRes.rows.length === 0) {
         throw new NotFoundError(`Store not found with ID '${id}'`);
       }
+
+      // Ensure default catalog products exist for this store
+      await db.query(
+        `INSERT INTO store_products (store_id, catalog_product_id, markup_pesewas, is_available, is_visible)
+         SELECT $1, id, 200, TRUE, TRUE
+         FROM catalog_products
+         WHERE is_active = TRUE
+         ON CONFLICT (store_id, catalog_product_id) DO NOTHING`,
+        [id],
+      );
 
       if (auditService) {
         await auditService.logEvent({
@@ -554,6 +718,7 @@ export async function adminStoresRoutes(
       });
     },
   );
+
 
   // 6. REJECT STORE APPLICATION (/admin/stores/:id/reject)
   app.post<{ Params: { id: string }; Body: { reason: string } }>(

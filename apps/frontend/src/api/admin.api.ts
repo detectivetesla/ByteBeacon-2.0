@@ -1257,6 +1257,21 @@ export const adminApi = {
     return apiClient.post(`/admin/stores/${id}/reject`, { reason });
   },
 
+  verifyStorePayment: async (id: string, notes?: string, autoApprove: boolean = true) => {
+    return apiClient.post(`/admin/stores/${id}/verify-payment`, { notes, autoApprove });
+  },
+
+  getStoreActivationFee: async (): Promise<{ activationFeePesewas: number; activationFeeGhs: number; configKey: string }> => {
+    const res = await apiClient.get<any>('/admin/stores/settings/activation-fee');
+    return res.data || res;
+  },
+
+  updateStoreActivationFee: async (data: { activationFeeGhs?: number; activationFeePesewas?: number; reason?: string }) => {
+    const res = await apiClient.put<any>('/admin/stores/settings/activation-fee', data);
+    return res.data || res;
+  },
+
+
   getStoreProductsList: async (id: string): Promise<StoreProductAdminDto[]> => {
     return apiClient.get<StoreProductAdminDto[]>(`/admin/stores/${id}/products`);
   },

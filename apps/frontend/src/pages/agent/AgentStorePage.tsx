@@ -5,8 +5,10 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Input, PhoneInput } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
-import { storesApi } from '../../api/stores.api.js';
+import { storesApi, StoreDto } from '../../api/stores.api.js';
 import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
+
+
 import {
   Store,
   CreditCard,
@@ -34,8 +36,8 @@ export const AgentStorePage: React.FC = () => {
   const { user } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
 
-  // Hard paywall state machine (defaults to LOCKED_PAYWALL)
   const [setupState, setSetupState] = useState<StoreSetupState>('LOCKED_PAYWALL');
+  const [storeRaw, setStoreRaw] = useState<StoreDto | null>(null);
 
   // Store profile fields
   const [storeName, setStoreName] = useState(user?.fullName ? `${user.fullName}'s Store` : '');
@@ -45,28 +47,30 @@ export const AgentStorePage: React.FC = () => {
   const [copiedLink, setCopiedLink] = useState(false);
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [activationFeeGhs, setActivationFeeGhs] = useState<number>(500.00);
 
-  const activationFeeGhs = 500.00;
   const publicStoreUrl = STOREFRONT_CONFIG.getRelativeStorePath(slug);
   const canonicalStoreUrl = STOREFRONT_CONFIG.getStoreUrl(slug);
-
 
   const fetchStore = useCallback(async () => {
     try {
       const store = await storesApi.getStore();
       if (store) {
+        setStoreRaw(store);
         setStoreName(store.storeName || '');
         setSlug(store.slug || '');
         setPhone(store.contactPhone || user?.phone || '');
         setEmail(store.contactEmail || user?.email || '');
+        if (store.activationFeePesewas) {
+          setActivationFeeGhs(Number((store.activationFeePesewas / 100).toFixed(2)));
+        }
 
         if (store.storeStatus === 'ACTIVE' && store.approvalStatus === 'APPROVED') {
           setSetupState('ACTIVE');
         } else if (store.approvalStatus === 'AWAITING_APPROVAL') {
           setSetupState('AWAITING_APPROVAL');
-        } else if (store.paymentStatus === 'PAYMENT_PENDING') {
-          setSetupState('PAYMENT_PENDING');
         } else {
+          // Unlocked/editable paywall state (even if previously initialized)
           setSetupState('LOCKED_PAYWALL');
         }
       }
@@ -74,7 +78,6 @@ export const AgentStorePage: React.FC = () => {
       setSetupState('LOCKED_PAYWALL');
     }
   }, [user]);
-
 
   useEffect(() => {
     fetchStore();
@@ -84,16 +87,18 @@ export const AgentStorePage: React.FC = () => {
       const reference = query.get('reference') || query.get('trxref') || query.get('verify');
       if (reference) {
         setIsProcessingPayment(true);
+        setSetupState('PAYMENT_PENDING');
         storesApi.verifyActivation(reference)
           .then((res) => {
             if (res?.success) {
-              setSetupState('ACTIVE');
+              setSetupState('AWAITING_APPROVAL');
               toastSuccess('Store Activated', 'Payment verified! Your storefront has been submitted for review.');
               fetchStore();
             }
           })
           .catch((err) => {
             toastError('Payment Verification Failed', err?.message || 'Unable to verify payment.');
+            setSetupState('LOCKED_PAYWALL');
           })
           .finally(() => {
             setIsProcessingPayment(false);
@@ -102,6 +107,7 @@ export const AgentStorePage: React.FC = () => {
       }
     }
   }, [fetchStore]);
+
 
   // Handle Paystack Hard Paywall Checkout
   const handlePayActivationFee = async (e: React.FormEvent) => {
@@ -314,12 +320,26 @@ export const AgentStorePage: React.FC = () => {
 
             {/* Direct Paywall Checkout Form */}
             <form onSubmit={handlePayActivationFee} style={{ backgroundColor: 'var(--color-bg-surface)', padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--color-border-default)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                <CreditCard size={18} color="#F97316" />
-                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                  Storefront Deployment & Paystack Activation Checkout
-                </h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <CreditCard size={18} color="#F97316" />
+                  <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                    Storefront Deployment & Paystack Activation Checkout
+                  </h3>
+                </div>
+                {storeRaw?.paymentStatus === 'PAYMENT_PENDING' && (
+                  <Badge variant="warning" size="sm">Payment Incomplete</Badge>
+                )}
               </div>
+
+              {storeRaw?.paymentStatus === 'PAYMENT_PENDING' && (
+                <div style={{ padding: '0.65rem 1rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(249, 115, 22, 0.08)', border: '1px solid rgba(249, 115, 22, 0.25)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <span>A previous payment session was started. You can re-attempt payment or update your store details below.</span>
+                  <Button variant="ghost" size="sm" type="button" onClick={() => fetchStore()}>
+                    Refresh Status
+                  </Button>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
                 <Input
@@ -388,8 +408,17 @@ export const AgentStorePage: React.FC = () => {
             Verifying Paystack Payment...
           </h2>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.35rem' }}>
-            We are confirming your GH₵ 500.00 storefront activation payment with Paystack servers.
+            We are confirming your GH₵ {activationFeeGhs.toFixed(2)} storefront activation payment with Paystack servers.
           </p>
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-3)', marginTop: 'var(--space-6)' }}>
+            <Button variant="outline" size="sm" onClick={() => { setIsProcessingPayment(false); setSetupState('LOCKED_PAYWALL'); }}>
+              Back to Store Setup
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => fetchStore()}>
+              Check Status
+            </Button>
+          </div>
         </Card>
       )}
 
@@ -413,15 +442,22 @@ export const AgentStorePage: React.FC = () => {
           <div style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', textAlign: 'left', marginBottom: 'var(--space-6)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
               <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>Payment Reference:</span>
-              <strong style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>STRPAY-2026-0817-VERIFIED</strong>
+              <strong style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>{storeRaw?.paystackReference || 'STRPAY-VERIFIED'}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>Status:</span>
               <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 800, color: '#8B5CF6' }}>PAID · AWAITING_APPROVAL</span>
             </div>
           </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-3)' }}>
+            <Button variant="outline" size="sm" onClick={() => fetchStore()}>
+              Refresh Status
+            </Button>
+          </div>
         </Card>
       )}
+
 
       {/* STATE 4: UNLOCKED & ACTIVE */}
       {setupState === 'ACTIVE' && (

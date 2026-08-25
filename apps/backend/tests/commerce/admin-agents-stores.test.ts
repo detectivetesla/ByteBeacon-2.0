@@ -374,17 +374,44 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
           });
         }
 
+        if (sql.includes('FROM system_configurations WHERE config_key = \'agent_store_activation_fee_pesewas\'')) {
+          return Promise.resolve({
+            rows: [{ value: 50000 }],
+          });
+        }
+
+        if (sql.includes('INSERT INTO system_configurations') || sql.includes('UPDATE system_configurations')) {
+          return Promise.resolve({
+            rows: [{ value: 35000 }],
+          });
+        }
+
+        if (sql.includes('UPDATE stores SET payment_status = \'PAID\'')) {
+          return Promise.resolve({
+            rows: [{
+              id: 'str_uuid_201',
+              storeName: 'Yaw Express Store',
+              slug: 'yaw-express',
+              paymentStatus: 'PAID',
+              approvalStatus: 'APPROVED',
+              storeStatus: 'ACTIVE',
+            }],
+          });
+        }
+
         if (sql.includes('UPDATE stores SET approval_status = \'APPROVED\'')) {
           return Promise.resolve({
             rows: [{
               id: 'str_uuid_201',
               storeName: 'Yaw Express Store',
               slug: 'yaw-express',
+              paymentStatus: 'PAID',
               approvalStatus: 'APPROVED',
               storeStatus: 'ACTIVE',
             }],
           });
         }
+
 
         if (sql.includes('UPDATE stores SET approval_status = \'REJECTED\'')) {
           return Promise.resolve({
@@ -735,4 +762,54 @@ describe('Phase 11.7: Agent & Agent Store Management Control Plane', () => {
     expect(storesRes.headers['content-type']).toContain('text/csv');
     expect(storesRes.body).toContain('Yaw Express Store');
   });
+
+  it('GET and PUT /admin/stores/settings/activation-fee should read and update store activation paywall fee', async () => {
+    const getRes = await app.inject({
+      method: 'GET',
+      url: '/admin/stores/settings/activation-fee',
+      headers: { authorization: 'Bearer mock_admin_jwt' },
+    });
+
+    expect(getRes.statusCode).toBe(200);
+    const getBody = getRes.json();
+    expect(getBody.success).toBe(true);
+    expect(getBody.data.activationFeePesewas).toBe(50000);
+    expect(getBody.data.activationFeeGhs).toBe(500);
+
+    const putRes = await app.inject({
+      method: 'PUT',
+      url: '/admin/stores/settings/activation-fee',
+      headers: { authorization: 'Bearer mock_admin_jwt' },
+      payload: { activationFeeGhs: 350.00, reason: 'Promotional discount for new merchants' },
+    });
+
+    expect(putRes.statusCode).toBe(200);
+    const putBody = putRes.json();
+    expect(putBody.success).toBe(true);
+    expect(putBody.data.activationFeePesewas).toBe(35000);
+    expect(putBody.data.activationFeeGhs).toBe(350);
+  });
+
+  it('POST /admin/stores/:id/verify-payment should manually verify store activation payment and activate store', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/stores/str_uuid_201/verify-payment',
+      headers: { authorization: 'Bearer mock_admin_jwt' },
+      payload: {
+        notes: 'Cash payment confirmed at headquarters',
+        autoApprove: true,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.paymentStatus).toBe('PAID');
+    expect(body.data.approvalStatus).toBe('APPROVED');
+    expect(body.data.storeStatus).toBe('ACTIVE');
+    expect(mockAuditService.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'ADMIN_VERIFY_STORE_PAYMENT' }),
+    );
+  });
 });
+

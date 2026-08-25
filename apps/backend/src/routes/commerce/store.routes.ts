@@ -74,6 +74,19 @@ export async function storeRoutes(
 
   // 1. GET STORE ENTITLEMENT & PROFILE (/stores/me and /stores/my-store)
   const getStoreProfileHandler = async (req: FastifyRequest, reply: FastifyReply) => {
+    const configRes = await db.query(
+      `SELECT value FROM system_configurations WHERE config_key = 'agent_store_activation_fee_pesewas'`,
+    ).catch(() => ({ rows: [] }));
+    let dynamicFeePesewas = 50000;
+    if (configRes.rows.length > 0) {
+      const val = configRes.rows[0].value;
+      const parsed = typeof val === 'number' ? val : parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(parsed) && parsed >= 0) {
+        dynamicFeePesewas = parsed;
+      }
+    }
+    const dynamicFeeGhs = Number((dynamicFeePesewas / 100).toFixed(2));
+
     const store = await getAgentStore(req.user!.sub);
     if (!store) {
       return reply.send({
@@ -84,6 +97,8 @@ export async function storeRoutes(
           approvalStatus: 'NOT_SUBMITTED',
           storeStatus: 'NOT_STARTED',
           isEntitled: false,
+          activationFeePesewas: dynamicFeePesewas,
+          activationFeeGhs: dynamicFeeGhs,
         },
       });
     }
@@ -93,15 +108,24 @@ export async function storeRoutes(
       store.approvalStatus === 'APPROVED' &&
       store.storeStatus === 'ACTIVE';
 
+    const finalFeePesewas = store.paymentStatus === 'PAID' ? (store.activationFeePesewas || dynamicFeePesewas) : dynamicFeePesewas;
+
     return reply.send({
       success: true,
       data: {
         hasStore: true,
-        store,
+        store: {
+          ...store,
+          activationFeePesewas: finalFeePesewas,
+          activationFeeGhs: Number((finalFeePesewas / 100).toFixed(2)),
+        },
+        activationFeePesewas: finalFeePesewas,
+        activationFeeGhs: Number((finalFeePesewas / 100).toFixed(2)),
         isEntitled,
       },
     });
   };
+
 
   app.get('/stores/me', { preHandler: [authHooks.authenticateCustomer] }, getStoreProfileHandler);
   app.get('/stores/my-store', { preHandler: [authHooks.authenticateCustomer] }, getStoreProfileHandler);
@@ -251,6 +275,19 @@ export async function storeRoutes(
 
       const { storeName, slug, tagline, description, contactPhone, contactEmail, contactWhatsapp } = req.body || {};
 
+      // Dynamic activation fee from system_configurations
+      const configRes = await db.query(
+        `SELECT value FROM system_configurations WHERE config_key = 'agent_store_activation_fee_pesewas'`,
+      ).catch(() => ({ rows: [] }));
+      let dynamicFeePesewas = 50000;
+      if (configRes.rows.length > 0) {
+        const val = configRes.rows[0].value;
+        const parsed = typeof val === 'number' ? val : parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          dynamicFeePesewas = parsed;
+        }
+      }
+
       // Auto-provision or update store configuration if provided or if store does not exist yet
       if (!store) {
         const userRes = await db.query('SELECT full_name, email, phone FROM users WHERE id = $1', [req.user!.sub]);
@@ -278,7 +315,7 @@ export async function storeRoutes(
               agent_id, user_id, store_name, slug, tagline, description,
               contact_phone, contact_email, contact_whatsapp, payment_status, approval_status, store_status, activation_fee_pesewas
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PAYMENT_PENDING', 'NOT_SUBMITTED', 'INACTIVE', 50000)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PAYMENT_PENDING', 'NOT_SUBMITTED', 'INACTIVE', $10)
            RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                      slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
                      primary_color as "primaryColor", accent_color as "accentColor",
@@ -297,6 +334,7 @@ export async function storeRoutes(
             contactPhone || userRow?.phone || '',
             contactEmail || userRow?.email || '',
             contactWhatsapp || '',
+            dynamicFeePesewas,
           ],
         );
         store = insertRes.rows[0];
@@ -321,8 +359,9 @@ export async function storeRoutes(
                contact_phone = COALESCE($3, contact_phone),
                contact_email = COALESCE($4, contact_email),
                contact_whatsapp = COALESCE($5, contact_whatsapp),
+               activation_fee_pesewas = CASE WHEN payment_status != 'PAID' THEN $6 ELSE activation_fee_pesewas END,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $6
+           WHERE id = $7
            RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                      slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
                      primary_color as "primaryColor", accent_color as "accentColor",
@@ -337,6 +376,7 @@ export async function storeRoutes(
             contactPhone?.trim() || null,
             contactEmail?.trim() || null,
             contactWhatsapp?.trim() || null,
+            dynamicFeePesewas,
             store.id,
           ],
         );
@@ -365,9 +405,9 @@ export async function storeRoutes(
 
       await db.query(
         `UPDATE stores
-         SET paystack_reference = $1, payment_status = 'PAYMENT_PENDING', updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [reference, store.id],
+         SET paystack_reference = $1, payment_status = 'PAYMENT_PENDING', activation_fee_pesewas = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [reference, dynamicFeePesewas, store.id],
       );
 
       let authorizationUrl: string | undefined;
@@ -375,7 +415,7 @@ export async function storeRoutes(
         try {
           const payRes = await deps.paymentProvider.initializePayment({
             orderId: store.id,
-            amountPesewas: store.activationFeePesewas || 50000,
+            amountPesewas: dynamicFeePesewas,
             currency: 'GHS' as any,
             email: store.contactEmail || req.user?.email || 'agent@bytebeacon.com',
             paymentMethod: 'PAYSTACK' as any,
@@ -390,7 +430,7 @@ export async function storeRoutes(
             authorizationUrl = payRes.authorizationUrl;
           }
         } catch {
-          // Fallback to reference
+          // Graceful fallback for offline sandbox or direct simulation
         }
       }
 

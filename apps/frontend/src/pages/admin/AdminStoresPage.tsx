@@ -31,6 +31,7 @@ import {
   DollarSign,
   Check,
   X,
+  CreditCard,
 } from 'lucide-react';
 
 export const AdminStoresPage: React.FC = () => {
@@ -44,6 +45,11 @@ export const AdminStoresPage: React.FC = () => {
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalStores, setTotalStores] = useState<number>(0);
+
+  // Global Activation Fee (Paywall Price) State
+  const [activationFeeGhs, setActivationFeeGhs] = useState<number | null>(null);
+  const [paywallFeeInput, setPaywallFeeInput] = useState<string>('500.00');
+  const [isUpdatingActivationFee, setIsUpdatingActivationFee] = useState<boolean>(false);
 
   // Filters
   const [search, setSearch] = useState<string>('');
@@ -63,6 +69,13 @@ export const AdminStoresPage: React.FC = () => {
   const [reviewTargetStore, setReviewTargetStore] = useState<AdminStoreListItem | null>(null);
   const [reviewNotes, setReviewNotes] = useState<string>('');
   const [isReviewing, setIsReviewing] = useState<boolean>(false);
+
+  // Manual Payment Verification Modal
+  const [isVerifyPaymentModalOpen, setIsVerifyPaymentModalOpen] = useState<boolean>(false);
+  const [verifyPaymentTargetStore, setVerifyPaymentTargetStore] = useState<AdminStoreListItem | null>(null);
+  const [verifyPaymentNotes, setVerifyPaymentNotes] = useState<string>('Payment verified by administrator');
+  const [verifyPaymentAutoApprove, setVerifyPaymentAutoApprove] = useState<boolean>(true);
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState<boolean>(false);
 
   // Store Status Change Modal
   const [isStatusModalOpen, setIsStatusModalOpen] = useState<boolean>(false);
@@ -95,6 +108,20 @@ export const AdminStoresPage: React.FC = () => {
     }
   }, []);
 
+  // Fetch Paywall Price Setting
+  const fetchActivationFee = useCallback(async () => {
+    try {
+      const data = await adminApi.getStoreActivationFee();
+      if (data?.activationFeeGhs !== undefined) {
+        setActivationFeeGhs(data.activationFeeGhs);
+        setPaywallFeeInput(data.activationFeeGhs.toString());
+      }
+    } catch {
+      // Fallback
+    }
+  }, []);
+
+
   // Fetch Stores List
   const fetchStores = useCallback(async () => {
     setIsLoading(true);
@@ -125,8 +152,37 @@ export const AdminStoresPage: React.FC = () => {
 
   useEffect(() => {
     fetchStats();
+    fetchActivationFee();
     fetchStores();
-  }, [fetchStats, fetchStores]);
+  }, [fetchStats, fetchActivationFee, fetchStores]);
+
+  // Handle Save Paywall Activation Fee
+  const handleSaveActivationFee = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const parsed = parseFloat(paywallFeeInput);
+    if (isNaN(parsed) || parsed < 0) {
+      toastError('Invalid Amount', 'Please enter a valid positive activation fee amount in GHS.');
+      return;
+    }
+    setIsUpdatingActivationFee(true);
+    try {
+      const res = await adminApi.updateStoreActivationFee({
+        activationFeeGhs: parsed,
+        reason: 'Updated from Agent Store Management control plane',
+      });
+      if (res?.data?.activationFeeGhs !== undefined) {
+        setActivationFeeGhs(res.data.activationFeeGhs);
+        setPaywallFeeInput(res.data.activationFeeGhs.toString());
+      } else {
+        setActivationFeeGhs(parsed);
+      }
+      toastSuccess('Paywall Fee Updated', `Storefront activation fee is now GH₵ ${parsed.toFixed(2)}.`);
+    } catch (err: any) {
+      toastError('Update Failed', err.message || 'Could not update activation fee');
+    } finally {
+      setIsUpdatingActivationFee(false);
+    }
+  };
 
   // Open Store Dossier
   const openStoreDossier = async (storeId: string) => {
@@ -140,6 +196,34 @@ export const AdminStoresPage: React.FC = () => {
       toastError('Failed to load store dossier', err.message || 'Error fetching store details');
     } finally {
       setIsLoadingDetail(false);
+    }
+  };
+
+  // Handle Verify Store Payment
+  const handleVerifyStorePayment = async () => {
+    if (!verifyPaymentTargetStore) return;
+    setIsVerifyingPayment(true);
+    try {
+      await adminApi.verifyStorePayment(
+        verifyPaymentTargetStore.id,
+        verifyPaymentNotes.trim() || 'Payment verified by administrator',
+        verifyPaymentAutoApprove,
+      );
+      toastSuccess(
+        'Payment Verified',
+        `Payment for '${verifyPaymentTargetStore.storeName}' verified.${verifyPaymentAutoApprove ? ' Storefront is now APPROVED and ACTIVE.' : ''}`,
+      );
+      setIsVerifyPaymentModalOpen(false);
+      setVerifyPaymentNotes('Payment verified by administrator');
+      fetchStats();
+      fetchStores();
+      if (selectedStoreId === verifyPaymentTargetStore.id) {
+        openStoreDossier(verifyPaymentTargetStore.id);
+      }
+    } catch (err: any) {
+      toastError('Verification Failed', err.message || 'Could not verify store payment');
+    } finally {
+      setIsVerifyingPayment(false);
     }
   };
 
@@ -163,6 +247,7 @@ export const AdminStoresPage: React.FC = () => {
       setIsReviewing(false);
     }
   };
+
 
   // Handle Reject Store Application
   const handleRejectStore = async () => {
@@ -392,6 +477,51 @@ export const AdminStoresPage: React.FC = () => {
         ))}
       </div>
 
+      {/* Paywall Activation Fee Configuration Banner */}
+      <Card elevated accentColor="green" style={{ padding: 'var(--space-4) var(--space-5)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <DollarSign size={20} />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                Agent Storefront Paywall Activation Fee
+              </h3>
+              <Badge variant="success" size="sm">
+                Current: GH₵ {activationFeeGhs !== null ? activationFeeGhs.toFixed(2) : '500.00'}
+              </Badge>
+            </div>
+            <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', margin: '0.15rem 0 0 0' }}>
+              Universal one-time registration fee charged to agents to deploy their public storefront.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveActivationFee} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <div style={{ width: '130px' }}>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="500.00"
+              value={paywallFeeInput}
+              onChange={(e) => setPaywallFeeInput(e.target.value)}
+              disabled={isUpdatingActivationFee}
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            isLoading={isUpdatingActivationFee}
+            disabled={isUpdatingActivationFee}
+          >
+            Update Paywall Fee
+          </Button>
+        </form>
+      </Card>
+
       {/* Main Table Card */}
       <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
         {/* Filter Bar */}
@@ -480,16 +610,16 @@ export const AdminStoresPage: React.FC = () => {
               ),
             },
             {
-              header: 'Operational Status',
+              header: 'Status',
               accessor: 'storeStatus',
               render: (row: AdminStoreListItem) => (
-                <Badge variant={row.storeStatus === 'ACTIVE' ? 'success' : row.storeStatus === 'SUSPENDED' ? 'danger' : 'warning'} size="sm">
+                <Badge variant={row.storeStatus === 'ACTIVE' ? 'success' : row.storeStatus === 'SUSPENDED' ? 'danger' : 'default'} size="sm">
                   {row.storeStatus}
                 </Badge>
               ),
             },
             {
-              header: 'Application',
+              header: 'Approval',
               accessor: 'approvalStatus',
               render: (row: AdminStoreListItem) => (
                 <Badge variant={row.approvalStatus === 'APPROVED' ? 'success' : row.approvalStatus === 'REJECTED' ? 'danger' : 'warning'} size="sm">
@@ -535,12 +665,28 @@ export const AdminStoresPage: React.FC = () => {
               header: 'Actions',
               accessor: 'id',
               render: (row: AdminStoreListItem) => (
-                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
                   <Button variant="outline" size="sm" onClick={() => openStoreDossier(row.id)}>
                     <Eye size={13} style={{ marginRight: '4px' }} />
                     Dossier
                   </Button>
-                  {row.approvalStatus === 'AWAITING_APPROVAL' && (
+                  {row.paymentStatus !== 'PAID' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setVerifyPaymentTargetStore(row);
+                        setVerifyPaymentNotes('Payment verified by administrator');
+                        setVerifyPaymentAutoApprove(true);
+                        setIsVerifyPaymentModalOpen(true);
+                      }}
+                      title="Verify Payment & Approve"
+                    >
+                      <CreditCard size={13} style={{ marginRight: '4px' }} />
+                      Verify Pay
+                    </Button>
+                  )}
+                  {row.approvalStatus !== 'APPROVED' && (
                     <>
                       <Button
                         variant="primary"
@@ -549,21 +695,23 @@ export const AdminStoresPage: React.FC = () => {
                           setReviewTargetStore(row);
                           setIsApproveModalOpen(true);
                         }}
-                        title="Approve Storefront"
+                        title="Approve & Activate Storefront"
                       >
                         <Check size={13} />
                       </Button>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => {
-                          setReviewTargetStore(row);
-                          setIsRejectModalOpen(true);
-                        }}
-                        title="Reject Storefront"
-                      >
-                        <X size={13} />
-                      </Button>
+                      {row.approvalStatus === 'AWAITING_APPROVAL' && (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => {
+                            setReviewTargetStore(row);
+                            setIsRejectModalOpen(true);
+                          }}
+                          title="Reject Storefront"
+                        >
+                          <X size={13} />
+                        </Button>
+                      )}
                     </>
                   )}
                   <Button
@@ -652,6 +800,48 @@ export const AdminStoresPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* VERIFY PAYMENT MODAL */}
+      <Modal
+        isOpen={isVerifyPaymentModalOpen}
+        onClose={() => setIsVerifyPaymentModalOpen(false)}
+        title={`Verify Payment: ${verifyPaymentTargetStore?.storeName || ''}`}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          <div style={{ background: 'var(--color-bg-secondary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <div style={{ fontSize: '12px' }}><strong>Store:</strong> {verifyPaymentTargetStore?.storeName} (/{verifyPaymentTargetStore?.slug})</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}><strong>Owner:</strong> {verifyPaymentTargetStore?.ownerName} ({verifyPaymentTargetStore?.ownerEmail})</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}><strong>Activation Fee:</strong> GH₵ {((verifyPaymentTargetStore?.activationFeePesewas || 50000) / 100).toFixed(2)}</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}><strong>Current Status:</strong> {verifyPaymentTargetStore?.paymentStatus} · {verifyPaymentTargetStore?.approvalStatus}</div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Admin Verification Notes</label>
+            <Input
+              value={verifyPaymentNotes}
+              onChange={(e) => setVerifyPaymentNotes(e.target.value)}
+              placeholder="e.g. Offline bank transfer / Direct MoMo received & confirmed"
+            />
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={verifyPaymentAutoApprove}
+              onChange={(e) => setVerifyPaymentAutoApprove(e.target.checked)}
+            />
+            <span>Auto-approve application and activate storefront immediately</span>
+          </label>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
+            <Button variant="ghost" onClick={() => setIsVerifyPaymentModalOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={handleVerifyStorePayment} disabled={isVerifyingPayment}>
+              {isVerifyingPayment ? 'Verifying...' : 'Confirm Payment & Verify'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
 
       {/* REJECT APPLICATION MODAL */}
       <Modal
@@ -903,15 +1093,38 @@ export const AdminStoresPage: React.FC = () => {
                       </Card>
                     </div>
 
-                    <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <span style={{ fontSize: '12px', fontWeight: 700 }}>Application Approval: </span>
-                        <Badge variant={storeDetail.store.approvalStatus === 'APPROVED' ? 'success' : 'warning'}>
-                          {storeDetail.store.approvalStatus}
-                        </Badge>
+                    <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+                      <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div>
+                          <span style={{ fontSize: '12px', fontWeight: 700 }}>Payment: </span>
+                          <Badge variant={storeDetail.store.paymentStatus === 'PAID' ? 'success' : 'warning'}>
+                            {storeDetail.store.paymentStatus}
+                          </Badge>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '12px', fontWeight: 700 }}>Approval: </span>
+                          <Badge variant={storeDetail.store.approvalStatus === 'APPROVED' ? 'success' : 'warning'}>
+                            {storeDetail.store.approvalStatus}
+                          </Badge>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                        {storeDetail.store.approvalStatus === 'AWAITING_APPROVAL' && (
+                      <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                        {storeDetail.store.paymentStatus !== 'PAID' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setVerifyPaymentTargetStore(storeDetail.store);
+                              setVerifyPaymentNotes('Payment verified by administrator');
+                              setVerifyPaymentAutoApprove(true);
+                              setIsVerifyPaymentModalOpen(true);
+                            }}
+                          >
+                            <CreditCard size={13} style={{ marginRight: '4px' }} />
+                            Verify Payment
+                          </Button>
+                        )}
+                        {storeDetail.store.approvalStatus !== 'APPROVED' && (
                           <Button
                             variant="primary"
                             size="sm"
@@ -920,7 +1133,7 @@ export const AdminStoresPage: React.FC = () => {
                               setIsApproveModalOpen(true);
                             }}
                           >
-                            Approve Application
+                            Approve & Activate
                           </Button>
                         )}
                         <Button
@@ -936,6 +1149,7 @@ export const AdminStoresPage: React.FC = () => {
                         </Button>
                       </div>
                     </Card>
+
 
                     <div>
                       <h3 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px' }}>Recent Sales Activity</h3>

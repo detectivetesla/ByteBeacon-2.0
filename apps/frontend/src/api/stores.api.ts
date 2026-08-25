@@ -26,7 +26,10 @@ export interface StoreProfileDto {
   updatedAt: string;
 }
 
+export type StoreDto = StoreProfileDto;
+
 export interface PublicStoreProductDto {
+
   id: string;
   catalogProductId: string;
   sku: string;
