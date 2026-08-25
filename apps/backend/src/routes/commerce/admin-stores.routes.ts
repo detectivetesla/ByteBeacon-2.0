@@ -187,7 +187,7 @@ export async function adminStoresRoutes(
       const countQuery = `
         SELECT COUNT(*) as total
         FROM stores s
-        JOIN users u ON s.user_id = u.id
+        LEFT JOIN users u ON s.user_id = u.id
         WHERE ${whereClause}
       `;
 
@@ -202,8 +202,8 @@ export async function adminStoresRoutes(
           s.store_name as "storeName",
           s.slug,
           COALESCE(u.full_name, 'Merchant') as "ownerName",
-          u.email as "ownerEmail",
-          COALESCE(s.contact_phone, u.phone) as "ownerPhone",
+          COALESCE(u.email, s.contact_email, 'merchant@store.com') as "ownerEmail",
+          COALESCE(s.contact_phone, u.phone, '') as "ownerPhone",
           s.payment_status as "paymentStatus",
           s.approval_status as "approvalStatus",
           s.store_status as "storeStatus",
@@ -216,7 +216,7 @@ export async function adminStoresRoutes(
           s.created_at as "createdAt",
           s.updated_at as "updatedAt"
         FROM stores s
-        JOIN users u ON s.user_id = u.id
+        LEFT JOIN users u ON s.user_id = u.id
         WHERE ${whereClause}
         ORDER BY s.created_at DESC
         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
@@ -266,8 +266,8 @@ export async function adminStoresRoutes(
           s.contact_phone as "contactPhone",
           s.contact_whatsapp as "contactWhatsapp",
           COALESCE(u.full_name, 'Merchant') as "ownerName",
-          u.email as "ownerEmail",
-          COALESCE(s.contact_phone, u.phone) as "ownerPhone",
+          COALESCE(u.email, s.contact_email, 'merchant@store.com') as "ownerEmail",
+          COALESCE(s.contact_phone, u.phone, '') as "ownerPhone",
           s.payment_status as "paymentStatus",
           s.approval_status as "approvalStatus",
           s.store_status as "storeStatus",
@@ -277,8 +277,8 @@ export async function adminStoresRoutes(
           s.created_at as "createdAt",
           s.updated_at as "updatedAt"
         FROM stores s
-        JOIN users u ON s.user_id = u.id
-        WHERE s.id = $1 OR s.slug = $1
+        LEFT JOIN users u ON s.user_id = u.id
+        WHERE s.id::text = $1 OR s.slug = $1
       `;
 
       const storeRes = await db.query(storeQuery, [id]);
@@ -308,12 +308,12 @@ export async function adminStoresRoutes(
           sp.is_visible as "isVisible"
         FROM store_products sp
         JOIN catalog_products cp ON sp.catalog_product_id = cp.id
-        WHERE sp.store_id = $1
+        WHERE sp.store_id::text = $1
         ORDER BY cp.network ASC, cp.data_amount_mb ASC`,
         [storeId],
-      );
+      ).catch(() => ({ rows: [] }));
 
-      const products: StoreProductAdminDto[] = productsRes.rows.map((r) => {
+      const products: StoreProductAdminDto[] = (productsRes.rows || []).map((r) => {
         const agentPrice = parseInt(r.agentPricePesewas || '0', 10);
         const markup = parseInt(r.markupPesewas || '0', 10);
         const customPrice = r.customPricePesewas ? parseInt(r.customPricePesewas, 10) : undefined;
@@ -345,9 +345,11 @@ export async function adminStoresRoutes(
           COALESCE(SUM(amount_pesewas) FILTER (WHERE payment_status = 'PAID'), 0) as "grossSalesPesewas",
           COALESCE(SUM(amount_pesewas) FILTER (WHERE refund_status = 'COMPLETED'), 0) as "refundedPesewas"
         FROM orders
-        WHERE store_id = $1
+        WHERE store_id::text = $1
       `;
-      const salesRes = await db.query(salesQuery, [storeId]);
+      const salesRes = await db.query(salesQuery, [storeId]).catch(() => ({
+        rows: [{ totalOrders: 0, completedOrders: 0, grossSalesPesewas: 0, refundedPesewas: 0 }],
+      }));
       const sr = salesRes.rows[0] || {};
       const grossSales = parseInt(sr.grossSalesPesewas || '0', 10);
       const refunded = parseInt(sr.refundedPesewas || '0', 10);
@@ -359,11 +361,11 @@ export async function adminStoresRoutes(
                 order_status as "orderStatus", payment_status as "paymentStatus",
                 created_at as "createdAt"
          FROM orders
-         WHERE store_id = $1
+         WHERE store_id::text = $1
          ORDER BY created_at DESC
          LIMIT 10`,
         [storeId],
-      );
+      ).catch(() => ({ rows: [] }));
 
       // 4. Payouts
       const payoutsRes = await db.query(
@@ -373,12 +375,12 @@ export async function adminStoresRoutes(
                 reviewed_at as "reviewedAt", paid_at as "paidAt",
                 created_at as "createdAt", updated_at as "updatedAt"
          FROM store_payouts
-         WHERE store_id = $1
+         WHERE store_id::text = $1
          ORDER BY created_at DESC`,
         [storeId],
       ).catch(() => ({ rows: [] }));
 
-      const payouts: StorePayoutDto[] = payoutsRes.rows.map((p) => ({
+      const payouts: StorePayoutDto[] = (payoutsRes.rows || []).map((p) => ({
         id: p.id,
         storeId: p.storeId,
         storeName: storeItem.storeName,
@@ -388,6 +390,7 @@ export async function adminStoresRoutes(
         destinationAccount: p.destinationAccount,
         destinationProvider: p.destinationProvider,
         status: p.status,
+
         adminNotes: p.adminNotes || undefined,
         reviewedBy: p.reviewedBy || undefined,
         reviewedAt: p.reviewedAt ? new Date(p.reviewedAt).toISOString() : undefined,
@@ -479,10 +482,11 @@ export async function adminStoresRoutes(
          SET store_status = $1,
              admin_notes = COALESCE($2, admin_notes),
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3
+         WHERE id::text = $3
          RETURNING id, store_name as "storeName", slug, store_status as "storeStatus"`,
         [storeStatus, reason, id],
       );
+
 
       if (storeRes.rows.length === 0) {
         throw new NotFoundError(`Store not found with ID '${id}'`);
@@ -558,16 +562,33 @@ export async function adminStoresRoutes(
       throw new BadRequestError('Activation fee cannot be negative.');
     }
 
+    const actorId = req.user?.sub;
+    const isUuid = actorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actorId);
+
     await db.query(
-      `INSERT INTO system_configurations (category, config_key, scope, value, data_type, is_read_only, risk_level, requires_audit, description, version)
-       VALUES ('AGENTS', 'agent_store_activation_fee_pesewas', 'AGENTS', $1::jsonb, 'NUMBER', false, 'HIGH', true, 'One-time store activation fee in pesewas', 1)
+      `INSERT INTO system_configurations (
+         scope, config_key, category, value, data_type, is_secret, risk_level, requires_step_up, description, version, last_modified_by, last_modified_at
+       )
+       VALUES (
+         'AGENTS', 'agent_store_activation_fee_pesewas', 'AGENTS', $1::jsonb, 'NUMBER', false, 'HIGH', true, 'One-time store activation fee in pesewas', 1, $2, CURRENT_TIMESTAMP
+       )
        ON CONFLICT (config_key)
        DO UPDATE SET
-         value = $1::jsonb,
+         value = EXCLUDED.value,
          version = system_configurations.version + 1,
-         updated_at = CURRENT_TIMESTAMP`,
-      [JSON.stringify(newPesewas)],
+         last_modified_by = EXCLUDED.last_modified_by,
+         last_modified_at = CURRENT_TIMESTAMP`,
+      [JSON.stringify(newPesewas), isUuid ? actorId : null],
     );
+
+    // Record audit entry in configuration_versions if table exists
+    await db.query(
+      `INSERT INTO configuration_versions (config_key, version, new_value, change_reason, changed_by, changed_by_name)
+       SELECT 'agent_store_activation_fee_pesewas', version, value, $1, $2, $3
+       FROM system_configurations
+       WHERE config_key = 'agent_store_activation_fee_pesewas'`,
+      [reason || 'Updated store activation paywall fee', isUuid ? actorId : null, req.user?.email || 'Admin'],
+    ).catch(() => {});
 
     if (auditService) {
       await auditService.logEvent({
@@ -622,7 +643,7 @@ export async function adminStoresRoutes(
              approved_by = CASE WHEN ${autoApprove ? 'TRUE' : 'FALSE'} THEN $2 ELSE approved_by END,
              approved_at = CASE WHEN ${autoApprove ? 'TRUE' : 'FALSE'} THEN CURRENT_TIMESTAMP ELSE approved_at END,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3
+         WHERE id::text = $3
          RETURNING id, store_name as "storeName", slug, payment_status as "paymentStatus", approval_status as "approvalStatus", store_status as "storeStatus"`,
         [notes, req.user!.sub, id],
       );
@@ -639,7 +660,7 @@ export async function adminStoresRoutes(
          WHERE is_active = TRUE
          ON CONFLICT (store_id, catalog_product_id) DO NOTHING`,
         [id],
-      );
+      ).catch(() => {});
 
       if (auditService) {
         await auditService.logEvent({
@@ -679,7 +700,7 @@ export async function adminStoresRoutes(
              approved_at = CURRENT_TIMESTAMP,
              admin_notes = $2,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3
+         WHERE id::text = $3
          RETURNING id, store_name as "storeName", slug, payment_status as "paymentStatus", approval_status as "approvalStatus", store_status as "storeStatus"`,
         [req.user!.sub, adminNotes, id],
       );
@@ -696,7 +717,7 @@ export async function adminStoresRoutes(
          WHERE is_active = TRUE
          ON CONFLICT (store_id, catalog_product_id) DO NOTHING`,
         [id],
-      );
+      ).catch(() => {});
 
       if (auditService) {
         await auditService.logEvent({
@@ -719,7 +740,6 @@ export async function adminStoresRoutes(
     },
   );
 
-
   // 6. REJECT STORE APPLICATION (/admin/stores/:id/reject)
   app.post<{ Params: { id: string }; Body: { reason: string } }>(
     '/admin/stores/:id/reject',
@@ -738,7 +758,7 @@ export async function adminStoresRoutes(
              store_status = 'INACTIVE',
              admin_notes = $1,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2
+         WHERE id::text = $2
          RETURNING id, store_name as "storeName", slug, approval_status as "approvalStatus", store_status as "storeStatus"`,
         [reason.trim(), id],
       );
@@ -768,6 +788,7 @@ export async function adminStoresRoutes(
     },
   );
 
+
   // 7. GET STORE PRODUCTS & MARKUP RULES (/admin/stores/:id/products)
   app.get<{ Params: { id: string } }>(
     '/admin/stores/:id/products',
@@ -792,7 +813,7 @@ export async function adminStoresRoutes(
           sp.is_visible as "isVisible"
         FROM store_products sp
         JOIN catalog_products cp ON sp.catalog_product_id = cp.id
-        WHERE sp.store_id = $1
+        WHERE sp.store_id::text = $1
         ORDER BY cp.network ASC, cp.data_amount_mb ASC`,
         [id],
       );
@@ -924,10 +945,11 @@ export async function adminStoresRoutes(
              reviewed_at = CURRENT_TIMESTAMP,
              paid_at = CASE WHEN $1 = 'PAID' THEN CURRENT_TIMESTAMP ELSE paid_at END,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $4 AND store_id = $5
+         WHERE id::text = $4 AND store_id::text = $5
          RETURNING id, store_id as "storeId", amount_pesewas as "amountPesewas", status, destination_account as "destinationAccount"`,
         [newStatus, reason.trim(), req.user!.sub, payoutId, id],
       );
+
 
       if (payoutRes.rows.length === 0) {
         throw new NotFoundError(`Payout not found with ID '${payoutId}' for store '${id}'`);

@@ -121,8 +121,9 @@ export const migration00000000000013: MigrationFile = {
       ('CATALOG', 'agent_max_markup_percentage', 'CATALOG', '50'::jsonb, 'NUMBER', false, 'HIGH', false, 'Ceiling markup percentage above base wholesale cost', 1),
       ('CATALOG', 'price_auto_sync_enabled', 'CATALOG', 'true'::jsonb, 'BOOLEAN', false, 'MEDIUM', false, 'Sync base prices automatically from authoritative DataHouse catalog syncs', 1),
       
-      ('AGENTS', 'agent_store_activation_fee_pesewas', 'AGENTS', '5000'::jsonb, 'NUMBER', false, 'HIGH', true, 'One-time store activation fee in pesewas (5000 = GH₵50.00)', 1),
+      ('AGENTS', 'agent_store_activation_fee_pesewas', 'AGENTS', '50000'::jsonb, 'NUMBER', false, 'HIGH', true, 'One-time store activation fee in pesewas (50000 = GH₵500.00)', 1),
       ('AGENTS', 'agent_store_approval_required', 'AGENTS', 'true'::jsonb, 'BOOLEAN', false, 'MEDIUM', false, 'Require Admin approval before activating a new agent storefront', 1),
+
       ('AGENTS', 'agent_store_custom_domains_enabled', 'AGENTS', 'true'::jsonb, 'BOOLEAN', false, 'MEDIUM', false, 'Allow verified agents to connect branded CNAME custom domains', 1)
     ON CONFLICT (config_key) DO NOTHING;
 
