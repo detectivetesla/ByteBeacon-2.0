@@ -26,6 +26,7 @@ export interface ResponsiveNavigationProps {
   onMoreClick: () => void;
   unreadAlertCount?: number;
   unreadNotificationCount?: number;
+  pendingApprovalsCount?: number;
   activeColor?: string;
   customItems?: MobileNavItem[];
 }
@@ -35,6 +36,7 @@ export const ResponsiveNavigation: React.FC<ResponsiveNavigationProps> = ({
   onMoreClick,
   unreadAlertCount = 0,
   unreadNotificationCount = 0,
+  pendingApprovalsCount = 0,
   activeColor = 'var(--color-brand)',
   customItems,
 }) => {
@@ -103,6 +105,7 @@ export const ResponsiveNavigation: React.FC<ResponsiveNavigationProps> = ({
             isAction: true,
             onClick: onMoreClick,
             icon: <Menu size={20} strokeWidth={2.4} />,
+            badge: pendingApprovalsCount > 0 ? (pendingApprovalsCount > 99 ? '99+' : pendingApprovalsCount) : undefined,
           },
         ];
 
@@ -164,6 +167,7 @@ export const ResponsiveNavigation: React.FC<ResponsiveNavigationProps> = ({
             isAction: true,
             onClick: onMoreClick,
             icon: <Menu size={20} strokeWidth={2.4} />,
+            badge: pendingApprovalsCount > 0 ? (pendingApprovalsCount > 99 ? '99+' : pendingApprovalsCount) : undefined,
           },
         ];
     }

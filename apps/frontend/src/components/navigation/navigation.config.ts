@@ -182,7 +182,6 @@ export const AGENT_NAVIGATION_GROUPS: NavGroupConfig[] = [
         icon: React.createElement(Clock, { size: 18, strokeWidth: 2.4, color: '#FFCC00' }),
         permission: 'agent_orders.manage',
         color: '#FFCC00',
-        badge: '2',
       },
       {
         label: 'Sub Agents',

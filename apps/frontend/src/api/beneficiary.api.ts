@@ -116,5 +116,9 @@ export const beneficiaryApi = {
       record: true,
     });
   },
+
+  getPendingCount: async (): Promise<{ pendingCount: number }> => {
+    return apiClient.get<{ pendingCount: number }>('/beneficiaries/pending-count');
+  },
 };
 

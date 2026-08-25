@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import { usePermissions } from '../auth/hooks/usePermissions.js';
 import { useTheme } from '../context/ThemeContext.js';
+import { usePendingApprovals } from '../context/PendingApprovalsContext.js';
 import { Avatar } from '../components/ui/Avatar/Avatar.js';
 import { Button } from '../components/ui/Button/Button.js';
 import { NavGroupConfig } from '../components/navigation/navigation.config.js';
@@ -64,6 +65,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const { user, logout } = useAuth();
   const { can } = usePermissions();
   const { theme, toggleTheme } = useTheme();
+  const { pendingCount } = usePendingApprovals();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -186,12 +188,21 @@ export const AppShell: React.FC<AppShellProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
           {permittedItems.map((item) => {
             const isActive = location.pathname === item.path || (item.path !== '/app/dashboard' && item.path !== '/agent/dashboard' && item.path !== '/admin/dashboard' && location.pathname.startsWith(item.path));
+            const isPendingMtnItem = item.path.includes('pending-approvals');
+            const liveBadge = isPendingMtnItem
+              ? pendingCount > 0
+                ? pendingCount > 99
+                  ? '99+'
+                  : String(pendingCount)
+                : undefined
+              : item.badge;
+
             return (
               <Link
                 key={item.path}
                 to={item.path}
                 onClick={() => isMobile && setMobileDrawerOpen(false)}
-                title={collapsed && !isMobile ? item.label : undefined}
+                title={collapsed && !isMobile ? `${item.label}${liveBadge ? ` (${liveBadge})` : ''}` : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -224,8 +235,23 @@ export const AppShell: React.FC<AppShellProps> = ({
                   />
                 )}
 
-                <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
                   {item.icon}
+                  {isPendingMtnItem && pendingCount > 0 && (
+                    <span
+                      data-testid="pending-mtn-dot"
+                      style={{
+                        position: 'absolute',
+                        top: '-3px',
+                        right: '-3px',
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        backgroundColor: '#FFCC00',
+                        boxShadow: '0 0 0 2px var(--color-bg-surface), 0 0 6px rgba(255, 204, 0, 0.7)',
+                      }}
+                    />
+                  )}
                 </span>
 
                 {(!collapsed || isMobile) && (
@@ -234,18 +260,35 @@ export const AppShell: React.FC<AppShellProps> = ({
                   </span>
                 )}
 
-                {(!collapsed || isMobile) && item.badge && (
+                {(!collapsed || isMobile) && liveBadge && (
                   <span
+                    data-testid={isPendingMtnItem ? 'pending-mtn-badge' : undefined}
                     style={{
                       fontSize: 'var(--font-size-3xs)',
-                      fontWeight: 700,
-                      padding: '0.1rem 0.4rem',
+                      fontWeight: 800,
+                      padding: '0.12rem 0.45rem',
                       borderRadius: 'var(--radius-full)',
-                      backgroundColor: 'var(--color-info-surface)',
-                      color: 'var(--color-info)',
+                      backgroundColor: isPendingMtnItem ? 'rgba(255, 204, 0, 0.16)' : 'var(--color-info-surface)',
+                      color: isPendingMtnItem ? '#D97706' : 'var(--color-info)',
+                      border: isPendingMtnItem ? '1px solid rgba(255, 204, 0, 0.4)' : 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      lineHeight: 1.1,
                     }}
                   >
-                    {item.badge}
+                    {isPendingMtnItem && (
+                      <span
+                        style={{
+                          width: '5px',
+                          height: '5px',
+                          borderRadius: '50%',
+                          backgroundColor: '#FFCC00',
+                          display: 'inline-block',
+                        }}
+                      />
+                    )}
+                    {liveBadge}
                   </span>
                 )}
               </Link>
@@ -996,6 +1039,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         role={userRole}
         onMoreClick={() => setMobileDrawerOpen(true)}
         unreadNotificationCount={unreadCount}
+        pendingApprovalsCount={pendingCount}
         activeColor={portalRoleColor}
       />
     </div>

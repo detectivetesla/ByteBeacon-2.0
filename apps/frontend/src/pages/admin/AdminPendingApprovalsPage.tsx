@@ -170,6 +170,9 @@ export const AdminPendingApprovalsPage: React.FC = () => {
       if (selectedId === id) fetchDetail(id);
       fetchApprovals();
       fetchStats();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
     } catch (err: any) {
       toastError(err?.message || 'Failed to approve beneficiary.');
     }
@@ -186,6 +189,9 @@ export const AdminPendingApprovalsPage: React.FC = () => {
       fetchDetail(selectedId);
       fetchApprovals();
       fetchStats();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
     } catch (err: any) {
       toastError(err?.message || 'Failed to reject beneficiary.');
     } finally {

@@ -322,12 +322,18 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
       if (selectedRecord?.id === id) {
         setSelectedRecord((prev) => (prev ? { ...prev, status: 'APPROVED' } : null));
       }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
     } catch {
       // Optimistic update fallback
       setRecords((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status: 'APPROVED' } : r))
       );
       toastSuccess('Beneficiary Approved', `${phone} marked as approved.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
     }
   };
 
@@ -341,11 +347,17 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
       if (selectedRecord?.id === id) {
         setSelectedRecord((prev) => (prev ? { ...prev, status: 'REJECTED' } : null));
       }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
     } catch {
       setRecords((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status: 'REJECTED' } : r))
       );
       toastInfo('Beneficiary Rejected', `${phone} marked as rejected.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
     }
   };
 
@@ -361,6 +373,9 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
         setSelectedRecord((prev) =>
           prev ? { ...prev, status: 'APPROVED', validatedAt: new Date().toISOString() } : null
         );
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
       }
     } catch {
       toastInfo('Sync Queued', `Validation check queued for ${item.phoneNumber}.`);

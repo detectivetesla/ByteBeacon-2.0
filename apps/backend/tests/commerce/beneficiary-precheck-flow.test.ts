@@ -31,6 +31,11 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
             rows: [{ total: '1' }],
           });
         }
+        if (query.includes('pendingCount')) {
+          return Promise.resolve({
+            rows: [{ pendingCount: '3' }],
+          });
+        }
         if (query.includes('FROM beneficiary_validation') && query.includes('SELECT id, phone_number')) {
           return Promise.resolve({
             rows: [
@@ -397,6 +402,21 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       const json = JSON.parse(res.body);
       expect(json.success).toBe(true);
       expect(json.data.status).toBe('INVALID');
+    });
+
+    it('GET /beneficiaries/pending-count should return real-time count of pending approvals', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/beneficiaries/pending-count',
+        headers: {
+          authorization: 'Bearer valid_admin_token',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.pendingCount).toBe(3);
     });
   });
 });

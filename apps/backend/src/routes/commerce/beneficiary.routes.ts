@@ -165,6 +165,35 @@ export async function beneficiaryRoutes(
     },
   );
 
+  // 3. REAL-TIME PENDING APPROVALS / ORDERS COUNT
+  app.get(
+    '/beneficiaries/pending-count',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (_req: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const countRes = await db.query(`
+          SELECT COUNT(*) as "pendingCount"
+          FROM beneficiary_validation
+          WHERE validation_status IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL')
+        `);
+        const pendingCount = parseInt(countRes.rows[0]?.pendingCount || '0', 10);
+        return reply.send({
+          success: true,
+          data: {
+            pendingCount,
+          },
+        });
+      } catch {
+        return reply.send({
+          success: true,
+          data: {
+            pendingCount: 0,
+          },
+        });
+      }
+    },
+  );
+
   // 4. CUSTOMER/AGENT: LIST BENEFICIARY APPROVALS
   app.get<{
     Querystring: {
