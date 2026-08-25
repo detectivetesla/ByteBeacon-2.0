@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button/Button.js';
 import { Input, PhoneInput, Textarea } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
+import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
 import {
   Mail,
   Globe,
@@ -40,7 +41,8 @@ export const StoreProfilePage: React.FC = () => {
     });
   }, []);
 
-  const publicUrl = `https://bytebeacon.online/store/${slug}`;
+  const publicUrl = STOREFRONT_CONFIG.getStoreUrl(slug);
+
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(publicUrl);

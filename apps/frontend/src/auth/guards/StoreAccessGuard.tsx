@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.js';
+import { storesApi } from '../../api/stores.api.js';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import {
@@ -31,9 +32,45 @@ export const StoreAccessGuard: React.FC<StoreAccessGuardProps> = ({ children }) 
   const { isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
 
-  // Simulated / Mocked Entitlement state (In full implementation, fetched from /api/v1/stores/me)
-  const [entitlementState] = useState<StoreEntitlementState>('ACTIVE');
-  const [checkingEntitlement] = useState(false);
+  const [entitlementState, setEntitlementState] = useState<StoreEntitlementState>('ACTIVE');
+  const [checkingEntitlement, setCheckingEntitlement] = useState(true);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setCheckingEntitlement(false);
+      return;
+    }
+
+    storesApi
+      .getStore()
+      .then((store) => {
+        if (!store) {
+          setEntitlementState('NOT_STARTED');
+        } else if (store.storeStatus === 'ACTIVE' && store.approvalStatus === 'APPROVED') {
+          setEntitlementState('ACTIVE');
+        } else if (store.storeStatus === 'SUSPENDED') {
+          setEntitlementState('SUSPENDED');
+        } else if (store.approvalStatus === 'REJECTED') {
+          setEntitlementState('REJECTED');
+        } else if (store.approvalStatus === 'AWAITING_APPROVAL') {
+          setEntitlementState('AWAITING_APPROVAL');
+        } else if (store.paymentStatus === 'PAYMENT_PENDING') {
+          setEntitlementState('PAYMENT_PENDING');
+        } else if (store.paymentStatus === 'PAYMENT_REQUIRED') {
+          setEntitlementState('PAYMENT_REQUIRED');
+        } else {
+          setEntitlementState('NOT_STARTED');
+        }
+      })
+      .catch(() => {
+        // In case of network error, preserve access if previously authenticated
+        setEntitlementState('ACTIVE');
+      })
+      .finally(() => {
+        setCheckingEntitlement(false);
+      });
+  }, [isAuthenticated]);
+
 
   if (isLoading || checkingEntitlement) {
     return (

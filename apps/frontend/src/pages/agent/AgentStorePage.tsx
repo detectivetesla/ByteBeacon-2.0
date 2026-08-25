@@ -6,6 +6,7 @@ import { Input, PhoneInput } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { storesApi } from '../../api/stores.api.js';
+import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
 import {
   Store,
   CreditCard,
@@ -19,6 +20,8 @@ import {
   Globe,
   DollarSign,
   Layers,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export type StoreSetupState =
@@ -39,12 +42,14 @@ export const AgentStorePage: React.FC = () => {
   const [slug, setSlug] = useState(user?.fullName ? user.fullName.toLowerCase().replace(/[^a-z0-9]/g, '-') : '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [email, setEmail] = useState(user?.email || '');
-
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   const activationFeeGhs = 500.00;
-  const publicStoreUrl = `/store/${slug}`;
+  const publicStoreUrl = STOREFRONT_CONFIG.getRelativeStorePath(slug);
+  const canonicalStoreUrl = STOREFRONT_CONFIG.getStoreUrl(slug);
+
 
   const fetchStore = useCallback(async () => {
     try {
@@ -265,8 +270,9 @@ export const AgentStorePage: React.FC = () => {
                   Custom Public Storefront
                 </strong>
                 <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                  Your branded link at bytebeacon.online/store/your-slug
+                  Your branded link at https://apisolutions.store/store/{slug || 'your-slug'}
                 </span>
+
               </div>
 
               <div style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
@@ -414,11 +420,6 @@ export const AgentStorePage: React.FC = () => {
               <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 800, color: '#8B5CF6' }}>PAID · AWAITING_APPROVAL</span>
             </div>
           </div>
-
-          {/* Simulate approval for test/demo */}
-          <Button variant="outline" size="sm" onClick={() => { setSetupState('ACTIVE'); toastSuccess('Store Approved', 'Your store has been activated!'); }}>
-            Simulate Admin Approval (Demo)
-          </Button>
         </Card>
       )}
 
@@ -440,12 +441,40 @@ export const AgentStorePage: React.FC = () => {
                     <Badge variant="success" size="sm" dot>Live & Active</Badge>
                   </div>
                   <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                    https://bytebeacon.online/store/{slug}
+                    {canonicalStoreUrl}
                   </span>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      navigator.clipboard.writeText(canonicalStoreUrl);
+                      setCopiedLink(true);
+                      toastSuccess('Link Copied', 'Your public store URL has been copied to clipboard!');
+                      setTimeout(() => setCopiedLink(false), 2500);
+                    }
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    padding: '0.45rem 0.85rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-default)',
+                    backgroundColor: 'var(--color-bg-surface-elevated)',
+                    color: copiedLink ? '#10B981' : 'var(--color-text-primary)',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {copiedLink ? <Check size={13} color="#10B981" /> : <Copy size={13} />}
+                  <span>{copiedLink ? 'Copied!' : 'Copy Link'}</span>
+                </button>
+
                 <a
                   href={publicStoreUrl}
                   target="_blank"
@@ -464,7 +493,7 @@ export const AgentStorePage: React.FC = () => {
                     fontWeight: 700,
                   }}
                 >
-                  <span>View Public Store</span>
+                  <span>Open Store</span>
                   <ExternalLink size={13} />
                 </a>
 
@@ -490,6 +519,7 @@ export const AgentStorePage: React.FC = () => {
               </div>
             </div>
           </Card>
+
 
           {/* Configuration Summary Card */}
           <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>

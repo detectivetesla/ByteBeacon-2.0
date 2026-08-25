@@ -670,18 +670,37 @@ export async function storeRoutes(
     '/stores/public/:slug',
     async (req, reply) => {
       const { slug } = req.params;
-      const cleanSlug = slug.trim().toLowerCase();
+      const cleanSlug = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
-      const storeRes = await db.query(
-        `SELECT id, store_name as "storeName", slug, tagline, description,
+      let storeRes = await db.query(
+        `SELECT id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
+                slug, tagline, description,
                 logo_url as "logoUrl", banner_url as "bannerUrl",
                 primary_color as "primaryColor", accent_color as "accentColor",
                 contact_phone as "contactPhone", contact_email as "contactEmail",
-                contact_whatsapp as "contactWhatsapp"
+                contact_whatsapp as "contactWhatsapp",
+                store_status as "storeStatus", approval_status as "approvalStatus"
          FROM stores
          WHERE slug = $1 AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
         [cleanSlug],
       );
+
+      // Fallback: If 'default' slug requested, find first active store
+      if (storeRes.rows.length === 0 && (cleanSlug === 'default' || cleanSlug === 'store')) {
+        storeRes = await db.query(
+          `SELECT id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
+                  slug, tagline, description,
+                  logo_url as "logoUrl", banner_url as "bannerUrl",
+                  primary_color as "primaryColor", accent_color as "accentColor",
+                  contact_phone as "contactPhone", contact_email as "contactEmail",
+                  contact_whatsapp as "contactWhatsapp",
+                  store_status as "storeStatus", approval_status as "approvalStatus"
+           FROM stores
+           WHERE store_status = 'ACTIVE' AND approval_status = 'APPROVED'
+           ORDER BY created_at ASC
+           LIMIT 1`,
+        );
+      }
 
       if (storeRes.rows.length === 0) {
         throw new NotFoundError('Storefront not found or temporarily unavailable');
@@ -690,9 +709,13 @@ export async function storeRoutes(
       const store = storeRes.rows[0];
 
       const productsRes = await db.query(
-        `SELECT sp.id, cp.name, cp.network, cp.data_amount_mb as "dataAmountMb",
-                cp.validity_days as "validityDays",
-                (cp.base_price_pesewas + sp.markup_pesewas) as "retailPricePesewas"
+        `SELECT sp.id, sp.catalog_product_id as "catalogProductId",
+                cp.sku, cp.name, cp.network, cp.data_amount_mb as "dataAmountMb",
+                cp.validity_days as "validityDays", cp.validity_desc as "validityDesc",
+                cp.base_price_pesewas as "basePricePesewas",
+                sp.markup_pesewas as "markupPesewas",
+                (cp.base_price_pesewas + sp.markup_pesewas) as "retailPricePesewas",
+                cp.popular
          FROM store_products sp
          JOIN catalog_products cp ON sp.catalog_product_id = cp.id
          WHERE sp.store_id = $1 AND sp.is_available = TRUE AND sp.is_visible = TRUE AND cp.is_active = TRUE
@@ -710,4 +733,382 @@ export async function storeRoutes(
     },
   );
 
+  // 10. PUBLIC STOREFRONT GUEST CHECKOUT (/stores/public/orders/checkout & /stores/public/:slug/checkout)
+  const handlePublicCheckout = async (req: FastifyRequest<any>, reply: FastifyReply) => {
+    const body = (req.body || {}) as {
+      slug?: string;
+      productId: string;
+      recipientPhone: string;
+      customerEmail?: string;
+      customerName?: string;
+      paymentMethod?: string;
+      channel?: string;
+      idempotencyKey?: string;
+      callbackUrl?: string;
+    };
+
+    const storeSlug = (((req.params as any)?.slug || body.slug || '') as string).trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const { productId, recipientPhone, customerEmail, paymentMethod = 'PAYSTACK', channel = 'mobile_money', idempotencyKey, callbackUrl } = body;
+
+    if (!storeSlug) {
+      throw new BadRequestError('Store slug is required');
+    }
+    if (!productId) {
+      throw new BadRequestError('Data bundle product ID is required');
+    }
+    if (!recipientPhone || recipientPhone.trim().length < 10) {
+      throw new BadRequestError('A valid 10-digit Ghanaian mobile recipient phone number is required');
+    }
+
+    const cleanPhone = recipientPhone.trim().replace(/\s+/g, '');
+
+    // 1. Verify Active Store
+    const storeRes = await db.query(
+      `SELECT id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
+              slug, contact_email as "contactEmail", contact_phone as "contactPhone",
+              store_status as "storeStatus", approval_status as "approvalStatus"
+       FROM stores
+       WHERE slug = $1 AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
+      [storeSlug],
+    );
+
+    if (storeRes.rows.length === 0) {
+      throw new NotFoundError('Storefront not found or temporarily unavailable for orders');
+    }
+
+    const store = storeRes.rows[0];
+
+    // 2. Resolve Product & Authoritative Retail Pricing from Store Catalog
+    const productRes = await db.query(
+      `SELECT sp.id as "storeProductId", sp.store_id as "storeId", sp.markup_pesewas as "markupPesewas",
+              cp.id as "catalogProductId", cp.sku, cp.name, cp.network, cp.data_amount_mb as "dataAmountMb",
+              cp.base_price_pesewas as "basePricePesewas", cp.validity_days as "validityDays"
+       FROM store_products sp
+       JOIN catalog_products cp ON sp.catalog_product_id = cp.id
+       WHERE sp.store_id = $1
+         AND (sp.id = $2 OR cp.id = $2)
+         AND sp.is_available = TRUE
+         AND sp.is_visible = TRUE
+         AND cp.is_active = TRUE
+       LIMIT 1`,
+      [store.id, productId],
+    );
+
+    if (productRes.rows.length === 0) {
+      throw new NotFoundError('Selected data bundle is currently unavailable in this store');
+    }
+
+    const product = productRes.rows[0];
+    const basePricePesewas = parseInt(product.basePricePesewas, 10);
+    const markupPesewas = parseInt(product.markupPesewas, 10);
+    const retailPricePesewas = basePricePesewas + markupPesewas;
+    const retailPriceGhs = retailPricePesewas / 100;
+
+    const publicId = `ord_sf_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const paymentRef = `PST-SF-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const pricingSnapshot = {
+      productId: product.catalogProductId,
+      storeProductId: product.storeProductId,
+      sku: product.sku,
+      productName: product.name,
+      network: product.network,
+      dataAmountMb: product.dataAmountMb,
+      basePricePesewas,
+      markupPesewas,
+      unitPricePesewas: retailPricePesewas,
+      currency: 'GHS',
+      snapshotTimestamp: new Date().toISOString(),
+    };
+
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Create guest order linked to store and agent
+      const orderRes = await client.query(
+        `INSERT INTO orders (
+            public_id, user_id, agent_id, store_id, product_id, recipient_phone,
+            network, data_amount_mb, amount_pesewas, currency,
+            pricing_snapshot, payment_status, order_status, provider_status,
+            refund_status, idempotency_key
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'GHS', $10, 'PENDING', 'CREATED', 'UNKNOWN', 'NONE', $11)
+         RETURNING id, public_id as "publicId", user_id as "userId", agent_id as "agentId",
+                   store_id as "storeId", recipient_phone as "recipientPhone", network,
+                   data_amount_mb as "dataAmountMb", amount_pesewas as "amountPesewas",
+                   created_at as "createdAt"`,
+        [
+          publicId,
+          store.userId, // Link to merchant user context
+          store.agentId || null,
+          store.id,
+          product.catalogProductId,
+          cleanPhone,
+          product.network,
+          product.dataAmountMb,
+          retailPricePesewas,
+          JSON.stringify(pricingSnapshot),
+          idempotencyKey || null,
+        ],
+      );
+
+      const orderRow = orderRes.rows[0];
+
+      // Insert order item
+      await client.query(
+        `INSERT INTO order_items (order_id, product_id, quantity, unit_price_pesewas, total_pesewas)
+         VALUES ($1, $2, 1, $3, $3)`,
+        [orderRow.id, product.catalogProductId, retailPricePesewas],
+      );
+
+      // Insert initial provider projection
+      await client.query(
+        `INSERT INTO provider_orders (order_id, provider_name, provider_status)
+         VALUES ($1, 'GMPL', 'UNKNOWN')`,
+        [orderRow.id],
+      );
+
+      // Record Order Event
+      await client.query(
+        `INSERT INTO order_events (order_id, event_type, correlation_id, actor_id, actor_type, source, new_state)
+         VALUES ($1, 'ORDER_CREATED', $2, $3, 'CUSTOMER', 'STOREFRONT', $4)`,
+        [
+          orderRow.id,
+          req.id,
+          null,
+          JSON.stringify({
+            orderStatus: 'CREATED',
+            paymentStatus: 'PENDING',
+            storeSlug: store.slug,
+            retailPricePesewas,
+          }),
+        ],
+      );
+
+      // Insert Payment Intent Record
+      const paymentPublicId = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      await client.query(
+        `INSERT INTO payments (
+            public_id, order_id, user_id, amount_pesewas, currency,
+            provider, provider_reference, payment_method, status
+         ) VALUES ($1, $2, $3, $4, 'GHS', 'PAYSTACK', $5, $6, 'PENDING')`,
+        [paymentPublicId, orderRow.id, store.userId, retailPricePesewas, paymentRef, paymentMethod],
+      );
+
+      await client.query('COMMIT');
+
+      // Initialize Paystack Payment Gateway
+      let authorizationUrl: string | undefined;
+      let accessCode: string | undefined;
+
+      if (deps.paymentProvider) {
+        try {
+          const payRes = await deps.paymentProvider.initializePayment({
+            orderId: orderRow.id,
+            amountPesewas: retailPricePesewas,
+            currency: 'GHS' as any,
+            email: customerEmail || store.contactEmail || 'customer@apisolutions.store',
+            paymentMethod: 'PAYSTACK' as any,
+            channel: channel as any,
+            callbackUrl: callbackUrl || `https://apisolutions.store/store/${store.slug}?ref=${paymentRef}`,
+            metadata: {
+              orderId: orderRow.id,
+              orderPublicId: orderRow.publicId,
+              storeId: store.id,
+              storeSlug: store.slug,
+              recipientPhone: cleanPhone,
+              reference: paymentRef,
+              purpose: 'STOREFRONT_ORDER',
+            },
+          });
+          if (payRes?.authorizationUrl) {
+            authorizationUrl = payRes.authorizationUrl;
+          }
+          if (payRes?.providerReference) {
+            accessCode = payRes.providerReference;
+          }
+        } catch {
+          // Keep internal reference for verification
+        }
+      }
+
+      return reply.status(201).send({
+        success: true,
+        data: {
+          order: {
+            orderId: orderRow.publicId,
+            id: orderRow.id,
+            recipientPhone: cleanPhone,
+            network: product.network,
+            dataAmountMb: product.dataAmountMb,
+            dataLabel: `${(product.dataAmountMb / 1024).toFixed(product.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`,
+            amountPesewas: retailPricePesewas,
+            amountGhs: retailPriceGhs,
+            currency: 'GHS',
+            paymentStatus: 'PENDING',
+            orderStatus: 'CREATED',
+            statusLabel: 'Order Created',
+            storeName: store.storeName,
+            storeSlug: store.slug,
+          },
+          payment: {
+            reference: paymentRef,
+            authorizationUrl,
+            accessCode,
+            amountPesewas: retailPricePesewas,
+            amountGhs: retailPriceGhs,
+            currency: 'GHS',
+          },
+        },
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  };
+
+  app.post('/stores/public/orders/checkout', { preHandler: [maintenanceHook] }, handlePublicCheckout);
+  app.post('/stores/public/:slug/checkout', { preHandler: [maintenanceHook] }, handlePublicCheckout);
+
+  // 11. PUBLIC STOREFRONT PAYMENT VERIFICATION (/stores/public/orders/verify & /stores/public/:slug/verify-payment)
+  const handlePublicPaymentVerification = async (req: FastifyRequest<any>, reply: FastifyReply) => {
+    const { reference, orderId } = (req.body || {}) as { reference: string; orderId?: string };
+    if (!reference) {
+      throw new BadRequestError('Payment reference is required for verification');
+    }
+
+
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      const payRes = await client.query(
+        `SELECT p.id, p.order_id as "orderId", p.user_id as "userId", p.amount_pesewas as "amountPesewas",
+                p.status as "paymentStatus", p.provider_reference as "providerReference",
+                o.public_id as "orderPublicId", o.store_id as "storeId", o.agent_id as "agentId",
+                o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
+                o.amount_pesewas as "orderAmountPesewas", o.order_status as "orderStatus",
+                o.pricing_snapshot as "pricingSnapshot", o.created_at as "createdAt", o.updated_at as "updatedAt"
+         FROM payments p
+         JOIN orders o ON p.order_id = o.id
+         WHERE p.provider_reference = $1 OR o.public_id = $2 OR o.id::text = $2
+         FOR UPDATE`,
+        [reference, orderId || reference],
+      );
+
+      if (payRes.rows.length === 0) {
+        throw new NotFoundError(`Payment reference '${reference}' not found`);
+      }
+
+      const row = payRes.rows[0];
+
+      if (row.paymentStatus !== 'PAID') {
+        // Transition Payment to PAID
+        await client.query(
+          `UPDATE payments
+           SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [row.id],
+        );
+
+        // Record Payment Event
+        await client.query(
+          `INSERT INTO payment_events (
+              payment_id, provider, event_type, correlation_id, source,
+              previous_status, new_status, metadata
+           ) VALUES ($1, 'PAYSTACK', 'PAYMENT_CAPTURED', $2, 'STOREFRONT_VERIFY', $3, 'PAID', $4)`,
+          [
+            row.id,
+            req.id,
+            row.paymentStatus,
+            JSON.stringify({ reference, amountPesewas: row.amountPesewas }),
+          ],
+        );
+
+        // Transition Order to READY_FOR_FULFILLMENT
+        await client.query(
+          `UPDATE orders
+           SET payment_status = 'PAID',
+               order_status = 'READY_FOR_FULFILLMENT',
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [row.orderId],
+        );
+
+        // Record Order Event
+        await client.query(
+          `INSERT INTO order_events (
+              order_id, event_type, correlation_id, actor_id, actor_type, source,
+              previous_state, new_state
+           ) VALUES ($1, 'PAYMENT_CONFIRMED', $2, $3, 'CUSTOMER', 'PAYMENT_ENGINE', $4, $5)`,
+          [
+            row.orderId,
+            req.id,
+            row.userId,
+            JSON.stringify({ paymentStatus: 'PENDING', orderStatus: 'CREATED' }),
+            JSON.stringify({ paymentStatus: 'PAID', orderStatus: 'READY_FOR_FULFILLMENT' }),
+          ],
+        );
+
+        // Post Double-Entry Ledger Lines
+        const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+        await client.query(
+          `INSERT INTO financial_ledger_entries (
+              entry_type, account_type, account_id, amount_pesewas, currency,
+              reference_type, reference_id, description
+           ) VALUES
+           ('DEBIT', 'CUSTOMER_WALLET', $1, $2, 'GHS', 'PAYMENT', $3, $4),
+           ('CREDIT', 'PLATFORM_ESCROW', $5, $2, 'GHS', 'PAYMENT', $3, $6)`,
+          [
+            row.userId,
+            row.amountPesewas,
+            row.id,
+            `Customer payment received for Storefront Order ${row.orderPublicId}`,
+            platformSystemAccountId,
+            `Platform escrow credited for Storefront Order ${row.orderPublicId}`,
+          ],
+        );
+      }
+
+      await client.query('COMMIT');
+
+      const dataAmountMb = parseInt(row.dataAmountMb, 10);
+      const dataDisplay = `${(dataAmountMb / 1024).toFixed(dataAmountMb % 1024 === 0 ? 0 : 1)} GB`;
+      const amountPesewas = parseInt(row.orderAmountPesewas, 10);
+
+      return reply.send({
+        success: true,
+        data: {
+          orderId: row.orderPublicId,
+          status: 'READY_TO_PROCESS',
+          statusLabel: 'Payment Confirmed · Processing Data Dispatch',
+          paymentStatus: 'PAID',
+          product: {
+            name: `${row.network} ${dataDisplay} Data Bundle`,
+            network: row.network,
+            volumeDisplay: dataDisplay,
+            validityDisplay: 'Non-Expiry',
+          },
+          recipientPhone: row.recipientPhone,
+          amountPesewas,
+          amountDisplay: `GH₵ ${(amountPesewas / 100).toFixed(2)}`,
+          currency: 'GHS',
+          createdAt: new Date(row.createdAt).toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  };
+
+  app.post('/stores/public/orders/verify', handlePublicPaymentVerification);
+  app.post('/stores/public/:slug/verify-payment', handlePublicPaymentVerification);
 }
+

@@ -1,7 +1,9 @@
 import { apiClient } from './httpClient.js';
+import { NetworkProvider, CustomerOrderDto } from '@bytebeacon/shared';
 
 export interface StoreProfileDto {
   id: string;
+  agentId?: string;
   userId: string;
   storeName: string;
   slug: string;
@@ -24,6 +26,26 @@ export interface StoreProfileDto {
   updatedAt: string;
 }
 
+export interface PublicStoreProductDto {
+  id: string;
+  catalogProductId: string;
+  sku: string;
+  name: string;
+  network: NetworkProvider;
+  dataAmountMb: number;
+  validityDays: number;
+  validityDesc?: string;
+  basePricePesewas: number;
+  markupPesewas: number;
+  retailPricePesewas: number;
+  popular?: boolean;
+}
+
+export interface PublicStoreData {
+  store: StoreProfileDto;
+  products: PublicStoreProductDto[];
+}
+
 export interface StoreProductDto {
   id: string;
   storeId: string;
@@ -37,6 +59,45 @@ export interface StoreProductDto {
   finalPriceGhs: number;
   isAvailable: boolean;
   isVisible: boolean;
+}
+
+export interface PublicCheckoutRequest {
+  slug: string;
+  productId: string;
+  recipientPhone: string;
+  customerEmail?: string;
+  customerName?: string;
+  paymentMethod?: string;
+  channel?: 'mobile_money' | 'card';
+  idempotencyKey?: string;
+  callbackUrl?: string;
+}
+
+export interface PublicCheckoutResponse {
+  order: {
+    orderId: string;
+    id: string;
+    recipientPhone: string;
+    network: NetworkProvider;
+    dataAmountMb: number;
+    dataLabel: string;
+    amountPesewas: number;
+    amountGhs: number;
+    currency: string;
+    paymentStatus: string;
+    orderStatus: string;
+    statusLabel: string;
+    storeName: string;
+    storeSlug: string;
+  };
+  payment: {
+    reference: string;
+    authorizationUrl?: string;
+    accessCode?: string;
+    amountPesewas: number;
+    amountGhs: number;
+    currency: string;
+  };
 }
 
 export const storesApi = {
@@ -64,8 +125,21 @@ export const storesApi = {
     return apiClient.post<StoreProfileDto>('/stores/setup', payload);
   },
 
-  getPublicStore: async (slug: string): Promise<StoreProfileDto> => {
-    return apiClient.get<StoreProfileDto>(`/stores/public/${encodeURIComponent(slug)}`, { skipAuth: true });
+  getPublicStore: async (slug: string): Promise<PublicStoreData> => {
+    return apiClient.get<PublicStoreData>(`/stores/public/${encodeURIComponent(slug)}`, { skipAuth: true });
+  },
+
+  publicCheckout: async (payload: PublicCheckoutRequest): Promise<PublicCheckoutResponse> => {
+    return apiClient.post<PublicCheckoutResponse>('/stores/public/orders/checkout', payload, {
+      skipAuth: true,
+      idempotencyKey: payload.idempotencyKey,
+    });
+  },
+
+  verifyPublicPayment: async (reference: string, orderId?: string): Promise<CustomerOrderDto> => {
+    return apiClient.post<CustomerOrderDto>('/stores/public/orders/verify', { reference, orderId }, {
+      skipAuth: true,
+    });
   },
 
   saveStoreConfig: async (payload: Partial<StoreProfileDto>): Promise<StoreProfileDto> => {

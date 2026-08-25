@@ -14,9 +14,14 @@ export const publicRoutes: RouteObject = {
       element: <LandingPage />,
     },
     {
+      path: '/store',
+      element: <PublicStorefrontPage />,
+    },
+    {
       path: '/store/:slug',
       element: <PublicStorefrontPage />,
     },
+
     {
       path: '/track',
       element: <OrderTrackingPage />,

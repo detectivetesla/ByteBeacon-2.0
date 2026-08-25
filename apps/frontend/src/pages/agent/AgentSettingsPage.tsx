@@ -8,6 +8,7 @@ import { useToast } from '../../context/ToastContext.js';
 import { useTheme } from '../../context/ThemeContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { settingsApi } from '../../api/wallet.api.js';
+import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
 import {
   Building,
   User,
@@ -321,9 +322,10 @@ export const AgentSettingsPage: React.FC = () => {
               <div>
                 <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Storefront</span>
                 <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                  {`https://bytebeacon.online/store/${(businessName || 'store').toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                  {STOREFRONT_CONFIG.getStoreUrl((businessName || 'store').toLowerCase().replace(/[^a-z0-9]/g, '-'))}
                 </div>
               </div>
+
 
               <div>
                 <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Network Availability</span>
