@@ -81,9 +81,7 @@ describe('Agent Sub-Agents Page (AgentCustomersPage)', () => {
     vi.clearAllMocks();
   });
 
-  it('renders KPI metric cards and sub-agents list exclusively for the current agent', async () => {
-    (walletApi.getSubAgents as any).mockResolvedValueOnce({ subAgents: mockSubAgents });
-
+  it('renders To Be Announced announcement state when feature is unannounced', async () => {
     render(
       <MemoryRouter>
         <ToastProvider>
@@ -92,78 +90,14 @@ describe('Agent Sub-Agents Page (AgentCustomersPage)', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => {
-      expect(walletApi.getSubAgents).toHaveBeenCalledTimes(1);
-    });
-
-    // Check page title and top metrics
     expect(screen.getByText('Sub Agents')).toBeTruthy();
-    expect(screen.getByText("Kofi's Data Shop")).toBeTruthy();
-    expect(screen.getByText('Abena Data Hub')).toBeTruthy();
-  });
+    expect(screen.getByText('To Be Announced')).toBeTruthy();
+    expect(screen.getByText('Sub-Agent Multi-Tier Reseller System')).toBeTruthy();
+    expect(screen.getByText('Partner Onboarding')).toBeTruthy();
+    expect(screen.getByText('Automated Overrides')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Notify Me On Launch/i })).toBeTruthy();
 
-  it('filters sub-agents by search term and status tab', async () => {
-    (walletApi.getSubAgents as any).mockResolvedValueOnce({ subAgents: mockSubAgents });
-
-    render(
-      <MemoryRouter>
-        <ToastProvider>
-          <AgentCustomersPage />
-        </ToastProvider>
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Kofi's Data Shop")).toBeTruthy();
-    });
-
-    // Search for "Abena"
-    const searchInput = screen.getByPlaceholderText('Search sub-agents...');
-    fireEvent.change(searchInput, { target: { value: 'Abena' } });
-
-    await waitFor(() => {
-      expect(screen.getByText('Abena Data Hub')).toBeTruthy();
-      expect(screen.queryByText("Kofi's Data Shop")).toBeNull();
-    });
-  });
-
-  it('allows enrolling a new sub-agent through the modal', async () => {
-    (walletApi.getSubAgents as any).mockResolvedValue({ subAgents: mockSubAgents });
-    (walletApi.createSubAgent as any).mockResolvedValueOnce({ success: true });
-
-    render(
-      <MemoryRouter>
-        <ToastProvider>
-          <AgentCustomersPage />
-        </ToastProvider>
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('Sub Agents')).toBeTruthy();
-    });
-
-    const addBtn = screen.getByRole('button', { name: /add sub agent/i });
-    fireEvent.click(addBtn);
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/e.g. Kwame Asante/i)).toBeTruthy();
-    });
-
-    fireEvent.change(screen.getByPlaceholderText(/e.g. Kwame Asante/i), { target: { value: 'Yaw Manu' } });
-    fireEvent.change(screen.getByPlaceholderText(/partner@example.com/i), { target: { value: 'yaw@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText(/024 123 4567/i), { target: { value: '0249871234' } });
-
-    const submitBtn = screen.getByRole('button', { name: /create sub agent/i });
-    fireEvent.click(submitBtn);
-
-    await waitFor(() => {
-      expect(walletApi.createSubAgent).toHaveBeenCalledWith({
-        name: 'Yaw Manu',
-        email: 'yaw@example.com',
-        phone: '0249871234',
-        storeName: undefined,
-      });
-    });
+    const notifyBtn = screen.getByRole('button', { name: /Notify Me On Launch/i });
+    fireEvent.click(notifyBtn);
   });
 });

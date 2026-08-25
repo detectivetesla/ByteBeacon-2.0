@@ -23,10 +23,17 @@ import {
   Phone,
   Mail,
   ArrowUpDown,
+  Sparkles,
+  Percent,
+  Layers,
+  Bell,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { walletApi } from '../../api/wallet.api.js';
+
+// Feature Availability Flag: Set to true when ready to make Sub-Agent page fully available to agents
+export const SUB_AGENTS_FEATURE_AVAILABLE = false;
 
 export type SubAgentStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'INACTIVE';
 
@@ -274,6 +281,204 @@ export const AgentCustomersPage: React.FC = () => {
       // Keep optimistic update or toast fallback
     }
   };
+
+  if (!SUB_AGENTS_FEATURE_AVAILABLE) {
+    return (
+      <div style={{ maxWidth: '1050px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+        {/* 1. Page Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6366F1' }}>
+                AGENT PLATFORM
+              </span>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>•</span>
+              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                RESELLER HIERARCHY
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+              <TactileIcon icon={Users} color="primary" size="sm" />
+              <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
+                Sub Agents
+              </h1>
+            </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+              Build and oversee your partner reseller network with override commissions and storefront provisioning.
+            </p>
+          </div>
+
+          <Badge variant="warning" size="md" dot>
+            To Be Announced
+          </Badge>
+        </div>
+
+        {/* 2. TBA Hero Showcase Card */}
+        <Card
+          style={{
+            padding: 'var(--space-8)',
+            borderRadius: 'var(--radius-2xl)',
+            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            boxShadow: 'var(--shadow-tactile-lg)',
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: 'var(--space-6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: 'var(--radius-lg)',
+                  backgroundColor: '#6366F1',
+                  color: '#FFFFFF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 8px 20px rgba(99, 102, 241, 0.35)',
+                }}
+              >
+                <Sparkles size={24} strokeWidth={2.4} />
+              </div>
+              <div>
+                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6366F1' }}>
+                  COMING SOON • TO BE ANNOUNCED
+                </span>
+                <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0' }}>
+                  Sub-Agent Multi-Tier Reseller System
+                </h2>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: 'var(--space-2) var(--space-4)',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: 'rgba(99, 102, 241, 0.12)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                color: '#6366F1',
+                fontSize: 'var(--font-size-2xs)',
+                fontWeight: 800,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+              }}
+            >
+              <Clock size={13} />
+              <span>In Staging & Rollout Preparation</span>
+            </div>
+          </div>
+
+          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', margin: '0 0 var(--space-6) 0', maxWidth: '780px', lineHeight: 1.6 }}>
+            We are finalizing the sub-agent multi-tier distribution network for ByteBeacon Agents.
+            Once released, you will be able to recruit partner resellers, automatically issue branded storefronts, set custom margin tiers, and earn lifetime passive override commissions on all downstream data transactions.
+          </p>
+
+          {/* 4 Pillars of Sub-Agent Features */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+            <div style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: 'rgba(99, 102, 241, 0.12)', color: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
+                <Users size={16} />
+              </div>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>
+                Partner Onboarding
+              </strong>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                Enroll downstream sub-agents with instant credential generation and permissions.
+              </span>
+            </div>
+
+            <div style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
+                <Percent size={16} />
+              </div>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>
+                Automated Overrides
+              </strong>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                Earn 5%, 8%, or 10% commission margin automatically on every bundle your sub-agents sell.
+              </span>
+            </div>
+
+            <div style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: 'rgba(249, 115, 22, 0.12)', color: '#F97316', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
+                <Store size={16} />
+              </div>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>
+                Branded Sub-Stores
+              </strong>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                Equip each sub-agent with a public link, custom pricing, and mobile money payments.
+              </span>
+            </div>
+
+            <div style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
+                <Layers size={16} />
+              </div>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>
+                Real-Time Telemetry
+              </strong>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                Track individual and network-wide volume, delivery tallies, and wallet balances.
+              </span>
+            </div>
+          </div>
+
+          {/* Action / Notification Banner */}
+          <div
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              borderRadius: 'var(--radius-xl)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-default)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '1rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(99, 102, 241, 0.12)',
+                  color: '#6366F1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Bell size={18} />
+              </div>
+              <div>
+                <h4 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Be First in Line
+                </h4>
+                <p style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0 0' }}>
+                  This feature will be announced and made available to all agents upon official release.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => toastInfo('Sub-Agent Network', 'You will receive an in-app alert as soon as the Sub-Agent network is opened!')}
+              leftIcon={<Bell size={14} />}
+            >
+              Notify Me On Launch
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>

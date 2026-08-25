@@ -189,6 +189,7 @@ export const AGENT_NAVIGATION_GROUPS: NavGroupConfig[] = [
         icon: React.createElement(Users, { size: 18, strokeWidth: 2.4, color: '#6366F1' }),
         permission: 'agent_customers.manage',
         color: '#6366F1',
+        badge: 'TBA',
       },
     ],
   },
