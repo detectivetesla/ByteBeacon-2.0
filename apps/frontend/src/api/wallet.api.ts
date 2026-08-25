@@ -84,6 +84,10 @@ export const walletApi = {
   }): Promise<any> => {
     return apiClient.post('/agents/sub-agents', payload);
   },
+
+  updateSubAgentStatus: async (id: string, status: 'ACTIVE' | 'SUSPENDED' | 'INACTIVE'): Promise<any> => {
+    return apiClient.patch(`/agents/sub-agents/${id}/status`, { status });
+  },
 };
 
 export interface RevenuePeriodStats {

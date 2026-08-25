@@ -1086,47 +1086,106 @@ export async function agentRoutes(
     { preHandler: [authHooks.authenticateCustomer] },
     async (req: FastifyRequest, reply: FastifyReply) => {
       try {
-        const result = await db.query<{
-          id: string;
-          email: string;
-          phone: string;
-          fullName: string;
-          status: string;
-          created_at: string;
-        }>(
-          `SELECT id, email, phone, full_name as "fullName", status, created_at
-           FROM users
-           WHERE role = 'agent' AND id != $1
-           ORDER BY created_at DESC
-           LIMIT 50`,
+        // 1. Identify current agent
+        const agentRes = await db.query(
+          'SELECT id FROM agents WHERE user_id = $1 OR id = $1',
           [req.user!.sub],
         );
+        const currentAgentId = agentRes.rows[0]?.id;
 
-        const subAgents = (result.rows || []).map((row) => ({
-          id: row.id,
-          agentId: `SA-${row.id.slice(0, 6).toUpperCase()}`,
-          name: row.fullName || 'Sub-Agent',
-          email: row.email,
-          phone: row.phone || '—',
-          storeName: `${row.fullName || 'Agent'}'s Store`,
-          storeSlug: (row.fullName || 'agent').toLowerCase().replace(/\s+/g, '-'),
-          storeStatus: 'ONLINE',
-          enabledProductsCount: 12,
-          dateJoined: new Date(row.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }),
-          lastActive: 'Active today',
-          rawLastActive: row.created_at,
-          status: row.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
-          ordersCount: 0,
-          successfulOrdersCount: 0,
-          failedOrdersCount: 0,
-          totalSalesPesewas: 0,
-          totalCommissionPesewas: 0,
-          balancePesewas: 0,
-          totalDepositedPesewas: 0,
-          totalSpentPesewas: 0,
-          recentOrders: [],
-          activityLogs: [],
-        }));
+        if (!currentAgentId) {
+          return reply.send({
+            success: true,
+            data: {
+              subAgents: [],
+            },
+          });
+        }
+
+        // 2. Query ONLY sub-agents belonging to this parent agent
+        const result = await db.query<{
+          id: string;
+          agentTableId: string;
+          name: string;
+          email: string;
+          phone: string;
+          storeName: string;
+          storeSlug: string;
+          storeStatus: string;
+          status: string;
+          balancePesewas: string | number;
+          commissionRate: string | number;
+          ordersCount: string | number;
+          successfulOrdersCount: string | number;
+          failedOrdersCount: string | number;
+          totalSalesPesewas: string | number;
+          createdAt: string;
+        }>(
+          `SELECT u.id as "id",
+                  a.id as "agentTableId",
+                  COALESCE(u.full_name, a.business_name, 'Sub-Agent') as "name",
+                  u.email,
+                  COALESCE(u.phone, '—') as "phone",
+                  COALESCE(s.store_name, a.business_name, u.full_name, 'Sub-Agent Store') as "storeName",
+                  COALESCE(s.slug, a.slug, 'sub-store') as "storeSlug",
+                  COALESCE(s.store_status, 'ONLINE') as "storeStatus",
+                  COALESCE(a.status, 'ACTIVE') as "status",
+                  COALESCE(u.wallet_balance_pesewas, 0) as "balancePesewas",
+                  COALESCE(a.commission_rate, 8) as "commissionRate",
+                  COALESCE((SELECT COUNT(*) FROM orders WHERE agent_id = a.id OR user_id = u.id), 0) as "ordersCount",
+                  COALESCE((SELECT COUNT(*) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND order_status IN ('COMPLETED', 'DELIVERED')), 0) as "successfulOrdersCount",
+                  COALESCE((SELECT COUNT(*) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND order_status = 'FAILED'), 0) as "failedOrdersCount",
+                  COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND payment_status = 'PAID'), 0) as "totalSalesPesewas",
+                  a.created_at as "createdAt"
+           FROM agents a
+           JOIN users u ON a.user_id = u.id
+           LEFT JOIN stores s ON s.agent_id = a.id
+           WHERE a.parent_agent_id = $1
+           ORDER BY a.created_at DESC`,
+          [currentAgentId],
+        );
+
+        const subAgents = (result.rows || []).map((row) => {
+          const salesPesewas = parseInt(row.totalSalesPesewas as any || '0', 10) || 0;
+          const commissionRate = parseFloat(row.commissionRate as any || '8') || 8;
+          const commissionPesewas = Math.round((salesPesewas * commissionRate) / 100);
+          const ordersCount = parseInt(row.ordersCount as any || '0', 10) || 0;
+          const successfulCount = parseInt(row.successfulOrdersCount as any || '0', 10) || 0;
+          const failedCount = parseInt(row.failedOrdersCount as any || '0', 10) || 0;
+          const balancePesewas = parseInt(row.balancePesewas as any || '0', 10) || 0;
+
+          return {
+            id: row.id,
+            agentId: `SA-${row.id.slice(0, 6).toUpperCase()}`,
+            name: row.name,
+            email: row.email,
+            phone: row.phone,
+            storeName: row.storeName,
+            storeSlug: row.storeSlug,
+            storeStatus: row.storeStatus === 'MAINTENANCE' ? 'MAINTENANCE' : row.storeStatus === 'OFFLINE' ? 'OFFLINE' : 'ONLINE',
+            enabledProductsCount: 12,
+            dateJoined: new Date(row.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }),
+            lastActive: 'Active today',
+            rawLastActive: row.createdAt,
+            status: row.status === 'ACTIVE' ? 'ACTIVE' : row.status === 'PENDING' ? 'PENDING' : row.status === 'SUSPENDED' ? 'SUSPENDED' : 'INACTIVE',
+            ordersCount,
+            successfulOrdersCount: successfulCount,
+            failedOrdersCount: failedCount,
+            totalSalesPesewas: salesPesewas,
+            totalCommissionPesewas: commissionPesewas,
+            balancePesewas,
+            totalDepositedPesewas: balancePesewas,
+            totalSpentPesewas: salesPesewas,
+            recentOrders: [],
+            activityLogs: [
+              {
+                id: `log-${row.id}-1`,
+                time: new Date(row.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+                text: 'Enrolled as sub-agent under partner network',
+              },
+            ],
+          };
+        });
 
         return reply.send({
           success: true,
@@ -1168,6 +1227,27 @@ export async function agentRoutes(
         throw new BadRequestError('Name, email, and phone are required for sub-agent enrollment');
       }
 
+      // 1. Ensure current agent record exists
+      const agentRes = await db.query(
+        'SELECT id FROM agents WHERE user_id = $1 OR id = $1',
+        [req.user!.sub],
+      );
+      let parentAgentId = agentRes.rows[0]?.id;
+      if (!parentAgentId) {
+        const insertParent = await db.query<{ id: string }>(
+          `INSERT INTO agents (user_id, business_name, status)
+           VALUES ($1, $2, 'ACTIVE')
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [req.user!.sub, req.user?.email || 'Agent Business'],
+        );
+        parentAgentId = insertParent.rows[0]?.id;
+        if (!parentAgentId) {
+          const refetch = await db.query('SELECT id FROM agents WHERE user_id = $1 OR id = $1', [req.user!.sub]);
+          parentAgentId = refetch.rows[0]?.id;
+        }
+      }
+
       const existing = await db.query('SELECT id FROM users WHERE email = $1 OR phone = $2', [
         email.toLowerCase().trim(),
         phone.trim(),
@@ -1184,20 +1264,87 @@ export async function agentRoutes(
         [email.toLowerCase().trim(), phone.trim(), name.trim(), defaultHash],
       );
 
-      const created = insertRes.rows[0];
+      const createdUser = insertRes.rows[0];
+      const cleanSlug = (storeName || name.trim()).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `sa-${createdUser.id.slice(0, 6)}`;
+
+      const insertAgentRes = await db.query<{ id: string }>(
+        `INSERT INTO agents (user_id, parent_agent_id, business_name, slug, status, commission_rate)
+         VALUES ($1, $2, $3, $4, 'ACTIVE', 8.00)
+         RETURNING id`,
+        [createdUser.id, parentAgentId, storeName?.trim() || `${name.trim()}'s Store`, cleanSlug],
+      );
+      const newAgentRecord = insertAgentRes.rows[0];
+
+      if (newAgentRecord) {
+        await db.query(
+          `INSERT INTO stores (agent_id, user_id, store_name, slug, store_status, approval_status)
+           VALUES ($1, $2, $3, $4, 'ONLINE', 'APPROVED')
+           ON CONFLICT DO NOTHING`,
+          [newAgentRecord.id, createdUser.id, storeName?.trim() || `${name.trim()}'s Store`, cleanSlug],
+        ).catch(() => {});
+      }
+
       return reply.status(201).send({
         success: true,
         data: {
-          id: created.id,
-          agentId: `SA-${created.id.slice(0, 6).toUpperCase()}`,
+          id: createdUser.id,
+          agentId: `SA-${createdUser.id.slice(0, 6).toUpperCase()}`,
           name: name.trim(),
           email: email.toLowerCase().trim(),
           phone: phone.trim(),
           storeName: storeName || `${name.trim()}'s Store`,
-          storeSlug: (storeName || name.trim()).toLowerCase().replace(/\s+/g, '-'),
+          storeSlug: cleanSlug,
           storeStatus: 'ONLINE',
           status: 'ACTIVE',
-          createdAt: created.created_at,
+          createdAt: createdUser.created_at,
+        },
+      });
+    },
+  );
+
+  // 14. UPDATE SUB-AGENT STATUS
+  app.patch<{
+    Params: { id: string };
+    Body: { status: 'ACTIVE' | 'SUSPENDED' | 'INACTIVE' };
+  }>(
+    '/agents/sub-agents/:id/status',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req: FastifyRequest<{
+      Params: { id: string };
+      Body: { status: 'ACTIVE' | 'SUSPENDED' | 'INACTIVE' };
+    }>, reply: FastifyReply) => {
+      const { id } = req.params;
+      const { status } = req.body || {};
+      if (!status || !['ACTIVE', 'SUSPENDED', 'INACTIVE'].includes(status)) {
+        throw new BadRequestError('Invalid sub-agent status');
+      }
+
+      const agentRes = await db.query(
+        'SELECT id FROM agents WHERE user_id = $1 OR id = $1',
+        [req.user!.sub],
+      );
+      const parentAgentId = agentRes.rows[0]?.id;
+      if (!parentAgentId) {
+        throw new NotFoundError('Agent profile not found');
+      }
+
+      const updateRes = await db.query(
+        `UPDATE agents
+         SET status = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE (id = $2 OR user_id = $2) AND parent_agent_id = $3
+         RETURNING id, status`,
+        [status, id, parentAgentId],
+      );
+
+      if (updateRes.rows.length === 0) {
+        throw new NotFoundError('Sub-agent not found under your account');
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          id,
+          status: updateRes.rows[0].status,
         },
       });
     },

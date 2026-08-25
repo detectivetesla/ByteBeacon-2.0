@@ -187,14 +187,18 @@ export const AgentCustomersPage: React.FC = () => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
   };
 
-  const handleBulkAction = (action: 'activate' | 'suspend' | 'export') => {
+  const handleBulkAction = async (action: 'activate' | 'suspend' | 'export') => {
     if (selectedIds.length === 0) return;
     if (action === 'activate') {
-      setSubAgents((prev) => prev.map((a) => (selectedIds.includes(a.id) ? { ...a, status: 'ACTIVE' } : a)));
+      const nextStatus = 'ACTIVE';
+      setSubAgents((prev) => prev.map((a) => (selectedIds.includes(a.id) ? { ...a, status: nextStatus } : a)));
       toastSuccess('Sub-Agents Activated', `${selectedIds.length} sub-agents activated.`);
+      Promise.allSettled(selectedIds.map((id) => walletApi.updateSubAgentStatus(id, nextStatus))).catch(() => {});
     } else if (action === 'suspend') {
-      setSubAgents((prev) => prev.map((a) => (selectedIds.includes(a.id) ? { ...a, status: 'SUSPENDED' } : a)));
+      const nextStatus = 'SUSPENDED';
+      setSubAgents((prev) => prev.map((a) => (selectedIds.includes(a.id) ? { ...a, status: nextStatus } : a)));
       toastInfo('Sub-Agents Suspended', `${selectedIds.length} sub-agents placed on suspension.`);
+      Promise.allSettled(selectedIds.map((id) => walletApi.updateSubAgentStatus(id, nextStatus))).catch(() => {});
     } else if (action === 'export') {
       handleExport();
     }
@@ -247,20 +251,28 @@ export const AgentCustomersPage: React.FC = () => {
     }
   };
 
-  const handleToggleAgentStatus = (agentId: string) => {
+  const handleToggleAgentStatus = async (agentId: string) => {
+    const current = subAgents.find((a) => a.id === agentId);
+    const nextStatus: SubAgentStatus = current?.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+
     setSubAgents((prev) =>
       prev.map((a) => {
         if (a.id === agentId) {
-          const nextStatus = a.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
           return { ...a, status: nextStatus };
         }
         return a;
       }),
     );
     if (selectedAgent && selectedAgent.id === agentId) {
-      setSelectedAgent((prev) => (prev ? { ...prev, status: prev.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE' } : null));
+      setSelectedAgent((prev) => (prev ? { ...prev, status: nextStatus } : null));
     }
-    toastInfo('Status Updated', 'Sub-agent operational status modified.');
+    toastInfo('Status Updated', `Sub-agent operational status changed to ${nextStatus.toLowerCase()}.`);
+
+    try {
+      await walletApi.updateSubAgentStatus(agentId, nextStatus === 'ACTIVE' ? 'ACTIVE' : 'SUSPENDED');
+    } catch {
+      // Keep optimistic update or toast fallback
+    }
   };
 
   return (
