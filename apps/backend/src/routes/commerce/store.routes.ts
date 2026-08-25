@@ -301,15 +301,17 @@ export async function storeRoutes(
         );
         store = insertRes.rows[0];
 
-        // Populate default store products from catalog if not present
-        await db.query(
-          `INSERT INTO store_products (store_id, catalog_product_id, markup_pesewas, is_available, is_visible)
-           SELECT $1, id, 200, TRUE, TRUE
-           FROM catalog_products
-           WHERE is_active = TRUE
-           ON CONFLICT (store_id, catalog_product_id) DO NOTHING`,
-          [store.id],
-        );
+        if (store) {
+          // Populate default store products from catalog if not present
+          await db.query(
+            `INSERT INTO store_products (store_id, catalog_product_id, markup_pesewas, is_available, is_visible)
+             SELECT $1, id, 200, TRUE, TRUE
+             FROM catalog_products
+             WHERE is_active = TRUE
+             ON CONFLICT (store_id, catalog_product_id) DO NOTHING`,
+            [store.id],
+          );
+        }
       } else if (storeName || slug || contactPhone || contactEmail) {
         const cleanSlug = (slug || store.slug).toLowerCase().replace(/[^a-z0-9-]/g, '-');
         const updateRes = await db.query(
@@ -343,6 +345,10 @@ export async function storeRoutes(
         }
       }
 
+      if (!store) {
+        throw new BadRequestError('Failed to load or provision store profile');
+      }
+
       if (store.paymentStatus === 'PAID') {
         return reply.send({
           success: true,
@@ -368,10 +374,17 @@ export async function storeRoutes(
       if (deps.paymentProvider) {
         try {
           const payRes = await deps.paymentProvider.initializePayment({
-            email: store.contactEmail || req.user?.email || 'agent@bytebeacon.com',
+            orderId: store.id,
             amountPesewas: store.activationFeePesewas || 50000,
-            reference,
+            currency: 'GHS' as any,
+            email: store.contactEmail || req.user?.email || 'agent@bytebeacon.com',
+            paymentMethod: 'PAYSTACK' as any,
             callbackUrl: `${process.env.APP_URL || 'https://bytebeacon.com'}/agent/store?verify=${reference}`,
+            metadata: {
+              storeId: store.id,
+              reference,
+              purpose: 'STORE_ACTIVATION',
+            },
           });
           if (payRes?.authorizationUrl) {
             authorizationUrl = payRes.authorizationUrl;
