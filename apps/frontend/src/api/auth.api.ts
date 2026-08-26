@@ -58,6 +58,14 @@ export const authApi = {
     return apiClient.post<{ message: string }>('/auth/reset-password', payload, { skipAuth: true });
   },
 
+  adminLogin: async (credentials: { email?: string; password?: string }): Promise<LoginResponse | { mfaRequired: true; mfaSessionToken: string }> => {
+    return apiClient.post<LoginResponse | { mfaRequired: true; mfaSessionToken: string }>('/admin/auth/login', credentials, { skipAuth: true });
+  },
+
+  adminMfaVerify: async (payload: { mfaSessionToken: string; totpCode: string }): Promise<LoginResponse> => {
+    return apiClient.post<LoginResponse>('/admin/auth/mfa/verify', payload, { skipAuth: true });
+  },
+
   changePassword: async (payload: { currentPassword: string; newPassword: string }): Promise<{ message: string }> => {
     return apiClient.post<{ message: string }>('/auth/change-password', payload);
   },

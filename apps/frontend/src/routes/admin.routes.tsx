@@ -1,6 +1,5 @@
 import { RouteObject, Navigate } from 'react-router-dom';
-import { ProtectedRoute } from '../auth/guards/ProtectedRoute.js';
-import { RoleGuard } from '../auth/guards/RoleGuard.js';
+import { AdminRouteGuard } from '../auth/guards/AdminRouteGuard.js';
 import { AdminLayout } from '../layouts/AdminLayout.js';
 import { AdminDashboard } from '../pages/admin/AdminDashboard.js';
 import { AdminAnalyticsPage } from '../pages/admin/AdminAnalyticsPage.js';
@@ -26,11 +25,9 @@ export const adminRoutes: RouteObject[] = [
   {
     path: '/admin',
     element: (
-      <ProtectedRoute>
-        <RoleGuard allowedRoles={['admin', 'super_admin']} fallbackPath="/unauthorized">
-          <AdminLayout />
-        </RoleGuard>
-      </ProtectedRoute>
+      <AdminRouteGuard>
+        <AdminLayout />
+      </AdminRouteGuard>
     ),
     children: [
       {
