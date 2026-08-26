@@ -472,7 +472,7 @@ export function createApp(options: AppOptions = {}) {
   // Commerce, Payment & Fulfillment Routes: /api/v1
   app.register(
     async (commerceSubApp: FastifyInstance) => {
-      await catalogRoutes(commerceSubApp, { catalogService });
+      await catalogRoutes(commerceSubApp, { catalogService, tokenService });
       await orderRoutes(commerceSubApp, {
         db: dbPool!,
         orderService,

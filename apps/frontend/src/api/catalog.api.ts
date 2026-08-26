@@ -1,7 +1,7 @@
 import { apiClient } from './httpClient.js';
 import { CatalogProductDto, NetworkProvider } from '@bytebeacon/shared';
 
-const BUNDLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes in-memory cache
+const BUNDLE_CACHE_TTL_MS = 30 * 1000; // 30 seconds in-memory cache for fast synchronization
 
 interface CacheEntry {
   data: CatalogProductDto[];
@@ -11,18 +11,31 @@ interface CacheEntry {
 const catalogCache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<CatalogProductDto[]>>();
 
-function getCacheKey(channel: string, network?: string): string {
-  return `${channel}:${network || 'ALL'}`;
+function getCurrentUserId(): string | undefined {
+  try {
+    const stored = localStorage.getItem('bytebeacon_auth_user');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return parsed.id || parsed.sub || undefined;
+    }
+  } catch {}
+  return undefined;
+}
+
+function getCacheKey(channel: string, network?: string, userId?: string): string {
+  const uid = userId || getCurrentUserId() || 'anon';
+  return `${uid}:${channel}:${network || 'ALL'}`;
 }
 
 export const catalogApi = {
   getBundles: async (
     network?: NetworkProvider,
     channel: 'CUSTOMER' | 'AGENT' | 'STORE' | 'API' = 'CUSTOMER',
-    options: { forceRefresh?: boolean } = {},
+    options: { forceRefresh?: boolean; userId?: string } = {},
   ): Promise<CatalogProductDto[]> => {
-    const key = getCacheKey(channel, network);
-    const allKey = getCacheKey(channel, undefined);
+    const activeUserId = options.userId || getCurrentUserId();
+    const key = getCacheKey(channel, network, activeUserId);
+    const allKey = getCacheKey(channel, undefined, activeUserId);
     const now = Date.now();
 
     // 1. Check if specific network can be served from ALL-bundles cache
@@ -51,6 +64,7 @@ export const catalogApi = {
         params: {
           network: network && network !== ('ALL' as any) ? network : undefined,
           channel,
+          userId: activeUserId,
         },
       })
       .then((items) => {
@@ -61,7 +75,7 @@ export const catalogApi = {
         if (!network || network === ('ALL' as any)) {
           const networks = [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO];
           networks.forEach((net) => {
-            const netKey = getCacheKey(channel, net);
+            const netKey = getCacheKey(channel, net, activeUserId);
             const netItems = productList.filter((p) => p.network === net);
             catalogCache.set(netKey, { data: netItems, timestamp: Date.now() });
           });
@@ -79,13 +93,16 @@ export const catalogApi = {
 
   getAllBundles: async (
     channel: 'CUSTOMER' | 'AGENT' | 'STORE' | 'API' = 'CUSTOMER',
-    options: { forceRefresh?: boolean } = {},
+    options: { forceRefresh?: boolean; userId?: string } = {},
   ): Promise<CatalogProductDto[]> => {
     return catalogApi.getBundles(undefined, channel, options);
   },
 
-  getProduct: async (id: string): Promise<CatalogProductDto> => {
-    return apiClient.get<CatalogProductDto>(`/catalog/bundles/${id}`);
+  getProduct: async (id: string, options: { userId?: string } = {}): Promise<CatalogProductDto> => {
+    const activeUserId = options.userId || getCurrentUserId();
+    return apiClient.get<CatalogProductDto>(`/catalog/bundles/${id}`, {
+      params: { userId: activeUserId },
+    });
   },
 
   clearCache: () => {
@@ -93,3 +110,11 @@ export const catalogApi = {
     inFlightRequests.clear();
   },
 };
+
+// Listen to custom cache clearance event if in browser
+if (typeof window !== 'undefined') {
+  window.addEventListener('catalog:clearcache', () => {
+    catalogApi.clearCache();
+  });
+}
+

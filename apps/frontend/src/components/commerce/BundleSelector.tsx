@@ -103,7 +103,7 @@ export const BundleSelector: React.FC<BundleSelectorProps> = ({
         if (isMounted && productList.length > 0) {
           const isAgent = channel === 'AGENT';
           const mapped: BundleItem[] = productList.map((p) => {
-            const price = isAgent && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
+            const price = p.effectivePricePesewas ?? (isAgent && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas);
             return {
               id: p.id,
               sku: p.sku,

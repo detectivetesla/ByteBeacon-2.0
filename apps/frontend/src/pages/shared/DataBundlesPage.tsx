@@ -45,10 +45,10 @@ export const DataBundlesPage: React.FC = () => {
       .then((items) => {
         if (!isMounted || !Array.isArray(items)) return;
         const mapped: BundleOffer[] = items.map((p) => {
-          const retailGhs = (p.basePricePesewas / 100).toFixed(2);
-          const agentPesewas = p.agentPricePesewas || p.basePricePesewas;
+          const retailGhs = ((p.effectivePricePesewas || p.basePricePesewas) / 100).toFixed(2);
+          const agentPesewas = p.agentPricePesewas || p.effectivePricePesewas || p.basePricePesewas;
           const agentGhs = (agentPesewas / 100).toFixed(2);
-          const marginPesewas = Math.max(0, p.basePricePesewas - agentPesewas);
+          const marginPesewas = Math.max(0, (p.effectivePricePesewas || p.basePricePesewas) - agentPesewas);
           const marginGhs = (marginPesewas / 100).toFixed(2);
 
           return {

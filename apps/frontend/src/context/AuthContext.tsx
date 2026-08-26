@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { UserSummaryDto } from '@bytebeacon/shared';
 import { apiClient } from '../api/httpClient.js';
+import { catalogApi } from '../api/catalog.api.js';
 import { AuthTokens } from '../api/types.js';
 
 interface AuthContextType {
@@ -34,6 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(() => {
     setUser(null);
+    catalogApi.clearCache();
     try {
       localStorage.removeItem(AUTH_USER_KEY);
       localStorage.removeItem(AUTH_TOKENS_KEY);
@@ -85,6 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = useCallback((newUser: UserSummaryDto, newTokens: AuthTokens) => {
     setUser(newUser);
+    catalogApi.clearCache();
     try {
       localStorage.setItem(AUTH_USER_KEY, JSON.stringify(newUser));
       localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(newTokens));

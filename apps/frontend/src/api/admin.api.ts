@@ -1,4 +1,5 @@
 import { apiClient } from './httpClient.js';
+import { catalogApi } from './catalog.api.js';
 import {
   IntegrationHealthReport,
   CatalogProductDto,
@@ -837,15 +838,21 @@ export const adminApi = {
   },
 
   updateUserPricing: async (userId: string, data: UpdateUserPricingRequest) => {
-    return apiClient.put(`/admin/users/${userId}/pricing`, data);
+    const res = await apiClient.put(`/admin/users/${userId}/pricing`, data);
+    catalogApi.clearCache();
+    return res;
   },
 
   updateUserProductPricing: async (userId: string, productId: string, data: UpdateUserProductPricingRequest) => {
-    return apiClient.put(`/admin/users/${userId}/pricing/${productId}`, data);
+    const res = await apiClient.put(`/admin/users/${userId}/pricing/${productId}`, data);
+    catalogApi.clearCache();
+    return res;
   },
 
   deleteUserProductPricing: async (userId: string, productId: string) => {
-    return apiClient.delete(`/admin/users/${userId}/pricing/${productId}`);
+    const res = await apiClient.delete(`/admin/users/${userId}/pricing/${productId}`);
+    catalogApi.clearCache();
+    return res;
   },
 
   // Analytics
@@ -1228,7 +1235,9 @@ export const adminApi = {
   },
 
   updateAgentCustomPricing: async (id: string, data: UpdateAgentPricingRequest) => {
-    return apiClient.put(`/admin/agents/${id}/pricing`, data);
+    const res = await apiClient.put(`/admin/agents/${id}/pricing`, data);
+    catalogApi.clearCache();
+    return res;
   },
 
   getAgentApiKeys: async (id: string) => {

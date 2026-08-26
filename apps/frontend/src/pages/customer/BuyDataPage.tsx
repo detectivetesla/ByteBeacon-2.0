@@ -129,7 +129,7 @@ export const BuyDataPage: React.FC = () => {
 
   const mapProductsToBundles = useCallback((items: any[]): BundleItem[] => {
     return items.map((p) => {
-      const price = isAgentPortal && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
+      const price = p.effectivePricePesewas ?? (isAgentPortal && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas);
       return {
         id: p.id,
         sku: p.sku,
@@ -178,7 +178,7 @@ export const BuyDataPage: React.FC = () => {
           items.forEach((p) => {
             const net = p.network as NetworkProvider;
             if (!byNet[net]) byNet[net] = [];
-            const price = isAgentPortal && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas;
+            const price = p.effectivePricePesewas ?? (isAgentPortal && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas);
             byNet[net]!.push({
               id: p.id,
               sku: p.sku,

@@ -229,6 +229,8 @@ export interface CatalogProductDto {
   validityDesc?: string;
   basePricePesewas: number;
   agentPricePesewas: number | null;
+  customPricePesewas?: number | null;
+  effectivePricePesewas?: number;
   agentMinPricePesewas?: number | null;
   agentMaxPricePesewas?: number | null;
   storePricePesewas?: number | null;
