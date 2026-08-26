@@ -976,12 +976,13 @@ export async function adminAgentsRoutes(
         try {
           await client.query('BEGIN');
 
+          const platformAccountId = '00000000-0000-0000-0000-000000000000';
           const refId = idempotencyKey || id;
           const entries = direction === 'CREDIT'
             ? [
                 {
                   accountType: LedgerAccountType.PLATFORM_ESCROW,
-                  accountId: 'PLATFORM_RESERVE',
+                  accountId: platformAccountId,
                   entryType: LedgerEntryType.DEBIT,
                   amountPesewas,
                   currency: Currency.GHS,
@@ -1013,7 +1014,7 @@ export async function adminAgentsRoutes(
                 },
                 {
                   accountType: LedgerAccountType.PLATFORM_ESCROW,
-                  accountId: 'PLATFORM_RESERVE',
+                  accountId: platformAccountId,
                   entryType: LedgerEntryType.CREDIT,
                   amountPesewas,
                   currency: Currency.GHS,

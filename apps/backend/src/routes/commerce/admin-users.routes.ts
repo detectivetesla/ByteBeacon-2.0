@@ -13,6 +13,9 @@ import {
   SecurityDomain,
   LedgerEntryType,
   LedgerAccountType,
+  UserCustomPricingItemDto,
+  UpdateUserPricingRequest,
+  UpdateUserProductPricingRequest,
 } from '@bytebeacon/shared';
 import {
   NotFoundError,
@@ -1064,35 +1067,40 @@ export async function adminUsersRoutes(
         throw new BadRequestError('Adjustment amount must be a positive integer in pesewas.');
       }
 
+      if (!type || (type !== 'CREDIT' && type !== 'DEBIT')) {
+        throw new BadRequestError('Adjustment type must be CREDIT or DEBIT.');
+      }
+
       if (!reason || reason.trim().length < 5) {
         throw new BadRequestError('A detailed reason (minimum 5 characters) is mandatory for financial adjustments.');
-      }
-
-      const userRes = await db.query(
-        `SELECT id, email, role,
-                COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) as "currentBalance"
-         FROM users WHERE id = $1 FOR UPDATE`,
-        [req.params.id],
-      );
-
-      if (userRes.rows.length === 0) {
-        throw new NotFoundError('User account not found');
-      }
-
-      const user = userRes.rows[0];
-      const currentBalance = parseInt(user.currentBalance || '0', 10);
-
-      if (type === 'DEBIT' && currentBalance < amountPesewas) {
-        throw new BadRequestError(
-          `Insufficient balance: user has ${(currentBalance / 100).toFixed(2)} GHS, cannot debit ${(amountPesewas / 100).toFixed(2)} GHS.`,
-        );
       }
 
       const client = await db.connect();
       try {
         await client.query('BEGIN');
 
+        const userRes = await client.query(
+          `SELECT id, email, role,
+                  COALESCE(wallet_balance_pesewas, 0) as "currentBalance"
+           FROM users WHERE id = $1 FOR UPDATE`,
+          [req.params.id],
+        );
+
+        if (userRes.rows.length === 0) {
+          throw new NotFoundError('User account not found');
+        }
+
+        const user = userRes.rows[0];
+        const currentBalance = parseInt(user.currentBalance || '0', 10);
+
+        if (type === 'DEBIT' && currentBalance < amountPesewas) {
+          throw new BadRequestError(
+            `Insufficient balance: user has ${(currentBalance / 100).toFixed(2)} GHS, cannot debit ${(amountPesewas / 100).toFixed(2)} GHS.`,
+          );
+        }
+
         const newBalance = type === 'CREDIT' ? currentBalance + amountPesewas : currentBalance - amountPesewas;
+        const platformReserveId = '00000000-0000-0000-0000-000000000000';
 
         // Post balanced double-entry voucher
         if (ledgerService) {
@@ -1101,7 +1109,7 @@ export async function adminUsersRoutes(
               {
                 entryType: LedgerEntryType.DEBIT,
                 accountType: LedgerAccountType.PLATFORM_ESCROW,
-                accountId: 'PLATFORM_RESERVE',
+                accountId: platformReserveId,
                 amountPesewas,
                 referenceType: 'ADMIN_WALLET_ADJUSTMENT',
                 referenceId: req.params.id,
@@ -1131,7 +1139,7 @@ export async function adminUsersRoutes(
               {
                 entryType: LedgerEntryType.CREDIT,
                 accountType: LedgerAccountType.PLATFORM_ESCROW,
-                accountId: 'PLATFORM_RESERVE',
+                accountId: platformReserveId,
                 amountPesewas,
                 referenceType: 'ADMIN_WALLET_ADJUSTMENT',
                 referenceId: req.params.id,
@@ -1143,8 +1151,8 @@ export async function adminUsersRoutes(
 
         // Update projected balance on user
         await client.query(
-          `UPDATE users SET wallet_balance_pesewas = $1, wallet_balance = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
-          [newBalance, newBalance / 100, req.params.id],
+          `UPDATE users SET wallet_balance_pesewas = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [newBalance, req.params.id],
         );
 
         await client.query('COMMIT');
@@ -1421,6 +1429,236 @@ export async function adminUsersRoutes(
       return reply.send({
         success: true,
         message: `Bulk ${action.toLowerCase()} executed successfully for ${userIds.length} users.`,
+      });
+    },
+  );
+
+  // 18. GET /admin/users/:id/pricing — Retrieve Custom Data Bundle Pricing Overrides for User
+  app.get<{ Params: { id: string } }>(
+    '/admin/users/:id/pricing',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const userRes = await db.query('SELECT id, email, full_name, role FROM users WHERE id = $1', [req.params.id]);
+      if (userRes.rows.length === 0) {
+        throw new NotFoundError('User account not found');
+      }
+
+      const user = userRes.rows[0];
+      const rawRole = (user.role || 'customer').toString().toLowerCase().trim();
+
+      const pricingRes = await db.query(
+        `SELECT cp.id as "productId", cp.name as "productName", cp.sku, cp.network,
+                cp.data_amount_mb as "dataAmountMb", cp.base_price_pesewas as "basePricePesewas",
+                cp.agent_price_pesewas as "defaultAgentPricePesewas",
+                up.id as "pricingId", up.custom_price_pesewas as "customPricePesewas",
+                COALESCE(up.is_active, TRUE) as "isActive", up.updated_at as "updatedAt"
+         FROM catalog_products cp
+         LEFT JOIN user_pricing up ON up.product_id = cp.id AND up.user_id = $1
+         WHERE cp.is_active = TRUE
+         ORDER BY cp.network ASC, cp.data_amount_mb ASC`,
+        [req.params.id],
+      ).catch(async () => {
+        return db.query(`
+          SELECT id as "productId", name as "productName", sku, network,
+                 data_amount_mb as "dataAmountMb", base_price_pesewas as "basePricePesewas",
+                 agent_price_pesewas as "defaultAgentPricePesewas",
+                 NULL as "pricingId", NULL as "customPricePesewas",
+                 TRUE as "isActive", updated_at as "updatedAt"
+          FROM catalog_products
+          WHERE is_active = TRUE
+          ORDER BY network ASC, data_amount_mb ASC
+        `).catch(() => ({ rows: [] }));
+      });
+
+      const customPricing: UserCustomPricingItemDto[] = pricingRes.rows.map((r) => {
+        const basePrice = parseInt(r.basePricePesewas || '0', 10);
+        const defaultAgent = r.defaultAgentPricePesewas ? parseInt(r.defaultAgentPricePesewas, 10) : basePrice;
+        const defaultPrice = (rawRole === 'agent' || rawRole === 'superagent') ? defaultAgent : basePrice;
+        const customPrice = r.customPricePesewas ? parseInt(r.customPricePesewas, 10) : null;
+        return {
+          id: r.pricingId || undefined,
+          productId: r.productId,
+          productName: r.productName,
+          sku: r.sku,
+          network: r.network,
+          dataAmountMb: parseInt(r.dataAmountMb || '0', 10),
+          defaultAgentPricePesewas: defaultAgent,
+          basePricePesewas: basePrice,
+          customPricePesewas: customPrice,
+          effectivePricePesewas: customPrice !== null ? customPrice : defaultPrice,
+          isActive: Boolean(r.isActive),
+          updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : undefined,
+        };
+      });
+
+      return reply.send({
+        success: true,
+        data: customPricing,
+      });
+    },
+  );
+
+  // 19. PUT /admin/users/:id/pricing — Batch Update Custom Pricing Overrides for User
+  app.put<{ Params: { id: string }; Body: UpdateUserPricingRequest }>(
+    '/admin/users/:id/pricing',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string }; Body: UpdateUserPricingRequest }>, reply: FastifyReply) => {
+      const userRes = await db.query('SELECT id, email FROM users WHERE id = $1', [req.params.id]);
+      if (userRes.rows.length === 0) {
+        throw new NotFoundError('User account not found');
+      }
+
+      const { pricing } = req.body || {};
+      if (!Array.isArray(pricing)) {
+        throw new BadRequestError('Pricing array is required');
+      }
+
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+
+        for (const item of pricing) {
+          if (!item.productId) continue;
+
+          if (item.customPricePesewas === null || item.customPricePesewas === undefined || item.customPricePesewas <= 0) {
+            // Delete override to revert to default
+            await client.query('DELETE FROM user_pricing WHERE user_id = $1 AND product_id = $2', [
+              req.params.id,
+              item.productId,
+            ]);
+          } else {
+            await client.query(
+              `INSERT INTO user_pricing (user_id, product_id, custom_price_pesewas, is_active, updated_at)
+               VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+               ON CONFLICT (user_id, product_id)
+               DO UPDATE SET custom_price_pesewas = $3, is_active = $4, updated_at = CURRENT_TIMESTAMP`,
+              [req.params.id, item.productId, Math.round(item.customPricePesewas), item.isActive !== false],
+            );
+          }
+        }
+
+        await client.query('COMMIT');
+
+        if (auditService) {
+          await auditService.log({
+            correlationId: req.id,
+            actorId: req.user!.sub,
+            actorType: 'ADMIN',
+            action: 'ADMIN_USER_PRICING_UPDATED',
+            resourceType: 'user_pricing',
+            resourceId: req.params.id,
+            metadata: { updatedCount: pricing.length, userEmail: userRes.rows[0].email },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          message: `Custom bundle pricing updated successfully for user ${userRes.rows[0].email}.`,
+        });
+      } catch (err: any) {
+        await client.query('ROLLBACK');
+        logger.error({ err, userId: req.params.id }, '[ADMIN_USER_PRICING] Failed batch update');
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // 20. PUT /admin/users/:id/pricing/:productId — Update Custom Pricing Override for Single Product
+  app.put<{ Params: { id: string; productId: string }; Body: UpdateUserProductPricingRequest }>(
+    '/admin/users/:id/pricing/:productId',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string; productId: string }; Body: UpdateUserProductPricingRequest }>, reply: FastifyReply) => {
+      const userRes = await db.query('SELECT id, email FROM users WHERE id = $1', [req.params.id]);
+      if (userRes.rows.length === 0) {
+        throw new NotFoundError('User account not found');
+      }
+
+      const productRes = await db.query('SELECT id, name FROM catalog_products WHERE id = $1', [req.params.productId]);
+      if (productRes.rows.length === 0) {
+        throw new NotFoundError('Catalog product not found');
+      }
+
+      const { customPricePesewas, isActive = true } = req.body || {};
+
+      if (customPricePesewas === null || customPricePesewas === undefined || customPricePesewas <= 0) {
+        await db.query('DELETE FROM user_pricing WHERE user_id = $1 AND product_id = $2', [
+          req.params.id,
+          req.params.productId,
+        ]);
+        return reply.send({
+          success: true,
+          message: `Custom pricing removed for product ${productRes.rows[0].name}. Reverted to default.`,
+        });
+      }
+
+      const priceVal = Math.round(customPricePesewas);
+      const upsertRes = await db.query(
+        `INSERT INTO user_pricing (user_id, product_id, custom_price_pesewas, is_active, updated_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT (user_id, product_id)
+         DO UPDATE SET custom_price_pesewas = $3, is_active = $4, updated_at = CURRENT_TIMESTAMP
+         RETURNING id, user_id as "userId", product_id as "productId", custom_price_pesewas as "customPricePesewas", is_active as "isActive", updated_at as "updatedAt"`,
+        [req.params.id, req.params.productId, priceVal, isActive],
+      );
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_USER_PRICING_UPDATED',
+          resourceType: 'user_pricing',
+          resourceId: req.params.id,
+          metadata: {
+            productId: req.params.productId,
+            productName: productRes.rows[0].name,
+            customPricePesewas: priceVal,
+            customPriceGhs: priceVal / 100,
+            userEmail: userRes.rows[0].email,
+          },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: upsertRes.rows[0],
+        message: `Custom price of ${(priceVal / 100).toFixed(2)} GHS set for ${productRes.rows[0].name}.`,
+      });
+    },
+  );
+
+  // 21. DELETE /admin/users/:id/pricing/:productId — Remove Custom Pricing Override for Product
+  app.delete<{ Params: { id: string; productId: string } }>(
+    '/admin/users/:id/pricing/:productId',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string; productId: string } }>, reply: FastifyReply) => {
+      const userRes = await db.query('SELECT id, email FROM users WHERE id = $1', [req.params.id]);
+      if (userRes.rows.length === 0) {
+        throw new NotFoundError('User account not found');
+      }
+
+      await db.query('DELETE FROM user_pricing WHERE user_id = $1 AND product_id = $2', [
+        req.params.id,
+        req.params.productId,
+      ]);
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_USER_PRICING_DELETED',
+          resourceType: 'user_pricing',
+          resourceId: req.params.id,
+          metadata: { productId: req.params.productId, userEmail: userRes.rows[0].email },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Custom price override removed. Standard pricing restored.',
       });
     },
   );

@@ -68,6 +68,7 @@ export class ProductionSchemaVerifier {
 
     // Extended Agents & Stores
     'agent_pricing',
+    'user_pricing',
     'store_payouts',
     'agent_customers',
 

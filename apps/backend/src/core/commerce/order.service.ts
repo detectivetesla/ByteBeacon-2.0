@@ -72,10 +72,44 @@ export class OrderService {
     // 2. Resolve Product & Authoritative Pricing from Server Catalog
     const product = await this.catalogService.getProductById(input.productId);
 
-    const pricePesewas =
-      context.actorType === 'AGENT' && product.agentPricePesewas
-        ? product.agentPricePesewas
-        : product.basePricePesewas;
+    // 2a. Check individual user custom pricing override first
+    let pricePesewas: number | null = null;
+    if (context.userId) {
+      try {
+        const userPriceRes = await this.db.query(
+          `SELECT custom_price_pesewas FROM user_pricing WHERE user_id = $1 AND product_id = $2 AND is_active = TRUE`,
+          [context.userId, product.id],
+        );
+        if (userPriceRes?.rows?.length > 0 && userPriceRes.rows[0]?.custom_price_pesewas) {
+          pricePesewas = parseInt(userPriceRes.rows[0].custom_price_pesewas, 10);
+        }
+      } catch {
+        // ignore fallback to role/base price
+      }
+    }
+
+    // 2b. If no user override and actor is AGENT, check agent_pricing table override
+    if (pricePesewas === null && context.actorType === 'AGENT' && context.agentId) {
+      try {
+        const agentPriceRes = await this.db.query(
+          `SELECT custom_price_pesewas FROM agent_pricing WHERE agent_id = $1 AND product_id = $2 AND is_active = TRUE`,
+          [context.agentId, product.id],
+        );
+        if (agentPriceRes?.rows?.length > 0 && agentPriceRes.rows[0]?.custom_price_pesewas) {
+          pricePesewas = parseInt(agentPriceRes.rows[0].custom_price_pesewas, 10);
+        }
+      } catch {
+        // ignore fallback to role/base price
+      }
+    }
+
+    // 2c. Fallback to catalog role default
+    if (pricePesewas === null) {
+      pricePesewas =
+        context.actorType === 'AGENT' && product.agentPricePesewas
+          ? product.agentPricePesewas
+          : product.basePricePesewas;
+    }
 
     const publicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
     const cleanPhone = input.recipientPhone.trim().replace(/\s+/g, '');

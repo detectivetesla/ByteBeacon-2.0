@@ -748,10 +748,11 @@ export async function adminFinanceRoutes(
         if (action === 'APPROVE' || action === 'PROCESS') {
           // Post double-entry reversal: Debit PLATFORM_ESCROW, Credit CUSTOMER_WALLET
           if (financialLedgerService) {
+            const platformAccountId = '00000000-0000-0000-0000-000000000000';
             await financialLedgerService.recordJournalEntries(client, [
               {
                 accountType: LedgerAccountType.PLATFORM_ESCROW,
-                accountId: 'PLATFORM_RESERVE',
+                accountId: platformAccountId,
                 entryType: LedgerEntryType.DEBIT,
                 amountPesewas,
                 currency: Currency.GHS,
@@ -774,8 +775,8 @@ export async function adminFinanceRoutes(
 
           // Update user wallet projection
           await client.query(
-            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, wallet_balance = COALESCE(wallet_balance, 0) + $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
-            [amountPesewas, amountPesewas / 100, refund.user_id],
+            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            [amountPesewas, refund.user_id],
           );
 
           // Update refund status
@@ -1025,11 +1026,12 @@ export async function adminFinanceRoutes(
         if (action === 'APPROVE') {
           // Post balanced double-entry voucher
           if (financialLedgerService) {
+            const platformAccountId = '00000000-0000-0000-0000-000000000000';
             const entries = adj.direction === 'CREDIT'
               ? [
                   {
                     accountType: LedgerAccountType.PLATFORM_ESCROW,
-                    accountId: 'PLATFORM_RESERVE',
+                    accountId: platformAccountId,
                     entryType: LedgerEntryType.DEBIT,
                     amountPesewas,
                     currency: Currency.GHS,
@@ -1061,7 +1063,7 @@ export async function adminFinanceRoutes(
                   },
                   {
                     accountType: LedgerAccountType.PLATFORM_ESCROW,
-                    accountId: 'PLATFORM_RESERVE',
+                    accountId: platformAccountId,
                     entryType: LedgerEntryType.CREDIT,
                     amountPesewas,
                     currency: Currency.GHS,
@@ -1075,11 +1077,10 @@ export async function adminFinanceRoutes(
           }
 
           // Update user wallet balance projection
-          const delta = adj.direction === 'CREDIT' ? (amountPesewas / 100) : -(amountPesewas / 100);
           const deltaPesewas = adj.direction === 'CREDIT' ? amountPesewas : -amountPesewas;
           await client.query(
-            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, wallet_balance = COALESCE(wallet_balance, 0) + $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
-            [deltaPesewas, delta, userId],
+            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            [deltaPesewas, userId],
           );
 
           // Update adjustment status

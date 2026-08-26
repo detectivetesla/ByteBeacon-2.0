@@ -497,11 +497,12 @@ export async function adminOrdersRoutes(
 
       // Double-Entry Ledger Post
       if (financialLedgerService) {
+        const platformAccountId = '00000000-0000-0000-0000-000000000000';
         await financialLedgerService.recordJournalEntries(db, [
           {
             entryType: LedgerEntryType.DEBIT,
             accountType: LedgerAccountType.PLATFORM_ESCROW,
-            accountId: 'PLATFORM_RESERVE',
+            accountId: platformAccountId,
             amountPesewas: refundAmount,
             referenceType: 'ORDER_REFUND',
             referenceId: orderId,

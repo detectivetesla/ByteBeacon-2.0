@@ -21,6 +21,9 @@ import {
   UpdateAgentStatusRequest,
   AgentCustomPricingItemDto,
   UpdateAgentPricingRequest,
+  UserCustomPricingItemDto,
+  UpdateUserPricingRequest,
+  UpdateUserProductPricingRequest,
   AgentSubAgentSummaryDto,
   AgentCustomerSummaryDto,
   AdminStoreStats,
@@ -322,6 +325,9 @@ export type {
   UpdateAgentStatusRequest,
   AgentCustomPricingItemDto,
   UpdateAgentPricingRequest,
+  UserCustomPricingItemDto,
+  UpdateUserPricingRequest,
+  UpdateUserProductPricingRequest,
   AgentSubAgentSummaryDto,
   AgentCustomerSummaryDto,
   AdminStoreStats,
@@ -824,6 +830,22 @@ export const adminApi = {
 
   bulkUsersAction: async (data: { action: 'SUSPEND' | 'ACTIVATE' | 'NOTIFY'; userIds: string[]; reason?: string; message?: string }) => {
     return apiClient.post('/admin/users/bulk', data);
+  },
+
+  getUserPricing: async (userId: string) => {
+    return apiClient.get<UserCustomPricingItemDto[]>(`/admin/users/${userId}/pricing`);
+  },
+
+  updateUserPricing: async (userId: string, data: UpdateUserPricingRequest) => {
+    return apiClient.put(`/admin/users/${userId}/pricing`, data);
+  },
+
+  updateUserProductPricing: async (userId: string, productId: string, data: UpdateUserProductPricingRequest) => {
+    return apiClient.put(`/admin/users/${userId}/pricing/${productId}`, data);
+  },
+
+  deleteUserProductPricing: async (userId: string, productId: string) => {
+    return apiClient.delete(`/admin/users/${userId}/pricing/${productId}`);
   },
 
   // Analytics

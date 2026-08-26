@@ -7,7 +7,7 @@ import { Table } from '../../components/ui/Table/Table.js';
 import { Input } from '../../components/ui/Input/Input.js';
 import { Avatar } from '../../components/ui/Avatar/Avatar.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
-import { adminApi, AdminUserDetail } from '../../api/admin.api.js';
+import { adminApi, AdminUserDetail, UserCustomPricingItemDto } from '../../api/admin.api.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import {
@@ -31,6 +31,7 @@ import {
   ShieldCheck,
   Download,
   CreditCard,
+  Tag,
 } from 'lucide-react';
 
 export const AdminUserDetailPage: React.FC = () => {
@@ -40,10 +41,20 @@ export const AdminUserDetailPage: React.FC = () => {
   const { success: toastSuccess, error: toastError } = useToast();
 
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'wallet' | 'orders' | 'transactions' | 'activity' | 'sessions' | 'agent' | 'notifications'
+    'overview' | 'wallet' | 'orders' | 'transactions' | 'pricing' | 'activity' | 'sessions' | 'agent' | 'notifications'
   >('overview');
   const [userDetail, setUserDetail] = useState<AdminUserDetail | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // User custom pricing state
+  const [userPricing, setUserPricing] = useState<UserCustomPricingItemDto[]>([]);
+  const [isLoadingPricing, setIsLoadingPricing] = useState<boolean>(false);
+  const [pricingSearch, setPricingSearch] = useState<string>('');
+  const [pricingNetworkFilter, setPricingNetworkFilter] = useState<string>('ALL');
+  const [editingPricingProduct, setEditingPricingProduct] = useState<UserCustomPricingItemDto | null>(null);
+  const [editCustomPriceGhs, setEditCustomPriceGhs] = useState<string>('');
+  const [editCustomPriceActive, setEditCustomPriceActive] = useState<boolean>(true);
+  const [isSavingPricing, setIsSavingPricing] = useState<boolean>(false);
 
   // Edit profile modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -116,6 +127,77 @@ export const AdminUserDetailPage: React.FC = () => {
   useEffect(() => {
     fetchUser();
   }, [fetchUser]);
+
+  const fetchUserPricing = useCallback(async () => {
+    if (!id) return;
+    setIsLoadingPricing(true);
+    try {
+      const data = await adminApi.getUserPricing(id);
+      setUserPricing(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      toastError('Failed to load pricing', err.message || 'Unable to retrieve user custom pricing.');
+    } finally {
+      setIsLoadingPricing(false);
+    }
+  }, [id, toastError]);
+
+  useEffect(() => {
+    if (activeTab === 'pricing') {
+      fetchUserPricing();
+    }
+  }, [activeTab, fetchUserPricing]);
+
+  const handleOpenEditPricing = (item: UserCustomPricingItemDto) => {
+    setEditingPricingProduct(item);
+    setEditCustomPriceGhs(
+      item.customPricePesewas !== null
+        ? (item.customPricePesewas / 100).toFixed(2)
+        : (item.effectivePricePesewas / 100).toFixed(2),
+    );
+    setEditCustomPriceActive(item.isActive !== false);
+  };
+
+  const handleSaveCustomPricing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !editingPricingProduct) return;
+
+    const priceGhs = parseFloat(editCustomPriceGhs);
+    if (isNaN(priceGhs) || priceGhs <= 0) {
+      toastError('Invalid Price', 'Please enter a valid positive number in GHS.');
+      return;
+    }
+
+    const pricePesewas = Math.round(priceGhs * 100);
+    setIsSavingPricing(true);
+
+    try {
+      await adminApi.updateUserProductPricing(id, editingPricingProduct.productId, {
+        customPricePesewas: pricePesewas,
+        isActive: editCustomPriceActive,
+      });
+      toastSuccess(
+        'Custom Price Saved',
+        `GH₵ ${priceGhs.toFixed(2)} applied for ${editingPricingProduct.productName}.`,
+      );
+      setEditingPricingProduct(null);
+      fetchUserPricing();
+    } catch (err: any) {
+      toastError('Save Failed', err.message || 'Could not update custom pricing.');
+    } finally {
+      setIsSavingPricing(false);
+    }
+  };
+
+  const handleResetCustomPricing = async (item: UserCustomPricingItemDto) => {
+    if (!id) return;
+    try {
+      await adminApi.deleteUserProductPricing(id, item.productId);
+      toastSuccess('Override Removed', `Custom price removed for ${item.productName}. Standard pricing restored.`);
+      fetchUserPricing();
+    } catch (err: any) {
+      toastError('Reset Failed', err.message || 'Could not remove custom price override.');
+    }
+  };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -494,6 +576,7 @@ export const AdminUserDetailPage: React.FC = () => {
           { key: 'overview', label: 'Overview', icon: <User size={14} /> },
           { key: 'wallet', label: `Wallet & Ledger (GH₵ ${balanceGhs})`, icon: <Wallet size={14} /> },
           { key: 'orders', label: `Orders (${ordSummary?.totalOrders || userDetail?.recentOrders?.length || 0})`, icon: <Package size={14} /> },
+          { key: 'pricing', label: `Bundle Pricing (${userPricing.filter((p) => p.customPricePesewas !== null).length > 0 ? `${userPricing.filter((p) => p.customPricePesewas !== null).length} overrides` : 'Custom'})`, icon: <Tag size={14} /> },
           { key: 'transactions', label: `Transactions (${userDetail?.transactions?.length || 0})`, icon: <CreditCard size={14} /> },
           { key: 'activity', label: `Audit Stream (${userDetail?.activity?.length || 0})`, icon: <Activity size={14} /> },
           { key: 'sessions', label: `Sessions (${userDetail?.activeSessions?.length || 0})`, icon: <Lock size={14} /> },
@@ -789,6 +872,215 @@ export const AdminUserDetailPage: React.FC = () => {
                 </tr>
               ))}
             </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* TAB: Custom Data Bundle Pricing */}
+      {activeTab === 'pricing' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Header & Metric Summary */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+                Individual User Bundle Pricing Overrides
+              </h3>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0' }}>
+                Set custom wholesale or special retail rates for this user. Overrides take precedence over default catalog retail and agent wholesale rates.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchUserPricing}
+                isLoading={isLoadingPricing}
+                leftIcon={<RefreshCw size={14} />}
+              >
+                Refresh Pricing
+              </Button>
+            </div>
+          </div>
+
+          {/* Pricing Telemetry Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
+            <MetricCard
+              title="Catalog Plans"
+              value={userPricing.length.toString()}
+              subvalue="Available telecom bundles"
+              accent="blue"
+              icon={<TactileIcon icon={Package} color="api" size="sm" />}
+            />
+            <MetricCard
+              title="Active Custom Overrides"
+              value={userPricing.filter((p) => p.customPricePesewas !== null && p.isActive).length.toString()}
+              subvalue={`${userPricing.filter((p) => p.customPricePesewas !== null).length} total configured`}
+              accent="purple"
+              icon={<TactileIcon icon={Tag} color="violet" size="sm" />}
+            />
+            <MetricCard
+              title="Default Retail Scope"
+              value={isAgent ? 'Agent Wholesale Tier' : 'Standard Retail'}
+              subvalue={`Base role: ${userDetail?.user?.role?.toUpperCase() || 'CUSTOMER'}`}
+              accent="amber"
+              icon={<TactileIcon icon={Shield} color="security" size="sm" />}
+            />
+          </div>
+
+          {/* Filters Bar */}
+          <Card elevated style={{ padding: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Network:</span>
+                {['ALL', 'MTN', 'TELECEL', 'AIRTELTIGO'].map((net) => (
+                  <Button
+                    key={net}
+                    variant={pricingNetworkFilter === net ? 'primary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setPricingNetworkFilter(net)}
+                    style={{ fontSize: 'var(--font-size-2xs)', padding: '0.25rem 0.6rem' }}
+                  >
+                    {net}
+                  </Button>
+                ))}
+              </div>
+              <div style={{ minWidth: '220px', maxWidth: '360px', flex: 1 }}>
+                <Input
+                  placeholder="Search plan name, SKU, or data size..."
+                  value={pricingSearch}
+                  onChange={(e) => setPricingSearch(e.target.value)}
+                  style={{ fontSize: 'var(--font-size-xs)' }}
+                />
+              </div>
+            </div>
+          </Card>
+
+          {/* Pricing Table */}
+          <Card elevated accentColor="cyan" style={{ padding: 0, overflow: 'hidden' }}>
+            <Table
+              headers={[
+                'Plan / SKU',
+                'Network',
+                'Data Allowance',
+                'Standard Retail',
+                'Default Agent',
+                'Custom User Price',
+                'Effective Price',
+                'Status',
+                'Actions',
+              ]}
+            >
+              {userPricing
+                .filter((item) => {
+                  if (pricingNetworkFilter !== 'ALL' && item.network.toUpperCase() !== pricingNetworkFilter) {
+                    return false;
+                  }
+                  if (pricingSearch.trim()) {
+                    const q = pricingSearch.toLowerCase();
+                    return (
+                      item.productName.toLowerCase().includes(q) ||
+                      item.sku.toLowerCase().includes(q) ||
+                      `${item.dataAmountMb}`.includes(q)
+                    );
+                  }
+                  return true;
+                })
+                .map((item) => {
+                  const hasCustom = item.customPricePesewas !== null;
+                  const customGhs = hasCustom ? (item.customPricePesewas! / 100).toFixed(2) : null;
+                  const effectiveGhs = (item.effectivePricePesewas / 100).toFixed(2);
+                  const baseGhs = (item.basePricePesewas / 100).toFixed(2);
+                  const agentGhs = (item.defaultAgentPricePesewas / 100).toFixed(2);
+                  const dataFormatted =
+                    item.dataAmountMb >= 1024
+                      ? `${(item.dataAmountMb / 1024).toFixed(item.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`
+                      : `${item.dataAmountMb} MB`;
+
+                  return (
+                    <tr key={item.productId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{item.productName}</span>
+                          <span style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                            {item.sku}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <Badge
+                          variant={
+                            item.network === 'MTN'
+                              ? 'warning'
+                              : item.network === 'TELECEL'
+                              ? 'danger'
+                              : 'info'
+                          }
+                          size="sm"
+                        >
+                          {item.network}
+                        </Badge>
+                      </td>
+                      <td style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{dataFormatted}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                        GH₵ {baseGhs}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                        GH₵ {agentGhs}
+                      </td>
+                      <td>
+                        {hasCustom ? (
+                          <Badge variant={item.isActive ? 'brand' : 'neutral'} size="sm">
+                            GH₵ {customGhs}
+                          </Badge>
+                        ) : (
+                          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>Standard</span>
+                        )}
+                      </td>
+                      <td>
+                        <strong style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: hasCustom ? 'var(--color-brand-accent)' : 'var(--color-text-primary)' }}>
+                          GH₵ {effectiveGhs}
+                        </strong>
+                      </td>
+                      <td>
+                        {hasCustom ? (
+                          <Badge variant={item.isActive ? 'success' : 'neutral'} size="sm">
+                            {item.isActive ? 'OVERRIDE ACTIVE' : 'DISABLED'}
+                          </Badge>
+                        ) : (
+                          <Badge variant="neutral" size="sm">DEFAULT</Badge>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                          <Button
+                            variant={hasCustom ? 'primary' : 'outline'}
+                            size="sm"
+                            onClick={() => handleOpenEditPricing(item)}
+                            leftIcon={<Edit3 size={12} />}
+                          >
+                            {hasCustom ? 'Edit Price' : 'Set Custom'}
+                          </Button>
+                          {hasCustom && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleResetCustomPricing(item)}
+                              style={{ color: 'var(--color-danger-text)' }}
+                            >
+                              Reset
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </Table>
+            {userPricing.length === 0 && !isLoadingPricing && (
+              <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                No catalog products found. Please ensure catalog products are active.
+              </div>
+            )}
           </Card>
         </div>
       )}
@@ -1388,6 +1680,79 @@ export const AdminUserDetailPage: React.FC = () => {
                 </Button>
                 <Button type="submit" variant="primary" size="sm" isLoading={isExporting}>
                   Download Dossier
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* EDIT CUSTOM BUNDLE PRICE MODAL */}
+      {editingPricingProduct && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
+          <Card elevated accentColor="cyan" style={{ maxWidth: '480px', width: '100%', padding: 'var(--space-6)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+              <div>
+                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, margin: 0 }}>
+                  Set Custom Bundle Price
+                </h3>
+                <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', margin: '0.125rem 0 0' }}>
+                  {editingPricingProduct.productName} ({editingPricingProduct.network})
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setEditingPricingProduct(null)}>Close</Button>
+            </div>
+
+            <form onSubmit={handleSaveCustomPricing} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: 'var(--space-3)', backgroundColor: 'var(--color-surface-subtle)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-xs)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>Standard Retail Price:</span>
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {(editingPricingProduct.basePricePesewas / 100).toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>Default Agent Wholesale:</span>
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {(editingPricingProduct.defaultAgentPricePesewas / 100).toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>User Current Role:</span>
+                  <span style={{ fontWeight: 700 }}>{userDetail?.user?.role?.toUpperCase() || 'CUSTOMER'}</span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, marginBottom: 'var(--space-1)' }}>
+                  Custom Price for this User (GH₵)
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  placeholder="e.g. 4.50"
+                  value={editCustomPriceGhs}
+                  onChange={(e) => setEditCustomPriceGhs(e.target.value)}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  type="checkbox"
+                  id="customPriceActive"
+                  checked={editCustomPriceActive}
+                  onChange={(e) => setEditCustomPriceActive(e.target.checked)}
+                />
+                <label htmlFor="customPriceActive" style={{ fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                  Enable this custom pricing override immediately
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setEditingPricingProduct(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" size="sm" isLoading={isSavingPricing}>
+                  Save Custom Price
                 </Button>
               </div>
             </form>

@@ -959,10 +959,11 @@ export async function adminStoresRoutes(
 
       // If approved, post double-entry ledger entry
       if (newStatus === 'PAID' && financialLedgerService) {
+        const platformAccountId = '00000000-0000-0000-0000-000000000000';
         await financialLedgerService.recordJournalEntries(db, [
           {
             accountType: LedgerAccountType.PLATFORM_ESCROW,
-            accountId: 'PLATFORM_RESERVE',
+            accountId: platformAccountId,
             entryType: LedgerEntryType.DEBIT,
             amountPesewas: parseInt(payout.amountPesewas, 10),
             currency: Currency.GHS,

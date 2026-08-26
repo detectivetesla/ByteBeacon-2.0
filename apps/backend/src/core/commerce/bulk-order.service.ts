@@ -50,12 +50,26 @@ export class BulkOrderService {
       for (const item of input.items) {
         const product = await this.catalogService.getProductById(item.productId);
         const cleanPhone = item.recipientPhone.trim().replace(/\s+/g, '');
-        totalAmountPesewas += product.basePricePesewas;
+        let itemPrice = product.basePricePesewas;
+
+        try {
+          const userPriceRes = await client.query(
+            `SELECT custom_price_pesewas FROM user_pricing WHERE user_id = $1 AND product_id = $2 AND is_active = TRUE`,
+            [userId, product.id],
+          );
+          if (userPriceRes?.rows?.length > 0 && userPriceRes.rows[0]?.custom_price_pesewas) {
+            itemPrice = parseInt(userPriceRes.rows[0].custom_price_pesewas, 10);
+          }
+        } catch {
+          // ignore fallback to base price
+        }
+
+        totalAmountPesewas += itemPrice;
 
         itemsToInsert.push({
           recipientPhone: cleanPhone,
           productId: product.id,
-          amountPesewas: product.basePricePesewas,
+          amountPesewas: itemPrice,
         });
       }
 
@@ -419,7 +433,33 @@ export class BulkOrderService {
           );
           if (productRes.rows.length > 0) {
             matchedProductId = productRes.rows[0].id;
-            unitPricePesewas = productRes.rows[0].agentPrice || productRes.rows[0].basePrice || unitPricePesewas;
+            let price = productRes.rows[0].agentPrice || productRes.rows[0].basePrice || unitPricePesewas;
+
+            // Check user_pricing override
+            try {
+              const userPriceRes = await client.query(
+                `SELECT custom_price_pesewas FROM user_pricing WHERE user_id = $1 AND product_id = $2 AND is_active = TRUE`,
+                [userId, matchedProductId],
+              );
+              if (userPriceRes?.rows?.length > 0 && userPriceRes.rows[0]?.custom_price_pesewas) {
+                price = parseInt(userPriceRes.rows[0].custom_price_pesewas, 10);
+              } else {
+                // Check agent_pricing if agent record exists
+                const agentPriceRes = await client.query(
+                  `SELECT ap.custom_price_pesewas FROM agent_pricing ap
+                   JOIN agents a ON a.id = ap.agent_id
+                   WHERE a.user_id = $1 AND ap.product_id = $2 AND ap.is_active = TRUE`,
+                  [userId, matchedProductId],
+                );
+                if (agentPriceRes?.rows?.length > 0 && agentPriceRes.rows[0]?.custom_price_pesewas) {
+                  price = parseInt(agentPriceRes.rows[0].custom_price_pesewas, 10);
+                }
+              }
+            } catch {
+              // ignore
+            }
+
+            unitPricePesewas = price;
           }
         } catch {
           // fallback

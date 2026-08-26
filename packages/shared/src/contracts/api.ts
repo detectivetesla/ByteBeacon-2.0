@@ -864,6 +864,34 @@ export interface UpdateAgentPricingRequest {
   }>;
 }
 
+export interface UserCustomPricingItemDto {
+  id?: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  network: NetworkProvider;
+  dataAmountMb: number;
+  defaultAgentPricePesewas: number;
+  basePricePesewas: number;
+  customPricePesewas: number | null;
+  effectivePricePesewas: number;
+  isActive: boolean;
+  updatedAt?: string;
+}
+
+export interface UpdateUserPricingRequest {
+  pricing: Array<{
+    productId: string;
+    customPricePesewas: number | null;
+    isActive?: boolean;
+  }>;
+}
+
+export interface UpdateUserProductPricingRequest {
+  customPricePesewas: number | null;
+  isActive?: boolean;
+}
+
 export interface AgentSubAgentSummaryDto {
   id: string;
   userId: string;
