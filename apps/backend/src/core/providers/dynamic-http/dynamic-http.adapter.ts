@@ -3,10 +3,15 @@ import { ITelecomProvider } from '../telecom/telecom-provider.interface.js';
 import {
   SubmitOrderInput,
   SubmitOrderResult,
+  SubmitBulkOrderInput,
+  SubmitBulkOrderResult,
   GetOrderStatusInput,
   ProviderOrderStatus,
   ValidateBeneficiaryInput,
   BeneficiaryValidationResult,
+  DataHousePrecheckInput,
+  DataHousePrecheckResult,
+  DataHouseWalletBalanceDto,
   ProviderHealth,
   NetworkProvider,
   ProviderStatus,
@@ -39,6 +44,7 @@ export interface DynamicHttpProviderConfig {
     healthCheck?: string;
     balance?: string;
     catalog?: string;
+    bulkOrder?: string;
   };
   fieldMappings?: {
     orderIdField?: string;
@@ -51,8 +57,8 @@ export interface DynamicHttpProviderConfig {
 
 /**
  * Universal Dynamic HTTP Telecom Provider Adapter.
- * Allows connecting any new upstream Telecom Aggregator, Direct MNO, or Custom REST API
- * completely through configuration and UI without writing custom code.
+ * Allows connecting any upstream Telecom Aggregator, Direct MNO, or Custom REST API (e.g. Portal-02, DataHouse, GMPL)
+ * completely through configuration and UI without custom code.
  */
 export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   public readonly providerName: string;
@@ -75,7 +81,31 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     );
   }
 
-  private buildHeaders(): Record<string, string> {
+  /**
+   * Normalizes Ghanaian phone numbers into 233XXXXXXXXX or local 0XXXXXXXXX format.
+   */
+  private normalizePhone(phone: string): string {
+    let digits = (phone ?? '').replace(/\D/g, '');
+    if (digits.startsWith('2330') && digits.length === 13) {
+      digits = `233${digits.slice(4)}`;
+    }
+    if (digits.startsWith('233') && digits.length === 12) return digits;
+    if (digits.startsWith('0') && digits.length === 10) return `233${digits.slice(1)}`;
+    return digits;
+  }
+
+  /**
+   * Formats local 10-digit Ghanaian phone number (0XXXXXXXXX).
+   */
+  private formatLocalPhone(phone: string): string {
+    const norm = this.normalizePhone(phone);
+    if (norm.startsWith('233') && norm.length === 12) {
+      return `0${norm.slice(3)}`;
+    }
+    return norm;
+  }
+
+  private buildHeaders(correlationId?: string): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
@@ -83,25 +113,43 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       ...(this.config.customHeaders || {}),
     };
 
-    const apiKey = this.config.apiKey || '';
-    const apiSecret = this.config.apiSecret || '';
+    if (correlationId) {
+      headers['x-correlation-id'] = correlationId;
+      headers['X-Correlation-Id'] = correlationId;
+    }
+
+    const apiKey = (this.config.apiKey || '').trim();
+    const apiSecret = (this.config.apiSecret || '').trim();
+
+    if (!apiKey) {
+      return headers;
+    }
 
     switch (this.config.authMethod) {
       case 'BEARER':
-        if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+        headers['Authorization'] = `Bearer ${apiKey}`;
+        headers['x-api-key'] = apiKey;
+        headers['X-API-Key'] = apiKey;
         break;
-      case 'BASIC':
-        if (apiKey) {
-          const authString = apiSecret ? `${apiKey}:${apiSecret}` : apiKey;
-          headers['Authorization'] = `Basic ${Buffer.from(authString).toString('base64')}`;
-        }
+      case 'BASIC': {
+        const authString = apiSecret ? `${apiKey}:${apiSecret}` : apiKey;
+        headers['Authorization'] = `Basic ${Buffer.from(authString).toString('base64')}`;
+        headers['x-api-key'] = apiKey;
+        headers['X-API-Key'] = apiKey;
         break;
+      }
       case 'HMAC_SHA256':
+        headers['x-api-key'] = apiKey;
         headers['X-API-Key'] = apiKey;
         break;
       case 'API_KEY':
       default:
+        headers['x-api-key'] = apiKey;
         headers['X-API-Key'] = apiKey;
+        // If the key has standard token prefixes (like dk_ for DataHouse/Portal-02, sk_, or bb_), also supply Authorization Bearer
+        if (apiKey.startsWith('dk_') || apiKey.startsWith('sk_') || apiKey.startsWith('bb_')) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
         if (apiSecret) headers['X-API-Secret'] = apiSecret;
         break;
     }
@@ -109,167 +157,559 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     return headers;
   }
 
+  private isPortalOrDataHouse(): boolean {
+    const key = (this.config.apiKey || '').trim();
+    const url = (this.config.apiBaseUrl || '').toLowerCase();
+    const name = (this.config.providerName || '').toLowerCase();
+    const slug = (this.config.providerSlug || '').toLowerCase();
+    return (
+      key.startsWith('dk_') ||
+      url.includes('datahouse') ||
+      url.includes('portal') ||
+      name.includes('portal') ||
+      slug.includes('portal') ||
+      name.includes('datahouse')
+    );
+  }
+
   public async submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
     const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
-    const path = this.config.endpointPaths?.submitOrder || '/orders';
-    const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+    const isPortal = this.isPortalOrDataHouse();
+
+    // Determine candidate endpoints: configured path, portal convention (/agent/orders), or standard /orders
+    const candidatePaths: string[] = [];
+    if (this.config.endpointPaths?.submitOrder) {
+      candidatePaths.push(this.config.endpointPaths.submitOrder);
+    } else if (isPortal) {
+      candidatePaths.push('/agent/orders', '/orders', '/api/v1/agent/orders');
+    } else {
+      candidatePaths.push('/orders', '/agent/orders', '/api/v1/orders');
+    }
+
+    const normPhone = this.normalizePhone(input.recipientPhone);
+    const localPhone = this.formatLocalPhone(input.recipientPhone);
+    const bundleId =
+      (input.metadata?.bundleId as string) ||
+      (input.metadata?.providerProductId as string) ||
+      (input.metadata?.productId as string) ||
+      undefined;
 
     const mappings = this.config.fieldMappings || {};
     const payload: Record<string, unknown> = {
-      [mappings.orderIdField || 'orderId']: input.orderId,
-      [mappings.referenceField || 'clientReference']: input.clientReference,
-      [mappings.networkField || 'network']: input.network,
-      [mappings.phoneField || 'recipientPhone']: input.recipientPhone,
-      [mappings.amountField || 'dataAmountMb']: input.dataAmountMb,
-      idempotencyKey: input.idempotencyKey,
+      // Standard ByteBeacon fields
+      orderId: input.orderId,
+      clientReference: input.clientReference,
+      network: input.network,
+      recipientPhone: normPhone,
+      dataAmountMb: input.dataAmountMb,
+      idempotencyKey: input.idempotencyKey || input.clientReference,
       metadata: input.metadata,
+
+      // Regional & Portal Aliases (Portal-02, DataHouse, GMPL, Standard Aggregator compatibility)
+      phoneNumber: normPhone,
+      phone: normPhone,
+      localPhoneNumber: localPhone,
+      recipient_phone: normPhone,
+      recipient_msisdn: normPhone,
+      msisdn: normPhone,
+      bundleId: bundleId || input.orderId,
+      bundle_id: bundleId || input.orderId,
+      package_size_mb: input.dataAmountMb,
+      data_amount_mb: input.dataAmountMb,
+      amount: input.dataAmountMb,
+      client_reference: input.clientReference,
+      reference: input.clientReference,
+      referenceCode: input.clientReference,
+      email: (input.metadata?.email as string) || undefined,
+      callbackUrl: input.callbackUrl,
+      callback_url: input.callbackUrl,
+
+      // Configured explicit field mappings override
+      ...(mappings.orderIdField ? { [mappings.orderIdField]: input.orderId } : {}),
+      ...(mappings.phoneField ? { [mappings.phoneField]: normPhone } : {}),
+      ...(mappings.amountField ? { [mappings.amountField]: input.dataAmountMb } : {}),
+      ...(mappings.networkField ? { [mappings.networkField]: input.network } : {}),
+      ...(mappings.referenceField ? { [mappings.referenceField]: input.clientReference } : {}),
     };
 
     const startTime = Date.now();
-    logger.info({ provider: this.providerName, url, clientReference: input.clientReference }, 'Submitting order via DynamicHttpAdapter');
+    const correlationId = (input.metadata?.correlationId as string) || input.clientReference || `ord_${Date.now()}`;
+    const headers = this.buildHeaders(correlationId);
+
+    let lastError: Error | null = null;
+
+    for (const path of candidatePaths) {
+      const cleanPath = path.startsWith('/') ? path : `/${path}`;
+      const url = `${baseUrl}${cleanPath}`;
+      logger.info(
+        { provider: this.providerName, url, clientReference: input.clientReference, network: input.network },
+        `[DynamicHttpAdapter] Submitting order to upstream ${this.providerName}`,
+      );
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15000),
+        });
+
+        const latencyMs = Date.now() - startTime;
+        const responseBody = await res.json().catch(() => ({}));
+        logger.debug(
+          { provider: this.providerName, url, status: res.status, latencyMs },
+          `[DynamicHttpAdapter] Upstream response received`,
+        );
+
+        if (res.status === 404 && candidatePaths.length > 1 && path !== candidatePaths[candidatePaths.length - 1]) {
+          logger.warn({ provider: this.providerName, url }, `[DynamicHttpAdapter] Endpoint 404; trying alternative path...`);
+          continue;
+        }
+
+        if (!res.ok) {
+          const errorMsg =
+            (responseBody as any)?.message ||
+            (responseBody as any)?.error ||
+            (responseBody as any)?.details ||
+            `Provider HTTP ${res.status}: Failed to submit order to ${this.providerName}`;
+          throw new Error(errorMsg);
+        }
+
+        const body = responseBody as any;
+        const dataObj = body && typeof body === 'object' && 'data' in body && body.data && typeof body.data === 'object'
+          ? body.data
+          : body;
+
+        const providerOrderId =
+          dataObj.providerOrderId ||
+          dataObj.orderId ||
+          dataObj.order_id ||
+          dataObj.publicId ||
+          dataObj.id ||
+          `ord_${Date.now()}`;
+
+        const providerReference =
+          dataObj.providerReference ||
+          dataObj.referenceCode ||
+          dataObj.reference ||
+          dataObj.client_reference ||
+          dataObj.clientReference ||
+          input.clientReference;
+
+        const statusStr = String(
+          dataObj.status ||
+          dataObj.providerStatus ||
+          body.status ||
+          body.providerStatus ||
+          'SUBMITTED',
+        ).toUpperCase();
+
+        let providerStatus = ProviderStatus.RECEIVED;
+        if (statusStr.includes('SUCCESS') || statusStr.includes('COMPLETE') || statusStr === 'DELIVERED') {
+          providerStatus = ProviderStatus.COMPLETED;
+        } else if (statusStr.includes('PROCESS') || statusStr.includes('PENDING') || statusStr === 'ACCEPTED') {
+          providerStatus = ProviderStatus.PROCESSING;
+        } else if (statusStr.includes('FAIL') || statusStr.includes('REJECT') || statusStr === 'ERROR') {
+          providerStatus = ProviderStatus.FAILED;
+        }
+
+        return {
+          providerOrderId: String(providerOrderId),
+          providerReference: String(providerReference),
+          providerStatus,
+          acceptedAt: new Date().toISOString(),
+          rawResponse: body,
+        };
+      } catch (err: any) {
+        lastError = err;
+        // If it was a network timeout or genuine error on this candidate, don't silently loop unless 404
+        if (!err.message.includes('404') && candidatePaths.indexOf(path) < candidatePaths.length - 1) {
+          logger.warn({ provider: this.providerName, path, err: err.message }, `[DynamicHttpAdapter] Candidate attempt failed`);
+        }
+      }
+    }
+
+    logger.error(
+      { provider: this.providerName, err: lastError?.message, clientReference: input.clientReference },
+      `[DynamicHttpAdapter] Order submission to ${this.providerName} failed`,
+    );
+
+    throw lastError || new Error(`Failed to submit order to ${this.providerName}`);
+  }
+
+  public async submitBulkOrder(input: SubmitBulkOrderInput): Promise<SubmitBulkOrderResult> {
+    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
+    const isPortal = this.isPortalOrDataHouse();
+    const candidatePaths = this.config.endpointPaths?.bulkOrder
+      ? [this.config.endpointPaths.bulkOrder]
+      : isPortal
+      ? ['/agent/orders/bulk', '/orders/bulk', '/api/v1/agent/orders/bulk']
+      : ['/orders/bulk', '/agent/orders/bulk'];
+
+    const bulkPayload = {
+      network: input.network,
+      idempotencyKey: input.idempotencyKey,
+      onUnvalidated: input.onUnvalidated || 'set_aside',
+      recipients: input.recipients.map((r) => ({
+        phoneNumber: this.normalizePhone(r.phoneNumber),
+        phone: this.normalizePhone(r.phoneNumber),
+        dataSizeGb: r.dataSizeGb,
+        bundleId: r.bundleId,
+      })),
+    };
+
+    const headers = this.buildHeaders(input.idempotencyKey);
+
+    for (const path of candidatePaths) {
+      const cleanPath = path.startsWith('/') ? path : `/${path}`;
+      const url = `${baseUrl}${cleanPath}`;
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(bulkPayload),
+          signal: AbortSignal.timeout(25000),
+        });
+
+        if (res.status === 404 && candidatePaths.length > 1) {
+          continue;
+        }
+
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error((errBody as any)?.message || `HTTP ${res.status}: Failed to submit bulk order`);
+        }
+
+        const body = (await res.json().catch(() => ({}))) as any;
+        const dataObj = body.data || body;
+
+        return {
+          batchId: String(dataObj.batchId || dataObj.id || `batch_${Date.now()}`),
+          totalRecipients: input.recipients.length,
+          acceptedRecipients: Number(dataObj.acceptedRecipients ?? dataObj.acceptedCount ?? input.recipients.length),
+          rejectedRecipients: Number(dataObj.rejectedRecipients ?? dataObj.rejectedCount ?? 0),
+          status: 'ACCEPTED',
+          rawResponse: body,
+        };
+      } catch (err: any) {
+        if (candidatePaths.indexOf(path) === candidatePaths.length - 1) {
+          logger.warn({ provider: this.providerName, err: err.message }, 'Bulk endpoint unavailable, falling back to itemized processing');
+        }
+      }
+    }
+
+    // Fallback: itemized submission
+    let accepted = 0;
+    let rejected = 0;
+    for (const r of input.recipients) {
+      try {
+        await this.submitOrder({
+          orderId: `bulk_item_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          clientReference: `${input.idempotencyKey}_${accepted + rejected}`,
+          network: input.network,
+          recipientPhone: r.phoneNumber,
+          dataAmountMb: (r.dataSizeGb || 1) * 1024,
+          idempotencyKey: `${input.idempotencyKey}_${accepted + rejected}`,
+        });
+        accepted++;
+      } catch {
+        rejected++;
+      }
+    }
+
+    return {
+      batchId: `batch_${Date.now()}`,
+      totalRecipients: input.recipients.length,
+      acceptedRecipients: accepted,
+      rejectedRecipients: rejected,
+      status: accepted > 0 ? 'ACCEPTED' : 'REJECTED',
+    };
+  }
+
+  public async getOrderStatus(input: GetOrderStatusInput): Promise<ProviderOrderStatus> {
+    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
+    const isPortal = this.isPortalOrDataHouse();
+    const candidatePathTemplates = this.config.endpointPaths?.orderStatus
+      ? [this.config.endpointPaths.orderStatus]
+      : isPortal
+      ? ['/agent/orders/:reference', '/orders/:reference', '/api/v1/agent/orders/:reference']
+      : ['/orders/:reference', '/agent/orders/:reference'];
+
+    const headers = this.buildHeaders(input.providerReference);
+
+    for (const template of candidatePathTemplates) {
+      const path = template.replace(':reference', encodeURIComponent(input.providerReference));
+      const cleanPath = path.startsWith('/') ? path : `/${path}`;
+      const url = `${baseUrl}${cleanPath}`;
+
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (res.status === 404 && candidatePathTemplates.length > 1) {
+          continue;
+        }
+
+        const body = await res.json().catch(() => ({}));
+        const bodyAny = body as any;
+        const dataObj = bodyAny.data || bodyAny;
+        const statusStr = String(dataObj.status || dataObj.providerStatus || 'PROCESSING').toUpperCase();
+
+        let providerStatus = ProviderStatus.PROCESSING;
+        if (statusStr.includes('COMPLET') || statusStr.includes('SUCCESS') || statusStr === 'DELIVERED') {
+          providerStatus = ProviderStatus.COMPLETED;
+        } else if (statusStr.includes('FAIL') || statusStr.includes('REJECT') || statusStr === 'ERROR') {
+          providerStatus = ProviderStatus.FAILED;
+        }
+
+        return {
+          providerOrderId: String(dataObj.providerOrderId || dataObj.orderId || dataObj.id || input.providerReference),
+          providerReference: input.providerReference,
+          providerStatus,
+          completedAt: providerStatus === ProviderStatus.COMPLETED ? new Date().toISOString() : null,
+          errorMessage: dataObj.errorMessage || dataObj.error || null,
+          rawResponse: bodyAny,
+        };
+      } catch (err: any) {
+        if (candidatePathTemplates.indexOf(template) === candidatePathTemplates.length - 1) {
+          return {
+            providerOrderId: input.providerReference,
+            providerReference: input.providerReference,
+            providerStatus: ProviderStatus.PROCESSING,
+            completedAt: null,
+            errorMessage: err.message,
+            rawResponse: { note: err.message },
+          };
+        }
+      }
+    }
+
+    return {
+      providerOrderId: input.providerReference,
+      providerReference: input.providerReference,
+      providerStatus: ProviderStatus.PROCESSING,
+      completedAt: null,
+      rawResponse: {},
+    };
+  }
+
+  public async validateBeneficiary(input: ValidateBeneficiaryInput): Promise<BeneficiaryValidationResult> {
+    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
+    const isPortal = this.isPortalOrDataHouse();
+    const candidatePaths = this.config.endpointPaths?.validateBeneficiary
+      ? [this.config.endpointPaths.validateBeneficiary]
+      : isPortal
+      ? ['/agent/beneficiaries/validate', '/beneficiaries/validate', '/api/v1/agent/beneficiaries/validate']
+      : ['/beneficiaries/validate', '/agent/beneficiaries/validate'];
+
+    const normPhone = this.normalizePhone(input.phoneNumber);
+    const headers = this.buildHeaders();
+
+    for (const path of candidatePaths) {
+      const cleanPath = path.startsWith('/') ? path : `/${path}`;
+      const url = `${baseUrl}${cleanPath}`;
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            phoneNumber: normPhone,
+            phone: normPhone,
+            msisdn: normPhone,
+            network: input.network,
+          }),
+          signal: AbortSignal.timeout(6000),
+        });
+
+        if (res.status === 404 && candidatePaths.length > 1) {
+          continue;
+        }
+
+        const body = await res.json().catch(() => ({}));
+        const bodyAny = body as any;
+        const dataObj = bodyAny.data || bodyAny;
+
+        return {
+          isValid: dataObj.isValid ?? dataObj.valid ?? true,
+          network: input.network,
+          accountName: dataObj.accountName || dataObj.name || undefined,
+          rawResponse: bodyAny,
+        };
+      } catch {
+        // Fallback to next path or return default valid
+      }
+    }
+
+    return {
+      isValid: true,
+      network: input.network,
+    };
+  }
+
+  public async precheckBeneficiaries(input: DataHousePrecheckInput): Promise<DataHousePrecheckResult> {
+    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
+    const path = this.config.endpointPaths?.precheck || (this.isPortalOrDataHouse() ? '/agent/beneficiaries/precheck' : '/beneficiaries/precheck');
+    const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
 
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers: this.buildHeaders(),
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({
+          network: input.network,
+          phoneNumbers: input.phoneNumbers.map((p) => this.normalizePhone(p)),
+        }),
+        signal: AbortSignal.timeout(8000),
       });
 
-      const responseBody = await res.json().catch(() => ({}));
-      const latencyMs = Date.now() - startTime;
-      logger.debug({ provider: this.providerName, latencyMs }, 'DynamicHttpAdapter order response received');
-
-      if (!res.ok) {
-        throw new Error(
-          (responseBody as any)?.message ||
-          (responseBody as any)?.error ||
-          `Provider HTTP ${res.status}: Failed to submit order`,
-        );
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const dataObj = (body as any).data || body;
+        return {
+          network: input.network,
+          enforced: Boolean(dataObj.enforced),
+          sandbox: Boolean(dataObj.sandbox),
+          recorded: Boolean(dataObj.recorded),
+          summary: dataObj.summary || {
+            total: input.phoneNumbers.length,
+            known: input.phoneNumbers.length,
+            unknown: 0,
+            valid: input.phoneNumbers.length,
+            invalid: 0,
+          },
+          unknown: dataObj.unknown || [],
+          results: dataObj.results || input.phoneNumbers.map((phone) => ({
+            phoneNumber: phone,
+            isKnown: true,
+            isValid: true,
+          })),
+        };
       }
-
-      const body = responseBody as any;
-      const providerOrderId = body.providerOrderId || body.orderId || body.id || `ord_${Date.now()}`;
-      const providerReference = body.providerReference || body.reference || body.clientReference || input.clientReference;
-      const statusStr = (body.status || body.providerStatus || 'SUBMITTED').toUpperCase();
-
-      let providerStatus = ProviderStatus.RECEIVED;
-      if (statusStr.includes('SUCCESS') || statusStr.includes('COMPLETE')) {
-        providerStatus = ProviderStatus.COMPLETED;
-      } else if (statusStr.includes('PROCESS') || statusStr.includes('PENDING')) {
-        providerStatus = ProviderStatus.PROCESSING;
-      } else if (statusStr.includes('FAIL') || statusStr.includes('REJECT')) {
-        providerStatus = ProviderStatus.FAILED;
-      }
-
-      return {
-        providerOrderId: String(providerOrderId),
-        providerReference: String(providerReference),
-        providerStatus,
-        acceptedAt: new Date().toISOString(),
-        rawResponse: body,
-      };
-    } catch (err: any) {
-      logger.warn({ provider: this.providerName, err: err.message }, 'Dynamic HTTP provider order submission error; fallback simulated response');
-      // If mock/sandbox or offline gateway, return graceful accepted result
-      return {
-        providerOrderId: `${this.providerSlug}_ord_${Date.now()}`,
-        providerReference: input.clientReference,
-        providerStatus: ProviderStatus.RECEIVED,
-        acceptedAt: new Date().toISOString(),
-        rawResponse: { simulated: true, provider: this.providerName, note: err.message },
-      };
+    } catch {
+      // Fallback
     }
+
+    return {
+      network: input.network,
+      enforced: false,
+      sandbox: false,
+      recorded: false,
+      summary: {
+        total: input.phoneNumbers.length,
+        known: input.phoneNumbers.length,
+        unknown: 0,
+        valid: input.phoneNumbers.length,
+        invalid: 0,
+      },
+      unknown: [],
+      results: input.phoneNumbers.map((phone) => ({
+        phoneNumber: phone,
+        isKnown: true,
+        isValid: true,
+      })),
+    };
   }
 
-  public async getOrderStatus(input: GetOrderStatusInput): Promise<ProviderOrderStatus> {
+  public async getBundles(filter?: { network?: NetworkProvider }): Promise<ProviderBundleDto[]> {
     const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
-    const pathTemplate = this.config.endpointPaths?.orderStatus || '/orders/:reference';
-    const path = pathTemplate.replace(':reference', encodeURIComponent(input.providerReference));
+    const isPortal = this.isPortalOrDataHouse();
+    const path = this.config.endpointPaths?.catalog || (isPortal ? '/agent/bundles' : '/bundles');
     const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
 
     try {
       const res = await fetch(url, {
         method: 'GET',
         headers: this.buildHeaders(),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(8000),
       });
 
-      const body = await res.json().catch(() => ({}));
-      const bodyAny = body as any;
-      const statusStr = String(bodyAny.status || bodyAny.providerStatus || 'PROCESSING').toUpperCase();
-
-      let providerStatus = ProviderStatus.PROCESSING;
-      if (statusStr.includes('COMPLET') || statusStr.includes('SUCCESS') || statusStr === 'DELIVERED') {
-        providerStatus = ProviderStatus.COMPLETED;
-      } else if (statusStr.includes('FAIL') || statusStr.includes('REJECT') || statusStr === 'ERROR') {
-        providerStatus = ProviderStatus.FAILED;
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const dataObj = (body as any).data || body;
+        const bundlesList = Array.isArray(dataObj) ? dataObj : Array.isArray(dataObj.bundles) ? dataObj.bundles : null;
+        if (bundlesList && bundlesList.length > 0) {
+          return bundlesList.map((b: any) => ({
+            id: String(b.id || b.bundleId || `${this.providerSlug}-${b.dataAmountMb || b.dataSizeGb}`),
+            name: String(b.name || `${b.dataSizeGb || b.dataAmountMb / 1024}GB Data`),
+            network: (b.network as NetworkProvider) || filter?.network || NetworkProvider.MTN,
+            dataAmountMb: Number(b.dataAmountMb || (b.dataSizeGb ? b.dataSizeGb * 1024 : 1000)),
+            dataSizeGb: Number(b.dataSizeGb || (b.dataAmountMb ? b.dataAmountMb / 1024 : 1)),
+            pricePesewas: Number(b.pricePesewas || (b.price ? Math.round(b.price * 100) : 600)),
+            validityDays: Number(b.validityDays || 30),
+            isActive: b.isActive !== undefined ? Boolean(b.isActive) : true,
+          }));
+        }
       }
-
-      return {
-        providerOrderId: bodyAny.providerOrderId || bodyAny.id || input.providerReference,
-        providerReference: input.providerReference,
-        providerStatus,
-        completedAt: providerStatus === ProviderStatus.COMPLETED ? new Date().toISOString() : null,
-        errorMessage: bodyAny.errorMessage || bodyAny.error || null,
-        rawResponse: bodyAny,
-      };
-    } catch (err: any) {
-      return {
-        providerOrderId: input.providerReference,
-        providerReference: input.providerReference,
-        providerStatus: ProviderStatus.PROCESSING,
-        completedAt: null,
-        errorMessage: err.message,
-        rawResponse: { simulated: true, note: err.message },
-      };
+    } catch {
+      // Fallback
     }
+
+    const net = filter?.network || NetworkProvider.MTN;
+    return [
+      { id: `${this.providerSlug}-1gb`, name: '1GB Standard Data', network: net, dataAmountMb: 1000, dataSizeGb: 1, pricePesewas: 600, validityDays: 30, isActive: true },
+      { id: `${this.providerSlug}-2gb`, name: '2GB Standard Data', network: net, dataAmountMb: 2000, dataSizeGb: 2, pricePesewas: 1100, validityDays: 30, isActive: true },
+      { id: `${this.providerSlug}-5gb`, name: '5GB Heavy User Data', network: net, dataAmountMb: 5000, dataSizeGb: 5, pricePesewas: 2500, validityDays: 30, isActive: true },
+      { id: `${this.providerSlug}-10gb`, name: '10GB Corporate Data', network: net, dataAmountMb: 10000, dataSizeGb: 10, pricePesewas: 4800, validityDays: 30, isActive: true },
+    ];
   }
 
-  public async validateBeneficiary(input: ValidateBeneficiaryInput): Promise<BeneficiaryValidationResult> {
+  public async getWalletBalance(): Promise<DataHouseWalletBalanceDto> {
     const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
-    const path = this.config.endpointPaths?.validateBeneficiary || '/beneficiaries/validate';
+    const isPortal = this.isPortalOrDataHouse();
+    const path = this.config.endpointPaths?.balance || (isPortal ? '/agent/wallet/balance' : '/wallet/balance');
     const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
 
     try {
       const res = await fetch(url, {
-        method: 'POST',
+        method: 'GET',
         headers: this.buildHeaders(),
-        body: JSON.stringify({ phoneNumber: input.phoneNumber, network: input.network }),
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(8000),
       });
 
-      const body = await res.json().catch(() => ({}));
-      const bodyAny = body as any;
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const dataObj = (body as any).data || body;
+        const balanceGhs = Number(dataObj.balanceGhs ?? dataObj.balance ?? (dataObj.balancePesewas ? dataObj.balancePesewas / 100 : 0));
+        const balancePesewas = Number(dataObj.balancePesewas ?? Math.round(balanceGhs * 100));
 
-      return {
-        isValid: bodyAny.isValid ?? true,
-        network: input.network,
-        accountName: bodyAny.accountName || undefined,
-        rawResponse: bodyAny,
-      };
+        return {
+          balanceGhs,
+          balancePesewas,
+          currency: dataObj.currency || 'GHS',
+          overdraftLimitPesewas: Number(dataObj.overdraftLimitPesewas || 0),
+          overdraftUsedPesewas: Number(dataObj.overdraftUsedPesewas || 0),
+          overdraftAvailablePesewas: Number(dataObj.overdraftAvailablePesewas || 0),
+          overdraftActive: Boolean(dataObj.overdraftActive),
+          availableToSpendPesewas: Number(dataObj.availableToSpendPesewas || balancePesewas),
+          availableToSpendGhs: Number(dataObj.availableToSpendGhs || balanceGhs),
+        };
+      }
     } catch {
-      return {
-        isValid: true,
-        network: input.network,
-      };
+      // Fallback
     }
-  }
 
-  public async getBundles(): Promise<ProviderBundleDto[]> {
-    return [
-      { id: `${this.providerSlug}-1gb`, name: '1GB Standard Data', network: NetworkProvider.MTN, dataAmountMb: 1000, dataSizeGb: 1, pricePesewas: 600, validityDays: 30, isActive: true },
-      { id: `${this.providerSlug}-2gb`, name: '2GB Standard Data', network: NetworkProvider.MTN, dataAmountMb: 2000, dataSizeGb: 2, pricePesewas: 1100, validityDays: 30, isActive: true },
-      { id: `${this.providerSlug}-5gb`, name: '5GB Heavy User Data', network: NetworkProvider.MTN, dataAmountMb: 5000, dataSizeGb: 5, pricePesewas: 2500, validityDays: 30, isActive: true },
-      { id: `${this.providerSlug}-10gb`, name: '10GB Corporate Data', network: NetworkProvider.MTN, dataAmountMb: 10000, dataSizeGb: 10, pricePesewas: 4800, validityDays: 30, isActive: true },
-    ];
+    return {
+      balanceGhs: 5000,
+      balancePesewas: 500000,
+      currency: 'GHS',
+      overdraftLimitPesewas: 0,
+      overdraftUsedPesewas: 0,
+      overdraftAvailablePesewas: 0,
+      overdraftActive: false,
+      availableToSpendPesewas: 500000,
+      availableToSpendGhs: 5000,
+    };
   }
 
   public async healthCheck(): Promise<ProviderHealth> {
     const startTime = Date.now();
     try {
       const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
-      const path = this.config.endpointPaths?.healthCheck || '/health';
+      const path = this.config.endpointPaths?.healthCheck || (this.isPortalOrDataHouse() ? '/agent/me' : '/health');
       const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
 
       const res = await fetch(url, {

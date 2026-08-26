@@ -905,7 +905,7 @@ export async function storeRoutes(
       // Insert initial provider projection
       await client.query(
         `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-         VALUES ($1, 'GMPL', 'UNKNOWN')`,
+         VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse'), 'UNKNOWN')`,
         [orderRow.id],
       );
 

@@ -8,6 +8,10 @@ import {
   ProviderStatus,
   RefundStatus,
   OrderEventType,
+  PaymentEventType,
+  PaymentMethod,
+  LedgerEntryType,
+  LedgerAccountType,
   CreateOrderRequest,
   OrderSummaryDto,
   OrderDetailsDto,
@@ -22,7 +26,8 @@ import {
 import { OrderStateMachine } from './order-state-machine.js';
 import { CatalogService } from './catalog.service.js';
 import { IdempotencyService } from './idempotency.service.js';
-import { NotFoundError, ForbiddenError } from '../errors/app-error.js';
+import { FinancialLedgerService } from '../payments/financial-ledger.service.js';
+import { NotFoundError, ForbiddenError, BadRequestError } from '../errors/app-error.js';
 
 export interface CreateOrderContext {
   userId: string;
@@ -36,15 +41,18 @@ export class OrderService {
   private readonly db: pg.Pool;
   private readonly catalogService: CatalogService;
   private readonly idempotencyService: IdempotencyService;
+  private readonly ledgerService: FinancialLedgerService;
 
   constructor(
     db: pg.Pool,
     catalogService: CatalogService,
     idempotencyService: IdempotencyService,
+    ledgerService?: FinancialLedgerService,
   ) {
     this.db = db;
     this.catalogService = catalogService;
     this.idempotencyService = idempotencyService;
+    this.ledgerService = ledgerService ?? new FinancialLedgerService(db);
   }
 
   public async createOrder(
@@ -130,6 +138,48 @@ export class OrderService {
     try {
       await client.query('BEGIN');
 
+      const isWalletPayment =
+        input.paymentMethod === PaymentMethod.WALLET ||
+        input.paymentMethod === 'WALLET' ||
+        input.paymentMethod === 'wallet';
+
+      const initialPaymentStatus = isWalletPayment ? PaymentStatus.PAID : PaymentStatus.PENDING;
+      const initialOrderStatus = isWalletPayment
+        ? OrderStatus.READY_FOR_FULFILLMENT
+        : OrderStatus.CREATED;
+
+      if (isWalletPayment) {
+        const userRes = await client.query(
+          `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
+          [context.userId],
+        );
+
+        let currentBalancePesewas = 0;
+        if (userRes.rows.length > 0) {
+          const rawRow = userRes.rows[0];
+          if (rawRow.wallet_balance_pesewas !== null && rawRow.wallet_balance_pesewas !== undefined) {
+            currentBalancePesewas = parseInt(String(rawRow.wallet_balance_pesewas), 10);
+          } else if (rawRow.wallet_balance !== null && rawRow.wallet_balance !== undefined) {
+            currentBalancePesewas = Math.round(parseFloat(rawRow.wallet_balance) * 100);
+          }
+        }
+
+        if (currentBalancePesewas < pricePesewas) {
+          throw new BadRequestError(
+            `Insufficient wallet balance. Required: GH₵ ${(pricePesewas / 100).toFixed(2)}, Available: GH₵ ${(currentBalancePesewas / 100).toFixed(2)}. Please top up your wallet.`,
+          );
+        }
+
+        await client.query(
+          `UPDATE users
+           SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
+               wallet_balance = GREATEST(0, ROUND((COALESCE(wallet_balance_pesewas, 0) - $1) / 100.0, 2)),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [pricePesewas, context.userId],
+        );
+      }
+
       // 3. Insert Order
       const insertOrderQuery = `
         INSERT INTO orders (
@@ -158,8 +208,8 @@ export class OrderService {
         pricePesewas,
         Currency.GHS,
         JSON.stringify(pricingSnapshot),
-        PaymentStatus.PENDING,
-        OrderStatus.CREATED,
+        initialPaymentStatus,
+        initialOrderStatus,
         ProviderStatus.UNKNOWN,
         RefundStatus.NONE,
         input.idempotencyKey || null,
@@ -177,7 +227,7 @@ export class OrderService {
       // 5. Insert Initial Provider Order Projection
       await client.query(
         `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-         VALUES ($1, 'GMPL', 'UNKNOWN')`,
+         VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse'), 'UNKNOWN')`,
         [orderRow.id],
       );
 
@@ -196,11 +246,125 @@ export class OrderService {
           context.userId,
           context.actorType,
           JSON.stringify({
-            orderStatus: OrderStatus.CREATED,
-            paymentStatus: PaymentStatus.PENDING,
+            orderStatus: initialOrderStatus,
+            paymentStatus: initialPaymentStatus,
           }),
         ],
       );
+
+      const events: any[] = [];
+      if (eventRes.rows.length > 0) {
+        events.push({
+          id: eventRes.rows[0].id,
+          eventType: eventRes.rows[0].eventType as OrderEventType,
+          correlationId: eventRes.rows[0].correlationId,
+          actorId: eventRes.rows[0].actorId,
+          actorType: eventRes.rows[0].actorType,
+          previousState: null,
+          newState: eventRes.rows[0].newState,
+          metadata: eventRes.rows[0].metadata,
+          occurredAt: new Date(eventRes.rows[0].occurredAt).toISOString(),
+        });
+      }
+
+      // If wallet payment, record payment and payment events
+      if (isWalletPayment) {
+        const paymentPublicId = `pay_${crypto.randomBytes(8).toString('hex')}`;
+        const paymentRes = await client.query(
+          `INSERT INTO payments (
+              public_id, order_id, user_id, amount_pesewas, currency,
+              provider, provider_reference, payment_method, status, paid_at
+           ) VALUES ($1, $2, $3, $4, $5, 'WALLET', $6, 'WALLET', $7, CURRENT_TIMESTAMP)
+           RETURNING id, public_id as "publicId", created_at as "createdAt"`,
+          [
+            paymentPublicId,
+            orderRow.id,
+            context.userId,
+            pricePesewas,
+            Currency.GHS,
+            `pst_wal_${orderRow.publicId}`,
+            PaymentStatus.PAID,
+          ],
+        );
+
+        const paymentRecord = paymentRes.rows[0];
+
+        await client.query(
+          `INSERT INTO payment_attempts (payment_id, attempt_number, provider_channel, status)
+           VALUES ($1, 1, 'WALLET', 'SUCCESS')`,
+          [paymentRecord.id],
+        );
+
+        await client.query(
+          `INSERT INTO payment_events (payment_id, provider, event_type, correlation_id, source, previous_status, new_status, metadata)
+           VALUES ($1, 'WALLET', $2, $3, 'API', NULL, $4, $5)`,
+          [
+            paymentRecord.id,
+            PaymentEventType.PAYMENT_CAPTURED,
+            context.correlationId,
+            PaymentStatus.PAID,
+            JSON.stringify({ paymentMethod: 'WALLET', amountPesewas: pricePesewas }),
+          ],
+        );
+
+        const payConfirmRes = await client.query(
+          `INSERT INTO order_events (order_id, event_type, correlation_id, actor_id, actor_type, source, previous_state, new_state)
+           VALUES ($1, $2, $3, $4, 'SYSTEM', 'WALLET_ENGINE', $5, $6)
+           RETURNING id, event_type as "eventType", correlation_id as "correlationId",
+                     actor_id as "actorId", actor_type as "actorType",
+                     previous_state as "previousState", new_state as "newState",
+                     metadata, occurred_at as "occurredAt"`,
+          [
+            orderRow.id,
+            OrderEventType.PAYMENT_CONFIRMED,
+            context.correlationId,
+            context.userId,
+            JSON.stringify({ paymentStatus: PaymentStatus.PENDING }),
+            JSON.stringify({
+              paymentStatus: PaymentStatus.PAID,
+              orderStatus: OrderStatus.READY_FOR_FULFILLMENT,
+            }),
+          ],
+        );
+
+        if (payConfirmRes.rows.length > 0) {
+          events.push({
+            id: payConfirmRes.rows[0].id,
+            eventType: payConfirmRes.rows[0].eventType as OrderEventType,
+            correlationId: payConfirmRes.rows[0].correlationId,
+            actorId: payConfirmRes.rows[0].actorId,
+            actorType: payConfirmRes.rows[0].actorType,
+            previousState: payConfirmRes.rows[0].previousState,
+            newState: payConfirmRes.rows[0].newState,
+            metadata: payConfirmRes.rows[0].metadata,
+            occurredAt: new Date(payConfirmRes.rows[0].occurredAt).toISOString(),
+          });
+        }
+
+        const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+        await this.ledgerService.recordJournalEntries(client, [
+          {
+            entryType: LedgerEntryType.DEBIT,
+            accountType: LedgerAccountType.CUSTOMER_WALLET,
+            accountId: context.userId,
+            amountPesewas: pricePesewas,
+            currency: Currency.GHS,
+            referenceType: 'ORDER',
+            referenceId: orderRow.id,
+            description: `Wallet payment for Order ${orderRow.publicId}`,
+          },
+          {
+            entryType: LedgerEntryType.CREDIT,
+            accountType: LedgerAccountType.PLATFORM_ESCROW,
+            accountId: platformSystemAccountId,
+            amountPesewas: pricePesewas,
+            currency: Currency.GHS,
+            referenceType: 'ORDER',
+            referenceId: orderRow.id,
+            description: `Platform escrow credited for Order ${orderRow.publicId}`,
+          },
+        ]);
+      }
 
       const orderDetails: OrderDetailsDto = {
         id: orderRow.id,
@@ -225,19 +389,7 @@ export class OrderService {
           lastProviderEventAt: null,
           syncVersion: 0,
         },
-        events: [
-          {
-            id: eventRes.rows[0].id,
-            eventType: eventRes.rows[0].eventType as OrderEventType,
-            correlationId: eventRes.rows[0].correlationId,
-            actorId: eventRes.rows[0].actorId,
-            actorType: eventRes.rows[0].actorType,
-            previousState: null,
-            newState: eventRes.rows[0].newState,
-            metadata: eventRes.rows[0].metadata,
-            occurredAt: new Date(eventRes.rows[0].occurredAt).toISOString(),
-          },
-        ],
+        events,
         createdAt: new Date(orderRow.createdAt).toISOString(),
         updatedAt: new Date(orderRow.updatedAt).toISOString(),
       };

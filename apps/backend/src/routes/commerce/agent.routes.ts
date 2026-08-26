@@ -244,8 +244,19 @@ export async function agentRoutes(
   );
 
   // 3. GET AGENT WALLET TRANSACTIONS (Filtered, Sorted, Paginated)
-  app.get<{
-    Querystring: {
+  const handleGetWalletTransactions = async (
+    req: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    const {
+      type = 'ALL',
+      status: _status = 'ALL',
+      dateRange = '30d',
+      sortBy = 'newest',
+      page = '1',
+      limit = '10',
+      search = '',
+    } = (req.query as {
       type?: string;
       status?: string;
       dateRange?: string;
@@ -255,172 +266,163 @@ export async function agentRoutes(
       page?: string;
       limit?: string;
       search?: string;
-    };
-  }>(
-    '/agents/wallet/transactions',
-    { preHandler: [authHooks.authenticateCustomer] },
-    async (req, reply) => {
-      const {
-        type = 'ALL',
-        status: _status = 'ALL',
-        dateRange = '30d',
-        sortBy = 'newest',
-        page = '1',
-        limit = '10',
-        search = '',
-      } = req.query;
+    }) || {};
 
-      const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
 
-      const conditions: string[] = ['account_id = $1'];
-      const params: any[] = [req.user!.sub];
-      let paramIdx = 2;
+    const conditions: string[] = ['account_id = $1'];
+    const params: any[] = [req.user!.sub];
+    let paramIdx = 2;
 
-      // Filter by Type
-      if (type && type !== 'ALL') {
-        if (type === 'DEPOSIT') {
-          conditions.push(`(reference_type = 'DEPOSIT' OR reference_type = 'PAYMENT' OR description ILIKE '%top-up%' OR description ILIKE '%deposit%')`);
-        } else if (type === 'PURCHASE') {
-          conditions.push(`(reference_type = 'ORDER' OR description ILIKE '%bundle%' OR description ILIKE '%purchase%')`);
-        } else if (type === 'REFUND') {
-          conditions.push(`(reference_type = 'REFUND' OR description ILIKE '%refund%')`);
-        } else if (type === 'ADJUSTMENT') {
-          conditions.push(`(reference_type = 'ADJUSTMENT' OR description ILIKE '%adjust%' OR description ILIKE '%bonus%')`);
-        }
+    // Filter by Type
+    if (type && type !== 'ALL') {
+      if (type === 'DEPOSIT') {
+        conditions.push(`(reference_type = 'DEPOSIT' OR reference_type = 'PAYMENT' OR description ILIKE '%top-up%' OR description ILIKE '%deposit%')`);
+      } else if (type === 'PURCHASE') {
+        conditions.push(`(reference_type = 'ORDER' OR description ILIKE '%bundle%' OR description ILIKE '%purchase%')`);
+      } else if (type === 'REFUND') {
+        conditions.push(`(reference_type = 'REFUND' OR description ILIKE '%refund%')`);
+      } else if (type === 'ADJUSTMENT') {
+        conditions.push(`(reference_type = 'ADJUSTMENT' OR description ILIKE '%adjust%' OR description ILIKE '%bonus%')`);
+      }
+    }
+
+    // Filter by Date Range
+    if (dateRange && dateRange !== 'all') {
+      let interval = '30 days';
+      if (dateRange === 'today') interval = '1 day';
+      else if (dateRange === '7d') interval = '7 days';
+      else if (dateRange === '30d') interval = '30 days';
+      else if (dateRange === '90d') interval = '90 days';
+      else if (dateRange === '1y') interval = '1 year';
+
+      conditions.push(`created_at >= NOW() - INTERVAL '${interval}'`);
+    }
+
+    // Search keyword filter
+    if (search && search.trim()) {
+      conditions.push(`(description ILIKE $${paramIdx} OR reference_id ILIKE $${paramIdx})`);
+      params.push(`%${search.trim()}%`);
+      paramIdx++;
+    }
+
+    // Sorting
+    let orderClause = 'ORDER BY created_at DESC';
+    if (sortBy === 'oldest') {
+      orderClause = 'ORDER BY created_at ASC';
+    } else if (sortBy === 'highest') {
+      orderClause = 'ORDER BY amount_pesewas DESC';
+    } else if (sortBy === 'lowest') {
+      orderClause = 'ORDER BY amount_pesewas ASC';
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Count query
+    const countRes = await db.query(
+      `SELECT COUNT(*) as total FROM financial_ledger ${whereClause}`,
+      params,
+    );
+    const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+    // Paginated Select Query
+    const offset = (pageNum - 1) * limitNum;
+    const selectQuery = `
+      SELECT id, entry_type as "entryType", account_type as "accountType",
+             account_id as "accountId", amount_pesewas as "amountPesewas",
+             currency, reference_type as "referenceType", reference_id as "referenceId",
+             description, created_at as "createdAt"
+      FROM financial_ledger
+      ${whereClause}
+      ${orderClause}
+      LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
+    `;
+    params.push(limitNum, offset);
+
+    const itemsRes = await db.query(selectQuery, params);
+
+    const items = itemsRes.rows.map((r) => {
+      const isCredit = r.entryType === 'CREDIT';
+      let inferredType: 'DEPOSIT' | 'PURCHASE' | 'REFUND' | 'ADJUSTMENT' = 'PURCHASE';
+      if (r.referenceType === 'DEPOSIT' || r.description?.toLowerCase().includes('top-up') || r.description?.toLowerCase().includes('deposit')) {
+        inferredType = 'DEPOSIT';
+      } else if (r.referenceType === 'REFUND' || r.description?.toLowerCase().includes('refund')) {
+        inferredType = 'REFUND';
+      } else if (r.referenceType === 'ADJUSTMENT' || r.description?.toLowerCase().includes('bonus')) {
+        inferredType = 'ADJUSTMENT';
       }
 
-      // Filter by Date Range
-      if (dateRange && dateRange !== 'all') {
-        let interval = '30 days';
-        if (dateRange === 'today') interval = '1 day';
-        else if (dateRange === '7d') interval = '7 days';
-        else if (dateRange === '30d') interval = '30 days';
-        else if (dateRange === '90d') interval = '90 days';
-        else if (dateRange === '1y') interval = '1 year';
+      return {
+        id: r.referenceId || `TXN-${r.id.substring(0, 8).toUpperCase()}`,
+        ledgerId: r.id,
+        type: inferredType,
+        method: inferredType === 'DEPOSIT' ? 'Paystack' : inferredType === 'PURCHASE' ? 'Wallet' : 'Internal',
+        amountPesewas: Number(r.amountPesewas),
+        feePesewas: inferredType === 'DEPOSIT' ? Math.round(Number(r.amountPesewas) * 0.03) : 0,
+        isCredit,
+        description: r.description,
+        status: 'SUCCESSFUL',
+        date: new Date(r.createdAt).toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        rawDate: new Date(r.createdAt).toISOString(),
+      };
+    });
 
-        conditions.push(`created_at >= NOW() - INTERVAL '${interval}'`);
-      }
+    return reply.send({
+      success: true,
+      data: {
+        items,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum) || 1,
+        },
+      },
+    });
+  };
 
-      // Search keyword filter
-      if (search && search.trim()) {
-        conditions.push(`(description ILIKE $${paramIdx} OR reference_id ILIKE $${paramIdx})`);
-        params.push(`%${search.trim()}%`);
-        paramIdx++;
-      }
+  app.get('/agents/wallet/transactions', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletTransactions);
+  app.get('/agent/wallet/transactions', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletTransactions);
+  app.get('/wallet/transactions', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletTransactions);
 
-      // Sorting
-      let orderClause = 'ORDER BY created_at DESC';
-      if (sortBy === 'oldest') {
-        orderClause = 'ORDER BY created_at ASC';
-      } else if (sortBy === 'highest') {
-        orderClause = 'ORDER BY amount_pesewas DESC';
-      } else if (sortBy === 'lowest') {
-        orderClause = 'ORDER BY amount_pesewas ASC';
-      }
-
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-      // Count query
-      const countRes = await db.query(
-        `SELECT COUNT(*) as total FROM financial_ledger ${whereClause}`,
-        params,
+  // 4. GET AGENT / CUSTOMER WALLET BALANCE
+  const handleGetWalletBalance = async (req: FastifyRequest, reply: FastifyReply) => {
+    let balancePesewas = 0;
+    if (ledgerService) {
+      const bal = await ledgerService.getAccountBalance(LedgerAccountType.CUSTOMER_WALLET, req.user!.sub);
+      balancePesewas = bal.balancePesewas;
+    } else {
+      const res = await db.query(
+        `SELECT COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as balance
+         FROM financial_ledger WHERE account_id = $1`,
+        [req.user!.sub],
       );
-      const total = parseInt(countRes.rows[0]?.total || '0', 10);
+      balancePesewas = Number(res.rows[0]?.balance || 0);
+    }
 
-      // Paginated Select Query
-      const offset = (pageNum - 1) * limitNum;
-      const selectQuery = `
-        SELECT id, entry_type as "entryType", account_type as "accountType",
-               account_id as "accountId", amount_pesewas as "amountPesewas",
-               currency, reference_type as "referenceType", reference_id as "referenceId",
-               description, created_at as "createdAt"
-        FROM financial_ledger
-        ${whereClause}
-        ${orderClause}
-        LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
-      `;
-      params.push(limitNum, offset);
+    return reply.send({
+      success: true,
+      data: {
+        balancePesewas,
+        balanceGhs: balancePesewas / 100,
+        availablePesewas: balancePesewas,
+        availableGhs: balancePesewas / 100,
+        currency: 'GHS',
+      },
+    });
+  };
 
-      const itemsRes = await db.query(selectQuery, params);
-
-      const items = itemsRes.rows.map((r) => {
-        const isCredit = r.entryType === 'CREDIT';
-        let inferredType: 'DEPOSIT' | 'PURCHASE' | 'REFUND' | 'ADJUSTMENT' = 'PURCHASE';
-        if (r.referenceType === 'DEPOSIT' || r.description?.toLowerCase().includes('top-up') || r.description?.toLowerCase().includes('deposit')) {
-          inferredType = 'DEPOSIT';
-        } else if (r.referenceType === 'REFUND' || r.description?.toLowerCase().includes('refund')) {
-          inferredType = 'REFUND';
-        } else if (r.referenceType === 'ADJUSTMENT' || r.description?.toLowerCase().includes('bonus')) {
-          inferredType = 'ADJUSTMENT';
-        }
-
-        return {
-          id: r.referenceId || `TXN-${r.id.substring(0, 8).toUpperCase()}`,
-          ledgerId: r.id,
-          type: inferredType,
-          method: inferredType === 'DEPOSIT' ? 'Paystack' : inferredType === 'PURCHASE' ? 'Wallet' : 'Internal',
-          amountPesewas: Number(r.amountPesewas),
-          feePesewas: inferredType === 'DEPOSIT' ? Math.round(Number(r.amountPesewas) * 0.03) : 0,
-          isCredit,
-          description: r.description,
-          status: 'SUCCESSFUL',
-          date: new Date(r.createdAt).toLocaleString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-          rawDate: new Date(r.createdAt).toISOString(),
-        };
-      });
-
-      return reply.send({
-        success: true,
-        data: {
-          items,
-          pagination: {
-            page: pageNum,
-            limit: limitNum,
-            total,
-            totalPages: Math.ceil(total / limitNum) || 1,
-          },
-        },
-      });
-    },
-  );
-
-  // 4. GET AGENT WALLET BALANCE
-  app.get(
-    '/agents/wallet/balance',
-    { preHandler: [authHooks.authenticateCustomer] },
-    async (req: FastifyRequest, reply: FastifyReply) => {
-      let balancePesewas = 0;
-      if (ledgerService) {
-        const bal = await ledgerService.getAccountBalance(LedgerAccountType.CUSTOMER_WALLET, req.user!.sub);
-        balancePesewas = bal.balancePesewas;
-      } else {
-        const res = await db.query(
-          `SELECT COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as balance
-           FROM financial_ledger WHERE account_id = $1`,
-          [req.user!.sub],
-        );
-        balancePesewas = Number(res.rows[0]?.balance || 0);
-      }
-
-      return reply.send({
-        success: true,
-        data: {
-          balancePesewas,
-          balanceGhs: balancePesewas / 100,
-          availablePesewas: balancePesewas,
-          availableGhs: balancePesewas / 100,
-          currency: 'GHS',
-        },
-      });
-    },
-  );
+  app.get('/agents/wallet/balance', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletBalance);
+  app.get('/agent/wallet/balance', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletBalance);
+  app.get('/wallet/balance', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletBalance);
+  app.get('/customer/wallet/balance', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletBalance);
 
   // 5. INITIALIZE WALLET TOPUP (Paystack)
   app.post<{ Body: { amountPesewas: number; callbackUrl?: string } }>(

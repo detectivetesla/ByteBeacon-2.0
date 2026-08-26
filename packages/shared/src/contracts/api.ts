@@ -481,6 +481,7 @@ export interface CreateOrderRequest {
   recipientPhone: string;
   idempotencyKey?: string;
   agentId?: string;
+  paymentMethod?: PaymentMethod | string;
 }
 
 export interface OrderPricingSnapshot {
@@ -629,6 +630,7 @@ export interface CreateBulkSubmissionRequest {
   name: string;
   items: BulkSubmissionItemInput[];
   idempotencyKey?: string;
+  paymentMethod?: PaymentMethod | string;
 }
 
 export interface BulkSubmissionItemDto {

@@ -46,16 +46,30 @@ export class FulfillmentWorker {
 
   /**
    * Resolves the authoritative or network-routed provider for an order.
-   * Enforces historical order provider immutability.
+   * Enforces historical order provider immutability only when the order was previously submitted.
    */
-  private resolveProviderForOrder(order: { providerName?: string; network: any }): ITelecomProvider {
+  private resolveProviderForOrder(order: {
+    providerName?: string;
+    providerStatus?: string;
+    submissionAttempts?: number;
+    providerReference?: string;
+    network: any;
+  }): ITelecomProvider {
     const registry = this.provider as any;
-    if (order.providerName && typeof registry.getProvider === 'function') {
+    const hasBeenSubmitted =
+      (order.submissionAttempts !== undefined && Number(order.submissionAttempts) > 0) ||
+      (Boolean(order.providerReference) && String(order.providerReference).trim().length > 0) ||
+      (Boolean(order.providerStatus) && order.providerStatus !== ProviderStatus.UNKNOWN && order.providerStatus !== 'UNKNOWN');
+
+    if (hasBeenSubmitted && order.providerName && typeof registry.getProvider === 'function') {
       const historical = registry.getProvider(order.providerName);
       if (historical) return historical;
     }
     if (order.network && typeof registry.getProviderForNetwork === 'function') {
       return registry.getProviderForNetwork(order.network);
+    }
+    if (typeof registry.getActiveProvider === 'function') {
+      return registry.getActiveProvider();
     }
     return this.provider;
   }

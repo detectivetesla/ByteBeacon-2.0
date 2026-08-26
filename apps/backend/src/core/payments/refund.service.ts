@@ -99,7 +99,7 @@ export class RefundService {
 
       // Fetch the captured payment
       const payRes = await client.query(
-        `SELECT id, provider_reference, amount_pesewas, currency, status
+        `SELECT id, provider_reference, amount_pesewas, currency, status, provider, payment_method
          FROM payments
          WHERE order_id = $1 AND status = 'PAID'
          ORDER BY created_at DESC
@@ -150,15 +150,28 @@ export class RefundService {
         };
       }
 
-      // 2. Call Payment Gateway for Refund
-      const refundResult = await this.paymentProvider.initiateRefund({
-        paymentId: payment.id,
-        providerReference: payment.provider_reference,
-        amountPesewas: refundAmountPesewas,
-        currency: payment.currency as Currency,
-        reason: input.reason,
-        idempotencyKey: input.idempotencyKey,
-      });
+      // 2. Execute Refund (Internal Wallet or Payment Gateway)
+      let refundResult: { status: 'SUCCESS' | 'PENDING' | 'FAILED' | 'PROCESSING'; providerRefundReference: string };
+      const isWalletPayment =
+        payment.provider === 'WALLET' ||
+        payment.payment_method === 'WALLET' ||
+        payment.payment_method === 'wallet';
+
+      if (isWalletPayment) {
+        refundResult = {
+          status: 'SUCCESS',
+          providerRefundReference: `pst_wal_rf_${crypto.randomBytes(6).toString('hex')}`,
+        };
+      } else {
+        refundResult = await this.paymentProvider.initiateRefund({
+          paymentId: payment.id,
+          providerReference: payment.provider_reference,
+          amountPesewas: refundAmountPesewas,
+          currency: payment.currency as Currency,
+          reason: input.reason,
+          idempotencyKey: input.idempotencyKey,
+        });
+      }
 
       const refundPublicId = `ref_${crypto.randomBytes(8).toString('hex')}`;
       const refundStatus =
@@ -236,6 +249,16 @@ export class RefundService {
             amountRefundedPesewas: refundAmountPesewas,
           }),
         ],
+      );
+
+      // Credit User Wallet in users table
+      await client.query(
+        `UPDATE users
+         SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+             wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [refundAmountPesewas, order.user_id],
       );
 
       // 6. Post Balanced Financial Ledger Reversal

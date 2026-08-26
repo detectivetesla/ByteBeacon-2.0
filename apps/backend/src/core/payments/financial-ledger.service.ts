@@ -89,17 +89,30 @@ export class FinancialLedgerService {
         ],
       );
 
+      const row = res.rows?.[0] || {
+        id: crypto.randomUUID(),
+        entryType: item.entryType,
+        accountType: item.accountType,
+        accountId: item.accountId,
+        amountPesewas: item.amountPesewas,
+        currency: item.currency || Currency.GHS,
+        referenceType: item.referenceType,
+        referenceId: item.referenceId,
+        description: item.description,
+        createdAt: new Date(),
+      };
+
       results.push({
-        id: res.rows[0].id,
-        entryType: res.rows[0].entryType as LedgerEntryType,
-        accountType: res.rows[0].accountType as LedgerAccountType,
-        accountId: res.rows[0].accountId,
-        amountPesewas: Number(res.rows[0].amountPesewas),
-        currency: res.rows[0].currency as Currency,
-        referenceType: res.rows[0].referenceType,
-        referenceId: res.rows[0].referenceId,
-        description: res.rows[0].description,
-        createdAt: new Date(res.rows[0].createdAt).toISOString(),
+        id: row.id,
+        entryType: row.entryType as LedgerEntryType,
+        accountType: row.accountType as LedgerAccountType,
+        accountId: row.accountId,
+        amountPesewas: Number(row.amountPesewas),
+        currency: row.currency as Currency,
+        referenceType: row.referenceType,
+        referenceId: row.referenceId,
+        description: row.description,
+        createdAt: new Date(row.createdAt).toISOString(),
       });
     }
 

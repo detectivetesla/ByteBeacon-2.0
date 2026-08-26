@@ -3,6 +3,9 @@ import { QueueManager } from './infrastructure/queues/queue.manager.js';
 import { QUEUE_NAMES } from './infrastructure/queues/queue.config.js';
 import { DataHouseClient } from './core/providers/datahouse/datahouse.client.js';
 import { DataHouseAdapter } from './core/providers/datahouse/datahouse.adapter.js';
+import { GmplClient } from './core/providers/gmpl/gmpl.client.js';
+import { GmplAdapter } from './core/providers/gmpl/gmpl.adapter.js';
+import { TelecomProviderRegistry } from './core/providers/telecom-provider.registry.js';
 import { CircuitBreaker } from './core/providers/circuit-breaker.js';
 import { RetryPolicy } from './core/providers/retry-policy.js';
 import { FulfillmentQueueService } from './core/providers/fulfillment-queue.service.js';
@@ -37,7 +40,7 @@ export async function startWorkerProcess(): Promise<void> {
 
   const queueManager = new QueueManager(redisClient);
 
-  // Initialize telecom adapter & resilient executor
+  // Initialize telecom provider registry & resilient executor
   const dhClient = new DataHouseClient({
     baseUrl: process.env.DATAHOUSE_BASE_URL || 'https://sandbox.getmorepaylessdatahouse.net/api/v1',
     apiKey: process.env.DATAHOUSE_API_KEY || 'dh_sandbox_key',
@@ -45,23 +48,38 @@ export async function startWorkerProcess(): Promise<void> {
   });
   const datahouseAdapter = new DataHouseAdapter(dhClient);
 
+  const gmplClient = new GmplClient({
+    apiKey: process.env.GMPL_API_KEY || 'gmpl_key',
+    apiSecret: process.env.GMPL_API_SECRET || 'gmpl_secret',
+    baseUrl: process.env.GMPL_BASE_URL || 'https://api.gmpl.local/v1',
+  });
+  const gmplAdapter = new GmplAdapter(gmplClient);
+
+  const providerRegistry = new TelecomProviderRegistry();
+  providerRegistry.registerProvider('DataHouse', datahouseAdapter, { isAuthoritative: true, priority: 1 });
+  providerRegistry.registerProvider('GMPL', gmplAdapter, { isAuthoritative: false, priority: 2 });
+
+  await providerRegistry.loadProvidersFromDatabase(db).catch((err) => {
+    logger.warn({ err }, '[WORKER_PROCESS] Failed to load dynamic telecom providers from database on boot');
+  });
+
   const circuitBreaker = new CircuitBreaker({
     failureThreshold: 5,
     cooldownPeriodMs: 30000,
-    providerName: 'DATAHOUSE',
+    providerName: providerRegistry.providerName,
   });
   const retryPolicy = new RetryPolicy();
 
   const fulfillmentQueue = new FulfillmentQueueService(db, redisClient, queueManager);
   const fulfillmentWorker = new FulfillmentWorker(
     db,
-    datahouseAdapter,
+    providerRegistry,
     circuitBreaker,
     retryPolicy,
     fulfillmentQueue,
   );
 
-  const reconService = new ProviderReconciliationService(db, datahouseAdapter);
+  const reconService = new ProviderReconciliationService(db, providerRegistry);
 
   // 1. Register Fulfillment Worker on BullMQ
   queueManager.registerWorker(QUEUE_NAMES.FULFILLMENT, async (job) => {

@@ -56,7 +56,12 @@ describe('Agent Bulk Orders Suite (POST /agent/orders/bulk & POST /me/agent/orde
               rows: [{ id: 'sub_db_uuid_1' }],
             });
           }
-          if (sql.includes('INSERT INTO bulk_submission_items') || sql.includes('INSERT INTO provider_orders') || sql.includes('UPDATE users SET wallet_balance')) {
+          if (sql.includes('SELECT wallet_balance_pesewas, wallet_balance FROM users')) {
+            return Promise.resolve({
+              rows: [{ wallet_balance_pesewas: 100000, wallet_balance: '1000.00' }],
+            });
+          }
+          if (sql.includes('INSERT INTO bulk_submission_items') || sql.includes('INSERT INTO provider_orders') || sql.includes('UPDATE users') || sql.includes('INSERT INTO financial_ledger')) {
             return Promise.resolve({ rows: [] });
           }
           return Promise.resolve({ rows: [] });

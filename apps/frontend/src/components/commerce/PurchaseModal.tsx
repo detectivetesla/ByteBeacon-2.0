@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { NetworkProvider } from '@bytebeacon/shared';
+import { NetworkProvider, PaymentMethod } from '@bytebeacon/shared';
 import { Button } from '../ui/Button/Button.js';
 import { PhoneInput, Input } from '../ui/index.js';
 import { NetworkBadge } from '../ui/Badge/Badge.js';
@@ -296,9 +296,21 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       return;
     }
     const cleaned = recipientPhone.replace(/\s+/g, '');
+    const bundleId = selectedBundle?.id || initialBundleId || '';
+
+    if (!isBulk && !cleaned) {
+      toastError('Recipient Required', 'Please enter a recipient phone number before proceeding.');
+      setStep(1);
+      return;
+    }
+    if (!isBulk && !bundleId) {
+      toastError('Bundle Required', 'Please select a data bundle before proceeding.');
+      setStep(1);
+      return;
+    }
+
     const payEmail = buyerEmail.trim() || user?.email || `${cleaned || 'customer'}@bytebeacon.com`;
     const amountPesewas = Math.round(numericPrice * 100);
-    const bundleId = selectedBundle?.id || initialBundleId || '';
 
     setIsProcessing(true);
     toastInfo('Initializing Checkout', 'Connecting to Paystack Secure Gateway...');
@@ -427,6 +439,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
             recipientPhone: i.recipientPhone,
             productId: i.productId,
           })),
+          paymentMethod: PaymentMethod.WALLET,
           idempotencyKey: `bulk_sub_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         });
 
@@ -444,9 +457,14 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         if (!bundleId) {
           throw new Error('Please select a valid data package before purchasing.');
         }
+        const cleanedPhone = recipientPhone.trim();
+        if (!cleanedPhone) {
+          throw new Error('Please enter a recipient phone number before purchasing.');
+        }
         const order = await ordersApi.createOrder({
           productId: bundleId,
-          recipientPhone: recipientPhone.trim(),
+          recipientPhone: cleanedPhone,
+          paymentMethod: PaymentMethod.WALLET,
           idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         });
 

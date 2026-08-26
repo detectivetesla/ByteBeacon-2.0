@@ -52,7 +52,32 @@ export async function orderRoutes(
       ],
     },
     async (req: FastifyRequest<{ Body: CreateOrderRequest }>, reply: FastifyReply) => {
-      const { productId, recipientPhone, agentId } = req.body || {};
+      const rawBody = (req.body || {}) as any;
+
+      const productId =
+        rawBody.productId ||
+        rawBody.product_id ||
+        rawBody.bundleId ||
+        rawBody.bundle_id ||
+        rawBody.planId ||
+        rawBody.plan_id ||
+        rawBody.packageId ||
+        rawBody.package_id;
+
+      const rawPhone =
+        rawBody.recipientPhone ??
+        rawBody.recipient_phone ??
+        rawBody.phone ??
+        rawBody.phoneNumber ??
+        rawBody.phone_number ??
+        rawBody.msisdn ??
+        rawBody.recipient;
+
+      const recipientPhone =
+        rawPhone !== undefined && rawPhone !== null ? String(rawPhone).trim() : '';
+
+      const agentId = rawBody.agentId || rawBody.agent_id;
+      const paymentMethod = rawBody.paymentMethod || rawBody.payment_method;
 
       if (!productId || !recipientPhone) {
         throw new BadRequestError('Product ID and recipient phone are required');
@@ -60,7 +85,9 @@ export async function orderRoutes(
 
       // Check Idempotency-Key header or body field
       const idempotencyKey =
-        (req.headers['idempotency-key'] as string) || req.body.idempotencyKey;
+        (req.headers['idempotency-key'] as string) ||
+        rawBody.idempotencyKey ||
+        rawBody.idempotency_key;
 
       const actorType =
         req.user!.role === UserRole.ADMIN || req.user!.role === UserRole.SUPER_ADMIN
@@ -75,6 +102,7 @@ export async function orderRoutes(
           recipientPhone,
           idempotencyKey,
           agentId,
+          paymentMethod,
         },
         {
           userId: req.user!.sub,

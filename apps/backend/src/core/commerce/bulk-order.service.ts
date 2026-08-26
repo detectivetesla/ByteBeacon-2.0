@@ -9,17 +9,24 @@ import {
   NetworkProvider,
   AgentBulkOrderResult,
   AgentBulkChildOrderDto,
+  Currency,
+  PaymentMethod,
+  LedgerEntryType,
+  LedgerAccountType,
 } from '@bytebeacon/shared';
 import { CatalogService } from './catalog.service.js';
+import { FinancialLedgerService } from '../payments/financial-ledger.service.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnprocessableEntityError } from '../errors/app-error.js';
 
 export class BulkOrderService {
   private readonly db: pg.Pool;
   private readonly catalogService: CatalogService;
+  private readonly ledgerService: FinancialLedgerService;
 
-  constructor(db: pg.Pool, catalogService: CatalogService) {
+  constructor(db: pg.Pool, catalogService: CatalogService, ledgerService?: FinancialLedgerService) {
     this.db = db;
     this.catalogService = catalogService;
+    this.ledgerService = ledgerService ?? new FinancialLedgerService(db);
   }
 
   public async createBulkSubmission(
@@ -73,10 +80,47 @@ export class BulkOrderService {
         });
       }
 
+      const isWalletPayment =
+        input.paymentMethod === PaymentMethod.WALLET ||
+        input.paymentMethod === 'WALLET' ||
+        (input.paymentMethod as any) === 'wallet';
+
+      if (isWalletPayment) {
+        const userRes = await client.query(
+          `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
+          [userId],
+        );
+
+        let currentBalancePesewas = 0;
+        if (userRes.rows.length > 0) {
+          const rawRow = userRes.rows[0];
+          if (rawRow.wallet_balance_pesewas !== null && rawRow.wallet_balance_pesewas !== undefined) {
+            currentBalancePesewas = parseInt(String(rawRow.wallet_balance_pesewas), 10);
+          } else if (rawRow.wallet_balance !== null && rawRow.wallet_balance !== undefined) {
+            currentBalancePesewas = Math.round(parseFloat(rawRow.wallet_balance) * 100);
+          }
+        }
+
+        if (currentBalancePesewas < totalAmountPesewas) {
+          throw new BadRequestError(
+            `Insufficient wallet balance. Required: GH₵ ${(totalAmountPesewas / 100).toFixed(2)}, Available: GH₵ ${(currentBalancePesewas / 100).toFixed(2)}. Please top up your wallet.`,
+          );
+        }
+
+        await client.query(
+          `UPDATE users
+           SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
+               wallet_balance = GREATEST(0, ROUND((COALESCE(wallet_balance_pesewas, 0) - $1) / 100.0, 2)),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [totalAmountPesewas, userId],
+        );
+      }
+
       // 2. Insert Bulk Submission
       const subQuery = `
         INSERT INTO bulk_submissions (user_id, name, total_count, total_amount_pesewas, status, idempotency_key)
-        VALUES ($1, $2, $3, $4, 'PENDING', $5)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id, user_id as "userId", name, total_count as "totalCount",
                   processed_count as "processedCount", success_count as "successCount",
                   failed_count as "failedCount", total_amount_pesewas as "totalAmountPesewas",
@@ -88,6 +132,7 @@ export class BulkOrderService {
         input.name.trim(),
         itemsToInsert.length,
         totalAmountPesewas,
+        isWalletPayment ? 'PROCESSING' : 'PENDING',
         input.idempotencyKey || null,
       ]);
       const subRow = subRes.rows[0];
@@ -127,6 +172,32 @@ export class BulkOrderService {
           errorMessage: ir.errorMessage,
           createdAt: new Date(ir.createdAt).toISOString(),
         });
+      }
+
+      if (isWalletPayment) {
+        const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+        await this.ledgerService.recordJournalEntries(client, [
+          {
+            entryType: LedgerEntryType.DEBIT,
+            accountType: LedgerAccountType.CUSTOMER_WALLET,
+            accountId: userId,
+            amountPesewas: totalAmountPesewas,
+            currency: Currency.GHS,
+            referenceType: 'ORDER',
+            referenceId: subRow.id,
+            description: `Wallet payment for bulk submission (${input.name.trim()})`,
+          },
+          {
+            entryType: LedgerEntryType.CREDIT,
+            accountType: LedgerAccountType.PLATFORM_ESCROW,
+            accountId: platformSystemAccountId,
+            amountPesewas: totalAmountPesewas,
+            currency: Currency.GHS,
+            referenceType: 'ORDER',
+            referenceId: subRow.id,
+            description: `Platform escrow credited for bulk submission ${subRow.id}`,
+          },
+        ]);
       }
 
       await client.query('COMMIT');
@@ -541,15 +612,62 @@ export class BulkOrderService {
         ).catch(() => {});
       }
 
-      // Debit agent wallet for the linear per-GB total once
-      try {
-        await client.query(
-          `UPDATE users SET wallet_balance = GREATEST(0, COALESCE(wallet_balance, 0) - ($1::numeric / 100)) WHERE id = $2`,
-          [grandTotalPesewas, userId],
-        );
-      } catch {
-        // Continue
+      // Check agent wallet balance and verify sufficient funds
+      const userRes = await client.query(
+        `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
+        [userId],
+      );
+
+      let currentBalancePesewas = 0;
+      if (userRes.rows.length > 0) {
+        const rawRow = userRes.rows[0];
+        if (rawRow.wallet_balance_pesewas !== null && rawRow.wallet_balance_pesewas !== undefined) {
+          currentBalancePesewas = parseInt(String(rawRow.wallet_balance_pesewas), 10);
+        } else if (rawRow.wallet_balance !== null && rawRow.wallet_balance !== undefined) {
+          currentBalancePesewas = Math.round(parseFloat(rawRow.wallet_balance) * 100);
+        }
       }
+
+      if (currentBalancePesewas < grandTotalPesewas) {
+        throw new BadRequestError(
+          `Insufficient wallet balance. Required: GH₵ ${(grandTotalPesewas / 100).toFixed(2)}, Available: GH₵ ${(currentBalancePesewas / 100).toFixed(2)}. Please top up your wallet.`,
+        );
+      }
+
+      // Debit agent wallet for the linear per-GB total
+      await client.query(
+        `UPDATE users
+         SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
+             wallet_balance = GREATEST(0, ROUND((COALESCE(wallet_balance_pesewas, 0) - $1) / 100.0, 2)),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [grandTotalPesewas, userId],
+      );
+
+      // Post double-entry financial ledger journal lines
+      const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+      await this.ledgerService.recordJournalEntries(client, [
+        {
+          entryType: LedgerEntryType.DEBIT,
+          accountType: LedgerAccountType.CUSTOMER_WALLET,
+          accountId: userId,
+          amountPesewas: grandTotalPesewas,
+          currency: Currency.GHS,
+          referenceType: 'ORDER',
+          referenceId: submissionPublicId,
+          description: `Bulk data bundle purchase for ${acceptedRecipients.length} recipients (${netUpper})`,
+        },
+        {
+          entryType: LedgerEntryType.CREDIT,
+          accountType: LedgerAccountType.PLATFORM_ESCROW,
+          accountId: platformSystemAccountId,
+          amountPesewas: grandTotalPesewas,
+          currency: Currency.GHS,
+          referenceType: 'ORDER',
+          referenceId: submissionPublicId,
+          description: `Platform escrow credited for bulk submission ${submissionPublicId}`,
+        },
+      ]);
 
       await client.query('COMMIT');
 

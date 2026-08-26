@@ -535,6 +535,16 @@ export async function adminOrdersRoutes(
         [orderId],
       );
 
+      // Credit user wallet in users table
+      await db.query(
+        `UPDATE users
+         SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+             wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [refundAmount, order.user_id],
+      );
+
       if (auditService) {
         await auditService.log({
           correlationId: req.id,

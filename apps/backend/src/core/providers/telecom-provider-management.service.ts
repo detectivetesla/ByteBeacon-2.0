@@ -831,6 +831,25 @@ export class TelecomProviderManagementService {
       }
     }
 
+    // Refresh provider in runtime registry
+    const updated = await this.getProvider(existing.id);
+    const secrets = await this.credentialStore.getSecrets(updated.id, updated.environment).catch(() => null);
+    this.registry.updateDynamicCustomProvider({
+      providerName: updated.name,
+      providerSlug: updated.slug,
+      apiBaseUrl: updated.apiBaseUrl,
+      apiVersion: updated.apiVersion,
+      authMethod: updated.authMethod,
+      environment: updated.environment,
+      apiKey: secrets?.apiKey || '',
+      apiSecret: secrets?.apiSecret || '',
+      webhookSecret: secrets?.webhookSecret || '',
+      supportedNetworks: updated.supportedNetworks,
+    }, {
+      isAuthoritative: Boolean(updated.isAuthoritative),
+      supportedNetworks: updated.supportedNetworks,
+    });
+
     if (this.auditService && actorId) {
       await this.auditService.logEvent({
         correlationId: correlationId || `prov_upd_${Date.now()}`,
@@ -843,7 +862,7 @@ export class TelecomProviderManagementService {
       });
     }
 
-    return this.getProvider(existing.id);
+    return updated;
   }
 
   public async updateProviderStatus(
@@ -931,6 +950,23 @@ export class TelecomProviderManagementService {
       });
     }
 
+    // Refresh adapter credentials in runtime registry
+    this.registry.updateDynamicCustomProvider({
+      providerName: provider.name,
+      providerSlug: provider.slug,
+      apiBaseUrl: provider.apiBaseUrl,
+      apiVersion: provider.apiVersion,
+      authMethod: provider.authMethod,
+      environment: data.environment,
+      apiKey: data.apiKey,
+      apiSecret: data.apiSecret,
+      webhookSecret: data.webhookSecret,
+      supportedNetworks: provider.supportedNetworks,
+    }, {
+      isAuthoritative: Boolean(provider.isAuthoritative),
+      supportedNetworks: provider.supportedNetworks,
+    });
+
     return {
       id: stored.id,
       providerId: stored.providerId,
@@ -974,6 +1010,23 @@ export class TelecomProviderManagementService {
         metadata: { providerId: provider.id, environment: data.environment, reason: data.reason },
       });
     }
+
+    // Refresh adapter credentials in runtime registry
+    this.registry.updateDynamicCustomProvider({
+      providerName: provider.name,
+      providerSlug: provider.slug,
+      apiBaseUrl: provider.apiBaseUrl,
+      apiVersion: provider.apiVersion,
+      authMethod: provider.authMethod,
+      environment: data.environment,
+      apiKey: data.newApiKey,
+      apiSecret: data.newApiSecret,
+      webhookSecret: data.newWebhookSecret,
+      supportedNetworks: provider.supportedNetworks,
+    }, {
+      isAuthoritative: Boolean(provider.isAuthoritative),
+      supportedNetworks: provider.supportedNetworks,
+    });
 
     return {
       id: rotated.id,
@@ -1320,11 +1373,25 @@ export class TelecomProviderManagementService {
 
       const promoted = promoteRes.rows[0];
 
-      // 3. Update network default primary provider
+      // 3. Update network default primary provider in telecom_networks and provider_networks
       await client.query(
         `UPDATE telecom_networks SET primary_provider_name = $1, updated_at = CURRENT_TIMESTAMP`,
         [promoted.name],
       );
+
+      await client.query(
+        `UPDATE provider_networks 
+         SET role = 'PRIMARY', priority = 1 
+         WHERE provider_id = $1`,
+        [promoted.id],
+      ).catch(() => {});
+
+      await client.query(
+        `UPDATE provider_networks 
+         SET role = 'FALLBACK', priority = 2 
+         WHERE provider_id != $1 AND role = 'PRIMARY'`,
+        [promoted.id],
+      ).catch(() => {});
 
       // 4. Log switch audit record in provider_switch_logs
       await client.query(
@@ -1344,8 +1411,30 @@ export class TelecomProviderManagementService {
 
       await client.query('COMMIT');
 
-      // Update runtime registry
+      // Ensure provider is in registry with credentials and update carrier routing
+      const targetProv = await this.getProvider(promoted.id);
+      const secrets = await this.credentialStore.getSecrets(targetProv.id, targetProv.environment).catch(() => null);
+      this.registry.updateDynamicCustomProvider({
+        providerName: targetProv.name,
+        providerSlug: targetProv.slug,
+        apiBaseUrl: targetProv.apiBaseUrl,
+        apiVersion: targetProv.apiVersion,
+        authMethod: targetProv.authMethod,
+        environment: targetProv.environment,
+        apiKey: secrets?.apiKey || '',
+        apiSecret: secrets?.apiSecret || '',
+        webhookSecret: secrets?.webhookSecret || '',
+        supportedNetworks: targetProv.supportedNetworks,
+      }, {
+        isAuthoritative: true,
+        supportedNetworks: targetProv.supportedNetworks,
+      });
+
+      // Update runtime registry & carrier routing for all supported networks
       this.registry.setActiveProvider(promoted.name);
+      for (const net of targetProv.supportedNetworks) {
+        this.registry.setNetworkRouting(String(net), promoted.name);
+      }
 
       if (this.auditService && actorId) {
         await this.auditService.logEvent({

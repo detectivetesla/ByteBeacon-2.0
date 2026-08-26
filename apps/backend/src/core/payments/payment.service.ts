@@ -8,6 +8,7 @@ import {
   OrderEventType,
   LedgerEntryType,
   LedgerAccountType,
+  PaymentMethod,
   PaymentIntentDto,
   PaymentDetailsDto,
   InitializePaymentRequest,
@@ -106,6 +107,169 @@ export class PaymentService {
       const currency = order.currency as Currency;
       const paymentPublicId = `pay_${crypto.randomBytes(8).toString('hex')}`;
       const tempRef = `pst_init_${crypto.randomBytes(8).toString('hex')}`;
+
+      const isWalletPayment =
+        input.paymentMethod === PaymentMethod.WALLET ||
+        (input.paymentMethod as unknown as string) === 'WALLET' ||
+        (input.paymentMethod as unknown as string) === 'wallet';
+
+      if (isWalletPayment) {
+        // Lock and check user wallet balance
+        const userRes = await client.query(
+          `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
+          [context.userId],
+        );
+
+        let currentBalancePesewas = 0;
+        if (userRes.rows.length > 0) {
+          const rawRow = userRes.rows[0];
+          if (rawRow.wallet_balance_pesewas !== null && rawRow.wallet_balance_pesewas !== undefined) {
+            currentBalancePesewas = parseInt(String(rawRow.wallet_balance_pesewas), 10);
+          } else if (rawRow.wallet_balance !== null && rawRow.wallet_balance !== undefined) {
+            currentBalancePesewas = Math.round(parseFloat(rawRow.wallet_balance) * 100);
+          }
+        }
+
+        if (currentBalancePesewas < amountPesewas) {
+          throw new BadRequestError(
+            `Insufficient wallet balance. Required: GH₵ ${(amountPesewas / 100).toFixed(2)}, Available: GH₵ ${(currentBalancePesewas / 100).toFixed(2)}. Please top up your wallet.`,
+          );
+        }
+
+        // Deduct from users table
+        await client.query(
+          `UPDATE users
+           SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
+               wallet_balance = GREATEST(0, ROUND((COALESCE(wallet_balance_pesewas, 0) - $1) / 100.0, 2)),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [amountPesewas, context.userId],
+        );
+
+        const walletRef = `pst_wal_${paymentPublicId}`;
+
+        // Insert Payment Record
+        const paymentRes = await client.query(
+          `INSERT INTO payments (
+              public_id, order_id, user_id, amount_pesewas, currency,
+              provider, provider_reference, payment_method, status, paid_at
+           ) VALUES ($1, $2, $3, $4, $5, 'WALLET', $6, 'WALLET', $7, CURRENT_TIMESTAMP)
+           RETURNING id, public_id, created_at`,
+          [
+            paymentPublicId,
+            order.id,
+            context.userId,
+            amountPesewas,
+            currency,
+            walletRef,
+            PaymentStatus.PAID,
+          ],
+        );
+
+        const payment = paymentRes.rows[0];
+
+        // Insert Initial Payment Attempt
+        await client.query(
+          `INSERT INTO payment_attempts (
+              payment_id, attempt_number, provider_channel, status
+           ) VALUES ($1, 1, 'WALLET', 'SUCCESS')`,
+          [payment.id],
+        );
+
+        // Record Initial Payment Event
+        await client.query(
+          `INSERT INTO payment_events (
+              payment_id, provider, event_type, correlation_id, source,
+              previous_status, new_status, metadata
+           ) VALUES ($1, 'WALLET', $2, $3, 'API', NULL, $4, $5)`,
+          [
+            payment.id,
+            PaymentEventType.PAYMENT_CAPTURED,
+            context.correlationId,
+            PaymentStatus.PAID,
+            JSON.stringify({ paymentMethod: 'WALLET', amountPesewas }),
+          ],
+        );
+
+        // Transition Order to READY_FOR_FULFILLMENT
+        await client.query(
+          `UPDATE orders
+           SET payment_status = $1,
+               order_status = $2,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [PaymentStatus.PAID, OrderStatus.READY_FOR_FULFILLMENT, order.id],
+        );
+
+        // Record Order Event
+        await client.query(
+          `INSERT INTO order_events (
+              order_id, event_type, correlation_id, actor_id, actor_type, source,
+              previous_state, new_state
+           ) VALUES ($1, $2, $3, $4, 'SYSTEM', 'WALLET_ENGINE', $5, $6)`,
+          [
+            order.id,
+            OrderEventType.PAYMENT_CONFIRMED,
+            context.correlationId,
+            context.userId,
+            JSON.stringify({ paymentStatus: PaymentStatus.PENDING }),
+            JSON.stringify({
+              paymentStatus: PaymentStatus.PAID,
+              orderStatus: OrderStatus.READY_FOR_FULFILLMENT,
+            }),
+          ],
+        );
+
+        // Post Double-Entry Ledger Lines
+        const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+        await this.ledgerService.recordJournalEntries(client, [
+          {
+            entryType: LedgerEntryType.DEBIT,
+            accountType: LedgerAccountType.CUSTOMER_WALLET,
+            accountId: context.userId,
+            amountPesewas,
+            currency: currency,
+            referenceType: 'PAYMENT',
+            referenceId: payment.id,
+            description: `Customer wallet payment for Order ${order.id}`,
+          },
+          {
+            entryType: LedgerEntryType.CREDIT,
+            accountType: LedgerAccountType.PLATFORM_ESCROW,
+            accountId: platformSystemAccountId,
+            amountPesewas,
+            currency: currency,
+            referenceType: 'PAYMENT',
+            referenceId: payment.id,
+            description: `Platform escrow credited for Order ${order.id}`,
+          },
+        ]);
+
+        await client.query('COMMIT');
+
+        const responseDto: PaymentIntentDto = {
+          paymentId: payment.id,
+          publicId: payment.public_id,
+          orderId: order.id,
+          amountPesewas,
+          currency,
+          authorizationUrl: null,
+          reference: walletRef,
+          status: PaymentStatus.PAID,
+          createdAt: new Date(payment.created_at).toISOString(),
+        };
+
+        if (input.idempotencyKey) {
+          await this.idempotencyService.set(
+            input.idempotencyKey,
+            context.userId,
+            input,
+            responseDto,
+          );
+        }
+
+        return responseDto;
+      }
 
       // 2. Insert Payment Record
       const paymentRes = await client.query(

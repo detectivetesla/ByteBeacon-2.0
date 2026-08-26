@@ -297,8 +297,10 @@ export function createApp(options: AppOptions = {}) {
   const catalogService = options.catalogService ?? new CatalogService(dbPool);
   const idempotencyService =
     options.idempotencyService ?? new IdempotencyService(dbPool, redisClient);
+  const ledgerService = options.ledgerService ?? new FinancialLedgerService(dbPool);
+
   const orderService =
-    options.orderService ?? new OrderService(dbPool, catalogService, idempotencyService);
+    options.orderService ?? new OrderService(dbPool, catalogService, idempotencyService, ledgerService);
 
   const paymentProvider =
     options.paymentProvider ??
@@ -306,7 +308,6 @@ export function createApp(options: AppOptions = {}) {
       ? (new MockPaymentProvider() as unknown as IPaymentProvider)
       : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || 'sk_test_paystack_secret_key' }));
 
-  const ledgerService = options.ledgerService ?? new FinancialLedgerService(dbPool);
   const paymentService =
     options.paymentService ??
     new PaymentService(dbPool, paymentProvider, ledgerService, idempotencyService);
@@ -336,11 +337,17 @@ export function createApp(options: AppOptions = {}) {
   providerRegistry.registerProvider('DataHouse', datahouseAdapter, { isAuthoritative: true, priority: 1 });
   providerRegistry.registerProvider('GMPL', gmplAdapter, { isAuthoritative: false, priority: 2 });
 
+  if (dbPool) {
+    providerRegistry.loadProvidersFromDatabase(dbPool).catch((err) => {
+      logger.warn({ err }, '[APP_BOOT] Failed to load dynamic telecom providers from database on boot');
+    });
+  }
+
   const telecomProvider: ITelecomProvider = options.telecomProvider ?? providerRegistry;
 
   const beneficiaryService = options.beneficiaryService ?? new BeneficiaryService(dbPool, telecomProvider);
   const bulkOrderService =
-    options.bulkOrderService ?? new BulkOrderService(dbPool, catalogService);
+    options.bulkOrderService ?? new BulkOrderService(dbPool, catalogService, ledgerService);
 
   const circuitBreaker =
     options.circuitBreaker ??

@@ -99,6 +99,27 @@ export class TelecomProviderRegistry implements ITelecomProvider {
     return adapter;
   }
 
+  public updateDynamicCustomProvider(
+    config: DynamicHttpProviderConfig,
+    options: ProviderRegistrationOptions = {},
+  ): ITelecomProvider {
+    const key = config.providerName.toLowerCase();
+    const existing = this.providers.get(key);
+    const adapter = new DynamicHttpTelecomAdapter(config);
+    const isAuth = options.isAuthoritative ?? existing?.isAuthoritative ?? false;
+    this.providers.set(key, {
+      provider: adapter,
+      isAuthoritative: isAuth,
+      priority: options.priority ?? existing?.priority ?? 100,
+      environment: (options.environment as any) ?? existing?.environment ?? 'LIVE',
+      supportedNetworks: options.supportedNetworks ?? existing?.supportedNetworks ?? [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+    });
+    if (isAuth) {
+      this.setActiveProvider(config.providerName);
+    }
+    return adapter;
+  }
+
   /**
    * Initializes and syncs dynamic custom providers from the database on startup.
    */
@@ -114,17 +135,18 @@ export class TelecomProviderRegistry implements ITelecomProvider {
 
       for (const row of provRes.rows) {
         const key = row.name.toLowerCase();
-        // If already registered statically (e.g. DataHouse, GMPL), skip recreating
-        if (this.providers.has(key)) {
-          if (row.isAuthoritative) {
-            this.setActiveProvider(row.name);
-          }
-          continue;
-        }
 
         let secrets: any = null;
         if (credentialStore) {
           secrets = await credentialStore.getSecrets(row.id, row.environment).catch(() => null);
+        }
+
+        // If already registered statically (e.g. DataHouse, GMPL) and no DB secrets, update auth status
+        if (this.providers.has(key) && !secrets?.apiKey) {
+          if (row.isAuthoritative) {
+            this.setActiveProvider(row.name);
+          }
+          continue;
         }
 
         this.registerDynamicCustomProvider({
@@ -142,9 +164,26 @@ export class TelecomProviderRegistry implements ITelecomProvider {
           isAuthoritative: Boolean(row.isAuthoritative),
           supportedNetworks: row.supportedNetworks,
         });
+
+        if (row.isAuthoritative) {
+          this.setActiveProvider(row.name);
+        }
       }
 
-      logger.info({ totalLoaded: this.providers.size }, '[TELECOM_REGISTRY] Dynamic providers loaded from database');
+      // Sync network carrier routing from database
+      const routingRes = await db.query(`
+        SELECT code as "networkCode", primary_provider_name as "primaryProviderName", fallback_provider_name as "fallbackProviderName"
+        FROM telecom_networks
+        WHERE is_active = TRUE
+      `).catch(() => ({ rows: [] }));
+
+      for (const r of routingRes.rows) {
+        if (r.primaryProviderName) {
+          this.setNetworkRouting(r.networkCode, r.primaryProviderName, r.fallbackProviderName || undefined);
+        }
+      }
+
+      logger.info({ totalLoaded: this.providers.size }, '[TELECOM_REGISTRY] Dynamic providers and routing loaded from database');
     } catch (err: any) {
       logger.warn({ err: err.message }, '[TELECOM_REGISTRY] Could not load providers from database; using static fallback registry');
     }
@@ -160,6 +199,15 @@ export class TelecomProviderRegistry implements ITelecomProvider {
       entry.isAuthoritative = k === key;
     }
     this.activeProviderName = key;
+
+    // Automatically update default primary carrier routing for networks supported by this provider
+    const activeEntry = this.providers.get(key);
+    if (activeEntry) {
+      for (const net of activeEntry.supportedNetworks) {
+        const existing = this.carrierRouting.get(String(net).toUpperCase());
+        this.setNetworkRouting(String(net), key, existing?.fallback);
+      }
+    }
 
     logger.info({ activeProvider: name }, '[TELECOM_REGISTRY] Switched active authoritative telecom provider');
   }
