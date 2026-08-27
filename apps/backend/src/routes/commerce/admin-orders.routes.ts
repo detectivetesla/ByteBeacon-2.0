@@ -381,13 +381,20 @@ export async function adminOrdersRoutes(
     async (req, reply) => {
       const orderId = req.params.id;
 
-      const orderRes = await db.query(`SELECT id, order_status, provider_status FROM orders WHERE id = $1`, [orderId]);
-      if (orderRes.rows.length === 0) {
-        throw new NotFoundError(`Order [${orderId}] not found.`);
+      let singleRecon: any;
+      if (typeof (providerReconciliationService as any).reconcileSingleOrder === 'function') {
+        try {
+          singleRecon = await providerReconciliationService.reconcileSingleOrder(orderId);
+        } catch {
+          singleRecon = await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1);
+        }
+      } else {
+        singleRecon = await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1);
       }
 
-      // Run reconciliation via reconciliation service
-      const summary = await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1);
+      if (typeof (providerReconciliationService as any).reconcileStaleOrders === 'function') {
+        await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1).catch(() => {});
+      }
 
       if (auditService) {
         await auditService.log({
@@ -397,14 +404,14 @@ export async function adminOrdersRoutes(
           action: 'ORDER_RECONCILE',
           resourceType: 'orders',
           resourceId: orderId,
-          metadata: { summary },
+          metadata: { singleRecon },
         });
       }
 
       return reply.send({
         success: true,
-        data: { orderId, summary },
-        message: `Reconciliation triggered successfully for Order [${orderId}].`,
+        data: singleRecon,
+        message: `Order [${orderId}] status reconciled.`,
       });
     },
   );

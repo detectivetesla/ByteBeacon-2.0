@@ -157,6 +157,33 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     return headers;
   }
 
+  /**
+   * Normalizes URLs and eliminates duplicate /api/v1 or /api segments when apiBaseUrl already includes them.
+   */
+  private buildUrl(path: string): string {
+    const rawBase = (this.config.apiBaseUrl || '').trim().replace(/\/+$/, '');
+    let cleanPath = (path || '').trim();
+    if (!cleanPath.startsWith('/')) {
+      cleanPath = `/${cleanPath}`;
+    }
+
+    if (!rawBase) return cleanPath;
+
+    // Check if rawBase ends with /api/v1 or /api/v2 or /api
+    const apiVersionMatch = rawBase.match(/\/(api(\/v\d+)?)$/i);
+    if (apiVersionMatch) {
+      const baseApiSuffix = apiVersionMatch[0].toLowerCase();
+      if (cleanPath.toLowerCase().startsWith(baseApiSuffix)) {
+        cleanPath = cleanPath.slice(baseApiSuffix.length);
+        if (!cleanPath.startsWith('/')) {
+          cleanPath = `/${cleanPath}`;
+        }
+      }
+    }
+
+    return `${rawBase}${cleanPath}`;
+  }
+
   private isPortalOrDataHouse(): boolean {
     const key = (this.config.apiKey || '').trim();
     const url = (this.config.apiBaseUrl || '').toLowerCase();
@@ -173,7 +200,6 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
-    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
 
     const netSlug =
@@ -214,11 +240,14 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       undefined;
 
     const volumeGb = Math.max(1, Math.round(input.dataAmountMb / 1024));
-    const offerSlug =
+    const rawOfferSlug =
       (input.metadata?.offerSlug as string) ||
       (input.metadata?.requestedOfferSlug as string) ||
-      (input.metadata?.bundleSlug as string) ||
-      `${netSlug}_data_bundle`;
+      (input.metadata?.bundleSlug as string);
+    const offerSlug =
+      rawOfferSlug ||
+      (netSlug === 'at' ? 'airteltigo_data_bundle' : `${netSlug}_data_bundle`);
+
     const webhookUrl =
       input.callbackUrl ||
       (input.metadata?.webhookUrl as string) ||
@@ -227,44 +256,40 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
 
     const mappings = this.config.fieldMappings || {};
     const payload: Record<string, unknown> = {
-      // Custom / Aggregator API format (/api/v1/order/:network)
-      type: 'single',
-      volume: volumeGb,
-      offerSlug: offerSlug,
-      webhookUrl: webhookUrl,
-
-      // Standard ByteBeacon fields
-      orderId: input.orderId,
-      clientReference: input.clientReference,
-      network: input.network,
-      recipientPhone: normPhone,
-      dataAmountMb: input.dataAmountMb,
-      idempotencyKey: input.idempotencyKey || input.clientReference,
-      metadata: input.metadata,
-
-      // Regional & Portal Aliases (Portal-02, DataHouse, GMPL, Standard Aggregator compatibility)
-      phoneNumber: normPhone,
+      // 1. Custom / Aggregator API format (/api/v1/order/:network)
       phone: normPhone,
+      phoneNumber: normPhone,
+      recipient: normPhone,
+      recipientPhone: normPhone,
+      localPhone: localPhone,
       localPhoneNumber: localPhone,
       recipient_phone: normPhone,
       recipient_msisdn: normPhone,
       msisdn: normPhone,
+      volume: volumeGb,
+      dataAmountMb: input.dataAmountMb,
+      package_size_mb: input.dataAmountMb,
+      offerSlug: offerSlug,
       bundleId: bundleId || input.orderId,
       bundle_id: bundleId || input.orderId,
-      package_size_mb: input.dataAmountMb,
-      data_amount_mb: input.dataAmountMb,
-      amount: input.dataAmountMb,
-      client_reference: input.clientReference,
+      type: 'single',
       reference: input.clientReference,
+      clientReference: input.clientReference,
+      client_reference: input.clientReference,
       referenceCode: input.clientReference,
-      email: (input.metadata?.email as string) || undefined,
+      orderId: input.orderId,
+      network: input.network,
+      webhookUrl: webhookUrl,
       callbackUrl: webhookUrl,
       callback_url: webhookUrl,
+      idempotencyKey: input.idempotencyKey || input.clientReference,
+      metadata: input.metadata,
+      email: (input.metadata?.email as string) || undefined,
 
       // Configured explicit field mappings override
       ...(mappings.orderIdField ? { [mappings.orderIdField]: input.orderId } : {}),
-      ...(mappings.phoneField ? { [mappings.phoneField]: normPhone } : {}),
-      ...(mappings.amountField ? { [mappings.amountField]: input.dataAmountMb } : {}),
+      ...(mappings.phoneField ? { [mappings.phoneField]: localPhone } : {}),
+      ...(mappings.amountField ? { [mappings.amountField]: volumeGb } : {}),
       ...(mappings.networkField ? { [mappings.networkField]: input.network } : {}),
       ...(mappings.referenceField ? { [mappings.referenceField]: input.clientReference } : {}),
     };
@@ -276,8 +301,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     let lastError: Error | null = null;
 
     for (const path of candidatePaths) {
-      const cleanPath = path.startsWith('/') ? path : `/${path}`;
-      const url = `${baseUrl}${cleanPath}`;
+      const url = this.buildUrl(path);
       logger.info(
         { provider: this.providerName, url, clientReference: input.clientReference, network: input.network },
         `[DynamicHttpAdapter] Submitting order to upstream ${this.providerName}`,
@@ -375,7 +399,6 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async submitBulkOrder(input: SubmitBulkOrderInput): Promise<SubmitBulkOrderResult> {
-    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
 
     const netSlug =
@@ -401,14 +424,14 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       onUnvalidated: input.onUnvalidated || 'set_aside',
       recipients: input.recipients.map((r) => ({
         phoneNumber: this.normalizePhone(r.phoneNumber),
-        phone: this.normalizePhone(r.phoneNumber),
+        phone: this.formatLocalPhone(r.phoneNumber),
         dataSizeGb: r.dataSizeGb,
         volume: r.dataSizeGb,
         bundleId: r.bundleId,
       })),
       items: input.recipients.map((r) => ({
-        recipient: this.normalizePhone(r.phoneNumber),
-        phone: this.normalizePhone(r.phoneNumber),
+        recipient: this.formatLocalPhone(r.phoneNumber),
+        phone: this.formatLocalPhone(r.phoneNumber),
         volume: r.dataSizeGb,
         dataSizeGb: r.dataSizeGb,
       })),
@@ -417,8 +440,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     const headers = this.buildHeaders(input.idempotencyKey);
 
     for (const path of candidatePaths) {
-      const cleanPath = path.startsWith('/') ? path : `/${path}`;
-      const url = `${baseUrl}${cleanPath}`;
+      const url = this.buildUrl(path);
       try {
         const res = await fetch(url, {
           method: 'POST',
@@ -494,20 +516,31 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async getOrderStatus(input: GetOrderStatusInput): Promise<ProviderOrderStatus> {
-    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
     const candidatePathTemplates = this.config.endpointPaths?.orderStatus
       ? [this.config.endpointPaths.orderStatus]
       : isPortal
-      ? ['/agent/orders/:reference', '/orders/:reference', '/api/v1/agent/orders/:reference']
-      : ['/orders/:reference', '/agent/orders/:reference'];
+      ? [
+          '/agent/orders/:reference',
+          '/orders/:reference',
+          '/api/v1/agent/orders/:reference',
+          '/api/v1/orders/:reference',
+          '/api/v1/order/:reference',
+        ]
+      : [
+          '/api/v1/orders/:reference',
+          '/api/v1/order/:reference',
+          '/orders/:reference',
+          '/order/:reference',
+          '/agent/orders/:reference',
+          '/api/v1/agent/orders/:reference',
+        ];
 
     const headers = this.buildHeaders(input.providerReference);
 
     for (const template of candidatePathTemplates) {
       const path = template.replace(':reference', encodeURIComponent(input.providerReference));
-      const cleanPath = path.startsWith('/') ? path : `/${path}`;
-      const url = `${baseUrl}${cleanPath}`;
+      const url = this.buildUrl(path);
 
       try {
         const res = await fetch(url, {
@@ -564,20 +597,19 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async validateBeneficiary(input: ValidateBeneficiaryInput): Promise<BeneficiaryValidationResult> {
-    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
     const candidatePaths = this.config.endpointPaths?.validateBeneficiary
       ? [this.config.endpointPaths.validateBeneficiary]
       : isPortal
-      ? ['/agent/beneficiaries/validate', '/beneficiaries/validate', '/api/v1/agent/beneficiaries/validate']
-      : ['/beneficiaries/validate', '/agent/beneficiaries/validate'];
+      ? ['/agent/beneficiaries/validate', '/beneficiaries/validate', '/api/v1/agent/beneficiaries/validate', '/api/v1/beneficiaries/validate']
+      : ['/api/v1/beneficiaries/validate', '/beneficiaries/validate', '/agent/beneficiaries/validate'];
 
     const normPhone = this.normalizePhone(input.phoneNumber);
+    const localPhone = this.formatLocalPhone(input.phoneNumber);
     const headers = this.buildHeaders();
 
     for (const path of candidatePaths) {
-      const cleanPath = path.startsWith('/') ? path : `/${path}`;
-      const url = `${baseUrl}${cleanPath}`;
+      const url = this.buildUrl(path);
 
       try {
         const res = await fetch(url, {
@@ -585,7 +617,8 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           headers,
           body: JSON.stringify({
             phoneNumber: normPhone,
-            phone: normPhone,
+            phone: localPhone,
+            recipient: localPhone,
             msisdn: normPhone,
             network: input.network,
           }),
@@ -618,9 +651,8 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async precheckBeneficiaries(input: DataHousePrecheckInput): Promise<DataHousePrecheckResult> {
-    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const path = this.config.endpointPaths?.precheck || (this.isPortalOrDataHouse() ? '/agent/beneficiaries/precheck' : '/beneficiaries/precheck');
-    const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+    const url = this.buildUrl(path);
 
     try {
       const res = await fetch(url, {
@@ -682,15 +714,13 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async getBundles(filter?: { network?: NetworkProvider }): Promise<ProviderBundleDto[]> {
-    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
     const candidatePaths = this.config.endpointPaths?.catalog
       ? [this.config.endpointPaths.catalog]
       : ['/api/v1/offers', '/offers', isPortal ? '/agent/bundles' : '/bundles', '/bundles', '/api/v1/agent/bundles'];
 
     for (const path of candidatePaths) {
-      const cleanPath = path.startsWith('/') ? path : `/${path}`;
-      const url = `${baseUrl}${cleanPath}`;
+      const url = this.buildUrl(path);
 
       try {
         const res = await fetch(url, {
@@ -789,10 +819,9 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async getWalletBalance(): Promise<DataHouseWalletBalanceDto> {
-    const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
     const path = this.config.endpointPaths?.balance || (isPortal ? '/agent/wallet/balance' : '/wallet/balance');
-    const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+    const url = this.buildUrl(path);
 
     try {
       const res = await fetch(url, {
@@ -839,9 +868,8 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   public async healthCheck(): Promise<ProviderHealth> {
     const startTime = Date.now();
     try {
-      const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
       const path = this.config.endpointPaths?.healthCheck || (this.isPortalOrDataHouse() ? '/agent/me' : '/health');
-      const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+      const url = this.buildUrl(path);
 
       const res = await fetch(url, {
         method: 'GET',

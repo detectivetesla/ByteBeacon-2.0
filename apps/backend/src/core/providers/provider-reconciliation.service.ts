@@ -195,4 +195,94 @@ export class ProviderReconciliationService {
       unmatchedCount: unmatched,
     };
   }
+
+  /**
+   * Directly queries the authoritative upstream provider for a specific order and reconciles its state.
+   */
+  public async reconcileSingleOrder(orderId: string): Promise<{
+    orderId: string;
+    providerName: string;
+    providerReference: string;
+    previousStatus: ProviderStatus;
+    actualStatus: ProviderStatus;
+    orderStatus: OrderStatus;
+    updated: boolean;
+  }> {
+    const res = await this.db.query(
+      `SELECT o.id, o.public_id as "publicId", o.order_status as "orderStatus",
+              o.provider_status as "orderProviderStatus", o.network,
+              po.id as "providerOrderId", po.provider_name as "providerName",
+              po.provider_reference as "providerReference", po.provider_status as "providerStatus"
+       FROM orders o
+       LEFT JOIN provider_orders po ON o.id = po.order_id
+       WHERE o.id = $1`,
+      [orderId],
+    );
+
+    if (res.rows.length === 0) {
+      throw new Error(`Order [${orderId}] not found for reconciliation`);
+    }
+
+    const row = res.rows[0];
+    const providerName = row.providerName || (typeof (this.provider as any).getActiveProvider === 'function' ? (this.provider as any).getActiveProvider().providerName : this.provider.providerName);
+    const orderProvider = this.resolveProviderForRecord(providerName);
+    const reference = row.providerReference || `pst_sub_${row.id}`;
+
+    const actualStatus = await orderProvider.getOrderStatus({
+      providerReference: reference,
+      orderId: row.id,
+    });
+
+    const isCompleted = actualStatus.providerStatus === ProviderStatus.COMPLETED;
+    const isFailed = actualStatus.providerStatus === ProviderStatus.FAILED || actualStatus.providerStatus === ProviderStatus.REJECTED;
+
+    const newOrderStatus = isCompleted
+      ? OrderStatus.COMPLETED
+      : isFailed
+      ? OrderStatus.FAILED
+      : actualStatus.providerStatus === ProviderStatus.PROCESSING || actualStatus.providerStatus === ProviderStatus.RECEIVED
+      ? OrderStatus.PROCESSING
+      : (row.orderStatus as OrderStatus);
+
+    await this.db.query(
+      `UPDATE provider_orders
+       SET provider_status = $1,
+           last_synced_at = CURRENT_TIMESTAMP,
+           sync_version = sync_version + 1
+       WHERE order_id = $2`,
+      [actualStatus.providerStatus, row.id],
+    );
+
+    await this.db.query(
+      `UPDATE orders
+       SET order_status = $1,
+           provider_status = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3`,
+      [newOrderStatus, actualStatus.providerStatus, row.id],
+    );
+
+    await this.db.query(
+      `INSERT INTO order_events (
+          order_id, event_type, correlation_id, actor_id, actor_type, source,
+          previous_state, new_state
+       ) VALUES ($1, $2, 'admin_reconcile', NULL, 'SYSTEM', 'ADMIN_RECONCILIATION', $3, $4)`,
+      [
+        row.id,
+        isCompleted ? OrderEventType.ORDER_COMPLETED : OrderEventType.PROVIDER_STATUS_UPDATED,
+        JSON.stringify({ orderStatus: row.orderStatus, providerStatus: row.orderProviderStatus || row.providerStatus }),
+        JSON.stringify({ orderStatus: newOrderStatus, providerStatus: actualStatus.providerStatus }),
+      ],
+    );
+
+    return {
+      orderId: row.id,
+      providerName: orderProvider.providerName,
+      providerReference: reference,
+      previousStatus: (row.orderProviderStatus || row.providerStatus || ProviderStatus.UNKNOWN) as ProviderStatus,
+      actualStatus: actualStatus.providerStatus,
+      orderStatus: newOrderStatus,
+      updated: (row.orderProviderStatus || row.providerStatus) !== actualStatus.providerStatus,
+    };
+  }
 }

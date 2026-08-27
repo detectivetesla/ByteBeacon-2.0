@@ -248,6 +248,34 @@ export const AdminOrdersPage: React.FC = () => {
     }
   };
 
+  const renderProviderStatusBadge = (status: string | null | undefined) => {
+    const s = String(status || '').toUpperCase();
+    switch (s) {
+      case 'COMPLETED':
+      case 'FULFILLED':
+      case 'DELIVERED':
+      case 'SUCCESS':
+        return <Badge variant="success" size="sm" dot>Fulfilled</Badge>;
+      case 'PROCESSING':
+      case 'RECEIVED':
+      case 'SUBMITTED':
+      case 'ACCEPTED':
+        return <Badge variant="info" size="sm" dot>Dispatched</Badge>;
+      case 'PENDING':
+      case 'QUEUED':
+        return <Badge variant="warning" size="sm" dot>Queued</Badge>;
+      case 'FAILED':
+      case 'REJECTED':
+      case 'ERROR':
+        return <Badge variant="danger" size="sm" dot>Rejected</Badge>;
+      case 'UNKNOWN':
+      case '':
+        return <Badge variant="neutral" size="sm" dot>Pending Dispatch</Badge>;
+      default:
+        return <Badge variant="neutral" size="sm">{status}</Badge>;
+    }
+  };
+
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header Toolbar */}
@@ -525,8 +553,8 @@ export const AdminOrdersPage: React.FC = () => {
                 <td>
                   {renderOrderStatusBadge(order.orderStatus)}
                 </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                  {order.providerStatus || 'DATAHOUSE_ACK'}
+                <td>
+                  {renderProviderStatusBadge(order.providerStatus)}
                 </td>
                 <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
                   {new Date(order.createdAt).toLocaleString()}
@@ -697,15 +725,18 @@ export const AdminOrdersPage: React.FC = () => {
                   </div>
                 </Card>
 
-                {/* DataHouse Provider Details */}
+                {/* Telecom Provider Dispatch Details */}
                 <Card style={{ padding: 'var(--space-3)' }}>
                   <h4 style={{ margin: '0 0 var(--space-2) 0', fontSize: 'var(--font-size-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                    DataHouse Provider State
+                    {orderDetail.providerOrder?.providerName || 'Telecom Provider'} State
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: 'var(--font-size-xs)' }}>
-                    <div><strong>Provider:</strong> {orderDetail.providerOrder?.providerName || 'DataHouse Engine'}</div>
-                    <div><strong>Provider Order ID:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{orderDetail.providerOrder?.providerOrderId || 'Pending ACK'}</span></div>
-                    <div><strong>Provider Status:</strong> {orderDetail.providerOrder?.providerStatus || orderDetail.order.providerStatus}</div>
+                    <div><strong>Provider:</strong> {orderDetail.providerOrder?.providerName || 'Authoritative Aggregator'}</div>
+                    <div><strong>Provider Ref:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{orderDetail.providerOrder?.providerReference || orderDetail.providerOrder?.providerOrderId || 'Pending ACK'}</span></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <strong>Status:</strong>
+                      {renderProviderStatusBadge(orderDetail.providerOrder?.providerStatus || orderDetail.order.providerStatus)}
+                    </div>
                     <div><strong>Last Synced:</strong> {orderDetail.providerOrder?.lastSyncedAt ? new Date(orderDetail.providerOrder.lastSyncedAt).toLocaleString() : 'Recent'}</div>
                     {orderDetail.dlq && (
                       <div style={{ color: 'var(--color-danger)', marginTop: '0.25rem' }}>
