@@ -44,20 +44,17 @@ describe('Dynamic Custom Telecom Provider & Portal-02 Primary Adapter Suite', ()
       const url = callArgs[0];
       const options = callArgs[1];
 
-      // Smart endpoint discovery should default to /agent/orders for portals
-      expect(url).toContain('/agent/orders');
+      // Smart endpoint discovery targets /order/mtn for Portal-02
+      expect(url).toContain('/order/mtn');
 
       // Check headers
       const headers = options.headers;
       expect(headers['x-api-key']).toBe(portal02ApiKey);
-      expect(headers['X-API-Key']).toBe(portal02ApiKey);
-      expect(headers['Authorization']).toBe(`Bearer ${portal02ApiKey}`);
 
       // Check body alias mappings
       const parsedBody = JSON.parse(options.body);
-      expect(parsedBody.recipientPhone).toBe('233241234567');
-      expect(parsedBody.phoneNumber).toBe('233241234567');
-      expect(parsedBody.phone).toBe('233241234567');
+      expect(parsedBody.phone).toBe('0241234567');
+      expect(parsedBody.volume).toBe(2);
       expect(parsedBody.recipient_msisdn).toBe('233241234567');
       expect(parsedBody.localPhoneNumber).toBe('0241234567');
       expect(parsedBody.package_size_mb).toBe(2048);

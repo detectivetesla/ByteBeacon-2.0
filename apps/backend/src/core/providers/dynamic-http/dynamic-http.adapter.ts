@@ -145,9 +145,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       case 'API_KEY':
       default:
         headers['x-api-key'] = apiKey;
-        headers['X-API-Key'] = apiKey;
-        headers['Authorization'] = `Bearer ${apiKey}`;
-        if (apiSecret) headers['X-API-Secret'] = apiSecret;
+        if (apiSecret) headers['x-api-secret'] = apiSecret;
         break;
     }
 
@@ -204,10 +202,22 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         ? 'at'
         : String(input.network || 'mtn').toLowerCase();
 
-    // Determine candidate endpoints: configured path, portal convention, /api/v1/order/:network, or standard /orders
+    const isPortal02 =
+      (this.config.apiBaseUrl || '').toLowerCase().includes('portal-02') ||
+      (this.config.apiKey || '').startsWith('dk_');
+
+    // Determine candidate endpoints: configured path, portal convention, /order/:network, or standard /orders
     const candidatePaths: string[] = [];
     if (this.config.endpointPaths?.submitOrder) {
       candidatePaths.push(this.config.endpointPaths.submitOrder);
+    } else if (isPortal02) {
+      candidatePaths.push(
+        `/order/${netSlug}`,
+        `/api/v1/order/${netSlug}`,
+        ...(netSlug === 'at' ? ['/order/airteltigo', '/api/v1/order/airteltigo'] : []),
+        '/orders',
+        '/agent/orders',
+      );
     } else if (isPortal) {
       candidatePaths.push(
         '/agent/orders',
@@ -241,9 +251,15 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       (input.metadata?.offerSlug as string) ||
       (input.metadata?.requestedOfferSlug as string) ||
       (input.metadata?.bundleSlug as string);
+    const offerSlugForPortal02 =
+      netSlug === 'mtn'
+        ? 'master_beneficiary_data_bundle'
+        : netSlug === 'telecel'
+        ? 'telecel_expiry_bundle'
+        : 'ishare_data_bundle';
     const offerSlug =
       rawOfferSlug ||
-      (netSlug === 'at' ? 'airteltigo_data_bundle' : `${netSlug}_data_bundle`);
+      (isPortal02 ? offerSlugForPortal02 : (netSlug === 'at' ? 'airteltigo_data_bundle' : `${netSlug}_data_bundle`));
 
     const webhookUrl =
       input.callbackUrl ||
@@ -251,13 +267,14 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       (input.metadata?.callbackUrl as string) ||
       undefined;
 
+    const effectivePhone = isPortal02 ? localPhone : normPhone;
     const mappings = this.config.fieldMappings || {};
     const payload: Record<string, unknown> = {
       // 1. Custom / Aggregator API format (/api/v1/order/:network)
-      phone: normPhone,
-      phoneNumber: normPhone,
-      recipient: normPhone,
-      recipientPhone: normPhone,
+      phone: effectivePhone,
+      phoneNumber: effectivePhone,
+      recipient: effectivePhone,
+      recipientPhone: effectivePhone,
       localPhone: localPhone,
       localPhoneNumber: localPhone,
       recipient_phone: normPhone,
@@ -825,37 +842,56 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async getWalletBalance(): Promise<DataHouseWalletBalanceDto> {
+    const isPortal02 =
+      (this.config.apiBaseUrl || '').toLowerCase().includes('portal-02') ||
+      (this.config.apiKey || '').startsWith('dk_');
     const isPortal = this.isPortalOrDataHouse();
-    const path = this.config.endpointPaths?.balance || (isPortal ? '/agent/wallet/balance' : '/wallet/balance');
-    const url = this.buildUrl(path);
 
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: this.buildHeaders(),
-        signal: AbortSignal.timeout(8000),
-      });
+    const candidatePaths = this.config.endpointPaths?.balance
+      ? [this.config.endpointPaths.balance]
+      : isPortal02
+      ? ['/balance', '/api/v1/balance', '/wallet/balance', '/agent/wallet/balance']
+      : isPortal
+      ? ['/agent/wallet/balance', '/balance', '/wallet/balance']
+      : ['/wallet/balance', '/balance', '/agent/wallet/balance'];
 
-      if (res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const dataObj = (body as any).data || body;
-        const balanceGhs = Number(dataObj.balanceGhs ?? dataObj.balance ?? (dataObj.balancePesewas ? dataObj.balancePesewas / 100 : 0));
-        const balancePesewas = Number(dataObj.balancePesewas ?? Math.round(balanceGhs * 100));
+    for (const path of candidatePaths) {
+      const url = this.buildUrl(path);
 
-        return {
-          balanceGhs,
-          balancePesewas,
-          currency: dataObj.currency || 'GHS',
-          overdraftLimitPesewas: Number(dataObj.overdraftLimitPesewas || 0),
-          overdraftUsedPesewas: Number(dataObj.overdraftUsedPesewas || 0),
-          overdraftAvailablePesewas: Number(dataObj.overdraftAvailablePesewas || 0),
-          overdraftActive: Boolean(dataObj.overdraftActive),
-          availableToSpendPesewas: Number(dataObj.availableToSpendPesewas || balancePesewas),
-          availableToSpendGhs: Number(dataObj.availableToSpendGhs || balanceGhs),
-        };
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: this.buildHeaders(),
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (res.status === 404 && candidatePaths.length > 1) {
+          continue;
+        }
+
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const dataObj = (body as any).data || body;
+          const balanceGhs = Number(
+            dataObj.balanceGhs ?? dataObj.balance ?? (dataObj.balancePesewas ? dataObj.balancePesewas / 100 : 0),
+          );
+          const balancePesewas = Number(dataObj.balancePesewas ?? Math.round(balanceGhs * 100));
+
+          return {
+            balanceGhs,
+            balancePesewas,
+            currency: dataObj.currency || 'GHS',
+            overdraftLimitPesewas: Number(dataObj.overdraftLimitPesewas || 0),
+            overdraftUsedPesewas: Number(dataObj.overdraftUsedPesewas || 0),
+            overdraftAvailablePesewas: Number(dataObj.overdraftAvailablePesewas || 0),
+            overdraftActive: Boolean(dataObj.overdraftActive),
+            availableToSpendPesewas: Number(dataObj.availableToSpendPesewas || balancePesewas),
+            availableToSpendGhs: Number(dataObj.availableToSpendGhs || balanceGhs),
+          };
+        }
+      } catch {
+        // Fallback
       }
-    } catch {
-      // Fallback
     }
 
     return {
