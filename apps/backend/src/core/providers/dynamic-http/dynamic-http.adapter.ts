@@ -549,8 +549,17 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           signal: AbortSignal.timeout(10000),
         });
 
-        if (res.status === 404 && candidatePathTemplates.length > 1) {
-          continue;
+        if (res.status === 404) {
+          if (candidatePathTemplates.length > 1 && template !== candidatePathTemplates[candidatePathTemplates.length - 1]) {
+            continue;
+          }
+          return {
+            providerOrderId: input.providerReference,
+            providerReference: input.providerReference,
+            providerStatus: ProviderStatus.UNKNOWN,
+            completedAt: null,
+            rawResponse: { error: 'Order not found at provider' },
+          };
         }
 
         const body = await res.json().catch(() => ({}));
@@ -578,7 +587,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           return {
             providerOrderId: input.providerReference,
             providerReference: input.providerReference,
-            providerStatus: ProviderStatus.PROCESSING,
+            providerStatus: ProviderStatus.UNKNOWN,
             completedAt: null,
             errorMessage: err.message,
             rawResponse: { note: err.message },
@@ -590,7 +599,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     return {
       providerOrderId: input.providerReference,
       providerReference: input.providerReference,
-      providerStatus: ProviderStatus.PROCESSING,
+      providerStatus: ProviderStatus.UNKNOWN,
       completedAt: null,
       rawResponse: {},
     };

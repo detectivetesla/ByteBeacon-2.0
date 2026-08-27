@@ -152,24 +152,21 @@ export class TelecomProviderRegistry implements ITelecomProvider {
           secrets = await credentialStore.getSecrets(row.id, row.environment).catch(() => null);
         }
 
-        // If already registered statically (e.g. DataHouse, GMPL) and no DB secrets, update auth status
-        if (this.providers.has(key) && !secrets?.apiKey) {
-          if (row.isAuthoritative) {
-            this.setActiveProvider(row.name);
-          }
-          continue;
-        }
+        const existingProv = this.providers.get(key)?.provider as any;
+        const effectiveApiKey = secrets?.apiKey || existingProv?.config?.apiKey || '';
+        const effectiveApiSecret = secrets?.apiSecret || existingProv?.config?.apiSecret || '';
+        const effectiveWebhookSecret = secrets?.webhookSecret || existingProv?.config?.webhookSecret || '';
 
-        this.registerDynamicCustomProvider({
+        this.updateDynamicCustomProvider({
           providerName: row.name,
-          providerSlug: row.slug,
+          providerSlug: row.slug || key,
           apiBaseUrl: row.apiBaseUrl,
           apiVersion: row.apiVersion,
           authMethod: row.authMethod,
           environment: row.environment,
-          apiKey: secrets?.apiKey || '',
-          apiSecret: secrets?.apiSecret || '',
-          webhookSecret: secrets?.webhookSecret || '',
+          apiKey: effectiveApiKey,
+          apiSecret: effectiveApiSecret,
+          webhookSecret: effectiveWebhookSecret,
           supportedNetworks: row.supportedNetworks,
           endpointPaths: row.endpointPaths || {},
           fieldMappings: row.fieldMappings || {},
@@ -204,26 +201,36 @@ export class TelecomProviderRegistry implements ITelecomProvider {
   }
 
   public setActiveProvider(name: string): void {
-    const key = name.toLowerCase();
-    if (!this.providers.has(key)) {
+    const key = (name || '').toLowerCase();
+    let foundKey = this.providers.has(key) ? key : null;
+    if (!foundKey) {
+      for (const [k, entry] of this.providers.entries()) {
+        const p = entry.provider as any;
+        if (p?.providerName?.toLowerCase() === key || p?.providerSlug?.toLowerCase() === key) {
+          foundKey = k;
+          break;
+        }
+      }
+    }
+    if (!foundKey) {
       throw new Error(`Telecom provider [${name}] is not registered in registry.`);
     }
 
     for (const [k, entry] of this.providers.entries()) {
-      entry.isAuthoritative = k === key;
+      entry.isAuthoritative = k === foundKey;
     }
-    this.activeProviderName = key;
+    this.activeProviderName = foundKey;
 
     // Automatically update default primary carrier routing for networks supported by this provider
-    const activeEntry = this.providers.get(key);
+    const activeEntry = this.providers.get(foundKey);
     if (activeEntry) {
       for (const net of activeEntry.supportedNetworks) {
         const existing = this.carrierRouting.get(String(net).toUpperCase());
-        this.setNetworkRouting(String(net), key, existing?.fallback);
+        this.setNetworkRouting(String(net), foundKey, existing?.fallback);
       }
     }
 
-    logger.info({ activeProvider: name }, '[TELECOM_REGISTRY] Switched active authoritative telecom provider');
+    logger.info({ activeProvider: foundKey }, '[TELECOM_REGISTRY] Switched active authoritative telecom provider');
   }
 
   public getActiveProvider(): ITelecomProvider {
@@ -240,7 +247,16 @@ export class TelecomProviderRegistry implements ITelecomProvider {
   }
 
   public getProvider(name: string): ITelecomProvider | undefined {
-    return this.providers.get(name.toLowerCase())?.provider;
+    const key = (name || '').toLowerCase();
+    const direct = this.providers.get(key);
+    if (direct) return direct.provider;
+    for (const entry of this.providers.values()) {
+      const p = entry.provider as any;
+      if (p?.providerName?.toLowerCase() === key || p?.providerSlug?.toLowerCase() === key) {
+        return entry.provider;
+      }
+    }
+    return undefined;
   }
 
   public setNetworkRouting(network: string, primary: string, fallback?: string): void {

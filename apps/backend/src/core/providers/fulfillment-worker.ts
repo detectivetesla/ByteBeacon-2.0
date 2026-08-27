@@ -58,7 +58,6 @@ export class FulfillmentWorker {
     const registry = this.provider as any;
     const hasBeenSubmitted =
       (order.submissionAttempts !== undefined && Number(order.submissionAttempts) > 0) ||
-      (Boolean(order.providerReference) && String(order.providerReference).trim().length > 0) ||
       (Boolean(order.providerStatus) && order.providerStatus !== ProviderStatus.UNKNOWN && order.providerStatus !== 'UNKNOWN');
 
     if (hasBeenSubmitted && order.providerName && typeof registry.getProvider === 'function') {
@@ -134,7 +133,7 @@ export class FulfillmentWorker {
         };
       }
 
-      // If already submitted or processing, do not blindly submit again
+      // If already completed or explicitly fulfilled, do not blindly submit again
       if (
         order.order_status === OrderStatus.COMPLETED ||
         order.providerStatus === ProviderStatus.COMPLETED
@@ -148,14 +147,14 @@ export class FulfillmentWorker {
         };
       }
 
-      // Resolve specific provider (maintaining historical provider locking)
+      // Resolve specific provider (using current active/routing provider for unsubmitted orders)
       const activeProvider = this.resolveProviderForOrder(order);
       const deterministicReference = `pst_sub_${order.id}`;
       let reconciledBeforeRetry = false;
 
       // 3. Reconciliation-Before-Retry Strategy
-      // If this is a retry (currentAttempt > 1) or providerReference exists, check if provider already has the order
-      if (currentAttempt > 1 || order.providerReference) {
+      // Only query getOrderStatus before submission if this is a retry attempt (>1) or has prior submission attempts
+      if (currentAttempt > 1 || (order.submissionAttempts !== undefined && Number(order.submissionAttempts) > 0)) {
         try {
           const checkStatus = await this.circuitBreaker.execute(() =>
             activeProvider.getOrderStatus({ providerReference: deterministicReference, orderId }),
@@ -266,8 +265,15 @@ export class FulfillmentWorker {
         ],
       );
 
-      // 6. Explicit Provider Acceptance -> Transition Order to SUBMITTED (NOT COMPLETED!)
+      // 6. Explicit Provider Acceptance -> Transition Order
       const initialProviderStatus = submitResult.providerStatus || ProviderStatus.RECEIVED;
+      const isCompleted = initialProviderStatus === ProviderStatus.COMPLETED;
+      const isFailed = initialProviderStatus === ProviderStatus.FAILED || initialProviderStatus === ProviderStatus.REJECTED;
+      const finalOrderStatus = isCompleted
+        ? OrderStatus.COMPLETED
+        : isFailed
+        ? OrderStatus.FAILED
+        : OrderStatus.SUBMITTED;
 
       await this.db.query(
         `UPDATE provider_orders
@@ -287,7 +293,7 @@ export class FulfillmentWorker {
              provider_status = $2,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $3`,
-        [OrderStatus.SUBMITTED, initialProviderStatus, order.id],
+        [finalOrderStatus, initialProviderStatus, order.id],
       );
 
       // Record Order Event
@@ -298,12 +304,12 @@ export class FulfillmentWorker {
          ) VALUES ($1, $2, $3, $4, 'SYSTEM', 'PROVIDER_WORKER', $5, $6)`,
         [
           order.id,
-          OrderEventType.ORDER_SUBMITTED,
+          isCompleted ? OrderEventType.ORDER_COMPLETED : OrderEventType.ORDER_SUBMITTED,
           correlationId,
           order.user_id,
           JSON.stringify({ orderStatus: OrderStatus.READY_FOR_FULFILLMENT }),
           JSON.stringify({
-            orderStatus: OrderStatus.SUBMITTED,
+            orderStatus: finalOrderStatus,
             providerStatus: initialProviderStatus,
             providerReference: submitResult.providerReference,
             providerName: activeProvider.providerName,
@@ -312,15 +318,15 @@ export class FulfillmentWorker {
       );
 
       logger.info(
-        { orderId: order.id, providerReference: submitResult.providerReference, providerName: activeProvider.providerName },
-        `Order explicitly accepted by ${activeProvider.providerName} and transitioned to SUBMITTED`,
+        { orderId: order.id, providerReference: submitResult.providerReference, providerName: activeProvider.providerName, status: finalOrderStatus },
+        `Order explicitly accepted by ${activeProvider.providerName} and transitioned to ${finalOrderStatus}`,
       );
 
       return {
         orderId,
         success: true,
         providerStatus: initialProviderStatus,
-        orderStatus: OrderStatus.SUBMITTED,
+        orderStatus: finalOrderStatus,
         reconciledBeforeRetry,
       };
     } finally {
