@@ -5,6 +5,8 @@ import { DataHouseClient } from './core/providers/datahouse/datahouse.client.js'
 import { DataHouseAdapter } from './core/providers/datahouse/datahouse.adapter.js';
 import { GmplClient } from './core/providers/gmpl/gmpl.client.js';
 import { GmplAdapter } from './core/providers/gmpl/gmpl.adapter.js';
+import { DynamicHttpTelecomAdapter } from './core/providers/dynamic-http/dynamic-http.adapter.js';
+import { NetworkProvider } from '@bytebeacon/shared';
 import { TelecomProviderRegistry } from './core/providers/telecom-provider.registry.js';
 import { CircuitBreaker } from './core/providers/circuit-breaker.js';
 import { RetryPolicy } from './core/providers/retry-policy.js';
@@ -54,10 +56,32 @@ export async function startWorkerProcess(): Promise<void> {
     baseUrl: process.env.GMPL_BASE_URL || 'https://api.gmpl.local/v1',
   });
   const gmplAdapter = new GmplAdapter(gmplClient);
+  const portal02ApiKey = process.env.PORTAL02_API_KEY || 'dk_iGoTZ6KA8-GDrvemBECywzhisNhOpttr';
+  const portal02BaseUrl = process.env.PORTAL02_BASE_URL || 'https://www.portal-02.com/api/v1';
+  const portal02Adapter = new DynamicHttpTelecomAdapter({
+    providerName: 'Portal-02',
+    providerSlug: 'portal-02',
+    apiBaseUrl: portal02BaseUrl,
+    authMethod: 'API_KEY',
+    apiKey: portal02ApiKey,
+    supportedNetworks: [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+  });
+
+  const isPortal02Authoritative =
+    (process.env.AUTHORITATIVE_PROVIDER || '').toLowerCase().includes('portal') ||
+    Boolean(process.env.PORTAL02_API_KEY) ||
+    Boolean(portal02ApiKey);
 
   const providerRegistry = new TelecomProviderRegistry();
-  providerRegistry.registerProvider('DataHouse', datahouseAdapter, { isAuthoritative: true, priority: 1 });
-  providerRegistry.registerProvider('GMPL', gmplAdapter, { isAuthoritative: false, priority: 2 });
+  providerRegistry.registerProvider('Portal-02', portal02Adapter, {
+    isAuthoritative: isPortal02Authoritative,
+    priority: isPortal02Authoritative ? 1 : 3,
+  });
+  providerRegistry.registerProvider('DataHouse', datahouseAdapter, {
+    isAuthoritative: !isPortal02Authoritative,
+    priority: isPortal02Authoritative ? 2 : 1,
+  });
+  providerRegistry.registerProvider('GMPL', gmplAdapter, { isAuthoritative: false, priority: 3 });
 
   await providerRegistry.loadProvidersFromDatabase(db).catch((err) => {
     logger.warn({ err }, '[WORKER_PROCESS] Failed to load dynamic telecom providers from database on boot');
