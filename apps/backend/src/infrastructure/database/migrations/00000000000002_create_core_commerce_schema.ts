@@ -160,6 +160,7 @@ export const migration00000000000002: MigrationFile = {
                 ALTER TABLE payments ADD COLUMN id UUID PRIMARY KEY DEFAULT uuid_generate_v4();
             END IF;
 
+            ALTER TABLE payments ADD COLUMN IF NOT EXISTS public_id VARCHAR(50);
             ALTER TABLE payments ADD COLUMN IF NOT EXISTS order_id UUID;
             ALTER TABLE payments ADD COLUMN IF NOT EXISTS user_id UUID;
             ALTER TABLE payments ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT DEFAULT 100;
@@ -170,6 +171,7 @@ export const migration00000000000002: MigrationFile = {
             ALTER TABLE payments ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'PENDING';
             ALTER TABLE payments ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
             ALTER TABLE payments ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+            UPDATE payments SET public_id = 'pay_' || substr(md5(random()::text || id::text), 1, 16) WHERE public_id IS NULL;
         END IF;
 
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'refunds') THEN
@@ -321,6 +323,7 @@ export const migration00000000000002: MigrationFile = {
 
     CREATE TABLE IF NOT EXISTS payments (
         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        public_id VARCHAR(50) UNIQUE,
         order_id UUID NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
         amount_pesewas BIGINT NOT NULL CHECK (amount_pesewas > 0),

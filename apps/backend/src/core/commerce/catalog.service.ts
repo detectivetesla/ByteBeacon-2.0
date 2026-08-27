@@ -242,12 +242,23 @@ export class CatalogService {
       FROM catalog_products cp
       ${userPricingJoin}
       ${agentPricingJoin}
-      WHERE cp.id = $1 AND cp.is_active = TRUE
+      WHERE (cp.id::text = $1 OR cp.sku = $1 OR cp.provider_plan_id = $1 OR cp.provider_plan_code = $1 OR cp.provider_product_code = $1) AND cp.is_active = TRUE
     `;
 
     const result = await this.db.query(query, params).catch(() => ({ rows: [] }));
     if (!result?.rows || result.rows.length === 0) {
-      throw new NotFoundError(`Product '${productId}' not found or inactive in catalog`);
+      // Fallback query if joins failed on un-migrated tables
+      const fallback = await this.db
+        .query(
+          `SELECT * FROM catalog_products WHERE (id::text = $1 OR sku = $1 OR provider_plan_id = $1 OR provider_plan_code = $1 OR provider_product_code = $1) AND is_active = TRUE LIMIT 1`,
+          [productId],
+        )
+        .catch(() => ({ rows: [] }));
+
+      if (!fallback?.rows || fallback.rows.length === 0) {
+        throw new NotFoundError(`Product '${productId}' not found or inactive in catalog`);
+      }
+      return this.mapRowToDto(fallback.rows[0], options);
     }
 
     return this.mapRowToDto(result.rows[0], options);

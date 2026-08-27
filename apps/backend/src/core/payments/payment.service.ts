@@ -157,24 +157,43 @@ export class PaymentService {
         const walletRef = `pst_wal_${paymentPublicId}`;
 
         // Insert Payment Record
-        const paymentRes = await client.query(
-          `INSERT INTO payments (
-              public_id, order_id, user_id, amount_pesewas, currency,
-              provider, provider_reference, payment_method, status, paid_at
-           ) VALUES ($1, $2, $3, $4, $5, 'WALLET', $6, 'WALLET', $7, CURRENT_TIMESTAMP)
-           RETURNING id, public_id, created_at`,
-          [
-            paymentPublicId,
-            order.id,
-            context.userId,
-            amountPesewas,
-            currency,
-            walletRef,
-            PaymentStatus.PAID,
-          ],
-        );
-
-        const payment = paymentRes.rows[0];
+        let payment: any;
+        try {
+          const paymentRes = await client.query(
+            `INSERT INTO payments (
+                public_id, order_id, user_id, amount_pesewas, currency,
+                provider, provider_reference, payment_method, status, paid_at
+             ) VALUES ($1, $2, $3, $4, $5, 'WALLET', $6, 'WALLET', $7, CURRENT_TIMESTAMP)
+             RETURNING id, public_id, created_at`,
+            [
+              paymentPublicId,
+              order.id,
+              context.userId,
+              amountPesewas,
+              currency,
+              walletRef,
+              PaymentStatus.PAID,
+            ],
+          );
+          payment = paymentRes.rows[0];
+        } catch {
+          const paymentRes = await client.query(
+            `INSERT INTO payments (
+                order_id, user_id, amount_pesewas, currency,
+                provider, provider_reference, payment_method, status, paid_at
+             ) VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', $6, CURRENT_TIMESTAMP)
+             RETURNING id, created_at`,
+            [
+              order.id,
+              context.userId,
+              amountPesewas,
+              currency,
+              walletRef,
+              PaymentStatus.PAID,
+            ],
+          );
+          payment = { ...paymentRes.rows[0], public_id: paymentPublicId };
+        }
 
         // Insert Initial Payment Attempt
         await client.query(
@@ -306,25 +325,45 @@ export class PaymentService {
       }
 
       // 2. Insert Payment Record
-      const paymentRes = await client.query(
-        `INSERT INTO payments (
-            public_id, order_id, user_id, amount_pesewas, currency,
-            provider, provider_reference, payment_method, status
-         ) VALUES ($1, $2, $3, $4, $5, 'PAYSTACK', $6, $7, $8)
-         RETURNING id, public_id, created_at`,
-        [
-          paymentPublicId,
-          order.id,
-          context.userId,
-          amountPesewas,
-          currency,
-          tempRef,
-          input.paymentMethod,
-          PaymentStatus.PENDING,
-        ],
-      );
-
-      const payment = paymentRes.rows[0];
+      let payment: any;
+      try {
+        const paymentRes = await client.query(
+          `INSERT INTO payments (
+              public_id, order_id, user_id, amount_pesewas, currency,
+              provider, provider_reference, payment_method, status
+           ) VALUES ($1, $2, $3, $4, $5, 'PAYSTACK', $6, $7, $8)
+           RETURNING id, public_id, created_at`,
+          [
+            paymentPublicId,
+            order.id,
+            context.userId,
+            amountPesewas,
+            currency,
+            tempRef,
+            input.paymentMethod,
+            PaymentStatus.PENDING,
+          ],
+        );
+        payment = paymentRes.rows[0];
+      } catch {
+        const paymentRes = await client.query(
+          `INSERT INTO payments (
+              order_id, user_id, amount_pesewas, currency,
+              provider, provider_reference, payment_method, status
+           ) VALUES ($1, $2, $3, $4, 'PAYSTACK', $5, $6, $7)
+           RETURNING id, created_at`,
+          [
+            order.id,
+            context.userId,
+            amountPesewas,
+            currency,
+            tempRef,
+            input.paymentMethod,
+            PaymentStatus.PENDING,
+          ],
+        );
+        payment = { ...paymentRes.rows[0], public_id: paymentPublicId };
+      }
 
       // 3. Insert Initial Payment Attempt
       await client.query(
