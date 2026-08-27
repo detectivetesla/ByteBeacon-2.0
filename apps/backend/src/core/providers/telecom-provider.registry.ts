@@ -125,24 +125,27 @@ export class TelecomProviderRegistry implements ITelecomProvider {
    */
   public async loadProvidersFromDatabase(db: pg.Pool, credentialStore?: IProviderCredentialStore): Promise<void> {
     try {
-      const provRes = await db.query(`
-        SELECT id, name, slug, api_base_url as "apiBaseUrl", api_version as "apiVersion",
-               auth_method as "authMethod", webhook_url as "webhookUrl", environment,
-               is_authoritative as "isAuthoritative", supported_networks as "supportedNetworks",
-               COALESCE(endpoint_paths, '{}'::jsonb) as "endpointPaths",
-               COALESCE(field_mappings, '{}'::jsonb) as "fieldMappings",
-               COALESCE(custom_headers, '{}'::jsonb) as "customHeaders"
-        FROM telecom_providers
-        WHERE status = 'ACTIVE'
-      `).catch(() =>
-        db.query(`
+      let provRes: any;
+      try {
+        provRes = await db.query(`
+          SELECT id, name, slug, api_base_url as "apiBaseUrl", api_version as "apiVersion",
+                 auth_method as "authMethod", webhook_url as "webhookUrl", environment,
+                 is_authoritative as "isAuthoritative", supported_networks as "supportedNetworks",
+                 COALESCE(endpoint_paths, '{}'::jsonb) as "endpointPaths",
+                 COALESCE(field_mappings, '{}'::jsonb) as "fieldMappings",
+                 COALESCE(custom_headers, '{}'::jsonb) as "customHeaders"
+          FROM telecom_providers
+          WHERE status = 'ACTIVE'
+        `);
+      } catch {
+        provRes = await db.query(`
           SELECT id, name, slug, api_base_url as "apiBaseUrl", api_version as "apiVersion",
                  auth_method as "authMethod", webhook_url as "webhookUrl", environment,
                  is_authoritative as "isAuthoritative", supported_networks as "supportedNetworks"
           FROM telecom_providers
           WHERE status = 'ACTIVE'
-        `)
-      );
+        `);
+      }
 
       for (const row of provRes.rows) {
         const key = row.name.toLowerCase();

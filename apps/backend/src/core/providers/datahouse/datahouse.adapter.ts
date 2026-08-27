@@ -51,9 +51,67 @@ export class DataHouseAdapter implements ITelecomProvider {
     return DataHouseMapper.toAgentProfileDto(profile);
   }
 
+  private bundleCache: Map<string, { bundles: any[]; expiresAt: number }> = new Map();
+
+  private async resolveBundleId(input: SubmitOrderInput): Promise<string | undefined> {
+    const rawBundleId = (input.metadata?.bundleId as string) || (input.metadata?.providerProductId as string);
+    const network = input.network;
+    const targetMb = input.dataAmountMb || 1024;
+    const targetGb = Math.max(1, Math.round(targetMb / 1024));
+
+    try {
+      const now = Date.now();
+      let cached = this.bundleCache.get(network);
+      if (!cached || cached.expiresAt < now) {
+        const resp = await this.client.getBundles({ network, limit: 50 });
+        const list = (resp as any)?.data?.data || (resp as any)?.bundles || (Array.isArray(resp) ? resp : []);
+        cached = { bundles: list, expiresAt: now + 5 * 60 * 1000 };
+        this.bundleCache.set(network, cached);
+      }
+
+      if (cached.bundles && cached.bundles.length > 0) {
+        if (rawBundleId) {
+          const directMatch = cached.bundles.find((b: any) => b.id === rawBundleId);
+          if (directMatch) return directMatch.id;
+        }
+
+        const match = cached.bundles.find((b: any) => {
+          const bVolStr = String(b.dataVolume || b.dataSizeGb || b.name || '').toUpperCase();
+          const bMb = bVolStr.includes('MB')
+            ? parseFloat(bVolStr.replace(/[^0-9.]/g, ''))
+            : parseFloat(bVolStr.replace(/[^0-9.]/g, '')) * 1024;
+          const bGb = parseFloat(bVolStr.replace(/[^0-9.]/g, ''));
+          return bGb === targetGb || Math.abs(bMb - targetMb) < 100;
+        });
+
+        if (match) {
+          return match.id;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
+    return rawBundleId;
+  }
+
   public async submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
     const correlationId = (input.metadata?.correlationId as string) || `dh_ord_${input.orderId}`;
-    const dhReq = DataHouseMapper.toDataHouseSubmitRequest(input);
+    let bundleId = (input.metadata?.bundleId as string) || (input.metadata?.providerProductId as string);
+    
+    // Auto-resolve against DataHouse bundle catalog if needed
+    const resolvedId = await this.resolveBundleId(input);
+    if (resolvedId) {
+      bundleId = resolvedId;
+    }
+
+    const dhReq = DataHouseMapper.toDataHouseSubmitRequest({
+      ...input,
+      metadata: {
+        ...input.metadata,
+        bundleId,
+      },
+    });
     const dhResp = await this.client.submitOrder(dhReq, correlationId);
     return DataHouseMapper.toSubmitOrderResult(dhResp);
   }
