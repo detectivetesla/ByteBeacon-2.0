@@ -341,12 +341,35 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           continue;
         }
 
+        // Handle 409 Conflict (duplicate pending order) as an accepted/processing state
+        if (res.status === 409) {
+          logger.info(
+            { provider: this.providerName, url, phone: effectivePhone },
+            `[DynamicHttpAdapter] Provider returned 409 Conflict (duplicate pending order); treating as PROCESSING`,
+          );
+          return {
+            providerOrderId: (responseBody as any)?.orderId || (responseBody as any)?.order_id || `dup_${Date.now()}`,
+            providerReference: (responseBody as any)?.reference || input.clientReference,
+            providerStatus: ProviderStatus.PROCESSING,
+            acceptedAt: new Date().toISOString(),
+            rawResponse: responseBody as Record<string, unknown>,
+          };
+        }
+
         if (!res.ok) {
           const errorMsg =
             (responseBody as any)?.message ||
             (responseBody as any)?.error ||
             (responseBody as any)?.details ||
             `Provider HTTP ${res.status}: Failed to submit order to ${this.providerName}`;
+          // Don't loop through more candidates for auth or business logic errors (4xx except 404)
+          if (res.status >= 400 && res.status < 500 && res.status !== 404) {
+            logger.error(
+              { provider: this.providerName, url, status: res.status, error: errorMsg },
+              `[DynamicHttpAdapter] Non-retryable provider error`,
+            );
+            throw new Error(errorMsg);
+          }
           throw new Error(errorMsg);
         }
 
@@ -397,10 +420,9 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         };
       } catch (err: any) {
         lastError = err;
-        // If it was a network timeout or genuine error on this candidate, don't silently loop unless 404
-        if (!err.message.includes('404') && candidatePaths.indexOf(path) < candidatePaths.length - 1) {
-          logger.warn({ provider: this.providerName, path, err: err.message }, `[DynamicHttpAdapter] Candidate attempt failed`);
-        }
+        // Don't loop through more candidates for non-404 errors — break immediately
+        logger.warn({ provider: this.providerName, path, err: err.message }, `[DynamicHttpAdapter] Candidate attempt failed`);
+        break;
       }
     }
 

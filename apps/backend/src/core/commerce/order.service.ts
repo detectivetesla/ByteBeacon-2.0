@@ -444,6 +444,10 @@ export class OrderService {
 
       // 8. Trigger Background Telecom Fulfillment if Paid via Wallet
       if (isWalletPayment) {
+        logger.info(
+          { orderId: orderRow.id, correlationId: context.correlationId, hasFQS: !!this.fulfillmentQueueService, hasFW: !!this.fulfillmentWorker },
+          '[ORDER_SERVICE] Wallet payment confirmed — dispatching to fulfillment pipeline',
+        );
         if (this.fulfillmentQueueService) {
           this.fulfillmentQueueService
             .enqueueOrderFulfillment({
@@ -464,16 +468,25 @@ export class OrderService {
             });
         }
         if (this.fulfillmentWorker) {
+          logger.info({ orderId: orderRow.id }, '[ORDER_SERVICE] Calling FulfillmentWorker.processOrderFulfillment directly');
           setImmediate(() => {
             this.fulfillmentWorker!
               .processOrderFulfillment(orderRow.id, context.correlationId)
+              .then((result) => {
+                logger.info(
+                  { orderId: orderRow.id, result },
+                  '[ORDER_SERVICE] FulfillmentWorker.processOrderFulfillment completed',
+                );
+              })
               .catch((err) => {
-                logger.warn(
-                  { orderId: orderRow.id, err: err?.message },
-                  'Background fulfillment worker direct execution notice',
+                logger.error(
+                  { orderId: orderRow.id, err: err?.message, stack: err?.stack },
+                  '[ORDER_SERVICE] FulfillmentWorker.processOrderFulfillment FAILED',
                 );
               });
           });
+        } else {
+          logger.warn({ orderId: orderRow.id }, '[ORDER_SERVICE] No FulfillmentWorker available — order will stay READY_FOR_FULFILLMENT');
         }
       }
 
