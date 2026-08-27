@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.js';
-import { ShieldAlert, ArrowLeft, Lock } from 'lucide-react';
+import { ShieldAlert, ArrowLeft } from 'lucide-react';
 import { Button } from '../../components/ui/Button/Button.js';
 
 export interface AdminRouteGuardProps {
@@ -73,34 +73,21 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
             }}
           >
-            <div
-              style={{
-                width: '56px',
-                height: '56px',
-                borderRadius: '50%',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#EF4444',
-                marginBottom: 'var(--space-4)',
-              }}
-            >
-              <Lock size={26} strokeWidth={2.2} />
-            </div>
-            <h1 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 0.5rem 0', letterSpacing: '-0.02em' }}>
-              404 — Access Restricted
+            <h1 style={{ fontSize: '3rem', fontWeight: 900, margin: '0 0 0.5rem 0', letterSpacing: '-0.02em', color: '#64748B' }}>
+              404
             </h1>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem 0', letterSpacing: '-0.01em' }}>
+              Page Not Found
+            </h2>
             <p style={{ fontSize: '0.875rem', color: '#94A3B8', margin: '0 0 var(--space-6) 0', lineHeight: 1.5 }}>
-              This resource is not available or restricted to authorized administrative personnel.
+              The page you're looking for doesn't exist or has been moved.
             </p>
             <Button
               variant="primary"
-              onClick={() => navigate('/admin-auth/login')}
+              onClick={() => navigate('/')}
               style={{ width: '100%', minHeight: '44px' }}
             >
-              Administrative Gateway
+              Go Home
             </Button>
           </div>
         </div>
