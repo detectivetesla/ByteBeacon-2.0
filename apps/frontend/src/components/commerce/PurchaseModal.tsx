@@ -16,7 +16,7 @@ import {
   Zap,
   AlertTriangle,
   Lock,
-  ExternalLink,
+  ArrowRight,
   UsersRound,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
@@ -1340,7 +1340,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 type="button"
                 onClick={() => {
                   onClose();
-                  navigate(`/track/${completedOrder.id}`);
+                  navigate(`/app/track/${completedOrder.id}`);
                 }}
                 style={{
                   width: '100%',
@@ -1358,7 +1358,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   gap: '0.4rem',
                 }}
               >
-                <ExternalLink size={14} />
+                <ArrowRight size={14} />
                 <span>Track Fulfillment Live</span>
               </button>
             </div>
