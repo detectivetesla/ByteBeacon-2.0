@@ -46,34 +46,39 @@ export class FulfillmentQueueService {
     jobData: FulfillmentJobData,
     options?: Partial<JobsOptions>,
   ): Promise<{ jobId: string; isEnqueued: boolean }> {
-    const jobId = `order_${jobData.orderId}`;
+    const normalizedJobData: FulfillmentJobData = {
+      ...jobData,
+      idempotencyKey: jobData.idempotencyKey || `pst_job_${jobData.orderId}`,
+      attemptCount: jobData.attemptCount || 1,
+    };
+    const jobId = `order_${normalizedJobData.orderId}`;
 
     if (this.bullQueue) {
       try {
-        const job = await this.bullQueue.add('fulfill_order', jobData, {
+        const job = await this.bullQueue.add('fulfill_order', normalizedJobData, {
           ...DEFAULT_RETRY_OPTIONS,
           jobId, // Unique per order to prevent duplicate enqueues
           ...options,
         });
 
         logger.info(
-          { orderId: jobData.orderId, jobId: job.id, correlationId: jobData.correlationId },
+          { orderId: normalizedJobData.orderId, jobId: job.id, correlationId: normalizedJobData.correlationId },
           '[BullMQ] Order fulfillment job enqueued successfully',
         );
 
         return { jobId: job.id || jobId, isEnqueued: true };
       } catch (err: any) {
         logger.error(
-          { orderId: jobData.orderId, err: err.message },
+          { orderId: normalizedJobData.orderId, err: err.message },
           '[BullMQ] Failed to add order to BullMQ queue, falling back to memory queue',
         );
       }
     }
 
     // In-Memory Fallback (useful for isolated unit tests without Redis)
-    const exists = this.memoryQueue.some((j) => j.orderId === jobData.orderId);
+    const exists = this.memoryQueue.some((j) => j.orderId === normalizedJobData.orderId);
     if (!exists) {
-      this.memoryQueue.push(jobData);
+      this.memoryQueue.push(normalizedJobData);
     }
 
     return { jobId, isEnqueued: !exists };

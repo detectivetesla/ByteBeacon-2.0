@@ -341,7 +341,43 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {!provider.isAuthoritative && (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={async () => {
+                  if (!window.confirm(`Are you sure you want to delete provider "${provider.name}"?`)) return;
+                  try {
+                    await adminApi.deleteTelecomProvider(provider.id);
+                    onRefresh();
+                    onClose();
+                  } catch (err: any) {
+                    setError(err.message || 'Failed to delete provider');
+                  }
+                }}
+              >
+                Delete Provider
+              </Button>
+            )}
+            <Button
+              variant={provider.status === 'ACTIVE' ? 'outline' : 'primary'}
+              size="sm"
+              onClick={async () => {
+                const nextStatus = provider.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+                try {
+                  await adminApi.updateTelecomProviderStatus(provider.id, nextStatus, 'Toggled from provider dossier');
+                  onRefresh();
+                  onClose();
+                } catch (err: any) {
+                  setError(err.message || 'Failed to update provider status');
+                }
+              }}
+            >
+              {provider.status === 'ACTIVE' ? 'Disable' : 'Enable'}
+            </Button>
+          </div>
           <Button variant="ghost" size="sm" onClick={onClose}>
             Close Dossier
           </Button>

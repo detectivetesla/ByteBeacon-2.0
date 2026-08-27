@@ -190,6 +190,9 @@ import {
   ProviderConnectionTestResult,
   SandboxTransactionTestInput,
   SandboxTransactionTestResult,
+  ProviderDeleteResult,
+  ProviderTestOperationRequest,
+  ProviderTestOperationResult,
   TelecomProviderType,
   TelecomProviderStatus,
   TelecomEnvironment,
@@ -1824,6 +1827,10 @@ export const adminApi = {
     return apiClient.post<{ id: string; status: string }>(`/admin/telecom/providers/${id}/status`, { status, reason });
   },
 
+  deleteTelecomProvider: async (id: string): Promise<ProviderDeleteResult> => {
+    return apiClient.delete<ProviderDeleteResult>(`/admin/telecom/providers/${id}`);
+  },
+
   getProviderCredentials: async (providerId: string): Promise<ProviderCredentialDto[]> => {
     return apiClient.get<ProviderCredentialDto[]>(`/admin/telecom/providers/${providerId}/credentials`);
   },
@@ -1850,6 +1857,10 @@ export const adminApi = {
 
   testProviderSandboxTransaction: async (providerId: string, input: SandboxTransactionTestInput): Promise<SandboxTransactionTestResult> => {
     return apiClient.post<SandboxTransactionTestResult>(`/admin/telecom/providers/${providerId}/test-sandbox`, input);
+  },
+
+  testProviderOperation: async (providerId: string, data: ProviderTestOperationRequest): Promise<ProviderTestOperationResult> => {
+    return apiClient.post<ProviderTestOperationResult>(`/admin/telecom/providers/${providerId}/test-operation`, data);
   },
 
   getTelecomRoutingMatrix: async (): Promise<NetworkProviderMappingDto[]> => {

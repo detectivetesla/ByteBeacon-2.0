@@ -18,6 +18,8 @@ import {
   PaginatedResponse,
   Permission,
   UserRole,
+  NetworkProvider,
+  PaymentMethod,
 } from '@bytebeacon/shared';
 
 export interface OrderRouteDependencies {

@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
-import { NetworkProvider, PaymentMethod } from '@bytebeacon/shared';
+import { NetworkProvider, PaymentMethod, Currency } from '@bytebeacon/shared';
 import { PurchaseModal } from '../components/commerce/PurchaseModal.js';
 import { ToastProvider } from '../context/ToastContext.js';
 import { ordersApi } from '../api/orders.api.js';
@@ -55,11 +55,12 @@ describe('PurchaseModal Recipient Phone Number & Wallet Purchase Integrity', () 
       id: 'ord_success_1',
       publicId: 'ORD-000067',
       userId: 'usr_mock_1',
+      agentId: null,
       recipientPhone: '0241234567',
       network: NetworkProvider.MTN,
       dataAmountMb: 2048,
       amountPesewas: 1200,
-      currency: 'GHS',
+      currency: Currency.GHS,
       paymentStatus: 'PAID' as any,
       orderStatus: 'READY_FOR_FULFILLMENT' as any,
       providerStatus: 'UNKNOWN' as any,

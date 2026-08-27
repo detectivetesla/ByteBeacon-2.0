@@ -17,6 +17,7 @@ import { migration00000000000014 } from './migrations/00000000000014_enhance_tel
 import { migration00000000000015 } from './migrations/00000000000015_enhance_alerts_notifications_and_views.js';
 import { migration00000000000016 } from './migrations/00000000000016_create_user_pricing_schema.js';
 import { migration00000000000017 } from './migrations/00000000000017_enhance_custom_telecom_provider_endpoints.js';
+import { migration00000000000018 } from './migrations/00000000000018_enhance_provider_registry_and_operations.js';
 
 export const allMigrations: MigrationFile[] = [
   migration00000000000000,
@@ -37,4 +38,6 @@ export const allMigrations: MigrationFile[] = [
   migration00000000000015,
   migration00000000000016,
   migration00000000000017,
+  migration00000000000018,
 ];
+

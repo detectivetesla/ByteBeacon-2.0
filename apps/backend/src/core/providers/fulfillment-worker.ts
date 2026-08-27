@@ -95,14 +95,17 @@ export class FulfillmentWorker {
     }
 
     try {
-      // 2. Fetch Order and Provider Projection
+      // 2. Fetch Order and Provider Projection with Catalog Plan Mapping
       const orderRes = await this.db.query(
         `SELECT o.id, o.public_id, o.user_id, o.recipient_phone, o.network,
-                o.data_amount_mb, o.payment_status, o.order_status,
+                o.data_amount_mb, o.payment_status, o.order_status, o.product_id,
+                cp.provider_plan_id as "providerPlanId", cp.provider_plan_code as "providerPlanCode",
+                cp.provider_product_code as "providerProductCode", cp.sku, cp.name as "productName",
                 po.id as "providerOrderId", po.provider_name as "providerName",
                 po.provider_reference as "providerReference", po.provider_status as "providerStatus",
                 po.submission_attempts as "submissionAttempts"
          FROM orders o
+         LEFT JOIN catalog_products cp ON o.product_id = cp.id
          LEFT JOIN provider_orders po ON o.id = po.order_id
          WHERE o.id = $1`,
         [orderId],
@@ -186,7 +189,15 @@ export class FulfillmentWorker {
             recipientPhone: order.recipient_phone,
             dataAmountMb: order.data_amount_mb,
             idempotencyKey: deterministicReference,
-            metadata: { correlationId },
+            metadata: {
+              correlationId,
+              bundleId: order.providerPlanId || order.providerPlanCode || order.product_id,
+              providerProductId: order.providerProductCode,
+              sku: order.sku,
+              productName: order.productName,
+              dataAmountMb: order.data_amount_mb,
+              volumeGb: Math.max(1, Math.round(order.data_amount_mb / 1024)),
+            },
           }),
         );
       } catch (err: any) {
@@ -280,11 +291,23 @@ export class FulfillmentWorker {
          SET provider_name = $1,
              provider_reference = $2,
              provider_status = $3,
+             provider_id = (SELECT id FROM telecom_providers WHERE LOWER(name) = LOWER($1) OR LOWER(slug) = LOWER($1) LIMIT 1),
+             provider_response = $5,
+             provider_submitted_at = COALESCE(provider_submitted_at, CURRENT_TIMESTAMP),
+             provider_completed_at = CASE WHEN $6 = TRUE THEN CURRENT_TIMESTAMP ELSE provider_completed_at END,
+             last_provider_sync_at = CURRENT_TIMESTAMP,
              submission_attempts = submission_attempts + 1,
              last_synced_at = CURRENT_TIMESTAMP,
              sync_version = sync_version + 1
          WHERE order_id = $4`,
-        [activeProvider.providerName, submitResult.providerReference, initialProviderStatus, order.id],
+        [
+          activeProvider.providerName,
+          submitResult.providerReference,
+          initialProviderStatus,
+          order.id,
+          JSON.stringify(submitResult.rawResponse || submitResult),
+          isCompleted,
+        ],
       );
 
       await this.db.query(

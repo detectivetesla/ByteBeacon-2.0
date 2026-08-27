@@ -8,11 +8,6 @@ import {
   AuthoritativeSwitchValidationResult,
   NetworkProvider,
   TelecomProviderStatus,
-  TelecomProviderType,
-  TelecomEnvironment,
-  ProviderAuthMethod,
-  ProviderIncidentSeverity,
-  ProviderIncidentStatus,
 } from '@bytebeacon/shared';
 import { adminApi } from '../../api/admin.api.js';
 import { useAuth } from '../../context/AuthContext.js';
@@ -49,260 +44,6 @@ import { SandboxTestModal } from '../../components/admin/telecom/SandboxTestModa
 import { ProviderIncidentModal } from '../../components/admin/telecom/ProviderIncidentModal.js';
 import { NetworkEditModal } from '../../components/admin/telecom/NetworkEditModal.js';
 
-// =========================================================================
-// Canonical Ghana Telecom Operational Baseline Data
-// =========================================================================
-
-const DEFAULT_NETWORKS: TelecomNetworkDto[] = [
-  {
-    id: 'net_mtn',
-    code: NetworkProvider.MTN,
-    name: 'MTN Ghana',
-    slug: 'mtn-ghana',
-    status: TelecomProviderStatus.ACTIVE,
-    isActive: true,
-    primaryProviderName: 'DataHouse',
-    fallbackProviderName: 'GMPL',
-    providersCount: 2,
-    endpointUrl: 'https://api.datahouse.com.gh/v1/mtn',
-    webhookUrl: '/api/v1/fulfillment/datahouse/webhook',
-    dailyVolumeLimitMb: 1000000000,
-    dailyOrderLimit: 100000,
-    minBundleMb: 50,
-    maxBundleMb: 500000,
-    uptimePercentage: 99.85,
-    latencyMs: 183,
-    successRatePercent: 99.80,
-    associatedProviders: [
-      { providerId: 'p_dh', providerName: 'DataHouse', role: 'PRIMARY', priority: 1, status: 'ACTIVE', latencyMs: 183 },
-      { providerId: 'p_gmpl', providerName: 'GMPL', role: 'FALLBACK', priority: 2, status: 'ACTIVE', latencyMs: 210 },
-    ],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'net_telecel',
-    code: NetworkProvider.TELECEL,
-    name: 'Telecel Ghana',
-    slug: 'telecel-ghana',
-    status: TelecomProviderStatus.ACTIVE,
-    isActive: true,
-    primaryProviderName: 'DataHouse',
-    fallbackProviderName: 'GMPL',
-    providersCount: 2,
-    endpointUrl: 'https://api.datahouse.com.gh/v1/telecel',
-    webhookUrl: '/api/v1/fulfillment/datahouse/webhook',
-    dailyVolumeLimitMb: 1000000000,
-    dailyOrderLimit: 100000,
-    minBundleMb: 50,
-    maxBundleMb: 500000,
-    uptimePercentage: 99.90,
-    latencyMs: 175,
-    successRatePercent: 99.70,
-    associatedProviders: [
-      { providerId: 'p_dh', providerName: 'DataHouse', role: 'PRIMARY', priority: 1, status: 'ACTIVE', latencyMs: 175 },
-      { providerId: 'p_gmpl', providerName: 'GMPL', role: 'FALLBACK', priority: 2, status: 'ACTIVE', latencyMs: 205 },
-    ],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'net_at',
-    code: NetworkProvider.AIRTELTIGO,
-    name: 'AirtelTigo (AT)',
-    slug: 'airteltigo-ghana',
-    status: TelecomProviderStatus.ACTIVE,
-    isActive: true,
-    primaryProviderName: 'DataHouse',
-    fallbackProviderName: 'GMPL',
-    providersCount: 2,
-    endpointUrl: 'https://api.datahouse.com.gh/v1/at',
-    webhookUrl: '/api/v1/fulfillment/datahouse/webhook',
-    dailyVolumeLimitMb: 1000000000,
-    dailyOrderLimit: 100000,
-    minBundleMb: 50,
-    maxBundleMb: 500000,
-    uptimePercentage: 99.80,
-    latencyMs: 192,
-    successRatePercent: 99.60,
-    associatedProviders: [
-      { providerId: 'p_dh', providerName: 'DataHouse', role: 'PRIMARY', priority: 1, status: 'ACTIVE', latencyMs: 192 },
-      { providerId: 'p_gmpl', providerName: 'GMPL', role: 'FALLBACK', priority: 2, status: 'ACTIVE', latencyMs: 215 },
-    ],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-const DEFAULT_PROVIDERS: TelecomProviderDetailDto[] = [
-  {
-    id: 'p_dh',
-    name: 'DataHouse',
-    slug: 'datahouse',
-    description: 'Primary authoritative multi-carrier telecom aggregator for Ghanaian MNOs',
-    providerType: TelecomProviderType.AGGREGATOR,
-    environment: TelecomEnvironment.PRODUCTION,
-    status: TelecomProviderStatus.ACTIVE,
-    isAuthoritative: true,
-    supportedNetworks: [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-    apiBaseUrl: 'https://api.datahouse.com.gh/v1',
-    apiVersion: 'v1',
-    authMethod: ProviderAuthMethod.API_KEY,
-    webhookSupport: true,
-    webhookUrl: '/api/v1/fulfillment/datahouse/webhook',
-    sandboxSupport: true,
-    sandboxBaseUrl: 'https://sandbox.datahouse.com.gh/v1',
-    hasCredentials: { sandbox: true, production: true },
-    credentialsMasked: { apiKeyMasked: 'dh_live_••••••••3821', webhookSecretMasked: 'whsec_••••••••4912', status: 'Configured' },
-    lastHealthCheck: new Date().toISOString(),
-    lastSuccessfulRequest: new Date().toISOString(),
-    lastFailure: null,
-    lastError: null,
-    avgLatencyMs: 183,
-    p95LatencyMs: 412,
-    successRate: 99.82,
-    totalRequestsCount: 128421,
-    failedRequestsCount: 231,
-    capabilities: {
-      NETWORKS: true,
-      CATALOG: true,
-      BENEFICIARY_VALIDATION: true,
-      SINGLE_ORDERS: true,
-      BULK_ORDERS: true,
-      ORDER_STATUS: true,
-      WEBHOOKS: true,
-      RECONCILIATION: true,
-      REFUNDS: false,
-      SANDBOX: true,
-      PRECHECK: true,
-      WALLET_BALANCE: true,
-    },
-    networkMappings: [
-      { networkCode: NetworkProvider.MTN, role: 'PRIMARY', priority: 1, weightPercent: 100, status: 'ACTIVE' },
-      { networkCode: NetworkProvider.TELECEL, role: 'PRIMARY', priority: 1, weightPercent: 100, status: 'ACTIVE' },
-      { networkCode: NetworkProvider.AIRTELTIGO, role: 'PRIMARY', priority: 1, weightPercent: 100, status: 'ACTIVE' },
-    ],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'p_gmpl',
-    name: 'GMPL',
-    slug: 'gmpl',
-    description: 'Secondary telecom carrier bridge and enterprise fallback fulfiller',
-    providerType: TelecomProviderType.AGGREGATOR,
-    environment: TelecomEnvironment.PRODUCTION,
-    status: TelecomProviderStatus.ACTIVE,
-    isAuthoritative: false,
-    supportedNetworks: [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-    apiBaseUrl: 'https://api.gmpl.com.gh/v2',
-    apiVersion: 'v2',
-    authMethod: ProviderAuthMethod.BEARER,
-    webhookSupport: true,
-    webhookUrl: '/api/v1/fulfillment/gmpl/webhook',
-    sandboxSupport: true,
-    sandboxBaseUrl: 'https://sandbox.gmpl.com.gh/v2',
-    hasCredentials: { sandbox: true, production: true },
-    credentialsMasked: { apiKeyMasked: 'gmpl_live_••••••••9102', webhookSecretMasked: 'gmpl_wh_••••••••1144', status: 'Configured' },
-    lastHealthCheck: new Date().toISOString(),
-    lastSuccessfulRequest: new Date().toISOString(),
-    lastFailure: null,
-    lastError: null,
-    avgLatencyMs: 210,
-    p95LatencyMs: 480,
-    successRate: 98.60,
-    totalRequestsCount: 42100,
-    failedRequestsCount: 580,
-    capabilities: {
-      NETWORKS: true,
-      CATALOG: false,
-      BENEFICIARY_VALIDATION: true,
-      SINGLE_ORDERS: true,
-      BULK_ORDERS: false,
-      ORDER_STATUS: true,
-      WEBHOOKS: true,
-      RECONCILIATION: true,
-      REFUNDS: false,
-      SANDBOX: true,
-      PRECHECK: false,
-      WALLET_BALANCE: false,
-    },
-    networkMappings: [
-      { networkCode: NetworkProvider.MTN, role: 'FALLBACK', priority: 2, weightPercent: 0, status: 'ACTIVE' },
-      { networkCode: NetworkProvider.AIRTELTIGO, role: 'FALLBACK', priority: 2, weightPercent: 0, status: 'ACTIVE' },
-    ],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-const DEFAULT_ROUTING: NetworkProviderMappingDto[] = [
-  {
-    networkCode: NetworkProvider.MTN,
-    primaryProvider: 'DataHouse',
-    fallbackProvider: 'GMPL',
-    status: 'ACTIVE',
-    availableProviders: [
-      { id: 'p_dh', name: 'DataHouse', role: 'PRIMARY', priority: 1, latencyMs: 183, successRate: 99.82 },
-      { id: 'p_gmpl', name: 'GMPL', role: 'FALLBACK', priority: 2, latencyMs: 210, successRate: 98.60 },
-    ],
-  },
-  {
-    networkCode: NetworkProvider.TELECEL,
-    primaryProvider: 'DataHouse',
-    fallbackProvider: 'GMPL',
-    status: 'ACTIVE',
-    availableProviders: [
-      { id: 'p_dh', name: 'DataHouse', role: 'PRIMARY', priority: 1, latencyMs: 175, successRate: 99.70 },
-      { id: 'p_gmpl', name: 'GMPL', role: 'FALLBACK', priority: 2, latencyMs: 205, successRate: 98.60 },
-    ],
-  },
-  {
-    networkCode: NetworkProvider.AIRTELTIGO,
-    primaryProvider: 'DataHouse',
-    fallbackProvider: 'GMPL',
-    status: 'ACTIVE',
-    availableProviders: [
-      { id: 'p_dh', name: 'DataHouse', role: 'PRIMARY', priority: 1, latencyMs: 192, successRate: 99.60 },
-      { id: 'p_gmpl', name: 'GMPL', role: 'FALLBACK', priority: 2, latencyMs: 215, successRate: 98.60 },
-    ],
-  },
-];
-
-const DEFAULT_INCIDENTS: ProviderIncidentDto[] = [
-  {
-    id: 'inc_sample_1',
-    providerId: 'p_dh',
-    providerName: 'DataHouse',
-    title: 'MTN Gateway Latency Spike (Resolved)',
-    severity: ProviderIncidentSeverity.HIGH,
-    status: ProviderIncidentStatus.RESOLVED,
-    affectedNetwork: 'MTN',
-    failureRatePercent: 4.2,
-    startedAt: new Date(Date.now() - 3600000).toISOString(),
-    resolvedAt: new Date().toISOString(),
-    summary: 'Aggregator MTN route experienced 4.2% timeout rate. Traffic temporarily routed to GMPL fallback.',
-    mitigationNotes: 'Resolved by DataHouse upstream NOC.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-const DEFAULT_OVERVIEW: TelecomControlPlaneOverviewDto = {
-  totalNetworks: 3,
-  activeNetworks: 3,
-  totalProviders: 2,
-  activeProviders: 2,
-  authoritativeProvider: 'DataHouse',
-  systemAvailabilityPercent: 99.85,
-  averageLatencyMs: 183,
-  totalRequests24h: 170521,
-  totalFailures24h: 811,
-  openIncidentsCount: 0,
-  networks: DEFAULT_NETWORKS,
-  providers: DEFAULT_PROVIDERS,
-};
-
 type TabType = 'networks' | 'providers' | 'health' | 'routing' | 'webhooks' | 'tests' | 'incidents';
 
 export const AdminProviderPage: React.FC = () => {
@@ -311,11 +52,11 @@ export const AdminProviderPage: React.FC = () => {
   const { success: toastSuccess, error: toastError } = useToast();
 
   const [activeTab, setActiveTab] = useState<TabType>('networks');
-  const [overview, setOverview] = useState<TelecomControlPlaneOverviewDto>(DEFAULT_OVERVIEW);
-  const [networks, setNetworks] = useState<TelecomNetworkDto[]>(DEFAULT_NETWORKS);
-  const [providers, setProviders] = useState<TelecomProviderDetailDto[]>(DEFAULT_PROVIDERS);
-  const [routingMatrix, setRoutingMatrix] = useState<NetworkProviderMappingDto[]>(DEFAULT_ROUTING);
-  const [incidents, setIncidents] = useState<ProviderIncidentDto[]>(DEFAULT_INCIDENTS);
+  const [overview, setOverview] = useState<TelecomControlPlaneOverviewDto | null>(null);
+  const [networks, setNetworks] = useState<TelecomNetworkDto[]>([]);
+  const [providers, setProviders] = useState<TelecomProviderDetailDto[]>([]);
+  const [routingMatrix, setRoutingMatrix] = useState<NetworkProviderMappingDto[]>([]);
+  const [incidents, setIncidents] = useState<ProviderIncidentDto[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
@@ -453,7 +194,7 @@ export const AdminProviderPage: React.FC = () => {
       setSwitchValidation({
         canSwitch: true,
         targetProvider: target?.name || targetSwitchProvider,
-        currentProvider: overview.authoritativeProvider || 'DataHouse',
+        currentProvider: overview?.authoritativeProvider || 'DataHouse',
         checks: [
           { check: 'Target is not currently authoritative', passed: true, message: 'Target is ready for authoritative promotion.' },
           { check: 'Credentials valid & configured', passed: true, message: 'Production API credentials configured & active in vault.' },
@@ -496,10 +237,10 @@ export const AdminProviderPage: React.FC = () => {
           isAuthoritative: p.name.toLowerCase() === targetSwitchProvider.toLowerCase(),
         }))
       );
-      setOverview((prev) => ({
+      setOverview((prev) => (prev ? {
         ...prev,
         authoritativeProvider: targetSwitchProvider,
-      }));
+      } : null));
       toastSuccess('Authoritative Switch Complete', `Promoted ${targetSwitchProvider} to active authoritative fulfiller.`);
       setSwitchValidation(null);
       setSwitchReason('');
@@ -515,13 +256,9 @@ export const AdminProviderPage: React.FC = () => {
     setTimeout(() => setCopiedSlug(null), 2500);
   };
 
-  const handleInitializeDefaults = () => {
-    setNetworks(DEFAULT_NETWORKS);
-    setProviders(DEFAULT_PROVIDERS);
-    setRoutingMatrix(DEFAULT_ROUTING);
-    setIncidents(DEFAULT_INCIDENTS);
-    setOverview(DEFAULT_OVERVIEW);
-    toastSuccess('Telecom Baselines Restored', 'Ghanaian carrier networks & multi-provider registry initialized.');
+  const handleInitializeDefaults = async () => {
+    await fetchControlPlaneData();
+    toastSuccess('Telecom Telemetry Refreshed', 'Live carrier networks & provider registry synchronized.');
   };
 
   const tabs: { id: TabType; label: string; count?: number }[] = [
@@ -1333,45 +1070,53 @@ export const AdminProviderPage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            {(incidents.length > 0 ? incidents : DEFAULT_INCIDENTS).map((inc) => (
-              <Card
-                key={inc.id}
-                elevated
-                accentColor={inc.status === 'RESOLVED' ? 'green' : 'amber'}
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Badge variant={inc.severity === 'CRITICAL' || inc.severity === 'HIGH' ? 'danger' : 'warning'}>
-                      {inc.severity}
-                    </Badge>
-                    <Badge variant={inc.status === 'RESOLVED' ? 'success' : 'danger'}>
-                      {inc.status}
-                    </Badge>
-                    <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                      {inc.title}
-                    </h3>
-                  </div>
-                  <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
-                    {inc.summary}
-                  </p>
-                  <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    Provider: {inc.providerName} • Carrier: {inc.affectedNetwork} • Started: {new Date(inc.startedAt).toLocaleString()}
-                  </span>
-                </div>
-
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setSelectedIncidentForEdit(inc);
-                    setIsIncidentModalOpen(true);
-                  }}
+            {incidents.length > 0 ? (
+              incidents.map((inc) => (
+                <Card
+                  key={inc.id}
+                  elevated
+                  accentColor={inc.status === 'RESOLVED' ? 'green' : 'amber'}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}
                 >
-                  Manage Incident
-                </Button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Badge variant={inc.severity === 'CRITICAL' || inc.severity === 'HIGH' ? 'danger' : 'warning'}>
+                        {inc.severity}
+                      </Badge>
+                      <Badge variant={inc.status === 'RESOLVED' ? 'success' : 'danger'}>
+                        {inc.status}
+                      </Badge>
+                      <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                        {inc.title}
+                      </h3>
+                    </div>
+                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                      {inc.summary}
+                    </p>
+                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Provider: {inc.providerName} • Carrier: {inc.affectedNetwork} • Started: {new Date(inc.startedAt).toLocaleString()}
+                    </span>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setSelectedIncidentForEdit(inc);
+                      setIsIncidentModalOpen(true);
+                    }}
+                  >
+                    Manage Incident
+                  </Button>
+                </Card>
+              ))
+            ) : (
+              <Card style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
+                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: 0 }}>
+                  No carrier or provider incidents recorded. All routes and aggregators are fully operational.
+                </p>
               </Card>
-            ))}
+            )}
           </div>
         </div>
       )}

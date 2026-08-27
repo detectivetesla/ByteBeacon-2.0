@@ -1,7 +1,7 @@
-import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
+import { Currency } from '@bytebeacon/shared';
 import { OrderTrackingPage } from '../pages/public/OrderTrackingPage.js';
 import { ordersApi } from '../api/orders.api.js';
 
@@ -44,7 +44,7 @@ describe('Real-Time Delivery Tracker — OrderTrackingPage', () => {
       recipientPhone: '0244123456',
       amountPesewas: 2400,
       amountDisplay: 'GH₵ 24.00',
-      currency: 'GHS',
+      currency: Currency.GHS,
       createdAt: '2026-08-26T10:00:00.000Z',
       completedAt: '2026-08-26T10:00:45.000Z',
     });

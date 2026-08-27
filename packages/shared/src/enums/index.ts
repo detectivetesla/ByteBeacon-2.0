@@ -250,6 +250,8 @@ export enum PaymentMethod {
   CARD = 'CARD',
   WALLET = 'WALLET',
   BANK_TRANSFER = 'BANK_TRANSFER',
+  DIRECT = 'DIRECT',
+  PAYSTACK = 'PAYSTACK',
 }
 
 export enum PaymentChannel {

@@ -7,8 +7,8 @@ export interface FulfillmentJobData {
   phoneNumber?: string;
   bundleId?: string;
   dataAmountMb?: number;
-  idempotencyKey: string;
-  attemptCount: number;
+  idempotencyKey?: string;
+  attemptCount?: number;
 }
 
 export interface BulkRecipientItem {

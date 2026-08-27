@@ -279,6 +279,8 @@ export class PaymentService {
             .enqueueOrderFulfillment({
               orderId: order.id,
               correlationId: context.correlationId,
+              idempotencyKey: `pst_pay_ful_${order.id}`,
+              attemptCount: 1,
             })
             .catch((err) => {
               logger.warn(
@@ -586,6 +588,8 @@ export class PaymentService {
           .enqueueOrderFulfillment({
             orderId: payment.order_id,
             correlationId,
+            idempotencyKey: `pst_pay_ver_${payment.order_id}`,
+            attemptCount: 1,
           })
           .catch((err) => {
             logger.warn(

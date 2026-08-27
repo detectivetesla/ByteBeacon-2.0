@@ -2862,5 +2862,53 @@ export interface AgentBulkOrderResult {
   blocked: string[];
 }
 
+// --- Provider Operation Testing Contracts ---
+
+export type ProviderTestOperationType =
+  | 'HEALTH_CHECK'
+  | 'AUTHENTICATION'
+  | 'GET_AGENT'
+  | 'GET_BALANCE'
+  | 'GET_NETWORKS'
+  | 'GET_BUNDLES'
+  | 'VALIDATE_BENEFICIARY'
+  | 'TEST_ORDER'
+  | 'GET_ORDER_STATUS';
+
+export interface ProviderTestOperationRequest {
+  operation: ProviderTestOperationType;
+  environment?: 'SANDBOX' | 'PRODUCTION' | string;
+  recipientPhone?: string;
+  network?: NetworkProvider | string;
+  dataAmountMb?: number;
+  bundleId?: string;
+  providerReference?: string;
+  orderId?: string;
+}
+
+export interface ProviderTestOperationResult {
+  success: boolean;
+  providerId: string;
+  providerName: string;
+  operation: ProviderTestOperationType;
+  environment: string;
+  httpStatus?: number;
+  responseTimeMs: number;
+  timestamp: string;
+  sanitizedResponse?: Record<string, unknown> | null;
+  errorCode?: string;
+  errorMessage?: string;
+  requestId?: string;
+}
+
+export interface ProviderDeleteResult {
+  id: string;
+  name: string;
+  deleted: boolean;
+  isSoftDeleted: boolean;
+  reason: string;
+}
+
+
 
 

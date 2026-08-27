@@ -115,7 +115,7 @@ describe('Order Creation & Authoritative Pricing', () => {
 
     // Verify Provider Order Projection
     expect(result.order.providerOrder).toBeDefined();
-    expect(result.order.providerOrder?.providerName).toBe('GMPL');
+    expect(result.order.providerOrder?.providerName).toBe('DataHouse');
     expect(result.order.providerOrder?.providerStatus).toBe(ProviderStatus.UNKNOWN);
 
     // Verify Order Events

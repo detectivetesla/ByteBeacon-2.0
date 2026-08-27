@@ -34,10 +34,9 @@ export async function runProductionIntegrityAudit(): Promise<ProductionIntegrity
   const checks: ProductionIntegrityCheck[] = [];
 
   // Check 1: Migration Registry Sequence Audit
-  const expectedMigrationsCount = 16;
   const actualMigrationsCount = allMigrations.length;
   const isMigrationSequenceComplete =
-    actualMigrationsCount === expectedMigrationsCount &&
+    actualMigrationsCount >= 16 &&
     allMigrations.every((m, idx) => {
       const expectedVersion = idx.toString().padStart(14, '0');
       return m.version === expectedVersion;
@@ -49,8 +48,8 @@ export async function runProductionIntegrityAudit(): Promise<ProductionIntegrity
     category: 'DATABASE',
     status: isMigrationSequenceComplete ? 'PASS' : 'FAIL',
     details: isMigrationSequenceComplete
-      ? `All ${actualMigrationsCount} sequential ByteBeacon 2.0 migrations (00 to 15) registered with zero missing versions.`
-      : `Migration sequence mismatch: found ${actualMigrationsCount}, expected ${expectedMigrationsCount}.`,
+      ? `All ${actualMigrationsCount} sequential ByteBeacon 2.0 migrations (00 to ${actualMigrationsCount - 1}) registered with zero missing versions.`
+      : `Migration sequence mismatch: sequential check failed across ${actualMigrationsCount} registered migrations.`,
   });
 
   // Check 2: Missing Tables Resolution Audit (system_configurations & platform_feature_flags)

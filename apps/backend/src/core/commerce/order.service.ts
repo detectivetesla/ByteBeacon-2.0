@@ -416,7 +416,7 @@ export class OrderService {
         refundStatus: orderRow.refundStatus as RefundStatus,
         pricingSnapshot,
         providerOrder: {
-          providerName: 'GMPL',
+          providerName: 'DataHouse',
           providerReference: null,
           providerStatus: ProviderStatus.UNKNOWN,
           lastSyncedAt: null,
@@ -449,6 +449,12 @@ export class OrderService {
             .enqueueOrderFulfillment({
               orderId: orderRow.id,
               correlationId: context.correlationId,
+              idempotencyKey: `pst_wal_sub_${orderRow.id}`,
+              attemptCount: 1,
+              network: product.network,
+              phoneNumber: cleanPhone,
+              bundleId: product.id,
+              dataAmountMb: product.dataAmountMb,
             })
             .catch((err) => {
               logger.warn(

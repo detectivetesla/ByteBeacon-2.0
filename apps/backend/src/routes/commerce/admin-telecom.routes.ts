@@ -17,6 +17,7 @@ import {
   CreateProviderIncidentRequest,
   UpdateProviderIncidentRequest,
   SandboxTransactionTestInput,
+  ProviderTestOperationRequest,
 } from '@bytebeacon/shared';
 
 export interface AdminTelecomRouteDependencies {
@@ -174,6 +175,24 @@ export async function adminTelecomRoutes(
     },
   );
 
+  app.delete<{
+    Params: { id: string };
+  }>(
+    '/admin/telecom/providers/:id',
+    {
+      preHandler: [authHooks.authenticateAdmin],
+    },
+    async (request, reply) => {
+      const user = (request as any).user;
+      const result = await telecomService.deleteProvider(
+        request.params.id,
+        user?.sub,
+        (request as any).correlationId,
+      );
+      return reply.send({ success: true, data: result });
+    },
+  );
+
   // =========================================================================
   // 4. Credentials Management (Server Vault)
   // =========================================================================
@@ -306,6 +325,26 @@ export async function adminTelecomRoutes(
     async (request, reply) => {
       const user = (request as any).user;
       const result = await telecomService.testSandboxTransaction(
+        request.params.id,
+        request.body,
+        user?.sub,
+        (request as any).correlationId,
+      );
+      return reply.send({ success: true, data: result });
+    },
+  );
+
+  app.post<{
+    Params: { id: string };
+    Body: ProviderTestOperationRequest;
+  }>(
+    '/admin/telecom/providers/:id/test-operation',
+    {
+      preHandler: [authHooks.authenticateAdmin],
+    },
+    async (request, reply) => {
+      const user = (request as any).user;
+      const result = await telecomService.testProviderOperation(
         request.params.id,
         request.body,
         user?.sub,
