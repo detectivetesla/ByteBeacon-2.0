@@ -56,8 +56,8 @@ export const ordersApi = {
     return apiClient.get<OrderDetailsDto>(`/orders/${orderId}`);
   },
 
-  trackOrder: async (query: string): Promise<OrderDetailsDto> => {
-    return apiClient.get<OrderDetailsDto>(`/orders/track/${encodeURIComponent(query)}`, { skipAuth: true });
+  trackOrder: async (query: string): Promise<any> => {
+    return apiClient.get<any>(`/orders/track/${encodeURIComponent(query)}`, { skipAuth: true });
   },
 
   listOrders: async (filters: OrderListFilters = {}): Promise<PaginatedOrdersResponse> => {

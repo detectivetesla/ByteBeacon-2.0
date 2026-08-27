@@ -512,6 +512,18 @@ export class OrderService {
   }
 
   public async getPublicOrder(reference: string): Promise<CustomerOrderDto | null> {
+    const cleanRef = (reference || '').trim();
+    if (!cleanRef) return null;
+
+    let altPhone = cleanRef;
+    if (cleanRef.startsWith('0') && cleanRef.length === 10) {
+      altPhone = `233${cleanRef.slice(1)}`;
+    } else if (cleanRef.startsWith('233') && cleanRef.length === 12) {
+      altPhone = `0${cleanRef.slice(3)}`;
+    } else if (cleanRef.startsWith('+233') && cleanRef.length === 13) {
+      altPhone = `0${cleanRef.slice(4)}`;
+    }
+
     const res = await this.db.query(
       `SELECT id, public_id as "publicId", recipient_phone as "recipientPhone", network,
               data_amount_mb as "dataAmountMb", amount_pesewas as "amountPesewas", currency,
@@ -519,8 +531,14 @@ export class OrderService {
               pricing_snapshot as "pricingSnapshot",
               created_at as "createdAt", updated_at as "updatedAt"
        FROM orders
-       WHERE public_id = $1 OR id = $1`,
-      [reference],
+       WHERE LOWER(public_id) = LOWER($1)
+          OR id::text = $1
+          OR LOWER(id::text) = LOWER($1)
+          OR recipient_phone = $1
+          OR recipient_phone = $2
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [cleanRef, altPhone],
     );
 
     if (res.rows.length === 0) {
@@ -533,15 +551,22 @@ export class OrderService {
       row.paymentStatus as PaymentStatus,
     );
 
-    const dataDisplay = `${(row.dataAmountMb / 1024).toFixed(row.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`;
-    const amountPesewas = parseInt(row.amountPesewas, 10);
+    const dataAmountMb = parseInt(row.dataAmountMb, 10) || 0;
+    const dataDisplay = `${(dataAmountMb / 1024).toFixed(dataAmountMb % 1024 === 0 ? 0 : 1)} GB`;
+    const amountPesewas = parseInt(row.amountPesewas, 10) || 0;
     const amountDisplay = `GH₵ ${(amountPesewas / 100).toFixed(2)}`;
 
     return {
-      orderId: row.publicId,
+      orderId: row.publicId || row.id,
+      id: row.id,
+      publicId: row.publicId,
       status,
       statusLabel,
+      orderStatus: row.orderStatus,
       paymentStatus: row.paymentStatus === PaymentStatus.PAID ? 'PAID' : row.paymentStatus === PaymentStatus.PROCESSING ? 'PROCESSING' : row.paymentStatus === PaymentStatus.FAILED ? 'FAILED' : row.paymentStatus === PaymentStatus.REFUNDED ? 'REFUNDED' : 'PENDING',
+      network: row.network as NetworkProvider,
+      dataAmountMb,
+      dataDisplay,
       product: {
         name: `${row.network} ${dataDisplay} Data Bundle`,
         network: row.network as NetworkProvider,
@@ -555,7 +580,7 @@ export class OrderService {
       createdAt: new Date(row.createdAt).toISOString(),
       updatedAt: new Date(row.updatedAt).toISOString(),
       completedAt: row.orderStatus === OrderStatus.COMPLETED ? new Date(row.updatedAt).toISOString() : null,
-    };
+    } as CustomerOrderDto;
   }
 
 

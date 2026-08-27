@@ -22,34 +22,38 @@ export interface OrderTrackerProps {
 }
 
 export const OrderTracker: React.FC<OrderTrackerProps> = ({ order }) => {
-  const isPaid = order.paymentStatus === 'PAID';
-  const isReceived = order.orderStatus === 'ORDER_RECEIVED' || order.orderStatus === 'PROCESSING' || order.orderStatus === 'DELIVERED';
-  const isProcessing = order.orderStatus === 'PROCESSING' || order.orderStatus === 'DELIVERED';
-  const isDelivered = order.orderStatus === 'DELIVERED';
+  const normPayment = String(order.paymentStatus || '').toUpperCase();
+  const normStatus = String(order.orderStatus || '').toUpperCase();
+
+  const isPaid = normPayment === 'PAID';
+  const isDelivered = normStatus === 'DELIVERED' || normStatus === 'COMPLETED';
+  const isProcessing = isDelivered || normStatus === 'PROCESSING' || normStatus === 'READY_FOR_FULFILLMENT' || normStatus === 'READY_TO_PROCESS';
+  const isReceived = isProcessing || normStatus === 'ORDER_RECEIVED' || normStatus === 'SUBMITTED' || normStatus === 'CHECKING_ORDER' || normStatus === 'VALIDATING' || normStatus === 'ORDER_CREATED' || normStatus === 'CREATED';
+  const isFailed = normStatus === 'UNABLE_TO_COMPLETE' || normStatus === 'FAILED' || normStatus === 'CANCELLED' || normPayment === 'FAILED';
 
   const steps = [
     {
       title: 'Payment Confirmed',
-      status: isPaid ? 'COMPLETED' : 'PENDING',
-      description: isPaid ? 'Payment authorized and verified' : 'Awaiting payment confirmation',
+      status: isPaid ? 'COMPLETED' : isFailed ? 'FAILED' : 'PENDING',
+      description: isPaid ? 'Payment authorized and verified' : isFailed ? 'Payment was not completed' : 'Awaiting payment confirmation',
       icon: <CreditCard size={18} strokeWidth={2.8} />,
     },
     {
       title: 'Order Received',
-      status: isReceived ? 'COMPLETED' : 'PENDING',
-      description: isReceived ? 'Recipient number validated' : 'Queued for processing',
+      status: isReceived ? 'COMPLETED' : isFailed ? 'FAILED' : 'PENDING',
+      description: isReceived ? 'Recipient number validated' : isFailed ? 'Order processing halted' : 'Queued for processing',
       icon: <Smartphone size={18} strokeWidth={2.8} />,
     },
     {
       title: 'Processing',
-      status: isDelivered ? 'COMPLETED' : isProcessing ? 'PROCESSING' : 'PENDING',
-      description: isDelivered ? 'Telecom network provisioned' : isProcessing ? 'Provisioning mobile data' : 'Pending dispatch',
+      status: isDelivered ? 'COMPLETED' : isProcessing ? 'PROCESSING' : isFailed ? 'FAILED' : 'PENDING',
+      description: isDelivered ? 'Telecom network provisioned' : isProcessing ? 'Provisioning mobile data' : isFailed ? 'Could not fulfill bundle' : 'Pending dispatch',
       icon: <Clock size={18} strokeWidth={2.8} />,
     },
     {
       title: 'Data Delivered',
-      status: isDelivered ? 'COMPLETED' : 'PENDING',
-      description: isDelivered ? 'Bundle successfully delivered' : 'Awaiting final confirmation',
+      status: isDelivered ? 'COMPLETED' : isFailed ? 'FAILED' : 'PENDING',
+      description: isDelivered ? 'Bundle successfully delivered' : isFailed ? 'Delivery failed' : 'Awaiting final confirmation',
       icon: <CheckCircle2 size={18} strokeWidth={2.8} />,
     },
   ];

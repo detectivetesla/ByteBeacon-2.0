@@ -251,25 +251,28 @@ export const PublicStorefrontPage: React.FC = () => {
     try {
       const res = await ordersApi.trackOrder(query);
       if (res) {
-        const dataDisplay = formatDataAmount(res.dataAmountMb);
+        const raw = res as any;
+        const dataDisplay = raw.product?.volumeDisplay || raw.dataDisplay || (raw.dataAmountMb ? formatDataAmount(raw.dataAmountMb) : 'Data Bundle');
+        const network = raw.product?.network || raw.network || 'MTN';
+        const priceDisplay = raw.amountDisplay || (raw.amountPesewas ? `GH₵ ${(raw.amountPesewas / 100).toFixed(2)}` : 'GH₵ 0.00');
         const mapped: CustomerOrderDto = {
-          orderId: res.publicId || res.id,
-          status: (res.orderStatus as any) || 'PROCESSING',
-          statusLabel: res.orderStatus,
-          paymentStatus: res.paymentStatus as any,
+          orderId: raw.orderId || raw.publicId || raw.id || query,
+          status: raw.status || (raw.orderStatus as any) || 'PROCESSING',
+          statusLabel: raw.statusLabel || raw.orderStatus || 'Processing',
+          paymentStatus: (raw.paymentStatus as any) || 'PENDING',
           product: {
-            name: `${res.network} ${dataDisplay} Data Bundle`,
-            network: res.network,
+            name: raw.product?.name || `${network} ${dataDisplay} Data Bundle`,
+            network,
             volumeDisplay: dataDisplay,
-            validityDisplay: 'Non-Expiry',
+            validityDisplay: raw.product?.validityDisplay || 'Non-Expiry',
           },
-          recipientPhone: res.recipientPhone,
-          amountPesewas: res.amountPesewas,
-          amountDisplay: `GH₵ ${(res.amountPesewas / 100).toFixed(2)}`,
-          currency: 'GHS' as any,
-          createdAt: res.createdAt,
-          updatedAt: res.updatedAt,
-          completedAt: res.providerOrder?.lastSyncedAt || null,
+          recipientPhone: raw.recipientPhone || '',
+          amountPesewas: raw.amountPesewas || 0,
+          amountDisplay: priceDisplay,
+          currency: (raw.currency as any) || 'GHS',
+          createdAt: raw.createdAt || new Date().toISOString(),
+          updatedAt: raw.updatedAt || new Date().toISOString(),
+          completedAt: raw.completedAt || raw.providerOrder?.lastSyncedAt || null,
         };
         setTrackedOrder(mapped);
       } else {

@@ -27,17 +27,26 @@ export const OrderTrackingPage: React.FC = () => {
     try {
       const order = await ordersApi.trackOrder(trimmed);
       if (order) {
+        const raw = order as any;
+        const network = raw.product?.network || raw.network || 'MTN';
+        const dataDisplay = raw.product?.volumeDisplay || raw.dataDisplay || (raw.dataAmountMb ? `${(raw.dataAmountMb / 1024).toFixed(raw.dataAmountMb % 1024 === 0 ? 0 : 1)} GB` : 'Data Bundle');
+        const priceDisplay = raw.amountDisplay || (raw.amountPesewas ? `GH₵ ${(raw.amountPesewas / 100).toFixed(2)}` : 'GH₵ 0.00');
+        const orderStatus = raw.status || raw.orderStatus || 'PROCESSING';
+        const statusLabel = raw.statusLabel || raw.orderStatus || 'Processing';
+        const orderId = raw.orderId || raw.publicId || raw.id || trimmed;
+        const completedAt = raw.completedAt || raw.providerOrder?.lastSyncedAt || null;
+
         setActiveOrder({
-          orderId: order.publicId || order.id,
-          network: order.network,
-          recipientPhone: order.recipientPhone,
-          dataDisplay: `${(order.dataAmountMb / 1024).toFixed(1)} GB`,
-          priceDisplay: `GH₵ ${(order.amountPesewas / 100).toFixed(2)}`,
-          paymentStatus: order.paymentStatus as any,
-          orderStatus: (order.orderStatus as any) || 'PROCESSING',
-          statusLabel: order.orderStatus,
-          createdAt: order.createdAt,
-          completedAt: order.providerOrder?.lastSyncedAt || null,
+          orderId,
+          network,
+          recipientPhone: raw.recipientPhone || 'N/A',
+          dataDisplay,
+          priceDisplay,
+          paymentStatus: (raw.paymentStatus as any) || 'PAID',
+          orderStatus: orderStatus as any,
+          statusLabel,
+          createdAt: raw.createdAt || new Date().toISOString(),
+          completedAt,
         });
       } else {
         setActiveOrder(null);
@@ -78,7 +87,7 @@ export const OrderTrackingPage: React.FC = () => {
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: 'var(--space-8)', alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
           <Input
-            placeholder="Enter Order Reference (e.g. ORD-20260819-XXXX or UUID)"
+            placeholder="Enter Order Reference (e.g. ORD-XXXX) or Recipient Phone Number"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -92,11 +101,23 @@ export const OrderTrackingPage: React.FC = () => {
 
       {/* Tracker Result or Empty State */}
       {activeOrder ? (
-        <OrderTracker order={activeOrder} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <OrderTracker order={activeOrder} />
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => performSearch(activeOrder.orderId)}
+              isLoading={isLoading}
+            >
+              ↻ Refresh Live Status
+            </Button>
+          </div>
+        </div>
       ) : searched && !isLoading ? (
         <EmptyState
           title="Order Not Found"
-          description={`No order record was found matching "${searchInput}". Please verify your order reference number.`}
+          description={`No order record was found matching "${searchInput}". Please verify your order reference number or recipient phone number.`}
         />
       ) : null}
     </div>

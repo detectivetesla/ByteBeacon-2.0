@@ -382,13 +382,20 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
 
         const body = (await res.json().catch(() => ({}))) as any;
         const dataObj = body.data || body;
+        const batchId = String(dataObj.batchId || dataObj.id || dataObj.submissionId || `batch_${Date.now()}`);
+        const total = input.recipients.length;
+        const accepted = Number(dataObj.acceptedRecipients ?? dataObj.acceptedCount ?? total);
+        const rejected = Number(dataObj.rejectedRecipients ?? dataObj.rejectedCount ?? 0);
 
         return {
-          batchId: String(dataObj.batchId || dataObj.id || `batch_${Date.now()}`),
-          totalRecipients: input.recipients.length,
-          acceptedRecipients: Number(dataObj.acceptedRecipients ?? dataObj.acceptedCount ?? input.recipients.length),
-          rejectedRecipients: Number(dataObj.rejectedRecipients ?? dataObj.rejectedCount ?? 0),
-          status: 'ACCEPTED',
+          providerOrderId: batchId,
+          providerReference: String(dataObj.referenceCode || dataObj.reference || batchId),
+          network: input.network,
+          totalRecipients: total,
+          acceptedRecipients: accepted,
+          queuedRecipients: accepted,
+          rejectedRecipients: rejected,
+          providerStatus: ProviderStatus.RECEIVED,
           rawResponse: body,
         };
       } catch (err: any) {
@@ -417,12 +424,16 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       }
     }
 
+    const fallbackBatchId = `batch_${Date.now()}`;
     return {
-      batchId: `batch_${Date.now()}`,
+      providerOrderId: fallbackBatchId,
+      providerReference: fallbackBatchId,
+      network: input.network,
       totalRecipients: input.recipients.length,
       acceptedRecipients: accepted,
+      queuedRecipients: accepted,
       rejectedRecipients: rejected,
-      status: accepted > 0 ? 'ACCEPTED' : 'REJECTED',
+      providerStatus: accepted > 0 ? ProviderStatus.RECEIVED : ProviderStatus.FAILED,
     };
   }
 
