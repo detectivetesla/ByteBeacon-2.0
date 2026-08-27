@@ -176,14 +176,33 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
 
-    // Determine candidate endpoints: configured path, portal convention (/agent/orders), or standard /orders
+    const netSlug =
+      input.network === NetworkProvider.AIRTELTIGO
+        ? 'at'
+        : String(input.network || 'mtn').toLowerCase();
+
+    // Determine candidate endpoints: configured path, portal convention, /api/v1/order/:network, or standard /orders
     const candidatePaths: string[] = [];
     if (this.config.endpointPaths?.submitOrder) {
       candidatePaths.push(this.config.endpointPaths.submitOrder);
     } else if (isPortal) {
-      candidatePaths.push('/agent/orders', '/orders', '/api/v1/agent/orders');
+      candidatePaths.push(
+        '/agent/orders',
+        '/orders',
+        `/api/v1/order/${netSlug}`,
+        `/order/${netSlug}`,
+        '/api/v1/agent/orders',
+        '/api/v1/orders',
+      );
     } else {
-      candidatePaths.push('/orders', '/agent/orders', '/api/v1/orders');
+      candidatePaths.push(
+        `/api/v1/order/${netSlug}`,
+        `/order/${netSlug}`,
+        ...(netSlug === 'at' ? ['/api/v1/order/airteltigo', '/order/airteltigo'] : []),
+        '/orders',
+        '/agent/orders',
+        '/api/v1/orders',
+      );
     }
 
     const normPhone = this.normalizePhone(input.recipientPhone);
@@ -194,8 +213,26 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       (input.metadata?.productId as string) ||
       undefined;
 
+    const volumeGb = Math.max(1, Math.round(input.dataAmountMb / 1024));
+    const offerSlug =
+      (input.metadata?.offerSlug as string) ||
+      (input.metadata?.requestedOfferSlug as string) ||
+      (input.metadata?.bundleSlug as string) ||
+      `${netSlug}_data_bundle`;
+    const webhookUrl =
+      input.callbackUrl ||
+      (input.metadata?.webhookUrl as string) ||
+      (input.metadata?.callbackUrl as string) ||
+      undefined;
+
     const mappings = this.config.fieldMappings || {};
     const payload: Record<string, unknown> = {
+      // Custom / Aggregator API format (/api/v1/order/:network)
+      type: 'single',
+      volume: volumeGb,
+      offerSlug: offerSlug,
+      webhookUrl: webhookUrl,
+
       // Standard ByteBeacon fields
       orderId: input.orderId,
       clientReference: input.clientReference,
@@ -221,8 +258,8 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       reference: input.clientReference,
       referenceCode: input.clientReference,
       email: (input.metadata?.email as string) || undefined,
-      callbackUrl: input.callbackUrl,
-      callback_url: input.callbackUrl,
+      callbackUrl: webhookUrl,
+      callback_url: webhookUrl,
 
       // Configured explicit field mappings override
       ...(mappings.orderIdField ? { [mappings.orderIdField]: input.orderId } : {}),
@@ -340,13 +377,25 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   public async submitBulkOrder(input: SubmitBulkOrderInput): Promise<SubmitBulkOrderResult> {
     const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
+
+    const netSlug =
+      input.network === NetworkProvider.AIRTELTIGO
+        ? 'at'
+        : String(input.network || 'mtn').toLowerCase();
+
     const candidatePaths = this.config.endpointPaths?.bulkOrder
       ? [this.config.endpointPaths.bulkOrder]
-      : isPortal
-      ? ['/agent/orders/bulk', '/orders/bulk', '/api/v1/agent/orders/bulk']
-      : ['/orders/bulk', '/agent/orders/bulk'];
+      : [
+          `/api/v1/order/${netSlug}`,
+          `/order/${netSlug}`,
+          ...(netSlug === 'at' ? ['/api/v1/order/airteltigo', '/order/airteltigo'] : []),
+          ...(isPortal
+            ? ['/agent/orders/bulk', '/orders/bulk', '/api/v1/agent/orders/bulk']
+            : ['/orders/bulk', '/agent/orders/bulk']),
+        ];
 
     const bulkPayload = {
+      type: 'bulk',
       network: input.network,
       idempotencyKey: input.idempotencyKey,
       onUnvalidated: input.onUnvalidated || 'set_aside',
@@ -354,7 +403,14 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         phoneNumber: this.normalizePhone(r.phoneNumber),
         phone: this.normalizePhone(r.phoneNumber),
         dataSizeGb: r.dataSizeGb,
+        volume: r.dataSizeGb,
         bundleId: r.bundleId,
+      })),
+      items: input.recipients.map((r) => ({
+        recipient: this.normalizePhone(r.phoneNumber),
+        phone: this.normalizePhone(r.phoneNumber),
+        volume: r.dataSizeGb,
+        dataSizeGb: r.dataSizeGb,
       })),
     };
 
@@ -628,35 +684,99 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   public async getBundles(filter?: { network?: NetworkProvider }): Promise<ProviderBundleDto[]> {
     const baseUrl = this.config.apiBaseUrl.replace(/\/+$/, '');
     const isPortal = this.isPortalOrDataHouse();
-    const path = this.config.endpointPaths?.catalog || (isPortal ? '/agent/bundles' : '/bundles');
-    const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+    const candidatePaths = this.config.endpointPaths?.catalog
+      ? [this.config.endpointPaths.catalog]
+      : ['/api/v1/offers', '/offers', isPortal ? '/agent/bundles' : '/bundles', '/bundles', '/api/v1/agent/bundles'];
 
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: this.buildHeaders(),
-        signal: AbortSignal.timeout(8000),
-      });
+    for (const path of candidatePaths) {
+      const cleanPath = path.startsWith('/') ? path : `/${path}`;
+      const url = `${baseUrl}${cleanPath}`;
 
-      if (res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const dataObj = (body as any).data || body;
-        const bundlesList = Array.isArray(dataObj) ? dataObj : Array.isArray(dataObj.bundles) ? dataObj.bundles : null;
-        if (bundlesList && bundlesList.length > 0) {
-          return bundlesList.map((b: any) => ({
-            id: String(b.id || b.bundleId || `${this.providerSlug}-${b.dataAmountMb || b.dataSizeGb}`),
-            name: String(b.name || `${b.dataSizeGb || b.dataAmountMb / 1024}GB Data`),
-            network: (b.network as NetworkProvider) || filter?.network || NetworkProvider.MTN,
-            dataAmountMb: Number(b.dataAmountMb || (b.dataSizeGb ? b.dataSizeGb * 1024 : 1000)),
-            dataSizeGb: Number(b.dataSizeGb || (b.dataAmountMb ? b.dataAmountMb / 1024 : 1)),
-            pricePesewas: Number(b.pricePesewas || (b.price ? Math.round(b.price * 100) : 600)),
-            validityDays: Number(b.validityDays || 30),
-            isActive: b.isActive !== undefined ? Boolean(b.isActive) : true,
-          }));
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: this.buildHeaders(),
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (res.status === 404 && candidatePaths.length > 1) {
+          continue;
         }
+
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const dataObj = (body as any).data || body;
+
+          // 1. Check custom /offers format: { success: true, offers: [{ name, isp, type, offerSlug, volumes: [...] }] }
+          const offersList = Array.isArray(dataObj?.offers)
+            ? dataObj.offers
+            : Array.isArray((body as any)?.offers)
+            ? (body as any).offers
+            : null;
+
+          if (offersList && offersList.length > 0) {
+            const result: ProviderBundleDto[] = [];
+            for (const offer of offersList) {
+              const ispStr = String(offer.isp || offer.network || offer.name || '').toUpperCase();
+              let network = NetworkProvider.MTN;
+              if (ispStr.includes('TELECEL') || ispStr.includes('VODA')) {
+                network = NetworkProvider.TELECEL;
+              } else if (
+                ispStr.includes('AIRTEL') ||
+                ispStr.includes('TIGO') ||
+                ispStr.includes('AT')
+              ) {
+                network = NetworkProvider.AIRTELTIGO;
+              }
+
+              if (filter?.network && filter.network !== network) continue;
+
+              const volumes = Array.isArray(offer.volumes) ? offer.volumes : [1, 2, 5, 10];
+              for (const vol of volumes) {
+                const numVol = Number(vol);
+                const isVoice =
+                  String(offer.type || '').toLowerCase().includes('voice') ||
+                  String(offer.name || '').toLowerCase().includes('voice');
+                const dataSizeGb = isVoice ? numVol : numVol;
+                const dataAmountMb = isVoice ? numVol : numVol * 1024;
+                const slug = offer.offerSlug || `${String(network).toLowerCase()}_data_bundle`;
+                result.push({
+                  id: `${slug}_${numVol}`,
+                  name: `${offer.name || `${network} Bundle`} - ${numVol}${isVoice ? ' Mins' : 'GB'}`,
+                  network,
+                  dataAmountMb,
+                  dataSizeGb,
+                  pricePesewas: isVoice ? Math.round(numVol * 15) : Math.round(numVol * 550),
+                  validityDays: 30,
+                  isActive: true,
+                });
+              }
+            }
+            if (result.length > 0) return result;
+          }
+
+          // 2. Check standard bundles list format
+          const bundlesList = Array.isArray(dataObj)
+            ? dataObj
+            : Array.isArray(dataObj.bundles)
+            ? dataObj.bundles
+            : null;
+          if (bundlesList && bundlesList.length > 0) {
+            return bundlesList.map((b: any) => ({
+              id: String(b.id || b.bundleId || `${this.providerSlug}-${b.dataAmountMb || b.dataSizeGb}`),
+              name: String(b.name || `${b.dataSizeGb || b.dataAmountMb / 1024}GB Data`),
+              network: (b.network as NetworkProvider) || filter?.network || NetworkProvider.MTN,
+              dataAmountMb: Number(b.dataAmountMb || (b.dataSizeGb ? b.dataSizeGb * 1024 : 1000)),
+              dataSizeGb: Number(b.dataSizeGb || (b.dataAmountMb ? b.dataAmountMb / 1024 : 1)),
+              pricePesewas: Number(b.pricePesewas || (b.price ? Math.round(b.price * 100) : 600)),
+              validityDays: Number(b.validityDays || 30),
+              isActive: b.isActive !== undefined ? Boolean(b.isActive) : true,
+            }));
+          }
+        }
+      } catch {
+        // Try next candidate path
       }
-    } catch {
-      // Fallback
     }
 
     const net = filter?.network || NetworkProvider.MTN;

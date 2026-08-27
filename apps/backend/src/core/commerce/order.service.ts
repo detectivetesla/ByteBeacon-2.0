@@ -28,6 +28,9 @@ import { CatalogService } from './catalog.service.js';
 import { IdempotencyService } from './idempotency.service.js';
 import { FinancialLedgerService } from '../payments/financial-ledger.service.js';
 import { NotFoundError, ForbiddenError, BadRequestError } from '../errors/app-error.js';
+import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.js';
+import { FulfillmentWorker } from '../providers/fulfillment-worker.js';
+import { logger } from '../logging/logger.js';
 
 export interface CreateOrderContext {
   userId: string;
@@ -42,17 +45,23 @@ export class OrderService {
   private readonly catalogService: CatalogService;
   private readonly idempotencyService: IdempotencyService;
   private readonly ledgerService: FinancialLedgerService;
+  private readonly fulfillmentQueueService?: FulfillmentQueueService;
+  private readonly fulfillmentWorker?: FulfillmentWorker;
 
   constructor(
     db: pg.Pool,
     catalogService: CatalogService,
     idempotencyService: IdempotencyService,
     ledgerService?: FinancialLedgerService,
+    fulfillmentQueueService?: FulfillmentQueueService,
+    fulfillmentWorker?: FulfillmentWorker,
   ) {
     this.db = db;
     this.catalogService = catalogService;
     this.idempotencyService = idempotencyService;
     this.ledgerService = ledgerService ?? new FinancialLedgerService(db);
+    this.fulfillmentQueueService = fulfillmentQueueService;
+    this.fulfillmentWorker = fulfillmentWorker;
   }
 
   public async createOrder(
@@ -407,6 +416,35 @@ export class OrderService {
       }
 
       await client.query('COMMIT');
+
+      // 8. Trigger Background Telecom Fulfillment if Paid via Wallet
+      if (isWalletPayment) {
+        if (this.fulfillmentQueueService) {
+          this.fulfillmentQueueService
+            .enqueueOrderFulfillment({
+              orderId: orderRow.id,
+              correlationId: context.correlationId,
+            })
+            .catch((err) => {
+              logger.warn(
+                { orderId: orderRow.id, err: err?.message },
+                'Failed to enqueue order fulfillment job on wallet payment',
+              );
+            });
+        }
+        if (this.fulfillmentWorker) {
+          setImmediate(() => {
+            this.fulfillmentWorker!
+              .processOrderFulfillment(orderRow.id, context.correlationId)
+              .catch((err) => {
+                logger.warn(
+                  { orderId: orderRow.id, err: err?.message },
+                  'Background fulfillment worker direct execution notice',
+                );
+              });
+          });
+        }
+      }
 
       return {
         order: orderDetails,

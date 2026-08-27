@@ -87,6 +87,72 @@ export async function catalogRoutes(
     handleListProducts,
   );
 
+  // 3. GET ALL ACTIVE OFFERS (Custom API & Integrations)
+  app.get('/offers', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const products = await catalogService.listActiveProducts({});
+
+    const ispMap = new Map<string, { name: string; isp: string; type: string; offerSlug: string; volumes: number[] }>();
+
+    ispMap.set('MTN', {
+      name: 'MTN Data Bundle',
+      isp: 'MTN',
+      type: 'Data',
+      offerSlug: 'mtn_data_bundle',
+      volumes: [],
+    });
+    ispMap.set('TELECEL', {
+      name: 'Telecel Data Bundle',
+      isp: 'Telecel',
+      type: 'Data',
+      offerSlug: 'telecel_data_bundle',
+      volumes: [],
+    });
+    ispMap.set('AIRTELTIGO', {
+      name: 'AirtelTigo Data Bundle',
+      isp: 'AirtelTigo',
+      type: 'Data',
+      offerSlug: 'airteltigo_data_bundle',
+      volumes: [],
+    });
+
+    for (const p of products) {
+      const net = String(p.network || 'MTN').toUpperCase();
+      const ispEntry = ispMap.get(net);
+      const volGb = Math.max(1, Math.round(p.dataAmountMb / 1024));
+      if (ispEntry) {
+        if (!ispEntry.volumes.includes(volGb)) {
+          ispEntry.volumes.push(volGb);
+        }
+      }
+    }
+
+    for (const entry of Array.from(ispMap.values())) {
+      if (entry.volumes.length === 0) {
+        entry.volumes.push(1, 2, 5, 10, 20, 50, 100);
+      } else {
+        entry.volumes.sort((a, b) => a - b);
+      }
+    }
+
+    const offers = [
+      ispMap.get('MTN')!,
+      ispMap.get('TELECEL')!,
+      {
+        name: 'AirtelTigo Voice Minutes',
+        isp: 'AirtelTigo',
+        type: 'Voice Minutes',
+        offerSlug: 'airteltigo_voice_minutes',
+        volumes: [10, 50, 100, 500, 1000],
+      },
+      ispMap.get('AIRTELTIGO')!,
+    ].filter(Boolean);
+
+    return reply.send({
+      success: true,
+      offers,
+    });
+  });
+
   // 2. GET PRODUCT / BUNDLE BY ID
   app.get<{ Params: { id: string }; Querystring: { userId?: string } }>(
     '/catalog/products/:id',

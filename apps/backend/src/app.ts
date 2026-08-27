@@ -299,25 +299,6 @@ export function createApp(options: AppOptions = {}) {
     options.idempotencyService ?? new IdempotencyService(dbPool, redisClient);
   const ledgerService = options.ledgerService ?? new FinancialLedgerService(dbPool);
 
-  const orderService =
-    options.orderService ?? new OrderService(dbPool, catalogService, idempotencyService, ledgerService);
-
-  const paymentProvider =
-    options.paymentProvider ??
-    (config.NODE_ENV !== 'production' && config.ALLOW_MOCK_PROVIDERS
-      ? (new MockPaymentProvider() as unknown as IPaymentProvider)
-      : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || 'sk_test_paystack_secret_key' }));
-
-  const paymentService =
-    options.paymentService ??
-    new PaymentService(dbPool, paymentProvider, ledgerService, idempotencyService);
-  const webhookService =
-    options.webhookService ??
-    new PaymentWebhookService(dbPool, redisClient, paymentProvider, paymentService);
-  const refundService =
-    options.refundService ??
-    new RefundService(dbPool, paymentProvider, ledgerService, idempotencyService);
-
   // Phase 7.2 & 10.5: Dynamic Telecom Provider Registry (DataHouse + GMPL + Multi-carrier)
   const datahouseClient = new DataHouseClient({
     baseUrl: config.DATAHOUSE_BASE_URL || process.env.DATAHOUSE_BASE_URL || 'https://api.getmorepaylessdatahouse.net/api/v1',
@@ -345,10 +326,6 @@ export function createApp(options: AppOptions = {}) {
 
   const telecomProvider: ITelecomProvider = options.telecomProvider ?? providerRegistry;
 
-  const beneficiaryService = options.beneficiaryService ?? new BeneficiaryService(dbPool, telecomProvider);
-  const bulkOrderService =
-    options.bulkOrderService ?? new BulkOrderService(dbPool, catalogService, ledgerService);
-
   const circuitBreaker =
     options.circuitBreaker ??
     new CircuitBreaker({
@@ -372,6 +349,44 @@ export function createApp(options: AppOptions = {}) {
       retryPolicy,
       fulfillmentQueueService,
     );
+
+  const orderService =
+    options.orderService ??
+    new OrderService(
+      dbPool,
+      catalogService,
+      idempotencyService,
+      ledgerService,
+      fulfillmentQueueService,
+      fulfillmentWorker,
+    );
+
+  const paymentProvider =
+    options.paymentProvider ??
+    (config.NODE_ENV !== 'production' && config.ALLOW_MOCK_PROVIDERS
+      ? (new MockPaymentProvider() as unknown as IPaymentProvider)
+      : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || 'sk_test_paystack_secret_key' }));
+
+  const paymentService =
+    options.paymentService ??
+    new PaymentService(
+      dbPool,
+      paymentProvider,
+      ledgerService,
+      idempotencyService,
+      fulfillmentQueueService,
+      fulfillmentWorker,
+    );
+  const webhookService =
+    options.webhookService ??
+    new PaymentWebhookService(dbPool, redisClient, paymentProvider, paymentService);
+  const refundService =
+    options.refundService ??
+    new RefundService(dbPool, paymentProvider, ledgerService, idempotencyService);
+
+  const beneficiaryService = options.beneficiaryService ?? new BeneficiaryService(dbPool, telecomProvider);
+  const bulkOrderService =
+    options.bulkOrderService ?? new BulkOrderService(dbPool, catalogService, ledgerService);
 
   const providerReconciliationService =
     options.providerReconciliationService ??

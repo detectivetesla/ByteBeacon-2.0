@@ -240,4 +240,243 @@ export async function orderRoutes(
       return reply.send(response);
     },
   );
+
+  // 5. CUSTOM API COMPATIBILITY: POST /order/:network (and /orders/:network)
+  app.post<{ Params: { network: string } }>(
+    '/order/:network',
+    {
+      preHandler: [
+        orderRateLimit,
+        authHooks.authenticate,
+        maintenanceHook,
+      ],
+    },
+    async (req: FastifyRequest<{ Params: { network: string } }>, reply: FastifyReply) => {
+      const rawNetwork = String(req.params.network || 'mtn').trim().toLowerCase();
+      let networkProvider: NetworkProvider = NetworkProvider.MTN;
+      if (rawNetwork === 'telecel' || rawNetwork === 'vodafone') {
+        networkProvider = NetworkProvider.TELECEL;
+      } else if (rawNetwork === 'at' || rawNetwork === 'airteltigo' || rawNetwork === 'airtel') {
+        networkProvider = NetworkProvider.AIRTELTIGO;
+      }
+
+      const rawBody = (req.body || {}) as any;
+      const orderType = String(rawBody.type || 'single').toLowerCase();
+
+      if (orderType !== 'single' && orderType !== 'bulk') {
+        throw new BadRequestError(`Invalid order type '${orderType}'. Only 'single' and 'bulk' types are supported.`);
+      }
+
+      // Check current user wallet balance
+      const userRes = await db.query(
+        `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1`,
+        [req.user!.sub],
+      );
+
+      let balancePesewas = 0;
+      if (userRes.rows.length > 0) {
+        const r = userRes.rows[0];
+        if (r.wallet_balance_pesewas !== null && r.wallet_balance_pesewas !== undefined) {
+          balancePesewas = parseInt(String(r.wallet_balance_pesewas), 10);
+        } else if (r.wallet_balance !== null && r.wallet_balance !== undefined) {
+          balancePesewas = Math.round(parseFloat(r.wallet_balance) * 100);
+        }
+      }
+
+      const actorType =
+        req.user!.role === UserRole.ADMIN || req.user!.role === UserRole.SUPER_ADMIN
+          ? 'ADMIN'
+          : req.user!.role === UserRole.AGENT
+            ? 'AGENT'
+            : 'CUSTOMER';
+
+      if (orderType === 'single') {
+        const rawPhone =
+          rawBody.phone ??
+          rawBody.phoneNumber ??
+          rawBody.recipientPhone ??
+          rawBody.recipient_phone ??
+          rawBody.recipient ??
+          rawBody.msisdn;
+
+        const cleanPhone = String(rawPhone || '').trim().replace(/\s+/g, '');
+        if (!cleanPhone) {
+          throw new BadRequestError("Recipient phone number ('phone') is required.");
+        }
+
+        const volumeGb = Number(rawBody.volume || 1);
+        const targetMb = volumeGb * 1024;
+
+        // Resolve active catalog bundle for this network
+        const prodRes = await db.query(
+          `SELECT id, sku, name, network, data_amount_mb, base_price_pesewas, agent_price_pesewas
+           FROM catalog_products
+           WHERE network = $1 AND is_active = TRUE
+           ORDER BY ABS(data_amount_mb - $2) ASC
+           LIMIT 1`,
+          [networkProvider, targetMb],
+        );
+
+        if (prodRes.rows.length === 0) {
+          throw new BadRequestError(`No active data bundles available for ${networkProvider}`);
+        }
+
+        const product = prodRes.rows[0];
+        const pricePesewas =
+          actorType === 'AGENT' && product.agent_price_pesewas
+            ? parseInt(product.agent_price_pesewas, 10)
+            : parseInt(product.base_price_pesewas, 10);
+
+        if (balancePesewas < pricePesewas) {
+          return reply.status(400).send({
+            success: false,
+            error: 'Insufficient wallet balance',
+            type: 'INSUFFICIENT_BALANCE',
+          });
+        }
+
+        const idempotencyKey =
+          (req.headers['idempotency-key'] as string) ||
+          rawBody.idempotencyKey ||
+          rawBody.idempotency_key ||
+          `custom_api_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+        const { order } = await orderService.createOrder(
+          {
+            productId: product.id,
+            recipientPhone: cleanPhone,
+            paymentMethod: PaymentMethod.WALLET,
+            idempotencyKey,
+          },
+          {
+            userId: req.user!.sub,
+            correlationId: req.id,
+            actorType,
+            agentId: rawBody.agentId,
+            ipAddress: req.ip,
+          },
+        );
+
+        return reply.send({
+          success: true,
+          orderId: order.publicId,
+          reference: order.publicId,
+          status: 'pending',
+          totalAmount: order.amountPesewas / 100,
+          currency: 'GHS',
+          items: [
+            {
+              recipient: cleanPhone,
+              volume: volumeGb,
+              status: 'pending',
+            },
+          ],
+          metadata: {
+            webhookUrl: rawBody.webhookUrl || null,
+            source: 'api',
+            requestedOfferSlug: rawBody.offerSlug || `${rawNetwork}_data_bundle`,
+            network: networkProvider,
+          },
+        });
+      }
+
+      // BULK ORDER TYPE
+      const rawRecipients: any[] = Array.isArray(rawBody.recipients)
+        ? rawBody.recipients
+        : Array.isArray(rawBody.items)
+        ? rawBody.items
+        : [];
+
+      if (rawRecipients.length === 0) {
+        throw new BadRequestError("Recipients array ('recipients') is required for bulk order type");
+      }
+
+      let totalCostPesewas = 0;
+      const itemsToOrder: Array<{ phone: string; productId: string; volume: number }> = [];
+
+      for (const rec of rawRecipients) {
+        const pPhone = String(rec.phone || rec.phoneNumber || rec.recipient || '').trim().replace(/\s+/g, '');
+        const pVol = Number(rec.volume || rec.dataSizeGb || rawBody.volume || 1);
+        const itemMb = pVol * 1024;
+
+        const prodRes = await db.query(
+          `SELECT id, base_price_pesewas, agent_price_pesewas
+           FROM catalog_products
+           WHERE network = $1 AND is_active = TRUE
+           ORDER BY ABS(data_amount_mb - $2) ASC
+           LIMIT 1`,
+          [networkProvider, itemMb],
+        );
+
+        if (prodRes.rows.length === 0) {
+          throw new BadRequestError(`No active data bundles available for ${networkProvider}`);
+        }
+
+        const prod = prodRes.rows[0];
+        const cost =
+          actorType === 'AGENT' && prod.agent_price_pesewas
+            ? parseInt(prod.agent_price_pesewas, 10)
+            : parseInt(prod.base_price_pesewas, 10);
+
+        totalCostPesewas += cost;
+        itemsToOrder.push({ phone: pPhone, productId: prod.id, volume: pVol });
+      }
+
+      if (balancePesewas < totalCostPesewas) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Insufficient wallet balance',
+          type: 'INSUFFICIENT_BALANCE',
+        });
+      }
+
+      let primaryOrderId = `ORD-${Date.now().toString().slice(-6)}`;
+      const resultItems: any[] = [];
+
+      for (let i = 0; i < itemsToOrder.length; i++) {
+        const itm = itemsToOrder[i];
+        const { order } = await orderService.createOrder(
+          {
+            productId: itm.productId,
+            recipientPhone: itm.phone,
+            paymentMethod: PaymentMethod.WALLET,
+            idempotencyKey: `bulk_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}`,
+          },
+          {
+            userId: req.user!.sub,
+            correlationId: req.id,
+            actorType,
+            agentId: rawBody.agentId,
+            ipAddress: req.ip,
+          },
+        );
+
+        if (i === 0) {
+          primaryOrderId = order.publicId;
+        }
+
+        resultItems.push({
+          recipient: itm.phone,
+          volume: itm.volume,
+          status: 'pending',
+        });
+      }
+
+      return reply.send({
+        success: true,
+        orderId: primaryOrderId,
+        reference: primaryOrderId,
+        status: 'pending',
+        totalAmount: totalCostPesewas / 100,
+        currency: 'GHS',
+        items: resultItems,
+        metadata: {
+          webhookUrl: rawBody.webhookUrl || null,
+          source: 'api',
+          requestedOfferSlug: rawBody.offerSlug || `${rawNetwork}_data_bundle`,
+          network: networkProvider,
+        },
+      });
+    },
+  );
 }

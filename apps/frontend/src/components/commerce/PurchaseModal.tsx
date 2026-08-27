@@ -170,10 +170,10 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
     if (initialNetwork) {
       setNetwork(initialNetwork);
     }
-    if (isBulk || customRecipientSummary) {
-      setStep(2);
-    } else if (initialRecipientPhone) {
+    if (initialRecipientPhone) {
       setRecipientPhone(initialRecipientPhone);
+    }
+    if (isBulk || customRecipientSummary || initialRecipientPhone) {
       setStep(2);
     } else {
       setStep(1);
@@ -295,10 +295,15 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       );
       return;
     }
-    const cleaned = recipientPhone.replace(/\s+/g, '');
+    const targetPhone = (
+      recipientPhone ||
+      initialRecipientPhone ||
+      (customRecipientSummary && !isBulk ? customRecipientSummary : '') ||
+      ''
+    ).trim().replace(/\s+/g, '');
     const bundleId = selectedBundle?.id || initialBundleId || '';
 
-    if (!isBulk && !cleaned) {
+    if (!isBulk && !targetPhone) {
       toastError('Recipient Required', 'Please enter a recipient phone number before proceeding.');
       setStep(1);
       return;
@@ -309,7 +314,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       return;
     }
 
-    const payEmail = buyerEmail.trim() || user?.email || `${cleaned || 'customer'}@bytebeacon.com`;
+    const payEmail = buyerEmail.trim() || user?.email || `${targetPhone || 'customer'}@bytebeacon.com`;
     const amountPesewas = Math.round(numericPrice * 100);
 
     setIsProcessing(true);
@@ -337,7 +342,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               {
                 display_name: 'Recipient SIM',
                 variable_name: 'recipient_phone',
-                value: cleaned || (bulkItems?.length ? `${bulkItems.length} recipients` : ''),
+                value: targetPhone || (bulkItems?.length ? `${bulkItems.length} recipients` : ''),
               },
               { display_name: 'Network', variable_name: 'network', value: network },
               { display_name: 'Package', variable_name: 'package', value: packageDisplay },
@@ -358,7 +363,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               } else if (bundleId) {
                 const created = await ordersApi.createOrder({
                   productId: bundleId,
-                  recipientPhone: cleaned,
+                  recipientPhone: targetPhone,
                   idempotencyKey: response.reference || `ord_${Date.now()}`,
                 });
                 setCompletedOrder({ id: created.publicId || created.id || response.reference });
@@ -371,6 +376,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
             setIsProcessing(false);
             setStep(3);
             await refreshWalletBalance();
+            window.dispatchEvent(new CustomEvent('wallet-updated'));
             toastSuccess(
               'Payment Verified!',
               `Paid GH₵ ${numericPrice.toFixed(2)} via Paystack. Bundle is being dispatched.`,
@@ -391,13 +397,15 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               recipientPhone: i.recipientPhone,
               productId: i.productId,
             })),
+            paymentMethod: effectiveIsGuest ? PaymentMethod.PAYSTACK : PaymentMethod.WALLET,
             idempotencyKey: `bulk_pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
           });
           setCompletedOrder({ id: submission.id, count: bulkItems.length });
         } else {
           const created = await ordersApi.createOrder({
             productId: bundleId,
-            recipientPhone: cleaned,
+            recipientPhone: targetPhone,
+            paymentMethod: effectiveIsGuest ? PaymentMethod.PAYSTACK : PaymentMethod.WALLET,
             idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
           });
           setCompletedOrder({ id: created.publicId || created.id });
@@ -405,6 +413,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         setIsProcessing(false);
         setStep(3);
         await refreshWalletBalance();
+        window.dispatchEvent(new CustomEvent('wallet-updated'));
         toastSuccess(
           'Order Confirmed',
           `Paid GH₵ ${numericPrice.toFixed(2)}. Processing fulfillment.`,
@@ -448,6 +457,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         setCompletedOrder({ id: subRef, count: bulkItems.length });
         setStep(3);
         await refreshWalletBalance();
+        window.dispatchEvent(new CustomEvent('wallet-updated'));
         toastSuccess(
           'Bulk Order Confirmed',
           `Paid GH₵ ${numericPrice.toFixed(2)} from wallet for ${bulkItems.length} recipients. Reference: ${subRef}.`,
@@ -457,7 +467,12 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         if (!bundleId) {
           throw new Error('Please select a valid data package before purchasing.');
         }
-        const cleanedPhone = recipientPhone.trim();
+        const cleanedPhone = (
+          recipientPhone ||
+          initialRecipientPhone ||
+          (customRecipientSummary && !isBulk ? customRecipientSummary : '') ||
+          ''
+        ).trim().replace(/\s+/g, '');
         if (!cleanedPhone) {
           throw new Error('Please enter a recipient phone number before purchasing.');
         }
@@ -474,6 +489,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         setCompletedOrder({ id: orderRef });
         setStep(3);
         await refreshWalletBalance();
+        window.dispatchEvent(new CustomEvent('wallet-updated'));
         toastSuccess(
           'Order Confirmed',
           `Paid GH₵ ${numericPrice.toFixed(2)} from wallet. Order reference: ${orderRef}.`,

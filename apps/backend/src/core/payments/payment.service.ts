@@ -18,6 +18,8 @@ import { IPaymentProvider } from './payment-provider.interface.js';
 import { FinancialLedgerService } from './financial-ledger.service.js';
 import { IdempotencyService } from '../commerce/idempotency.service.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../errors/app-error.js';
+import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.js';
+import { FulfillmentWorker } from '../providers/fulfillment-worker.js';
 import { logger } from '../logging/logger.js';
 
 export interface PaymentSecurityContext {
@@ -34,17 +36,23 @@ export class PaymentService {
   private readonly paymentProvider: IPaymentProvider;
   private readonly ledgerService: FinancialLedgerService;
   private readonly idempotencyService: IdempotencyService;
+  private readonly fulfillmentQueueService?: FulfillmentQueueService;
+  private readonly fulfillmentWorker?: FulfillmentWorker;
 
   constructor(
     db: pg.Pool,
     paymentProvider: IPaymentProvider,
     ledgerService: FinancialLedgerService,
     idempotencyService: IdempotencyService,
+    fulfillmentQueueService?: FulfillmentQueueService,
+    fulfillmentWorker?: FulfillmentWorker,
   ) {
     this.db = db;
     this.paymentProvider = paymentProvider;
     this.ledgerService = ledgerService;
     this.idempotencyService = idempotencyService;
+    this.fulfillmentQueueService = fulfillmentQueueService;
+    this.fulfillmentWorker = fulfillmentWorker;
   }
 
   /**
@@ -246,6 +254,32 @@ export class PaymentService {
         ]);
 
         await client.query('COMMIT');
+
+        if (this.fulfillmentQueueService) {
+          this.fulfillmentQueueService
+            .enqueueOrderFulfillment({
+              orderId: order.id,
+              correlationId: context.correlationId,
+            })
+            .catch((err) => {
+              logger.warn(
+                { orderId: order.id, err: err?.message },
+                'Failed to enqueue order fulfillment job on wallet payment',
+              );
+            });
+        }
+        if (this.fulfillmentWorker) {
+          setImmediate(() => {
+            this.fulfillmentWorker!
+              .processOrderFulfillment(order.id, context.correlationId)
+              .catch((err) => {
+                logger.warn(
+                  { orderId: order.id, err: err?.message },
+                  'Background fulfillment worker direct execution notice',
+                );
+              });
+          });
+        }
 
         const responseDto: PaymentIntentDto = {
           paymentId: payment.id,
@@ -507,6 +541,32 @@ export class PaymentService {
 
       await client.query('COMMIT');
       logger.info({ paymentId, orderId: payment.order_id }, 'Payment successfully processed and order ready for fulfillment');
+
+      if (this.fulfillmentQueueService) {
+        this.fulfillmentQueueService
+          .enqueueOrderFulfillment({
+            orderId: payment.order_id,
+            correlationId,
+          })
+          .catch((err) => {
+            logger.warn(
+              { orderId: payment.order_id, err: err?.message },
+              'Failed to enqueue order fulfillment job on payment verification',
+            );
+          });
+      }
+      if (this.fulfillmentWorker) {
+        setImmediate(() => {
+          this.fulfillmentWorker!
+            .processOrderFulfillment(payment.order_id, correlationId)
+            .catch((err) => {
+              logger.warn(
+                { orderId: payment.order_id, err: err?.message },
+                'Background fulfillment worker direct execution notice',
+              );
+            });
+        });
+      }
 
       return { alreadyProcessed: false };
     } catch (err) {
