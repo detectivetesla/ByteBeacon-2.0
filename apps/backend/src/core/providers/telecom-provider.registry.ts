@@ -153,14 +153,49 @@ export class TelecomProviderRegistry implements ITelecomProvider {
         }
 
         const existingProv = this.providers.get(key)?.provider as any;
-        const effectiveApiKey = secrets?.apiKey || existingProv?.config?.apiKey || '';
-        const effectiveApiSecret = secrets?.apiSecret || existingProv?.config?.apiSecret || '';
-        const effectiveWebhookSecret = secrets?.webhookSecret || existingProv?.config?.webhookSecret || '';
+        const envKey =
+          process.env[`${row.name.toUpperCase()}_API_KEY`] ||
+          (key === 'datahouse' ? process.env.DATAHOUSE_API_KEY : undefined) ||
+          (key === 'gmpl' ? process.env.GMPL_API_KEY : undefined);
+        const envSecret =
+          process.env[`${row.name.toUpperCase()}_API_SECRET`] ||
+          (key === 'datahouse' ? process.env.DATAHOUSE_API_SECRET : undefined) ||
+          (key === 'gmpl' ? process.env.GMPL_API_SECRET : undefined);
+        const envWebhook =
+          process.env[`${row.name.toUpperCase()}_WEBHOOK_SECRET`] ||
+          (key === 'datahouse' ? process.env.DATAHOUSE_WEBHOOK_SECRET : undefined);
+        const envBaseUrl =
+          process.env[`${row.name.toUpperCase()}_BASE_URL`] ||
+          (key === 'datahouse' ? process.env.DATAHOUSE_BASE_URL : undefined);
+
+        const effectiveApiKey =
+          secrets?.apiKey ||
+          existingProv?.config?.apiKey ||
+          existingProv?.client?.apiKey ||
+          envKey ||
+          '';
+        const effectiveApiSecret =
+          secrets?.apiSecret ||
+          existingProv?.config?.apiSecret ||
+          existingProv?.client?.apiSecret ||
+          envSecret ||
+          '';
+        const effectiveWebhookSecret =
+          secrets?.webhookSecret ||
+          existingProv?.config?.webhookSecret ||
+          existingProv?.client?.webhookSecret ||
+          envWebhook ||
+          '';
+
+        let effectiveBaseUrl = row.apiBaseUrl || '';
+        if (!effectiveBaseUrl || effectiveBaseUrl.includes('datahouse.com.gh') || envBaseUrl) {
+          effectiveBaseUrl = envBaseUrl || (key === 'datahouse' ? 'https://api.getmorepaylessdatahouse.net/api/v1' : effectiveBaseUrl);
+        }
 
         this.updateDynamicCustomProvider({
           providerName: row.name,
           providerSlug: row.slug || key,
-          apiBaseUrl: row.apiBaseUrl,
+          apiBaseUrl: effectiveBaseUrl,
           apiVersion: row.apiVersion,
           authMethod: row.authMethod,
           environment: row.environment,

@@ -78,11 +78,15 @@ export class DataHouseMapper {
    */
   public static toDataHouseSubmitRequest(input: SubmitOrderInput): DataHouseSubmitOrderRequest {
     const bundleId = (input.metadata?.bundleId as string) || (input.metadata?.providerProductId as string) || input.orderId;
+    const volumeGb = Math.max(1, Math.round((input.dataAmountMb || 1024) / 1024));
     return {
       bundleId,
       phoneNumber: this.normalizePhone(input.recipientPhone),
       idempotencyKey: input.idempotencyKey,
       email: (input.metadata?.email as string) || undefined,
+      volume: volumeGb,
+      dataAmountMb: input.dataAmountMb,
+      network: input.network,
     };
   }
 

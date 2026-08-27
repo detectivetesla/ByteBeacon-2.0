@@ -49,10 +49,14 @@ export interface DataHouseAgentProfile {
 }
 
 export interface DataHouseSubmitOrderRequest {
-  bundleId: string;
+  bundleId?: string;
   phoneNumber: string;
   idempotencyKey: string;
   email?: string;
+  volume?: number;
+  dataAmountMb?: number;
+  network?: string;
+  [key: string]: unknown;
 }
 
 export interface DataHouseSubmitOrderResponse {

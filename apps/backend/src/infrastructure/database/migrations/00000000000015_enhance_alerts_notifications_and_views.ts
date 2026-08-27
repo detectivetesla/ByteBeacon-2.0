@@ -177,7 +177,16 @@ export const migration00000000000015: MigrationFile = {
         END IF;
     END $$;
 
-    CREATE OR REPLACE VIEW audit_events AS
+    -- Drop existing views first to avoid PostgreSQL 42P16 column renaming conflict
+    DROP VIEW IF EXISTS audit_events CASCADE;
+    DROP VIEW IF EXISTS agent_stores CASCADE;
+    DROP VIEW IF EXISTS payment_transactions CASCADE;
+    DROP VIEW IF EXISTS ledger_entries CASCADE;
+    DROP VIEW IF EXISTS feature_flags CASCADE;
+    DROP VIEW IF EXISTS beneficiary_records CASCADE;
+    DROP VIEW IF EXISTS financial_safety_controls CASCADE;
+
+    CREATE VIEW audit_events AS
     SELECT 
         id,
         correlation_id,

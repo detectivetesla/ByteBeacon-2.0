@@ -446,6 +446,8 @@ export class DataHouseClient {
 
         if (includeApiKey && this.apiKey) {
           headers['x-api-key'] = this.apiKey;
+          headers['X-API-Key'] = this.apiKey;
+          headers['Authorization'] = `Bearer ${this.apiKey}`;
         }
 
         if (body) {

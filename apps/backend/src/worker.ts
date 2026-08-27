@@ -42,8 +42,8 @@ export async function startWorkerProcess(): Promise<void> {
 
   // Initialize telecom provider registry & resilient executor
   const dhClient = new DataHouseClient({
-    baseUrl: process.env.DATAHOUSE_BASE_URL || 'https://sandbox.getmorepaylessdatahouse.net/api/v1',
-    apiKey: process.env.DATAHOUSE_API_KEY || 'dh_sandbox_key',
+    baseUrl: process.env.DATAHOUSE_BASE_URL || 'https://api.getmorepaylessdatahouse.net/api/v1',
+    apiKey: process.env.DATAHOUSE_API_KEY || 'dh_key',
     timeoutMs: 15000,
   });
   const datahouseAdapter = new DataHouseAdapter(dhClient);

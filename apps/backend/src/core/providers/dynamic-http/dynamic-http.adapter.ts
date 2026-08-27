@@ -146,10 +146,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       default:
         headers['x-api-key'] = apiKey;
         headers['X-API-Key'] = apiKey;
-        // If the key has standard token prefixes (like dk_ for DataHouse/Portal-02, sk_, or bb_), also supply Authorization Bearer
-        if (apiKey.startsWith('dk_') || apiKey.startsWith('sk_') || apiKey.startsWith('bb_')) {
-          headers['Authorization'] = `Bearer ${apiKey}`;
-        }
+        headers['Authorization'] = `Bearer ${apiKey}`;
         if (apiSecret) headers['X-API-Secret'] = apiSecret;
         break;
     }
