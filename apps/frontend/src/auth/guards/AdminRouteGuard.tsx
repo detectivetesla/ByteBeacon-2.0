@@ -96,7 +96,7 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
 
     return (
       <Navigate
-        to={`/admin-auth/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
+        to={`/gateway/secure-admin-entry?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
         replace
       />
     );
@@ -180,7 +180,7 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
             </Button>
             <Button
               variant="primary"
-              onClick={() => navigate('/admin-auth/login')}
+              onClick={() => navigate('/gateway/secure-admin-entry')}
               style={{ flex: 1, minHeight: '42px' }}
             >
               Switch Account

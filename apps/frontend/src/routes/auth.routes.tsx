@@ -23,10 +23,14 @@ export const authRoutes: RouteObject[] = [
   },
   {
     path: '/admin-auth/login',
-    element: <AdminSignInPage />,
+    element: <Navigate to="/" replace />,
   },
   {
     path: '/admin/login',
+    element: <Navigate to="/" replace />,
+  },
+  {
+    path: '/gateway/secure-admin-entry',
     element: <AdminSignInPage />,
   },
   {
