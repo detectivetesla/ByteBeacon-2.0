@@ -240,18 +240,32 @@ export class TelecomProviderRegistry implements ITelecomProvider {
 
   public setActiveProvider(name: string): void {
     const key = (name || '').toLowerCase();
+    const normalizedKey = key.replace(/[-_\s]/g, '');
     let foundKey = this.providers.has(key) ? key : null;
     if (!foundKey) {
       for (const [k, entry] of this.providers.entries()) {
         const p = entry.provider as any;
-        if (p?.providerName?.toLowerCase() === key || p?.providerSlug?.toLowerCase() === key) {
+        const normalizedK = k.replace(/[-_\s]/g, '');
+        if (
+          k === key ||
+          normalizedK === normalizedKey ||
+          p?.providerName?.toLowerCase() === key ||
+          p?.providerName?.toLowerCase().replace(/[-_\s]/g, '') === normalizedKey ||
+          p?.providerSlug?.toLowerCase() === key ||
+          p?.providerSlug?.toLowerCase().replace(/[-_\s]/g, '') === normalizedKey
+        ) {
           foundKey = k;
           break;
         }
       }
     }
     if (!foundKey) {
-      throw new Error(`Telecom provider [${name}] is not registered in registry.`);
+      logger.warn({ requestedName: name, registeredProviders: Array.from(this.providers.keys()) },
+        `[TELECOM_REGISTRY] Provider [${name}] not found; falling back to first available`);
+      foundKey = Array.from(this.providers.keys())[0];
+      if (!foundKey) {
+        throw new Error(`Telecom provider [${name}] is not registered in registry.`);
+      }
     }
 
     for (const [k, entry] of this.providers.entries()) {
@@ -286,11 +300,19 @@ export class TelecomProviderRegistry implements ITelecomProvider {
 
   public getProvider(name: string): ITelecomProvider | undefined {
     const key = (name || '').toLowerCase();
+    const normalizedKey = key.replace(/[-_\s]/g, '');
     const direct = this.providers.get(key);
     if (direct) return direct.provider;
-    for (const entry of this.providers.values()) {
+    for (const [k, entry] of this.providers.entries()) {
       const p = entry.provider as any;
-      if (p?.providerName?.toLowerCase() === key || p?.providerSlug?.toLowerCase() === key) {
+      const normalizedK = k.replace(/[-_\s]/g, '');
+      if (
+        normalizedK === normalizedKey ||
+        p?.providerName?.toLowerCase() === key ||
+        p?.providerName?.toLowerCase().replace(/[-_\s]/g, '') === normalizedKey ||
+        p?.providerSlug?.toLowerCase() === key ||
+        p?.providerSlug?.toLowerCase().replace(/[-_\s]/g, '') === normalizedKey
+      ) {
         return entry.provider;
       }
     }
