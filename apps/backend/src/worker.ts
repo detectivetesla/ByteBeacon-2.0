@@ -67,33 +67,31 @@ export async function startWorkerProcess(): Promise<void> {
     supportedNetworks: [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
   });
 
-  const isPortal02Authoritative =
-    (process.env.AUTHORITATIVE_PROVIDER || '').toLowerCase().includes('portal') ||
-    Boolean(process.env.PORTAL02_API_KEY) ||
-    Boolean(portal02ApiKey);
+  const envAuthoritativeProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
 
   const providerRegistry = new TelecomProviderRegistry();
   providerRegistry.registerProvider('DataHouse', datahouseAdapter, {
-    isAuthoritative: !isPortal02Authoritative,
-    priority: isPortal02Authoritative ? 2 : 1,
+    isAuthoritative: envAuthoritativeProvider.toLowerCase() === 'datahouse' || (!envAuthoritativeProvider),
+    priority: envAuthoritativeProvider.toLowerCase().includes('portal') ? 2 : 1,
   });
   providerRegistry.registerProvider('GMPL', gmplAdapter, { isAuthoritative: false, priority: 3 });
+  providerRegistry.registerProvider('Portal-02', portal02Adapter, {
+    isAuthoritative: envAuthoritativeProvider.toLowerCase().includes('portal'),
+    priority: envAuthoritativeProvider.toLowerCase().includes('portal') ? 1 : 3,
+  });
 
   await providerRegistry.loadProvidersFromDatabase(db).catch((err) => {
     logger.warn({ err }, '[WORKER_PROCESS] Failed to load dynamic telecom providers from database on boot');
   });
 
-  // Register Portal-02 AFTER database load so it doesn't get overridden
-  providerRegistry.registerProvider('Portal-02', portal02Adapter, {
-    isAuthoritative: isPortal02Authoritative,
-    priority: isPortal02Authoritative ? 1 : 3,
-  });
-  if (isPortal02Authoritative) {
-    providerRegistry.setActiveProvider('Portal-02');
-    providerRegistry.setNetworkRouting('MTN', 'Portal-02', 'DataHouse');
-    providerRegistry.setNetworkRouting('TELECEL', 'Portal-02', 'DataHouse');
-    providerRegistry.setNetworkRouting('AIRTELTIGO', 'Portal-02', 'DataHouse');
-    logger.info('[WORKER_PROCESS] Portal-02 registered as authoritative provider (post-DB load)');
+  // After DB load, re-assert env var override
+  if (envAuthoritativeProvider) {
+    providerRegistry.setActiveProvider(envAuthoritativeProvider);
+    const fallback = envAuthoritativeProvider.toLowerCase().includes('portal') ? 'DataHouse' : 'Portal-02';
+    providerRegistry.setNetworkRouting('MTN', envAuthoritativeProvider, fallback);
+    providerRegistry.setNetworkRouting('TELECEL', envAuthoritativeProvider, fallback);
+    providerRegistry.setNetworkRouting('AIRTELTIGO', envAuthoritativeProvider, fallback);
+    logger.info({ provider: envAuthoritativeProvider }, '[WORKER_PROCESS] Authoritative provider set from env var (post-DB load)');
   }
 
   const circuitBreaker = new CircuitBreaker({

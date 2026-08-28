@@ -326,45 +326,37 @@ export function createApp(options: AppOptions = {}) {
     supportedNetworks: [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
   });
 
-  const isPortal02Authoritative =
-    (process.env.AUTHORITATIVE_PROVIDER || '').toLowerCase().includes('portal') ||
-    Boolean(process.env.PORTAL02_API_KEY) ||
-    Boolean(portal02ApiKey);
+  const envAuthoritativeProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
 
   const providerRegistry = new TelecomProviderRegistry();
   providerRegistry.registerProvider('DataHouse', datahouseAdapter, {
-    isAuthoritative: !isPortal02Authoritative,
-    priority: isPortal02Authoritative ? 2 : 1,
+    isAuthoritative: envAuthoritativeProvider.toLowerCase() === 'datahouse' || (!envAuthoritativeProvider),
+    priority: envAuthoritativeProvider.toLowerCase().includes('portal') ? 2 : 1,
   });
   providerRegistry.registerProvider('GMPL', gmplAdapter, { isAuthoritative: false, priority: 3 });
-
-  // Register Portal-02 immediately as authoritative
   providerRegistry.registerProvider('Portal-02', portal02Adapter, {
-    isAuthoritative: isPortal02Authoritative,
-    priority: isPortal02Authoritative ? 1 : 3,
+    isAuthoritative: envAuthoritativeProvider.toLowerCase().includes('portal'),
+    priority: envAuthoritativeProvider.toLowerCase().includes('portal') ? 1 : 3,
   });
-  if (isPortal02Authoritative) {
-    providerRegistry.setActiveProvider('Portal-02');
-    providerRegistry.setNetworkRouting('MTN', 'Portal-02', 'DataHouse');
-    providerRegistry.setNetworkRouting('TELECEL', 'Portal-02', 'DataHouse');
-    providerRegistry.setNetworkRouting('AIRTELTIGO', 'Portal-02', 'DataHouse');
+
+  // Set initial active provider from env var
+  if (envAuthoritativeProvider) {
+    providerRegistry.setActiveProvider(envAuthoritativeProvider);
+    logger.info({ provider: envAuthoritativeProvider }, '[APP_BOOT] Active provider set from AUTHORITATIVE_PROVIDER env var');
   }
 
   if (dbPool) {
     providerRegistry.loadProvidersFromDatabase(dbPool)
       .then(() => {
-        // Re-assert Portal-02 as authoritative AFTER database load
-        // because loadProvidersFromDatabase may override with DataHouse from DB
-        if (isPortal02Authoritative) {
-          providerRegistry.registerProvider('Portal-02', portal02Adapter, {
-            isAuthoritative: true,
-            priority: 1,
-          });
-          providerRegistry.setActiveProvider('Portal-02');
-          providerRegistry.setNetworkRouting('MTN', 'Portal-02', 'DataHouse');
-          providerRegistry.setNetworkRouting('TELECEL', 'Portal-02', 'DataHouse');
-          providerRegistry.setNetworkRouting('AIRTELTIGO', 'Portal-02', 'DataHouse');
-          logger.info('[APP_BOOT] Portal-02 re-asserted as authoritative provider (post-DB load)');
+        // After DB load, re-assert the env var override (DB may have set a different provider as authoritative)
+        if (envAuthoritativeProvider) {
+          providerRegistry.setActiveProvider(envAuthoritativeProvider);
+          // Route all networks through the env-specified provider
+          const fallback = envAuthoritativeProvider.toLowerCase().includes('portal') ? 'DataHouse' : 'Portal-02';
+          providerRegistry.setNetworkRouting('MTN', envAuthoritativeProvider, fallback);
+          providerRegistry.setNetworkRouting('TELECEL', envAuthoritativeProvider, fallback);
+          providerRegistry.setNetworkRouting('AIRTELTIGO', envAuthoritativeProvider, fallback);
+          logger.info({ provider: envAuthoritativeProvider }, '[APP_BOOT] Authoritative provider re-asserted after DB load (env override)');
         }
       })
       .catch((err) => {
