@@ -234,10 +234,13 @@ export class OrderService {
       );
 
       // 5. Insert Initial Provider Order Projection
+      const activeProviderName =
+        (process.env.AUTHORITATIVE_PROVIDER || '').trim() ||
+        'DataHouse';
       await client.query(
         `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-         VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse'), 'UNKNOWN')`,
-        [orderRow.id],
+         VALUES ($1, $2, 'UNKNOWN')`,
+        [orderRow.id, activeProviderName],
       );
 
       // 6. Insert Order Event
