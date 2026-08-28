@@ -208,14 +208,16 @@ export const AdminOrdersPage: React.FC = () => {
     }
   };
 
-  const renderOrderStatusBadge = (status: string) => {
-    switch (status) {
+  const renderOrderStatusBadge = (status: any) => {
+    const s = typeof status === 'object' ? String(status?.orderStatus || status?.status || 'UNKNOWN') : String(status || '');
+    switch (s.toUpperCase()) {
       case 'COMPLETED':
       case 'FULFILLED':
         return <Badge variant="success" size="sm" dot>Fulfilled</Badge>;
       case 'PROCESSING':
       case 'SUBMITTED':
         return <Badge variant="info" size="sm" dot>Processing</Badge>;
+      case 'READY_FOR_FULFILLMENT':
       case 'PENDING':
       case 'CREATED':
         return <Badge variant="neutral" size="sm" dot>Pending</Badge>;
@@ -226,25 +228,28 @@ export const AdminOrdersPage: React.FC = () => {
       case 'REFUNDED':
         return <Badge variant="neutral" size="sm" dot>Refunded</Badge>;
       default:
-        return <Badge variant="neutral" size="sm">{status}</Badge>;
+        return <Badge variant="neutral" size="sm">{s || 'Unknown'}</Badge>;
     }
   };
 
-  const renderPaymentBadge = (status: string) => {
-    switch (status) {
+  const renderPaymentBadge = (status: any) => {
+    const s = typeof status === 'object' ? String(status?.paymentStatus || status?.status || 'UNKNOWN') : String(status || '');
+    switch (s.toUpperCase()) {
       case 'PAID':
       case 'VERIFIED':
       case 'SUCCESS':
         return <Badge variant="success" size="sm">Paid</Badge>;
       case 'INITIATED':
       case 'AUTHORIZED':
+      case 'PENDING':
+      case 'PROCESSING':
         return <Badge variant="warning" size="sm">Pending</Badge>;
       case 'FAILED':
         return <Badge variant="danger" size="sm">Failed</Badge>;
       case 'REFUNDED':
         return <Badge variant="neutral" size="sm">Refunded</Badge>;
       default:
-        return <Badge variant="neutral" size="sm">{status || 'Unpaid'}</Badge>;
+        return <Badge variant="neutral" size="sm">{s || 'Unpaid'}</Badge>;
     }
   };
 
@@ -752,9 +757,9 @@ export const AdminOrdersPage: React.FC = () => {
                     Financial & Payment State
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: 'var(--font-size-xs)' }}>
-                    <div><strong>Payment Status:</strong> {orderDetail.order.paymentStatus}</div>
+                    <div><strong>Payment Status:</strong> {typeof orderDetail.order.paymentStatus === 'object' ? JSON.stringify(orderDetail.order.paymentStatus) : String(orderDetail.order.paymentStatus || 'UNKNOWN')}</div>
                     <div><strong>Payment Ref:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{orderDetail.payment?.reference || 'N/A'}</span></div>
-                    <div><strong>Refund Status:</strong> {orderDetail.order.refundStatus || 'NONE'}</div>
+                    <div><strong>Refund Status:</strong> {typeof orderDetail.order.refundStatus === 'object' ? JSON.stringify(orderDetail.order.refundStatus) : String(orderDetail.order.refundStatus || 'NONE')}</div>
                     {orderDetail.refund && (
                       <div><strong>Refunded Amount:</strong> GH₵ {((orderDetail.refund.amountPesewas || 0) / 100).toFixed(2)}</div>
                     )}
@@ -771,8 +776,8 @@ export const AdminOrdersPage: React.FC = () => {
                   {orderDetail.events.map((ev) => (
                     <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', padding: '0.35rem 0', borderBottom: '1px solid var(--color-border-subtle)' }}>
                       <div>
-                        <strong style={{ color: 'var(--color-brand)' }}>{ev.eventType}</strong> ({ev.actorType})
-                        {ev.previousState && <span> : {ev.previousState} → {ev.newState}</span>}
+                        <strong style={{ color: 'var(--color-brand)' }}>{String(ev.eventType)}</strong> ({String(ev.actorType)})
+                        {ev.previousState && <span> : {typeof ev.previousState === 'object' ? JSON.stringify(ev.previousState) : String(ev.previousState)} → {typeof ev.newState === 'object' ? JSON.stringify(ev.newState) : String(ev.newState)}</span>}
                       </div>
                       <span style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
                         {new Date(ev.occurredAt).toLocaleString()}
