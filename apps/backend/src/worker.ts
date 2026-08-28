@@ -73,10 +73,6 @@ export async function startWorkerProcess(): Promise<void> {
     Boolean(portal02ApiKey);
 
   const providerRegistry = new TelecomProviderRegistry();
-  providerRegistry.registerProvider('Portal-02', portal02Adapter, {
-    isAuthoritative: isPortal02Authoritative,
-    priority: isPortal02Authoritative ? 1 : 3,
-  });
   providerRegistry.registerProvider('DataHouse', datahouseAdapter, {
     isAuthoritative: !isPortal02Authoritative,
     priority: isPortal02Authoritative ? 2 : 1,
@@ -86,6 +82,19 @@ export async function startWorkerProcess(): Promise<void> {
   await providerRegistry.loadProvidersFromDatabase(db).catch((err) => {
     logger.warn({ err }, '[WORKER_PROCESS] Failed to load dynamic telecom providers from database on boot');
   });
+
+  // Register Portal-02 AFTER database load so it doesn't get overridden
+  providerRegistry.registerProvider('Portal-02', portal02Adapter, {
+    isAuthoritative: isPortal02Authoritative,
+    priority: isPortal02Authoritative ? 1 : 3,
+  });
+  if (isPortal02Authoritative) {
+    providerRegistry.setActiveProvider('Portal-02');
+    providerRegistry.setNetworkRouting('MTN', 'Portal-02', 'DataHouse');
+    providerRegistry.setNetworkRouting('TELECEL', 'Portal-02', 'DataHouse');
+    providerRegistry.setNetworkRouting('AIRTELTIGO', 'Portal-02', 'DataHouse');
+    logger.info('[WORKER_PROCESS] Portal-02 registered as authoritative provider (post-DB load)');
+  }
 
   const circuitBreaker = new CircuitBreaker({
     failureThreshold: 5,
