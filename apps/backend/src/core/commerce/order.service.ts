@@ -234,14 +234,20 @@ export class OrderService {
       );
 
       // 5. Insert Initial Provider Order Projection
-      const activeProviderName =
-        (process.env.AUTHORITATIVE_PROVIDER || '').trim() ||
-        'DataHouse';
-      await client.query(
-        `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-         VALUES ($1, $2, 'UNKNOWN')`,
-        [orderRow.id, activeProviderName],
-      );
+      const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
+      if (envProvider) {
+        await client.query(
+          `INSERT INTO provider_orders (order_id, provider_name, provider_status)
+           VALUES ($1, $2, 'UNKNOWN')`,
+          [orderRow.id, envProvider],
+        );
+      } else {
+        await client.query(
+          `INSERT INTO provider_orders (order_id, provider_name, provider_status)
+           VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse'), 'UNKNOWN')`,
+          [orderRow.id],
+        );
+      }
 
       // 6. Insert Order Event
       const eventRes = await client.query(

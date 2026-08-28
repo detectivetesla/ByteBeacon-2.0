@@ -569,9 +569,8 @@ export class BulkOrderService {
         const childOrderId = childOrderRes.rows[0].id;
 
         // Insert provider order projection
-        const activeProviderName =
-          (process.env.AUTHORITATIVE_PROVIDER || '').trim() ||
-          'DataHouse';
+        const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
+        const activeProviderName = envProvider || 'DataHouse';
         await client.query(
           `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
            VALUES ($1, $2, $3, 'RECEIVED')`,
