@@ -71,11 +71,14 @@ export async function adminOrdersRoutes(
           COUNT(CASE WHEN provider_status IN ('SYNC_FAILED', 'STALE', 'RECONCILIATION_REQUIRED') THEN 1 END) as "syncIssues",
           COUNT(CASE WHEN order_status = 'COMPLETED' AND provider_status = 'FAILED' THEN 1 END) as "reconciliationRequired"
         FROM orders
-      `).catch(() => ({
-        rows: [{
-          totalOrders: 0, processing: 0, completed: 0, failed: 0, refunded: 0, awaitingApproval: 0, syncIssues: 0, reconciliationRequired: 0,
-        }],
-      }));
+      `).catch((err) => {
+        app.log.error({ err }, '[ADMIN_ORDERS] Error calculating orders stats');
+        return {
+          rows: [{
+            totalOrders: 0, processing: 0, completed: 0, failed: 0, refunded: 0, awaitingApproval: 0, syncIssues: 0, reconciliationRequired: 0,
+          }],
+        };
+      });
 
       const r = statsRes.rows[0] || {};
       return reply.send({

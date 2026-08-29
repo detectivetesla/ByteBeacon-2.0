@@ -104,9 +104,11 @@ export const AdminAgentsPage: React.FC = () => {
   const fetchStats = useCallback(async () => {
     try {
       const data = await adminApi.getAgentStats();
-      setStats(data);
-    } catch {
-      // Fallback
+      if (data) {
+        setStats(data);
+      }
+    } catch (err: any) {
+      console.error('[ADMIN_AGENTS_PAGE] Failed to fetch agent stats:', err);
     }
   }, []);
 

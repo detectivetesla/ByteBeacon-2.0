@@ -64,26 +64,22 @@ export const AdminDashboard: React.FC = () => {
     setMaintenanceMode(isMaintenanceMode);
   }, [isMaintenanceMode]);
 
-  const [auditLogs, setAuditLogs] = useState<AuditStreamItem[]>([
-    { id: '1', action: 'DATABASE_POOL_CONNECTED', color: '#10b981', time: 'Just now' },
-    { id: '2', action: 'REDIS_CLUSTER_ONLINE', color: '#10b981', time: '1m ago' },
-    { id: '3', action: 'DATAHOUSE_ROUTING_ACTIVE', color: '#3b82f6', time: '3m ago' },
-    { id: '4', action: 'SECURITY_AUTH_VERIFIED', color: '#10b981', time: '5m ago' },
-  ]);
-
+  const [auditLogs, setAuditLogs] = useState<AuditStreamItem[]>([]);
   const [healthData, setHealthData] = useState<SystemHealthRow[]>([
-    { service: 'Carrier Gateway', type: 'DataHouse Engine', status: 'UP', latencyMs: 38, lastChecked: 'Live' },
+    { service: 'Carrier Gateway', type: 'Telecom Adapter', status: 'UP', latencyMs: 35, lastChecked: 'Live' },
     { service: 'Payment Rails', type: 'Paystack Gateway', status: 'UP', latencyMs: 24, lastChecked: 'Live' },
-    { service: 'Database Cluster', type: 'Supabase PostgreSQL', status: 'UP', latencyMs: 3, lastChecked: 'Live' },
-    { service: 'Queue & Concurrency', type: 'BullMQ / Redis', status: 'UP', latencyMs: 1, lastChecked: 'Live' },
+    { service: 'Database Cluster', type: 'PostgreSQL Pool', status: 'UP', latencyMs: 3, lastChecked: 'Live' },
+    { service: 'Queue & Concurrency', type: 'BullMQ / Workers', status: 'UP', latencyMs: 1, lastChecked: 'Live' },
   ]);
 
   const fetchOverviewData = useCallback(async () => {
     setIsLoading(true);
+    let fetchError: Error | null = null;
     try {
       const [overviewRes, healthRes, auditRes] = await Promise.all([
         adminApi.getAnalyticsOverview(range).catch((err) => {
           console.error('Failed to fetch analytics overview:', err);
+          fetchError = err;
           return null;
         }),
         apiClient.get<any>('/health/integrations').catch(() => null),
@@ -94,6 +90,8 @@ export const AdminDashboard: React.FC = () => {
       if (analyticsData) {
         setData(analyticsData);
         setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      } else if (fetchError) {
+        toastError('Data Fetch Error', (fetchError as any)?.message || 'Unable to retrieve overview metrics from server.');
       }
 
       if (healthRes?.services) {
@@ -639,27 +637,31 @@ export const AdminDashboard: React.FC = () => {
             Telecom Providers & Background Queues
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>DataHouse Engine (Authoritative Direct)</span>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>38ms</span>
-                <Badge variant="success" size="sm">DIRECT OPERATIONAL</Badge>
+            {data?.providers && Array.isArray(data.providers) && data.providers.length > 0 ? (
+              data.providers.map((p: any, idx: number) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{p.name} {p.isAuthoritative ? '(Authoritative)' : ''}</span>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>{p.latencyMs || 35}ms</span>
+                    <Badge variant={p.isAuthoritative ? 'success' : 'neutral'} size="sm">
+                      {p.isAuthoritative ? 'ACTIVE' : p.status || 'STANDBY'}
+                    </Badge>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Telecom Pipeline</span>
+                <Badge variant="success" size="sm">OPERATIONAL</Badge>
               </div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>GMPL Failover Adapter</span>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>62ms</span>
-                <Badge variant="neutral" size="sm">STANDBY</Badge>
-              </div>
-            </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>Paystack Payment Rails</span>
-              <Badge variant="success" size="sm">99.1% SUCCESS</Badge>
+              <Badge variant="success" size="sm">ONLINE</Badge>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Fulfillment & Recon Background Workers</span>
-              <Badge variant="success" size="sm">ONLINE (16 JOBS)</Badge>
+              <span>Fulfillment & Recon Workers</span>
+              <Badge variant="success" size="sm">ONLINE ({data?.queues?.processingOrders || 0} IN FLIGHT)</Badge>
             </div>
           </div>
         </Card>

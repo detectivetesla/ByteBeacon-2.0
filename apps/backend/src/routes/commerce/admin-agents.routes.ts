@@ -98,8 +98,8 @@ export async function adminAgentsRoutes(
             COUNT(DISTINCT COALESCE(a.id, u.id)) FILTER (WHERE UPPER(COALESCE(u.status, 'ACTIVE')) = 'ACTIVE' AND UPPER(COALESCE(a.status, 'ACTIVE')) = 'ACTIVE') as "activeAgents",
             COUNT(DISTINCT COALESCE(a.id, u.id)) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'SUSPENDED' OR UPPER(COALESCE(a.status, '')) = 'SUSPENDED') as "suspendedAgents",
             COUNT(DISTINCT COALESCE(a.id, u.id)) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'PENDING' OR UPPER(COALESCE(a.status, '')) = 'PENDING') as "pendingAgents",
-            COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.store_status, s.status, '')) = 'ACTIVE') as "agentsWithStores",
-            COUNT(DISTINCT COALESCE(k.agent_id, k.owner_user_id)) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
+            COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.store_status, '')) = 'ACTIVE') as "agentsWithStores",
+            COUNT(DISTINCT k.agent_id) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
             COALESCE(SUM(u.wallet_balance_pesewas), 0) as "totalWalletFloatPesewas",
             COALESCE((
               SELECT SUM(amount_pesewas)
@@ -109,21 +109,21 @@ export async function adminAgentsRoutes(
           FROM users u
           LEFT JOIN agents a ON a.user_id = u.id
           LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
-          LEFT JOIN api_keys k ON (k.agent_id = u.id OR k.owner_user_id = u.id) AND k.status = 'ACTIVE'
+          LEFT JOIN api_keys k ON k.agent_id = u.id AND k.status = 'ACTIVE'
           WHERE LOWER(COALESCE(u.role::text, '')) IN ('agent', 'superagent', 'reseller')
              OR u.security_domain = 'AGENT'
              OR a.id IS NOT NULL
         `;
 
         const res = await db.query(statsQuery).catch(async (err) => {
-          logger.warn({ err }, 'Primary agent stats query failed, attempting legacy agents-table fallback');
+          logger.warn({ err }, '[ADMIN_AGENTS] Primary agent stats query failed, attempting fallback');
           return db.query(`
             SELECT
               COUNT(DISTINCT a.id) as "totalAgents",
               COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, 'ACTIVE')) = 'ACTIVE' AND UPPER(COALESCE(a.status, 'ACTIVE')) = 'ACTIVE') as "activeAgents",
               COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'SUSPENDED' OR UPPER(COALESCE(a.status, '')) = 'SUSPENDED') as "suspendedAgents",
               COUNT(DISTINCT a.id) FILTER (WHERE UPPER(COALESCE(u.status, '')) = 'PENDING' OR UPPER(COALESCE(a.status, '')) = 'PENDING') as "pendingAgents",
-              COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.status, '')) = 'ACTIVE') as "agentsWithStores",
+              COUNT(DISTINCT s.id) FILTER (WHERE UPPER(COALESCE(s.store_status, '')) = 'ACTIVE') as "agentsWithStores",
               COUNT(DISTINCT k.agent_id) FILTER (WHERE UPPER(COALESCE(k.status, '')) = 'ACTIVE') as "agentsWithApi",
               COALESCE(SUM(u.wallet_balance_pesewas), 0) as "totalWalletFloatPesewas",
               COALESCE((
@@ -158,7 +158,7 @@ export async function adminAgentsRoutes(
 
         return reply.send(response);
       } catch (err) {
-        logger.error({ err }, 'Error computing admin agents stats, falling back gracefully');
+        logger.error({ err }, '[ADMIN_AGENTS] Error computing admin agents stats');
         return reply.send({
           success: true,
           data: {
@@ -239,11 +239,11 @@ export async function adminAgentsRoutes(
       } else if (store === 'NO_STORE') {
         whereConditions.push(`s.id IS NULL`);
       } else if (store === 'ACTIVE_STORE') {
-        whereConditions.push(`(s.store_status = 'ACTIVE' OR s.status = 'ACTIVE')`);
+        whereConditions.push(`s.store_status = 'ACTIVE'`);
       } else if (store === 'PENDING_STORE') {
-        whereConditions.push(`(s.store_status = 'PENDING' OR s.status = 'PENDING' OR s.approval_status = 'AWAITING_APPROVAL')`);
+        whereConditions.push(`(s.store_status = 'PENDING' OR s.approval_status = 'AWAITING_APPROVAL')`);
       } else if (store === 'SUSPENDED_STORE') {
-        whereConditions.push(`(s.store_status = 'SUSPENDED' OR s.status = 'SUSPENDED')`);
+        whereConditions.push(`s.store_status = 'SUSPENDED'`);
       }
 
       if (api === 'ENABLED') {
@@ -276,16 +276,19 @@ export async function adminAgentsRoutes(
         LEFT JOIN agents a ON a.user_id = u.id
         LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
         LEFT JOIN (
-          SELECT COALESCE(owner_user_id, agent_id) as uid, COUNT(*) as key_count
+          SELECT agent_id as uid, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY COALESCE(owner_user_id, agent_id)
+          GROUP BY agent_id
         ) k ON k.uid = u.id
         WHERE (LOWER(COALESCE(u.role::text, '')) IN ('agent', 'superagent', 'reseller') OR u.security_domain = 'AGENT' OR a.id IS NOT NULL)
           AND ${whereClause}
       `;
 
-      const countRes = await db.query(countQuery, params).catch(() => ({ rows: [{ total: '0' }] }));
+      const countRes = await db.query(countQuery, params).catch((err) => {
+        logger.error({ err }, '[ADMIN_AGENTS] Error counting agents');
+        return { rows: [{ total: '0' }] };
+      });
       const total = parseInt(countRes.rows[0]?.total || '0', 10);
 
       const listQuery = `
@@ -298,7 +301,7 @@ export async function adminAgentsRoutes(
           COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
           COALESCE(a.slug, s.slug, 'agent-' || SUBSTRING(u.id::text, 1, 8)) as slug,
           COALESCE(a.status, u.status, 'ACTIVE') as "agentStatus",
-          COALESCE(s.store_status, s.status, 'NOT_STARTED') as "storeStatus",
+          COALESCE(s.store_status, 'NOT_STARTED') as "storeStatus",
           s.id as "storeId",
           s.store_name as "storeName",
           s.slug as "storeSlug",
@@ -315,10 +318,10 @@ export async function adminAgentsRoutes(
         LEFT JOIN agents a ON a.user_id = u.id
         LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
         LEFT JOIN (
-          SELECT COALESCE(owner_user_id, agent_id) as uid, COUNT(*) as key_count
+          SELECT agent_id as uid, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY COALESCE(owner_user_id, agent_id)
+          GROUP BY agent_id
         ) k ON k.uid = u.id
         LEFT JOIN (
           SELECT COALESCE(agent_id, user_id) as aid, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
@@ -340,7 +343,7 @@ export async function adminAgentsRoutes(
 
       params.push(limitNum, offset);
       const listRes = await db.query(listQuery, params).catch((err) => {
-        logger.error({ err }, 'Error querying agents list');
+        logger.error({ err }, '[ADMIN_AGENTS] Error querying agents list');
         return { rows: [] };
       });
 
@@ -378,7 +381,7 @@ export async function adminAgentsRoutes(
           COALESCE(a.business_name, u.full_name, 'Individual Reseller') as "businessName",
           COALESCE(a.slug, s.slug, 'agent-' || SUBSTRING(u.id::text, 1, 8)) as slug,
           COALESCE(a.status, u.status, 'ACTIVE') as "agentStatus",
-          COALESCE(s.store_status, s.status, 'NOT_STARTED') as "storeStatus",
+          COALESCE(s.store_status, 'NOT_STARTED') as "storeStatus",
           s.id as "storeId",
           s.store_name as "storeName",
           s.slug as "storeSlug",
@@ -395,10 +398,10 @@ export async function adminAgentsRoutes(
         LEFT JOIN agents a ON a.user_id = u.id
         LEFT JOIN stores s ON (s.agent_id = a.id OR s.user_id = u.id)
         LEFT JOIN (
-          SELECT COALESCE(owner_user_id, agent_id) as uid, COUNT(*) as key_count
+          SELECT agent_id as uid, COUNT(*) as key_count
           FROM api_keys
           WHERE status = 'ACTIVE'
-          GROUP BY COALESCE(owner_user_id, agent_id)
+          GROUP BY agent_id
         ) k ON k.uid = u.id
         LEFT JOIN (
           SELECT COALESCE(agent_id, user_id) as aid, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
@@ -416,7 +419,7 @@ export async function adminAgentsRoutes(
       `;
 
       const agentRes = await db.query(agentQuery, [id]).catch((err) => {
-        logger.error({ err, id }, 'Failed to query agent base dossier');
+        logger.error({ err, id }, '[ADMIN_AGENTS] Failed to query agent base dossier');
         return { rows: [] };
       });
 
@@ -463,7 +466,7 @@ export async function adminAgentsRoutes(
           COUNT(*) FILTER (WHERE status = 'ACTIVE') as "activeKeys",
           MAX(last_used_at) as "lastRequestAt"
         FROM api_keys
-        WHERE (agent_id = $1 OR owner_user_id = $1)
+        WHERE agent_id = $1
       `;
       const apiSumRes = await db.query(apiSumQuery, [userId]).catch(() => ({ rows: [{}] }));
       const as = apiSumRes.rows[0] || {};
@@ -475,7 +478,7 @@ export async function adminAgentsRoutes(
                 s.primary_color as "primaryColor", s.accent_color as "accentColor",
                 s.contact_email as "contactEmail", s.contact_phone as "contactPhone", s.contact_whatsapp as "contactWhatsapp",
                 s.payment_status as "paymentStatus", s.activation_fee_pesewas as "activationFeePesewas",
-                COALESCE(s.store_status, s.status, 'ACTIVE') as "storeStatus",
+                COALESCE(s.store_status, 'ACTIVE') as "storeStatus",
                 COALESCE(s.approval_status, 'APPROVED') as "approvalStatus",
                 COALESCE((SELECT COUNT(*) FROM store_products WHERE store_id = s.id), 0) as "productsCount",
                 COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (store_id = s.id OR agent_id = s.agent_id) AND payment_status = 'PAID'), 0) as "totalSalesPesewas"

@@ -29,8 +29,8 @@ export const AdminAnalyticsPage: React.FC = () => {
       if (analyticsData) {
         setAnalytics(analyticsData);
       }
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      console.error('[ADMIN_ANALYTICS_PAGE] Failed to fetch analytics:', err);
     } finally {
       setIsLoading(false);
     }
