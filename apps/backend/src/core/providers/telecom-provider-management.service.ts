@@ -645,170 +645,129 @@ export class TelecomProviderManagementService {
       throw new BadRequestError('Name, slug, and apiBaseUrl are mandatory');
     }
 
-    const client = await this.db.connect();
+    // Step 1: Detect which columns exist on telecom_providers (outside any transaction)
+    const colRes = await this.db.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'telecom_providers'`,
+    ).catch(() => ({ rows: [] }));
+    const existingColumns = new Set(colRes.rows.map((r: any) => r.column_name));
+    const hasApiKeyCol = existingColumns.has('api_key');
+    const hasApiSecretCol = existingColumns.has('api_secret');
+    const hasWebhookSecretCol = existingColumns.has('webhook_secret');
+
+    // Step 2: Check for tables that might not exist
+    const tableRes = await this.db.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('provider_capabilities', 'provider_networks')`,
+    ).catch(() => ({ rows: [] }));
+    const existingTables = new Set(tableRes.rows.map((r: any) => r.table_name));
+    const hasCapsTable = existingTables.has('provider_capabilities');
+    const hasNetsTable = existingTables.has('provider_networks');
+
+    // Step 3: Check if provider already exists (outside transaction)
+    const existingRes = await this.db.query(
+      `SELECT id FROM telecom_providers WHERE LOWER(slug) = LOWER($1) OR LOWER(name) = LOWER($2) LIMIT 1`,
+      [slug.trim(), name.trim()],
+    ).catch(() => ({ rows: [] }));
+
     let createdId = '';
-    try {
-      await client.query('BEGIN');
 
-      // Check if a provider with this slug or name already exists in database
-      const existingRes = await client.query(
-        `SELECT id, name, slug FROM telecom_providers WHERE LOWER(slug) = LOWER($1) OR LOWER(name) = LOWER($2) LIMIT 1`,
-        [slug.trim(), name.trim()],
-      ).catch(() => ({ rows: [] }));
-
-      if (existingRes.rows.length > 0) {
-        createdId = existingRes.rows[0].id;
-        try {
-          await client.query(
-            `UPDATE telecom_providers SET
-               name = $2,
-               slug = $3,
-               description = COALESCE($4, description),
-               provider_type = $5,
-               environment = $6,
-               status = $7,
-               is_authoritative = $8,
-               supported_networks = $9,
-               api_base_url = $10,
-               api_version = $11,
-               auth_method = $12,
-               webhook_support = $13,
-               webhook_url = COALESCE($14, webhook_url),
-               sandbox_support = $15,
-               sandbox_base_url = COALESCE($16, sandbox_base_url),
-               api_key = COALESCE($17, api_key),
-               api_secret = COALESCE($18, api_secret),
-               webhook_secret = COALESCE($19, webhook_secret),
-               updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1`,
-            [
-              createdId,
-              name.trim(),
-              slug.trim().toLowerCase(),
-              description || null,
-              providerType,
-              environment,
-              status,
-              isAuthoritative,
-              supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-              apiBaseUrl.trim(),
-              apiVersion,
-              authMethod,
-              webhookSupport,
-              webhookUrl || null,
-              sandboxSupport,
-              sandboxBaseUrl || null,
-              apiKey ? apiKey.trim() : null,
-              apiSecret ? apiSecret.trim() : null,
-              webhookSecret ? webhookSecret.trim() : null,
-            ],
-          );
-        } catch {
-          await client.query(
-            `UPDATE telecom_providers SET
-               name = $2,
-               slug = $3,
-               description = COALESCE($4, description),
-               provider_type = $5,
-               environment = $6,
-               status = $7,
-               is_authoritative = $8,
-               supported_networks = $9,
-               api_base_url = $10,
-               api_version = $11,
-               auth_method = $12,
-               webhook_support = $13,
-               webhook_url = COALESCE($14, webhook_url),
-               sandbox_support = $15,
-               sandbox_base_url = COALESCE($16, sandbox_base_url),
-               updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1`,
-            [
-              createdId,
-              name.trim(),
-              slug.trim().toLowerCase(),
-              description || null,
-              providerType,
-              environment,
-              status,
-              isAuthoritative,
-              supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-              apiBaseUrl.trim(),
-              apiVersion,
-              authMethod,
-              webhookSupport,
-              webhookUrl || null,
-              sandboxSupport,
-              sandboxBaseUrl || null,
-            ],
-          );
-        }
-      } else {
-        let insertRes: any;
-        try {
-          insertRes = await client.query(
-            `INSERT INTO telecom_providers (
-               name, slug, description, provider_type, environment, status,
-               is_authoritative, supported_networks, api_base_url, api_version,
-               auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url,
-               api_key, api_secret, webhook_secret
-             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-             RETURNING id`,
-            [
-              name.trim(),
-              slug.trim().toLowerCase(),
-              description || null,
-              providerType,
-              environment,
-              status,
-              isAuthoritative,
-              supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-              apiBaseUrl.trim(),
-              apiVersion,
-              authMethod,
-              webhookSupport,
-              webhookUrl || null,
-              sandboxSupport,
-              sandboxBaseUrl || null,
-              apiKey ? apiKey.trim() : null,
-              apiSecret ? apiSecret.trim() : null,
-              webhookSecret ? webhookSecret.trim() : null,
-            ],
-          );
-        } catch {
-          insertRes = await client.query(
-            `INSERT INTO telecom_providers (
-               name, slug, description, provider_type, environment, status,
-               is_authoritative, supported_networks, api_base_url, api_version,
-               auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url
-             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-             RETURNING id`,
-            [
-              name.trim(),
-              slug.trim().toLowerCase(),
-              description || null,
-              providerType,
-              environment,
-              status,
-              isAuthoritative,
-              supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-              apiBaseUrl.trim(),
-              apiVersion,
-              authMethod,
-              webhookSupport,
-              webhookUrl || null,
-              sandboxSupport,
-              sandboxBaseUrl || null,
-            ],
-          );
-        }
-
-        createdId = insertRes.rows[0].id;
+    if (existingRes.rows.length > 0) {
+      // Provider exists — UPDATE it
+      createdId = existingRes.rows[0].id;
+      const setClauses: string[] = [
+        'name = $2', 'slug = $3', 'description = COALESCE($4, description)',
+        'provider_type = $5', 'environment = $6', 'status = $7',
+        'is_authoritative = $8', 'supported_networks = $9',
+        'api_base_url = $10', 'api_version = $11', 'auth_method = $12',
+        'webhook_support = $13', 'webhook_url = COALESCE($14, webhook_url)',
+        'sandbox_support = $15', 'sandbox_base_url = COALESCE($16, sandbox_base_url)',
+        'updated_at = CURRENT_TIMESTAMP',
+      ];
+      const params: any[] = [
+        createdId,
+        name.trim(),
+        slug.trim().toLowerCase(),
+        description || null,
+        providerType,
+        environment,
+        status,
+        isAuthoritative,
+        supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+        apiBaseUrl.trim(),
+        apiVersion,
+        authMethod,
+        webhookSupport,
+        webhookUrl || null,
+        sandboxSupport,
+        sandboxBaseUrl || null,
+      ];
+      let idx = 17;
+      if (hasApiKeyCol) {
+        setClauses.push(`api_key = COALESCE($${idx}, api_key)`);
+        params.push(apiKey ? apiKey.trim() : null);
+        idx++;
+      }
+      if (hasApiSecretCol) {
+        setClauses.push(`api_secret = COALESCE($${idx}, api_secret)`);
+        params.push(apiSecret ? apiSecret.trim() : null);
+        idx++;
+      }
+      if (hasWebhookSecretCol) {
+        setClauses.push(`webhook_secret = COALESCE($${idx}, webhook_secret)`);
+        params.push(webhookSecret ? webhookSecret.trim() : null);
+        idx++;
       }
 
-      // Insert capabilities
+      await this.db.query(
+        `UPDATE telecom_providers SET ${setClauses.join(', ')} WHERE id = $1`,
+        params,
+      );
+    } else {
+      // Provider does not exist — INSERT it
+      const columns: string[] = [
+        'name', 'slug', 'description', 'provider_type', 'environment', 'status',
+        'is_authoritative', 'supported_networks', 'api_base_url', 'api_version',
+        'auth_method', 'webhook_support', 'webhook_url', 'sandbox_support', 'sandbox_base_url',
+      ];
+      const params: any[] = [
+        name.trim(),
+        slug.trim().toLowerCase(),
+        description || null,
+        providerType,
+        environment,
+        status,
+        isAuthoritative,
+        supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+        apiBaseUrl.trim(),
+        apiVersion,
+        authMethod,
+        webhookSupport,
+        webhookUrl || null,
+        sandboxSupport,
+        sandboxBaseUrl || null,
+      ];
+      if (hasApiKeyCol) {
+        columns.push('api_key');
+        params.push(apiKey ? apiKey.trim() : null);
+      }
+      if (hasApiSecretCol) {
+        columns.push('api_secret');
+        params.push(apiSecret ? apiSecret.trim() : null);
+      }
+      if (hasWebhookSecretCol) {
+        columns.push('webhook_secret');
+        params.push(webhookSecret ? webhookSecret.trim() : null);
+      }
+
+      const placeholders = params.map((_, i) => `$${i + 1}`).join(', ');
+      const insertRes = await this.db.query(
+        `INSERT INTO telecom_providers (${columns.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+        params,
+      );
+      createdId = insertRes.rows[0].id;
+    }
+
+    // Step 4: Insert capabilities (safe — skip if table doesn't exist)
+    if (hasCapsTable) {
       const capsToInsert = capabilities || {
         NETWORKS: true,
         CATALOG: true,
@@ -823,36 +782,30 @@ export class TelecomProviderManagementService {
         PRECHECK: true,
         WALLET_BALANCE: true,
       };
-
       for (const [cap, isSupported] of Object.entries(capsToInsert)) {
-        await client.query(
+        await this.db.query(
           `INSERT INTO provider_capabilities (provider_id, capability, is_supported)
            VALUES ($1, $2, $3)
            ON CONFLICT (provider_id, capability) DO UPDATE SET is_supported = EXCLUDED.is_supported`,
           [createdId, cap, Boolean(isSupported)],
         ).catch(() => {});
       }
+    }
 
-      // Default network mapping
+    // Step 5: Insert network mappings (safe — skip if table doesn't exist)
+    if (hasNetsTable) {
       const networks = supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO];
       for (const net of networks) {
-        await client.query(
+        await this.db.query(
           `INSERT INTO provider_networks (network_code, provider_id, role, priority, weight_percent, status)
            VALUES ($1, $2, 'AVAILABLE', 2, 0, 'ACTIVE')
            ON CONFLICT (network_code, provider_id) DO NOTHING`,
           [net, createdId],
         ).catch(() => {});
       }
-
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
     }
 
-    // Store credentials via neutral credential store if provided
+    // Step 6: Store credentials via credential store if provided
     if (apiKey) {
       await this.credentialStore.storeCredentials(
         createdId,
@@ -866,7 +819,7 @@ export class TelecomProviderManagementService {
       ).catch(() => {});
     }
 
-    // Immediately reload dynamic providers in runtime registry
+    // Step 7: Reload dynamic providers in runtime registry
     await this.registry.loadProvidersFromDatabase(this.db, this.credentialStore).catch(() => {
       this.registry.registerDynamicCustomProvider({
         providerName: name.trim(),
@@ -885,6 +838,7 @@ export class TelecomProviderManagementService {
       });
     });
 
+    // Step 8: Audit log (non-blocking)
     if (this.auditService && actorId) {
       await this.auditService.logEvent({
         correlationId: correlationId || `prov_create_${Date.now()}`,
