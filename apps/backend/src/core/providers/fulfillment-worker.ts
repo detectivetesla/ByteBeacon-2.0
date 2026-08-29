@@ -102,8 +102,7 @@ export class FulfillmentWorker {
                 cp.provider_plan_id as "providerPlanId", cp.provider_plan_code as "providerPlanCode",
                 cp.provider_product_code as "providerProductCode", cp.sku, cp.name as "productName",
                 po.id as "providerOrderId", po.provider_name as "providerName",
-                po.provider_reference as "providerReference", po.provider_status as "providerStatus",
-                po.submission_attempts as "submissionAttempts"
+                po.provider_reference as "providerReference", po.provider_status as "providerStatus"
          FROM orders o
          LEFT JOIN catalog_products cp ON o.product_id = cp.id
          LEFT JOIN provider_orders po ON o.id = po.order_id
@@ -156,8 +155,8 @@ export class FulfillmentWorker {
       let reconciledBeforeRetry = false;
 
       // 3. Reconciliation-Before-Retry Strategy
-      // Only query getOrderStatus before submission if this is a retry attempt (>1) or has prior submission attempts
-      if (currentAttempt > 1 || (order.submissionAttempts !== undefined && Number(order.submissionAttempts) > 0)) {
+      // Only query getOrderStatus before submission if this is a retry attempt (>1)
+      if (currentAttempt > 1) {
         try {
           const checkStatus = await this.circuitBreaker.execute(() =>
             activeProvider.getOrderStatus({ providerReference: deterministicReference, orderId }),
@@ -204,7 +203,7 @@ export class FulfillmentWorker {
         const latencyMs = Date.now() - startMs;
         const isRetryable = this.retryPolicy.isRetryable(err);
 
-        // Record submission attempt failure
+        // Record submission attempt failure (non-blocking)
         await this.db.query(
           `INSERT INTO provider_submission_attempts (
               order_id, provider, idempotency_key, attempt_number,
@@ -220,7 +219,7 @@ export class FulfillmentWorker {
             err.message,
             latencyMs,
           ],
-        );
+        ).catch(() => {});
 
         if (!isRetryable || currentAttempt >= this.retryPolicy.getMaxAttempts()) {
           // Route to DLQ and mark order failed
@@ -234,7 +233,7 @@ export class FulfillmentWorker {
             requestReference: deterministicReference,
             correlationId,
             failureClass: isRetryable ? 'RETRYABLE_EXHAUSTED' : 'PERMANENT_REJECTION',
-          });
+          }).catch(() => {});
 
           await this.db.query(
             `UPDATE orders
@@ -248,7 +247,7 @@ export class FulfillmentWorker {
           await this.db.query(
             `UPDATE provider_orders SET provider_status = $1, last_synced_at = CURRENT_TIMESTAMP WHERE order_id = $2`,
             [ProviderStatus.FAILED, order.id],
-          );
+          ).catch(() => {});
 
           // Automated Wallet Refund for paid orders on permanent fulfillment failure
           if (order.payment_status === 'PAID' && order.user_id && order.amount_pesewas) {
@@ -280,7 +279,7 @@ export class FulfillmentWorker {
                     JSON.stringify({ refundStatus: 'PENDING' }),
                     JSON.stringify({ refundStatus: 'COMPLETED', amountPesewas: order.amount_pesewas, reason: 'AUTOMATIC_FULFILLMENT_FAILURE_REFUND' }),
                   ],
-                );
+                ).catch(() => {});
                 logger.info({ orderId: order.id, amountPesewas: order.amount_pesewas }, 'Automated wallet refund executed for failed fulfillment order');
               }
             } catch (refundErr) {
@@ -302,7 +301,7 @@ export class FulfillmentWorker {
 
       const latencyMs = Date.now() - startMs;
 
-      // 5. Record Successful Submission Attempt
+      // 5. Record Successful Submission Attempt (non-blocking)
       await this.db.query(
         `INSERT INTO provider_submission_attempts (
             order_id, provider, idempotency_key, attempt_number,
@@ -316,7 +315,7 @@ export class FulfillmentWorker {
           latencyMs,
           JSON.stringify(submitResult),
         ],
-      );
+      ).catch(() => {});
 
       // 6. Explicit Provider Acceptance -> Transition Order
       const initialProviderStatus = submitResult.providerStatus || ProviderStatus.RECEIVED;
@@ -328,29 +327,42 @@ export class FulfillmentWorker {
         ? OrderStatus.FAILED
         : OrderStatus.SUBMITTED;
 
-      await this.db.query(
-        `UPDATE provider_orders
-         SET provider_name = $1,
-             provider_reference = $2,
-             provider_status = $3,
-             provider_id = (SELECT id FROM telecom_providers WHERE LOWER(name) = LOWER($1) OR LOWER(slug) = LOWER($1) LIMIT 1),
-             provider_response = $5,
-             provider_submitted_at = COALESCE(provider_submitted_at, CURRENT_TIMESTAMP),
-             provider_completed_at = CASE WHEN $6 = TRUE THEN CURRENT_TIMESTAMP ELSE provider_completed_at END,
-             last_provider_sync_at = CURRENT_TIMESTAMP,
-             submission_attempts = submission_attempts + 1,
-             last_synced_at = CURRENT_TIMESTAMP,
-             sync_version = sync_version + 1
-         WHERE order_id = $4`,
-        [
-          activeProvider.providerName,
-          submitResult.providerReference,
-          initialProviderStatus,
-          order.id,
-          JSON.stringify(submitResult.rawResponse || submitResult),
-          isCompleted,
-        ],
-      );
+      try {
+        await this.db.query(
+          `UPDATE provider_orders
+           SET provider_name = $1,
+               provider_reference = $2,
+               provider_status = $3,
+               raw_payload = $5,
+               last_synced_at = CURRENT_TIMESTAMP,
+               last_provider_event_at = CURRENT_TIMESTAMP,
+               sync_version = sync_version + 1,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE order_id = $4`,
+          [
+            activeProvider.providerName,
+            submitResult.providerReference,
+            initialProviderStatus,
+            order.id,
+            JSON.stringify(submitResult.rawResponse || submitResult),
+          ],
+        );
+      } catch {
+        await this.db.query(
+          `UPDATE provider_orders
+           SET provider_name = $1,
+               provider_reference = $2,
+               provider_status = $3,
+               last_synced_at = CURRENT_TIMESTAMP
+           WHERE order_id = $4`,
+          [
+            activeProvider.providerName,
+            submitResult.providerReference,
+            initialProviderStatus,
+            order.id,
+          ],
+        ).catch(() => {});
+      }
 
       await this.db.query(
         `UPDATE orders
@@ -380,7 +392,7 @@ export class FulfillmentWorker {
             providerName: activeProvider.providerName,
           }),
         ],
-      );
+      ).catch(() => {});
 
       logger.info(
         { orderId: order.id, providerReference: submitResult.providerReference, providerName: activeProvider.providerName, status: finalOrderStatus },

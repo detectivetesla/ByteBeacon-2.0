@@ -209,15 +209,15 @@ export class BulkOrderService {
              VALUES (
                $1,
                COALESCE(
-                 (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
-                 (SELECT name FROM telecom_providers WHERE is_active = TRUE OR status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1),
+                 (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1),
+                 (SELECT name FROM telecom_providers ORDER BY created_at ASC LIMIT 1),
                  'Portal-02'
                ),
                $2,
                'UNKNOWN'
              )`,
             [childOrderId, childRef],
-          );
+          ).catch(() => {});
         }
 
         const itemRes = await client.query(
@@ -713,15 +713,15 @@ export class BulkOrderService {
            VALUES (
              $1,
              COALESCE(
-               (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
-               (SELECT name FROM telecom_providers WHERE is_active = TRUE OR status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1),
+               (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1),
+               (SELECT name FROM telecom_providers ORDER BY created_at ASC LIMIT 1),
                'Portal-02'
              ),
              $2,
              'UNKNOWN'
            )`,
           [childOrderId, childRef],
-        );
+        ).catch(() => {});
 
         await client.query(
           `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)
