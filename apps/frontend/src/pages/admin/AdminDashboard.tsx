@@ -291,7 +291,7 @@ export const AdminDashboard: React.FC = () => {
                 {maintenanceMode ? 'System Maintenance Mode Active' : 'All Core Systems Operational'}
               </span>
               <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', marginLeft: '0.5rem' }}>
-                API • DB • Redis • Workers • Paystack Gateway • DataHouse Direct
+                API • DB • Redis • Workers • Paystack Gateway • Direct Telecom Rails
               </span>
             </div>
           </div>
@@ -396,7 +396,7 @@ export const AdminDashboard: React.FC = () => {
           <MetricCard
             title="Reconciliation"
             value="100% Synced"
-            subvalue="Authoritative: DataHouse"
+            subvalue={`Authoritative: ${data?.providers?.find((p: any) => p.isAuthoritative)?.name || 'Portal-02'}`}
             accent="cyan"
             icon={<TactileIcon icon={RefreshCw} color="cyan" size="sm" />}
           />
