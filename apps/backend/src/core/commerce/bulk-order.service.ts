@@ -163,7 +163,6 @@ export class BulkOrderService {
         createdAt: string;
       }> = [];
       const dispatchedOrderIds: string[] = [];
-      const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
 
       for (const item of itemsToInsert) {
         let childOrderId: string | null = null;
@@ -205,19 +204,20 @@ export class BulkOrderService {
             [childOrderId, product.id, item.amountPesewas],
           ).catch(() => {});
 
-          if (envProvider) {
-            await client.query(
-              `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
-               VALUES ($1, $2, $3, 'UNKNOWN')`,
-              [childOrderId, envProvider, childRef],
-            );
-          } else {
-            await client.query(
-              `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
-               VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Portal-02'), $2, 'UNKNOWN')`,
-              [childOrderId, childRef],
-            );
-          }
+          await client.query(
+            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
+             VALUES (
+               $1,
+               COALESCE(
+                 (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
+                 (SELECT name FROM telecom_providers WHERE is_active = TRUE OR status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1),
+                 'Portal-02'
+               ),
+               $2,
+               'UNKNOWN'
+             )`,
+            [childOrderId, childRef],
+          );
         }
 
         const itemRes = await client.query(
@@ -583,7 +583,6 @@ export class BulkOrderService {
 
       const submissionPublicId = `sub_${crypto.randomBytes(12).toString('hex')}`;
       const submissionRef = `BLK-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
-      const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
 
       // Pre-calculate grand total
       for (const r of acceptedRecipients) {
@@ -709,19 +708,20 @@ export class BulkOrderService {
           ).catch(() => {});
         }
 
-        if (envProvider) {
-          await client.query(
-            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
-             VALUES ($1, $2, $3, 'UNKNOWN')`,
-            [childOrderId, envProvider, childRef],
-          );
-        } else {
-          await client.query(
-            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
-             VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Portal-02'), $2, 'UNKNOWN')`,
-            [childOrderId, childRef],
-          );
-        }
+        await client.query(
+          `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
+           VALUES (
+             $1,
+             COALESCE(
+               (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
+               (SELECT name FROM telecom_providers WHERE is_active = TRUE OR status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1),
+               'Portal-02'
+             ),
+             $2,
+             'UNKNOWN'
+           )`,
+          [childOrderId, childRef],
+        );
 
         await client.query(
           `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)

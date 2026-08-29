@@ -233,21 +233,22 @@ export class OrderService {
         [orderRow.id, product.id, pricePesewas],
       );
 
-      // 5. Insert Initial Provider Order Projection
-      const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
-      if (envProvider) {
-        await client.query(
-          `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-           VALUES ($1, $2, 'UNKNOWN')`,
-          [orderRow.id, envProvider],
-        );
-      } else {
-        await client.query(
-          `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-           VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Portal-02'), 'UNKNOWN')`,
-          [orderRow.id],
-        );
-      }
+      // 5. Insert Initial Provider Order Projection (Database is authoritative single source of truth)
+      const provInsertRes = await client.query(
+        `INSERT INTO provider_orders (order_id, provider_name, provider_status)
+         VALUES (
+           $1,
+           COALESCE(
+             (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
+             (SELECT name FROM telecom_providers WHERE is_active = TRUE OR status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1),
+             'Portal-02'
+           ),
+           'UNKNOWN'
+         )
+         RETURNING provider_name as "providerName"`,
+        [orderRow.id],
+      );
+      const authoritativeProviderName = provInsertRes?.rows?.[0]?.providerName || 'Portal-02';
 
       // 6. Insert Order Event
       const eventRes = await client.query(
@@ -271,7 +272,7 @@ export class OrderService {
       );
 
       const events: any[] = [];
-      if (eventRes.rows.length > 0) {
+      if (eventRes?.rows && eventRes.rows.length > 0) {
         events.push({
           id: eventRes.rows[0].id,
           eventType: eventRes.rows[0].eventType as OrderEventType,
@@ -425,7 +426,7 @@ export class OrderService {
         refundStatus: orderRow.refundStatus as RefundStatus,
         pricingSnapshot,
         providerOrder: {
-          providerName: envProvider || 'Portal-02',
+          providerName: authoritativeProviderName,
           providerReference: null,
           providerStatus: ProviderStatus.UNKNOWN,
           lastSyncedAt: null,

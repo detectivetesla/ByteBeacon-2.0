@@ -86,15 +86,8 @@ export async function startWorkerProcess(): Promise<void> {
     logger.warn({ err }, '[WORKER_PROCESS] Failed to load dynamic telecom providers from database on boot');
   });
 
-  // After DB load, re-assert env var override
-  if (envAuthoritativeProvider) {
-    providerRegistry.setActiveProvider(envAuthoritativeProvider);
-    const fallback = envAuthoritativeProvider.toLowerCase().includes('portal') ? 'DataHouse' : 'Portal-02';
-    providerRegistry.setNetworkRouting('MTN', envAuthoritativeProvider, fallback);
-    providerRegistry.setNetworkRouting('TELECEL', envAuthoritativeProvider, fallback);
-    providerRegistry.setNetworkRouting('AIRTELTIGO', envAuthoritativeProvider, fallback);
-    logger.info({ provider: envAuthoritativeProvider }, '[WORKER_PROCESS] Authoritative provider set from env var (post-DB load)');
-  }
+  // Database load sets authoritative provider based on is_authoritative = TRUE in telecom_providers table
+  logger.info({ activeProvider: providerRegistry.providerName }, '[WORKER_PROCESS] Dynamic telecom providers loaded from database (Database is Authoritative)');
 
   const circuitBreaker = new CircuitBreaker({
     failureThreshold: 5,

@@ -350,19 +350,10 @@ export function createApp(options: AppOptions = {}) {
     const credentialStore = new SupabaseVaultCredentialStore(dbPool);
     providerRegistry.loadProvidersFromDatabase(dbPool, credentialStore)
       .then(() => {
-        // After DB load, re-assert the env var override (DB may have set a different provider as authoritative)
-        if (envAuthoritativeProvider) {
-          providerRegistry.setActiveProvider(envAuthoritativeProvider);
-          // Route all networks through the env-specified provider
-          const fallback = envAuthoritativeProvider.toLowerCase().includes('portal') ? 'DataHouse' : 'Portal-02';
-          providerRegistry.setNetworkRouting('MTN', envAuthoritativeProvider, fallback);
-          providerRegistry.setNetworkRouting('TELECEL', envAuthoritativeProvider, fallback);
-          providerRegistry.setNetworkRouting('AIRTELTIGO', envAuthoritativeProvider, fallback);
-          logger.info({ provider: envAuthoritativeProvider }, '[APP_BOOT] Authoritative provider re-asserted after DB load (env override)');
-        }
+        logger.info({ activeProvider: providerRegistry.providerName }, '[APP_BOOT] Dynamic telecom providers loaded from database (Database is Authoritative)');
       })
       .catch((err) => {
-        logger.warn({ err }, '[APP_BOOT] Failed to load dynamic telecom providers from database on boot');
+        logger.warn({ err }, '[APP_BOOT] Failed to load dynamic telecom providers from database on boot; relying on fallback registry');
       });
   }
 

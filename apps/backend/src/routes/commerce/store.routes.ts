@@ -902,21 +902,20 @@ export async function storeRoutes(
         [orderRow.id, product.catalogProductId, retailPricePesewas],
       );
 
-      // Insert initial provider projection
-      const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
-      if (envProvider) {
-        await client.query(
-          `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-           VALUES ($1, $2, 'UNKNOWN')`,
-          [orderRow.id, envProvider],
-        );
-      } else {
-        await client.query(
-          `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-           VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Portal-02'), 'UNKNOWN')`,
-          [orderRow.id],
-        );
-      }
+      // Insert initial provider projection (Database is authoritative single source of truth)
+      await client.query(
+        `INSERT INTO provider_orders (order_id, provider_name, provider_status)
+         VALUES (
+           $1,
+           COALESCE(
+             (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
+             (SELECT name FROM telecom_providers WHERE is_active = TRUE OR status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1),
+             'Portal-02'
+           ),
+           'UNKNOWN'
+         )`,
+        [orderRow.id],
+      );
 
       // Record Order Event
       await client.query(

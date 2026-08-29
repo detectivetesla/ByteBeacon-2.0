@@ -365,6 +365,9 @@ export class TelecomProviderManagementService {
         p.api_base_url as "apiBaseUrl",
         p.api_version as "apiVersion",
         p.auth_method as "authMethod",
+        p.api_key as "apiKey",
+        p.api_secret as "apiSecret",
+        p.webhook_secret as "webhookSecret",
         p.webhook_support as "webhookSupport",
         p.webhook_url as "webhookUrl",
         p.sandbox_support as "sandboxSupport",
@@ -542,10 +545,15 @@ export class TelecomProviderManagementService {
         PRECHECK: true,
         WALLET_BALANCE: true,
       };
+      const hasDirectApiKey = Boolean(row.apiKey && String(row.apiKey).trim().length > 0);
       const creds = credsByProv.get(row.id) || {
         sandbox: true,
         production: true,
-        masked: { apiKeyMasked: '••••••••••••••••', webhookSecretMasked: '••••••••••••••••', status: 'Configured' },
+        masked: {
+          apiKeyMasked: hasDirectApiKey ? `••••••••${String(row.apiKey).trim().slice(-4)}` : '••••••••••••••••',
+          webhookSecretMasked: '••••••••••••••••',
+          status: 'Configured',
+        },
       };
       const mappings = mapsByProv.get(row.id) || [];
 
@@ -1706,34 +1714,15 @@ export class TelecomProviderManagementService {
 
       await client.query('COMMIT');
 
-      // Ensure provider is in registry with credentials and update carrier routing
-      const targetProv = await this.getProvider(promoted.id);
-      const secrets = await this.credentialStore.getSecrets(targetProv.id, targetProv.environment).catch(() => null);
-      const existingInRegistry = this.registry.getProvider(promoted.name) as any;
-      const fallbackApiKey = existingInRegistry?.config?.apiKey || existingInRegistry?.client?.apiKey || '';
-      const fallbackApiSecret = existingInRegistry?.config?.apiSecret || existingInRegistry?.client?.apiSecret || '';
-      const fallbackWebhookSecret = existingInRegistry?.config?.webhookSecret || existingInRegistry?.client?.webhookSecret || '';
-
-      this.registry.updateDynamicCustomProvider({
-        providerName: targetProv.name,
-        providerSlug: targetProv.slug,
-        apiBaseUrl: targetProv.apiBaseUrl,
-        apiVersion: targetProv.apiVersion,
-        authMethod: targetProv.authMethod,
-        environment: targetProv.environment,
-        apiKey: secrets?.apiKey || fallbackApiKey,
-        apiSecret: secrets?.apiSecret || fallbackApiSecret,
-        webhookSecret: secrets?.webhookSecret || fallbackWebhookSecret,
-        supportedNetworks: targetProv.supportedNetworks,
-      }, {
-        isAuthoritative: true,
-        supportedNetworks: targetProv.supportedNetworks,
-      });
-
-      // Update runtime registry & carrier routing for all supported networks
+      // Ensure provider is dynamically reloaded in runtime registry directly from database
+      await this.registry.loadProvidersFromDatabase(this.db, this.credentialStore).catch(() => {});
       this.registry.setActiveProvider(promoted.name);
-      for (const net of targetProv.supportedNetworks) {
-        this.registry.setNetworkRouting(String(net), promoted.name);
+
+      const targetProv = await this.getProvider(promoted.id).catch(() => null);
+      if (targetProv) {
+        for (const net of targetProv.supportedNetworks) {
+          this.registry.setNetworkRouting(String(net), promoted.name);
+        }
       }
 
       if (this.auditService && actorId) {

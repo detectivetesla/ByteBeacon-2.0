@@ -256,9 +256,9 @@ export async function adminAnalyticsRoutes(
       const customerTierRow = tierStatsRes.rows.find((r: any) => r.tier === 'customer') || {};
       const agentTierRow = tierStatsRes.rows.find((r: any) => r.tier === 'agent') || {};
 
-      // Determine authoritative provider name dynamically
+      // Determine authoritative provider name dynamically from database
       const activeDbProvider = telecomProvidersRes.rows.find((p: any) => p.isAuthoritative) || telecomProvidersRes.rows[0];
-      const authoritativeProviderName = activeDbProvider?.name || process.env.AUTHORITATIVE_PROVIDER || 'Portal-02';
+      const authoritativeProviderName = activeDbProvider?.name || 'Portal-02';
 
       // Providers list
       const providersList = telecomProvidersRes.rows.length > 0

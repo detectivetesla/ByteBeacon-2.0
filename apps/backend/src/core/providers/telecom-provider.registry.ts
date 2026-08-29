@@ -140,11 +140,13 @@ export class TelecomProviderRegistry implements ITelecomProvider {
           SELECT id, name, slug, api_base_url as "apiBaseUrl", api_version as "apiVersion",
                  auth_method as "authMethod", webhook_url as "webhookUrl", environment,
                  is_authoritative as "isAuthoritative", supported_networks as "supportedNetworks",
+                 api_key as "apiKey", api_secret as "apiSecret", webhook_secret as "webhookSecret",
                  COALESCE(endpoint_paths, '{}'::jsonb) as "endpointPaths",
                  COALESCE(field_mappings, '{}'::jsonb) as "fieldMappings",
                  COALESCE(custom_headers, '{}'::jsonb) as "customHeaders"
           FROM telecom_providers
-          WHERE status = 'ACTIVE'
+          WHERE is_active = TRUE OR status = 'ACTIVE'
+          ORDER BY is_authoritative DESC, created_at ASC
         `);
       } catch {
         provRes = await db.query(`
@@ -152,9 +154,12 @@ export class TelecomProviderRegistry implements ITelecomProvider {
                  auth_method as "authMethod", webhook_url as "webhookUrl", environment,
                  is_authoritative as "isAuthoritative", supported_networks as "supportedNetworks"
           FROM telecom_providers
-          WHERE status = 'ACTIVE'
+          WHERE is_active = TRUE OR status = 'ACTIVE'
+          ORDER BY is_authoritative DESC, created_at ASC
         `);
       }
+
+      let foundAuthoritativeInDb = false;
 
       for (const row of provRes.rows) {
         const key = row.name.toLowerCase();
@@ -188,51 +193,62 @@ export class TelecomProviderRegistry implements ITelecomProvider {
           (key === 'datahouse' ? process.env.DATAHOUSE_BASE_URL : undefined);
 
         const effectiveApiKey =
+          (row.apiKey && String(row.apiKey).trim()) ||
           secrets?.apiKey ||
           existingProv?.config?.apiKey ||
           existingProv?.client?.apiKey ||
           envKey ||
           '';
         const effectiveApiSecret =
+          (row.apiSecret && String(row.apiSecret).trim()) ||
           secrets?.apiSecret ||
           existingProv?.config?.apiSecret ||
           existingProv?.client?.apiSecret ||
           envSecret ||
           '';
         const effectiveWebhookSecret =
+          (row.webhookSecret && String(row.webhookSecret).trim()) ||
           secrets?.webhookSecret ||
           existingProv?.config?.webhookSecret ||
           existingProv?.client?.webhookSecret ||
           envWebhook ||
           '';
 
-        let effectiveBaseUrl = row.apiBaseUrl || '';
-        if (!effectiveBaseUrl || effectiveBaseUrl.includes('datahouse.com.gh') || envBaseUrl) {
-          effectiveBaseUrl = envBaseUrl || (key === 'datahouse' ? 'https://api.getmorepaylessdatahouse.net/api/v1' : effectiveBaseUrl);
-        }
+        let effectiveBaseUrl =
+          (row.apiBaseUrl && String(row.apiBaseUrl).trim()) ||
+          envBaseUrl ||
+          (key === 'portal-02' || key === 'portal02' ? 'https://www.portal-02.com/api/v1' : '');
 
         this.updateDynamicCustomProvider({
           providerName: row.name,
           providerSlug: row.slug || key,
           apiBaseUrl: effectiveBaseUrl,
           apiVersion: row.apiVersion,
-          authMethod: row.authMethod,
-          environment: row.environment,
+          authMethod: row.authMethod || 'API_KEY',
+          environment: row.environment || 'LIVE',
           apiKey: effectiveApiKey,
           apiSecret: effectiveApiSecret,
           webhookSecret: effectiveWebhookSecret,
-          supportedNetworks: row.supportedNetworks,
+          supportedNetworks: row.supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
           endpointPaths: row.endpointPaths || {},
           fieldMappings: row.fieldMappings || {},
           customHeaders: row.customHeaders || {},
         }, {
           isAuthoritative: Boolean(row.isAuthoritative),
-          supportedNetworks: row.supportedNetworks,
+          supportedNetworks: row.supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
         });
 
-        if (row.isAuthoritative) {
+        if (row.isAuthoritative && !foundAuthoritativeInDb) {
           this.setActiveProvider(row.name);
+          foundAuthoritativeInDb = true;
         }
+      }
+
+      // If no provider had is_authoritative = TRUE in DB, fall back to first active DB provider or env var
+      if (!foundAuthoritativeInDb && provRes.rows.length > 0) {
+        const envAuthoritative = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
+        const fallbackName = envAuthoritative || provRes.rows[0].name;
+        this.setActiveProvider(fallbackName);
       }
 
       // Sync network carrier routing from database
@@ -248,7 +264,7 @@ export class TelecomProviderRegistry implements ITelecomProvider {
         }
       }
 
-      logger.info({ totalLoaded: this.providers.size }, '[TELECOM_REGISTRY] Dynamic providers and routing loaded from database');
+      logger.info({ totalLoaded: this.providers.size, activeProvider: this.activeProviderName }, '[TELECOM_REGISTRY] Dynamic providers and routing loaded from database');
     } catch (err: any) {
       logger.warn({ err: err.message }, '[TELECOM_REGISTRY] Could not load providers from database; using static fallback registry');
     }
