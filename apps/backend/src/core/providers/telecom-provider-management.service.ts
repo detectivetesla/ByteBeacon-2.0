@@ -38,6 +38,16 @@ import { BadRequestError, NotFoundError } from '../errors/app-error.js';
 import { IProviderCredentialStore } from './credentials/credential-store.interface.js';
 import { SupabaseVaultCredentialStore } from './credentials/supabase-vault-credential-store.js';
 
+function safeIsoDate(val: any, fallback: string | null = null): string | null {
+  if (!val) return fallback;
+  try {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? fallback : d.toISOString();
+  } catch {
+    return fallback;
+  }
+}
+
 export class TelecomProviderManagementService {
   private readonly db: pg.Pool;
   private readonly registry: TelecomProviderRegistry;
@@ -576,9 +586,9 @@ export class TelecomProviderManagementService {
         sandboxBaseUrl: row.sandboxBaseUrl,
         hasCredentials: { sandbox: creds.sandbox, production: creds.production },
         credentialsMasked: creds.masked,
-        lastHealthCheck: row.lastHealthCheck ? new Date(row.lastHealthCheck).toISOString() : null,
-        lastSuccessfulRequest: row.lastSuccessfulRequest ? new Date(row.lastSuccessfulRequest).toISOString() : null,
-        lastFailure: row.lastFailure ? new Date(row.lastFailure).toISOString() : null,
+        lastHealthCheck: safeIsoDate(row.lastHealthCheck),
+        lastSuccessfulRequest: safeIsoDate(row.lastSuccessfulRequest),
+        lastFailure: safeIsoDate(row.lastFailure),
         lastError: row.lastError,
         avgLatencyMs: Number(row.avgLatencyMs || 180),
         p95LatencyMs: Number(row.p95LatencyMs || 350),
@@ -587,8 +597,8 @@ export class TelecomProviderManagementService {
         failedRequestsCount: Number(row.failedRequestsCount || 0),
         capabilities: caps,
         networkMappings: mappings,
-        createdAt: new Date(row.createdAt).toISOString(),
-        updatedAt: new Date(row.updatedAt).toISOString(),
+        createdAt: safeIsoDate(row.createdAt, new Date().toISOString())!,
+        updatedAt: safeIsoDate(row.updatedAt, new Date().toISOString())!,
       };
     });
   }
@@ -640,68 +650,163 @@ export class TelecomProviderManagementService {
     try {
       await client.query('BEGIN');
 
-      let insertRes: any;
-      try {
-        insertRes = await client.query(
-          `INSERT INTO telecom_providers (
-             name, slug, description, provider_type, environment, status,
-             is_authoritative, supported_networks, api_base_url, api_version,
-             auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url,
-             api_key, api_secret, webhook_secret
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-           RETURNING id`,
-          [
-            name.trim(),
-            slug.trim().toLowerCase(),
-            description || null,
-            providerType,
-            environment,
-            status,
-            isAuthoritative,
-            supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-            apiBaseUrl.trim(),
-            apiVersion,
-            authMethod,
-            webhookSupport,
-            webhookUrl || null,
-            sandboxSupport,
-            sandboxBaseUrl || null,
-            apiKey ? apiKey.trim() : null,
-            apiSecret ? apiSecret.trim() : null,
-            webhookSecret ? webhookSecret.trim() : null,
-          ],
-        );
-      } catch {
-        insertRes = await client.query(
-          `INSERT INTO telecom_providers (
-             name, slug, description, provider_type, environment, status,
-             is_authoritative, supported_networks, api_base_url, api_version,
-             auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-           RETURNING id`,
-          [
-            name.trim(),
-            slug.trim().toLowerCase(),
-            description || null,
-            providerType,
-            environment,
-            status,
-            isAuthoritative,
-            supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-            apiBaseUrl.trim(),
-            apiVersion,
-            authMethod,
-            webhookSupport,
-            webhookUrl || null,
-            sandboxSupport,
-            sandboxBaseUrl || null,
-          ],
-        );
-      }
+      // Check if a provider with this slug or name already exists in database
+      const existingRes = await client.query(
+        `SELECT id, name, slug FROM telecom_providers WHERE LOWER(slug) = LOWER($1) OR LOWER(name) = LOWER($2) LIMIT 1`,
+        [slug.trim(), name.trim()],
+      ).catch(() => ({ rows: [] }));
 
-      createdId = insertRes.rows[0].id;
+      if (existingRes.rows.length > 0) {
+        createdId = existingRes.rows[0].id;
+        try {
+          await client.query(
+            `UPDATE telecom_providers SET
+               name = $2,
+               slug = $3,
+               description = COALESCE($4, description),
+               provider_type = $5,
+               environment = $6,
+               status = $7,
+               is_authoritative = $8,
+               supported_networks = $9,
+               api_base_url = $10,
+               api_version = $11,
+               auth_method = $12,
+               webhook_support = $13,
+               webhook_url = COALESCE($14, webhook_url),
+               sandbox_support = $15,
+               sandbox_base_url = COALESCE($16, sandbox_base_url),
+               api_key = COALESCE($17, api_key),
+               api_secret = COALESCE($18, api_secret),
+               webhook_secret = COALESCE($19, webhook_secret),
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [
+              createdId,
+              name.trim(),
+              slug.trim().toLowerCase(),
+              description || null,
+              providerType,
+              environment,
+              status,
+              isAuthoritative,
+              supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+              apiBaseUrl.trim(),
+              apiVersion,
+              authMethod,
+              webhookSupport,
+              webhookUrl || null,
+              sandboxSupport,
+              sandboxBaseUrl || null,
+              apiKey ? apiKey.trim() : null,
+              apiSecret ? apiSecret.trim() : null,
+              webhookSecret ? webhookSecret.trim() : null,
+            ],
+          );
+        } catch {
+          await client.query(
+            `UPDATE telecom_providers SET
+               name = $2,
+               slug = $3,
+               description = COALESCE($4, description),
+               provider_type = $5,
+               environment = $6,
+               status = $7,
+               is_authoritative = $8,
+               supported_networks = $9,
+               api_base_url = $10,
+               api_version = $11,
+               auth_method = $12,
+               webhook_support = $13,
+               webhook_url = COALESCE($14, webhook_url),
+               sandbox_support = $15,
+               sandbox_base_url = COALESCE($16, sandbox_base_url),
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [
+              createdId,
+              name.trim(),
+              slug.trim().toLowerCase(),
+              description || null,
+              providerType,
+              environment,
+              status,
+              isAuthoritative,
+              supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+              apiBaseUrl.trim(),
+              apiVersion,
+              authMethod,
+              webhookSupport,
+              webhookUrl || null,
+              sandboxSupport,
+              sandboxBaseUrl || null,
+            ],
+          );
+        }
+      } else {
+        let insertRes: any;
+        try {
+          insertRes = await client.query(
+            `INSERT INTO telecom_providers (
+               name, slug, description, provider_type, environment, status,
+               is_authoritative, supported_networks, api_base_url, api_version,
+               auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url,
+               api_key, api_secret, webhook_secret
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+             RETURNING id`,
+            [
+              name.trim(),
+              slug.trim().toLowerCase(),
+              description || null,
+              providerType,
+              environment,
+              status,
+              isAuthoritative,
+              supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+              apiBaseUrl.trim(),
+              apiVersion,
+              authMethod,
+              webhookSupport,
+              webhookUrl || null,
+              sandboxSupport,
+              sandboxBaseUrl || null,
+              apiKey ? apiKey.trim() : null,
+              apiSecret ? apiSecret.trim() : null,
+              webhookSecret ? webhookSecret.trim() : null,
+            ],
+          );
+        } catch {
+          insertRes = await client.query(
+            `INSERT INTO telecom_providers (
+               name, slug, description, provider_type, environment, status,
+               is_authoritative, supported_networks, api_base_url, api_version,
+               auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+             RETURNING id`,
+            [
+              name.trim(),
+              slug.trim().toLowerCase(),
+              description || null,
+              providerType,
+              environment,
+              status,
+              isAuthoritative,
+              supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+              apiBaseUrl.trim(),
+              apiVersion,
+              authMethod,
+              webhookSupport,
+              webhookUrl || null,
+              sandboxSupport,
+              sandboxBaseUrl || null,
+            ],
+          );
+        }
+
+        createdId = insertRes.rows[0].id;
+      }
 
       // Insert capabilities
       const capsToInsert = capabilities || {

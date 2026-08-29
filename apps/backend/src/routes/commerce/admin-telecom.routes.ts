@@ -6,6 +6,7 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { AuditService } from '../../core/security/audit.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { TelecomProviderManagementService } from '../../core/providers/telecom-provider-management.service.js';
+import { AppError, BadRequestError } from '../../core/errors/app-error.js';
 import {
   CreateTelecomProviderRequest,
   UpdateTelecomProviderRequest,
@@ -133,9 +134,14 @@ export async function adminTelecomRoutes(
       preHandler: [authHooks.authenticateAdmin],
     },
     async (request, reply) => {
-      const user = (request as any).user;
-      const created = await telecomService.createProvider(request.body, user?.sub, (request as any).correlationId);
-      return reply.status(201).send({ success: true, data: created });
+      try {
+        const user = (request as any).user;
+        const created = await telecomService.createProvider(request.body, user?.sub, (request as any).correlationId);
+        return reply.status(201).send({ success: true, data: created });
+      } catch (err: any) {
+        if (err instanceof AppError) throw err;
+        throw new BadRequestError(err.message || 'Failed to register telecom provider');
+      }
     },
   );
 
@@ -148,9 +154,14 @@ export async function adminTelecomRoutes(
       preHandler: [authHooks.authenticateAdmin],
     },
     async (request, reply) => {
-      const user = (request as any).user;
-      const updated = await telecomService.updateProvider(request.params.id, request.body, user?.sub, (request as any).correlationId);
-      return reply.send({ success: true, data: updated });
+      try {
+        const user = (request as any).user;
+        const updated = await telecomService.updateProvider(request.params.id, request.body, user?.sub, (request as any).correlationId);
+        return reply.send({ success: true, data: updated });
+      } catch (err: any) {
+        if (err instanceof AppError) throw err;
+        throw new BadRequestError(err.message || 'Failed to update telecom provider');
+      }
     },
   );
 
