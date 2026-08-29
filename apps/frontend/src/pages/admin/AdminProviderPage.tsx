@@ -230,20 +230,8 @@ export const AdminProviderPage: React.FC = () => {
       setSwitchValidation(null);
       setSwitchReason('');
       fetchControlPlaneData();
-    } catch {
-      setProviders((prev) =>
-        prev.map((p) => ({
-          ...p,
-          isAuthoritative: p.name.toLowerCase() === targetSwitchProvider.toLowerCase(),
-        }))
-      );
-      setOverview((prev) => (prev ? {
-        ...prev,
-        authoritativeProvider: targetSwitchProvider,
-      } : null));
-      toastSuccess('Authoritative Switch Complete', `Promoted ${targetSwitchProvider} to active authoritative fulfiller.`);
-      setSwitchValidation(null);
-      setSwitchReason('');
+    } catch (err: any) {
+      toastError('Authoritative Switch Failed', err?.response?.data?.error?.message || err?.message || 'Failed to switch authoritative provider in database.');
     } finally {
       setIsSwitching(false);
     }

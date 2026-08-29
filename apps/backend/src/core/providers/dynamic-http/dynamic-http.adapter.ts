@@ -105,6 +105,36 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     return norm;
   }
 
+  public isPortal02(): boolean {
+    const key = (this.config.apiKey || '').trim();
+    const url = (this.config.apiBaseUrl || '').toLowerCase();
+    const name = (this.config.providerName || '').toLowerCase().replace(/[-_\s]/g, '');
+    const slug = (this.config.providerSlug || '').toLowerCase().replace(/[-_\s]/g, '');
+    return (
+      key.startsWith('dk_') ||
+      url.includes('portal-02') ||
+      url.includes('portal02') ||
+      name.includes('portal02') ||
+      slug.includes('portal02')
+    );
+  }
+
+  private isPortalOrDataHouse(): boolean {
+    const key = (this.config.apiKey || '').trim();
+    const url = (this.config.apiBaseUrl || '').toLowerCase();
+    const name = (this.config.providerName || '').toLowerCase();
+    const slug = (this.config.providerSlug || '').toLowerCase();
+    return (
+      this.isPortal02() ||
+      key.startsWith('ak_') ||
+      url.includes('datahouse') ||
+      url.includes('portal') ||
+      name.includes('portal') ||
+      slug.includes('portal') ||
+      name.includes('datahouse')
+    );
+  }
+
   private buildHeaders(correlationId?: string): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -115,7 +145,6 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
 
     if (correlationId) {
       headers['x-correlation-id'] = correlationId;
-      headers['X-Correlation-Id'] = correlationId;
     }
 
     const apiKey = (this.config.apiKey || '').trim();
@@ -128,19 +157,14 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     switch (this.config.authMethod) {
       case 'BEARER':
         headers['Authorization'] = `Bearer ${apiKey}`;
-        headers['x-api-key'] = apiKey;
-        headers['X-API-Key'] = apiKey;
         break;
       case 'BASIC': {
         const authString = apiSecret ? `${apiKey}:${apiSecret}` : apiKey;
         headers['Authorization'] = `Basic ${Buffer.from(authString).toString('base64')}`;
-        headers['x-api-key'] = apiKey;
-        headers['X-API-Key'] = apiKey;
         break;
       }
       case 'HMAC_SHA256':
         headers['x-api-key'] = apiKey;
-        headers['X-API-Key'] = apiKey;
         break;
       case 'API_KEY':
       default:
@@ -179,22 +203,24 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     return `${rawBase}${cleanPath}`;
   }
 
-  private isPortalOrDataHouse(): boolean {
-    const key = (this.config.apiKey || '').trim();
-    const url = (this.config.apiBaseUrl || '').toLowerCase();
-    const name = (this.config.providerName || '').toLowerCase();
-    const slug = (this.config.providerSlug || '').toLowerCase();
-    return (
-      key.startsWith('dk_') ||
-      url.includes('datahouse') ||
-      url.includes('portal') ||
-      name.includes('portal') ||
-      slug.includes('portal') ||
-      name.includes('datahouse')
-    );
+  /**
+   * Deduplicates candidate URLs to avoid repeating identical HTTP requests.
+   */
+  private getUniqueUrls(candidatePaths: string[]): Array<{ path: string; url: string }> {
+    const seen = new Set<string>();
+    const unique: Array<{ path: string; url: string }> = [];
+    for (const path of candidatePaths) {
+      const url = this.buildUrl(path);
+      if (!seen.has(url)) {
+        seen.add(url);
+        unique.push({ path, url });
+      }
+    }
+    return unique;
   }
 
   public async submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
+    const isPortal02 = this.isPortal02();
     const isPortal = this.isPortalOrDataHouse();
 
     const netSlug =
@@ -202,19 +228,13 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         ? 'at'
         : String(input.network || 'mtn').toLowerCase();
 
-    const isPortal02 =
-      (this.config.apiBaseUrl || '').toLowerCase().includes('portal-02') ||
-      (this.config.apiKey || '').startsWith('dk_');
-
-    // Determine candidate endpoints: configured path, portal convention, /order/:network, or standard /orders
+    // Determine candidate endpoints
     const candidatePaths: string[] = [];
     if (this.config.endpointPaths?.submitOrder) {
       candidatePaths.push(this.config.endpointPaths.submitOrder);
     } else if (isPortal02) {
       candidatePaths.push(
         `/order/${netSlug}`,
-        `/api/v1/order/${netSlug}`,
-        ...(netSlug === 'at' ? ['/order/airteltigo', '/api/v1/order/airteltigo'] : []),
         '/orders',
         '/agent/orders',
       );
@@ -222,19 +242,14 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       candidatePaths.push(
         '/agent/orders',
         '/orders',
-        `/api/v1/order/${netSlug}`,
         `/order/${netSlug}`,
-        '/api/v1/agent/orders',
         '/api/v1/orders',
       );
     } else {
       candidatePaths.push(
-        `/api/v1/order/${netSlug}`,
         `/order/${netSlug}`,
-        ...(netSlug === 'at' ? ['/api/v1/order/airteltigo', '/order/airteltigo'] : []),
         '/orders',
         '/agent/orders',
-        '/api/v1/orders',
       );
     }
 
@@ -258,8 +273,9 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         ? 'telecel_expiry_bundle'
         : 'ishare_data_bundle';
     const offerSlug =
-      rawOfferSlug ||
-      (isPortal02 ? offerSlugForPortal02 : (netSlug === 'at' ? 'airteltigo_data_bundle' : `${netSlug}_data_bundle`));
+      isPortal02
+        ? (rawOfferSlug && rawOfferSlug.includes('_') ? rawOfferSlug : offerSlugForPortal02)
+        : (rawOfferSlug || (netSlug === 'at' ? 'airteltigo_data_bundle' : `${netSlug}_data_bundle`));
 
     const webhookUrl =
       input.callbackUrl ||
@@ -267,55 +283,53 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       (input.metadata?.callbackUrl as string) ||
       undefined;
 
-    const effectivePhone = isPortal02 ? localPhone : normPhone;
     const mappings = this.config.fieldMappings || {};
-    const payload: Record<string, unknown> = {
-      // 1. Custom / Aggregator API format (/api/v1/order/:network)
-      phone: effectivePhone,
-      phoneNumber: effectivePhone,
-      recipient: effectivePhone,
-      recipientPhone: effectivePhone,
-      localPhone: localPhone,
-      localPhoneNumber: localPhone,
-      recipient_phone: normPhone,
-      recipient_msisdn: normPhone,
-      msisdn: normPhone,
-      volume: volumeGb,
-      dataAmountMb: input.dataAmountMb,
-      package_size_mb: input.dataAmountMb,
-      offerSlug: offerSlug,
-      bundleId: bundleId || input.orderId,
-      bundle_id: bundleId || input.orderId,
-      type: 'single',
-      reference: input.clientReference,
-      clientReference: input.clientReference,
-      client_reference: input.clientReference,
-      referenceCode: input.clientReference,
-      orderId: input.orderId,
-      network: input.network,
-      webhookUrl: webhookUrl,
-      callbackUrl: webhookUrl,
-      callback_url: webhookUrl,
-      idempotencyKey: input.idempotencyKey || input.clientReference,
-      metadata: input.metadata,
-      email: (input.metadata?.email as string) || undefined,
+    let payload: Record<string, unknown>;
 
-      // Configured explicit field mappings override
-      ...(mappings.orderIdField ? { [mappings.orderIdField]: input.orderId } : {}),
-      ...(mappings.phoneField ? { [mappings.phoneField]: localPhone } : {}),
-      ...(mappings.amountField ? { [mappings.amountField]: volumeGb } : {}),
-      ...(mappings.networkField ? { [mappings.networkField]: input.network } : {}),
-      ...(mappings.referenceField ? { [mappings.referenceField]: input.clientReference } : {}),
-    };
+    if (isPortal02) {
+      // Strict 5-field Portal-02 payload format
+      payload = {
+        type: 'single',
+        volume: volumeGb,
+        phone: localPhone,
+        offerSlug: offerSlug,
+        ...(webhookUrl ? { webhookUrl } : {}),
+      };
+    } else {
+      // Standard Aggregator / Custom REST format
+      payload = {
+        phone: localPhone,
+        phoneNumber: localPhone,
+        recipient: localPhone,
+        recipient_phone: normPhone,
+        volume: volumeGb,
+        dataAmountMb: input.dataAmountMb,
+        offerSlug: offerSlug,
+        bundleId: bundleId || input.orderId,
+        type: 'single',
+        reference: input.clientReference,
+        clientReference: input.clientReference,
+        orderId: input.orderId,
+        network: input.network,
+        ...(webhookUrl ? { webhookUrl, callbackUrl: webhookUrl } : {}),
+        idempotencyKey: input.idempotencyKey || input.clientReference,
+        metadata: input.metadata,
+        ...(mappings.orderIdField ? { [mappings.orderIdField]: input.orderId } : {}),
+        ...(mappings.phoneField ? { [mappings.phoneField]: localPhone } : {}),
+        ...(mappings.amountField ? { [mappings.amountField]: volumeGb } : {}),
+        ...(mappings.networkField ? { [mappings.networkField]: input.network } : {}),
+        ...(mappings.referenceField ? { [mappings.referenceField]: input.clientReference } : {}),
+      };
+    }
 
     const startTime = Date.now();
     const correlationId = (input.metadata?.correlationId as string) || input.clientReference || `ord_${Date.now()}`;
     const headers = this.buildHeaders(correlationId);
 
+    const uniqueTargets = this.getUniqueUrls(candidatePaths);
     let lastError: Error | null = null;
 
-    for (const path of candidatePaths) {
-      const url = this.buildUrl(path);
+    for (const { path, url } of uniqueTargets) {
       logger.info(
         { provider: this.providerName, url, clientReference: input.clientReference, network: input.network },
         `[DynamicHttpAdapter] Submitting order to upstream ${this.providerName}`,
@@ -336,7 +350,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           `[DynamicHttpAdapter] Upstream response received`,
         );
 
-        if (res.status === 404 && candidatePaths.length > 1 && path !== candidatePaths[candidatePaths.length - 1]) {
+        if (res.status === 404 && uniqueTargets.length > 1 && path !== uniqueTargets[uniqueTargets.length - 1].path) {
           logger.warn({ provider: this.providerName, url }, `[DynamicHttpAdapter] Endpoint 404; trying alternative path...`);
           continue;
         }
@@ -344,12 +358,12 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         // Handle 409 Conflict (duplicate pending order) as an accepted/processing state
         if (res.status === 409) {
           logger.info(
-            { provider: this.providerName, url, phone: effectivePhone },
+            { provider: this.providerName, url, phone: localPhone },
             `[DynamicHttpAdapter] Provider returned 409 Conflict (duplicate pending order); treating as PROCESSING`,
           );
           return {
-            providerOrderId: (responseBody as any)?.orderId || (responseBody as any)?.order_id || `dup_${Date.now()}`,
-            providerReference: (responseBody as any)?.reference || input.clientReference,
+            providerOrderId: (responseBody as any)?.orderId || (responseBody as any)?.order_id || (responseBody as any)?.reference || `dup_${Date.now()}`,
+            providerReference: (responseBody as any)?.reference || (responseBody as any)?.orderId || input.clientReference,
             providerStatus: ProviderStatus.PROCESSING,
             acceptedAt: new Date().toISOString(),
             rawResponse: responseBody as Record<string, unknown>,
@@ -362,18 +376,20 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
             (responseBody as any)?.error ||
             (responseBody as any)?.details ||
             `Provider HTTP ${res.status}: Failed to submit order to ${this.providerName}`;
-          // Don't loop through more candidates for auth or business logic errors (4xx except 404)
-          if (res.status >= 400 && res.status < 500 && res.status !== 404) {
-            logger.error(
-              { provider: this.providerName, url, status: res.status, error: errorMsg },
-              `[DynamicHttpAdapter] Non-retryable provider error`,
-            );
-            throw new Error(errorMsg);
-          }
+          logger.error(
+            { provider: this.providerName, url, status: res.status, error: errorMsg },
+            `[DynamicHttpAdapter] Upstream provider rejected order submission`,
+          );
           throw new Error(errorMsg);
         }
 
         const body = responseBody as any;
+        if (body && typeof body === 'object' && body.success === false) {
+          const errorMsg = body.error || body.message || `Upstream order submission rejected with success: false`;
+          logger.error({ provider: this.providerName, url, error: errorMsg }, `[DynamicHttpAdapter] Provider returned success: false on HTTP 200`);
+          throw new Error(errorMsg);
+        }
+
         const dataObj = body && typeof body === 'object' && 'data' in body && body.data && typeof body.data === 'object'
           ? body.data
           : body;
@@ -420,7 +436,6 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         };
       } catch (err: any) {
         lastError = err;
-        // Don't loop through more candidates for non-404 errors — break immediately
         logger.warn({ provider: this.providerName, path, err: err.message }, `[DynamicHttpAdapter] Candidate attempt failed`);
         break;
       }
@@ -445,11 +460,9 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     const candidatePaths = this.config.endpointPaths?.bulkOrder
       ? [this.config.endpointPaths.bulkOrder]
       : [
-          `/api/v1/order/${netSlug}`,
           `/order/${netSlug}`,
-          ...(netSlug === 'at' ? ['/api/v1/order/airteltigo', '/order/airteltigo'] : []),
           ...(isPortal
-            ? ['/agent/orders/bulk', '/orders/bulk', '/api/v1/agent/orders/bulk']
+            ? ['/agent/orders/bulk', '/orders/bulk']
             : ['/orders/bulk', '/agent/orders/bulk']),
         ];
 
@@ -474,9 +487,9 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     };
 
     const headers = this.buildHeaders(input.idempotencyKey);
+    const uniqueTargets = this.getUniqueUrls(candidatePaths);
 
-    for (const path of candidatePaths) {
-      const url = this.buildUrl(path);
+    for (const { path, url } of uniqueTargets) {
       try {
         const res = await fetch(url, {
           method: 'POST',
@@ -485,7 +498,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           signal: AbortSignal.timeout(25000),
         });
 
-        if (res.status === 404 && candidatePaths.length > 1) {
+        if (res.status === 404 && uniqueTargets.length > 1) {
           continue;
         }
 
@@ -513,7 +526,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           rawResponse: body,
         };
       } catch (err: any) {
-        if (candidatePaths.indexOf(path) === candidatePaths.length - 1) {
+        if (uniqueTargets.indexOf({ path, url }) === uniqueTargets.length - 1) {
           logger.warn({ provider: this.providerName, err: err.message }, 'Bulk endpoint unavailable, falling back to itemized processing');
         }
       }
@@ -552,32 +565,37 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async getOrderStatus(input: GetOrderStatusInput): Promise<ProviderOrderStatus> {
+    const isPortal02 = this.isPortal02();
     const isPortal = this.isPortalOrDataHouse();
+    const orderIdentifier = input.orderId || input.providerReference;
+
     const candidatePathTemplates = this.config.endpointPaths?.orderStatus
       ? [this.config.endpointPaths.orderStatus]
+      : isPortal02
+      ? [
+          '/order/status/:reference',
+          '/orders/:reference',
+          '/agent/orders/:reference',
+        ]
       : isPortal
       ? [
           '/agent/orders/:reference',
           '/orders/:reference',
-          '/api/v1/agent/orders/:reference',
-          '/api/v1/orders/:reference',
-          '/api/v1/order/:reference',
+          '/order/status/:reference',
         ]
       : [
-          '/api/v1/orders/:reference',
-          '/api/v1/order/:reference',
+          '/order/status/:reference',
           '/orders/:reference',
-          '/order/:reference',
           '/agent/orders/:reference',
-          '/api/v1/agent/orders/:reference',
         ];
 
     const headers = this.buildHeaders(input.providerReference);
+    const resolvedPaths = candidatePathTemplates.map((t) =>
+      t.replace(':reference', encodeURIComponent(orderIdentifier)).replace(':orderId', encodeURIComponent(orderIdentifier)),
+    );
+    const uniqueTargets = this.getUniqueUrls(resolvedPaths);
 
-    for (const template of candidatePathTemplates) {
-      const path = template.replace(':reference', encodeURIComponent(input.providerReference));
-      const url = this.buildUrl(path);
-
+    for (const { path, url } of uniqueTargets) {
       try {
         const res = await fetch(url, {
           method: 'GET',
@@ -586,11 +604,11 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         });
 
         if (res.status === 404) {
-          if (candidatePathTemplates.length > 1 && template !== candidatePathTemplates[candidatePathTemplates.length - 1]) {
+          if (uniqueTargets.length > 1 && path !== uniqueTargets[uniqueTargets.length - 1].path) {
             continue;
           }
           return {
-            providerOrderId: input.providerReference,
+            providerOrderId: orderIdentifier,
             providerReference: input.providerReference,
             providerStatus: ProviderStatus.UNKNOWN,
             completedAt: null,
@@ -598,20 +616,41 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           };
         }
 
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          const errMessage = (errBody as any)?.message || (errBody as any)?.error || `HTTP ${res.status}`;
+          logger.warn(
+            { provider: this.providerName, url, status: res.status, err: errMessage },
+            `[DynamicHttpAdapter] Status check returned non-200 response`,
+          );
+          return {
+            providerOrderId: orderIdentifier,
+            providerReference: input.providerReference,
+            providerStatus: res.status >= 500 ? ProviderStatus.UNKNOWN : ProviderStatus.FAILED,
+            completedAt: null,
+            errorMessage: `Provider status check returned HTTP ${res.status}: ${errMessage}`,
+            rawResponse: errBody as Record<string, unknown>,
+          };
+        }
+
         const body = await res.json().catch(() => ({}));
         const bodyAny = body as any;
         const dataObj = bodyAny.data || bodyAny;
-        const statusStr = String(dataObj.status || dataObj.providerStatus || 'PROCESSING').toUpperCase();
+        const statusStr = String(dataObj.status || dataObj.providerStatus || 'UNKNOWN').toUpperCase();
 
         let providerStatus = ProviderStatus.PROCESSING;
         if (statusStr.includes('COMPLET') || statusStr.includes('SUCCESS') || statusStr === 'DELIVERED') {
           providerStatus = ProviderStatus.COMPLETED;
-        } else if (statusStr.includes('FAIL') || statusStr.includes('REJECT') || statusStr === 'ERROR') {
+        } else if (statusStr.includes('FAIL') || statusStr.includes('REJECT') || statusStr === 'ERROR' || statusStr.includes('CANCEL')) {
           providerStatus = ProviderStatus.FAILED;
+        } else if (statusStr.includes('PROCESS') || statusStr.includes('PENDING') || statusStr === 'ACCEPTED') {
+          providerStatus = ProviderStatus.PROCESSING;
+        } else {
+          providerStatus = ProviderStatus.UNKNOWN;
         }
 
         return {
-          providerOrderId: String(dataObj.providerOrderId || dataObj.orderId || dataObj.id || input.providerReference),
+          providerOrderId: String(dataObj.providerOrderId || dataObj.orderId || dataObj.id || orderIdentifier),
           providerReference: input.providerReference,
           providerStatus,
           completedAt: providerStatus === ProviderStatus.COMPLETED ? new Date().toISOString() : null,
@@ -619,9 +658,9 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           rawResponse: bodyAny,
         };
       } catch (err: any) {
-        if (candidatePathTemplates.indexOf(template) === candidatePathTemplates.length - 1) {
+        if (uniqueTargets.indexOf({ path, url }) === uniqueTargets.length - 1) {
           return {
-            providerOrderId: input.providerReference,
+            providerOrderId: orderIdentifier,
             providerReference: input.providerReference,
             providerStatus: ProviderStatus.UNKNOWN,
             completedAt: null,
@@ -633,7 +672,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     }
 
     return {
-      providerOrderId: input.providerReference,
+      providerOrderId: orderIdentifier,
       providerReference: input.providerReference,
       providerStatus: ProviderStatus.UNKNOWN,
       completedAt: null,
@@ -759,14 +798,19 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async getBundles(filter?: { network?: NetworkProvider }): Promise<ProviderBundleDto[]> {
+    const isPortal02 = this.isPortal02();
     const isPortal = this.isPortalOrDataHouse();
     const candidatePaths = this.config.endpointPaths?.catalog
       ? [this.config.endpointPaths.catalog]
-      : ['/api/v1/offers', '/offers', isPortal ? '/agent/bundles' : '/bundles', '/bundles', '/api/v1/agent/bundles'];
+      : isPortal02
+      ? ['/offers', '/agent/bundles', '/bundles']
+      : isPortal
+      ? ['/agent/bundles', '/bundles', '/offers']
+      : ['/offers', '/bundles', '/agent/bundles'];
 
-    for (const path of candidatePaths) {
-      const url = this.buildUrl(path);
+    const uniqueTargets = this.getUniqueUrls(candidatePaths);
 
+    for (const { path, url } of uniqueTargets) {
       try {
         const res = await fetch(url, {
           method: 'GET',
@@ -774,7 +818,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           signal: AbortSignal.timeout(8000),
         });
 
-        if (res.status === 404 && candidatePaths.length > 1) {
+        if (res.status === 404 && uniqueTargets.length > 1 && path !== uniqueTargets[uniqueTargets.length - 1].path) {
           continue;
         }
 
@@ -814,7 +858,13 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
                   String(offer.name || '').toLowerCase().includes('voice');
                 const dataSizeGb = isVoice ? numVol : numVol;
                 const dataAmountMb = isVoice ? numVol : numVol * 1024;
-                const slug = offer.offerSlug || `${String(network).toLowerCase()}_data_bundle`;
+                const defaultSlug =
+                  network === NetworkProvider.MTN
+                    ? 'master_beneficiary_data_bundle'
+                    : network === NetworkProvider.TELECEL
+                    ? 'telecel_expiry_bundle'
+                    : 'ishare_data_bundle';
+                const slug = offer.offerSlug || (isPortal02 ? defaultSlug : `${String(network).toLowerCase()}_data_bundle`);
                 result.push({
                   id: `${slug}_${numVol}`,
                   name: `${offer.name || `${network} Bundle`} - ${numVol}${isVoice ? ' Mins' : 'GB'}`,
@@ -864,22 +914,21 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async getWalletBalance(): Promise<DataHouseWalletBalanceDto> {
-    const isPortal02 =
-      (this.config.apiBaseUrl || '').toLowerCase().includes('portal-02') ||
-      (this.config.apiKey || '').startsWith('dk_');
+    const isPortal02 = this.isPortal02();
     const isPortal = this.isPortalOrDataHouse();
 
     const candidatePaths = this.config.endpointPaths?.balance
       ? [this.config.endpointPaths.balance]
       : isPortal02
-      ? ['/balance', '/api/v1/balance', '/wallet/balance', '/agent/wallet/balance']
+      ? ['/balance', '/agent/wallet/balance', '/wallet/balance']
       : isPortal
       ? ['/agent/wallet/balance', '/balance', '/wallet/balance']
       : ['/wallet/balance', '/balance', '/agent/wallet/balance'];
 
-    for (const path of candidatePaths) {
-      const url = this.buildUrl(path);
+    const uniqueTargets = this.getUniqueUrls(candidatePaths);
+    let lastError: Error | null = null;
 
+    for (const { path, url } of uniqueTargets) {
       try {
         const res = await fetch(url, {
           method: 'GET',
@@ -887,7 +936,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           signal: AbortSignal.timeout(8000),
         });
 
-        if (res.status === 404 && candidatePaths.length > 1) {
+        if (res.status === 404 && uniqueTargets.length > 1 && path !== uniqueTargets[uniqueTargets.length - 1].path) {
           continue;
         }
 
@@ -910,22 +959,25 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
             availableToSpendPesewas: Number(dataObj.availableToSpendPesewas || balancePesewas),
             availableToSpendGhs: Number(dataObj.availableToSpendGhs || balanceGhs),
           };
+        } else {
+          lastError = new Error(`Provider balance endpoint returned HTTP ${res.status}`);
         }
-      } catch {
-        // Fallback
+      } catch (err: any) {
+        lastError = err;
       }
     }
 
+    logger.warn({ provider: this.providerName, err: lastError?.message }, '[DynamicHttpAdapter] Failed to query upstream balance');
     return {
-      balanceGhs: 5000,
-      balancePesewas: 500000,
+      balanceGhs: 0,
+      balancePesewas: 0,
       currency: 'GHS',
       overdraftLimitPesewas: 0,
       overdraftUsedPesewas: 0,
       overdraftAvailablePesewas: 0,
       overdraftActive: false,
-      availableToSpendPesewas: 500000,
-      availableToSpendGhs: 5000,
+      availableToSpendPesewas: 0,
+      availableToSpendGhs: 0,
     };
   }
 
@@ -951,9 +1003,9 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     } catch (err: any) {
       return {
         providerName: this.providerName,
-        status: 'UP',
-        latencyMs: Date.now() - startTime || 140,
-        message: 'Reachable',
+        status: 'DOWN',
+        latencyMs: Date.now() - startTime || 0,
+        message: err.message || 'Unreachable',
       };
     }
   }

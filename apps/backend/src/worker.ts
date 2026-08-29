@@ -6,6 +6,7 @@ import { DataHouseAdapter } from './core/providers/datahouse/datahouse.adapter.j
 import { GmplClient } from './core/providers/gmpl/gmpl.client.js';
 import { GmplAdapter } from './core/providers/gmpl/gmpl.adapter.js';
 import { DynamicHttpTelecomAdapter } from './core/providers/dynamic-http/dynamic-http.adapter.js';
+import { SupabaseVaultCredentialStore } from './core/providers/credentials/supabase-vault-credential-store.js';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { TelecomProviderRegistry } from './core/providers/telecom-provider.registry.js';
 import { CircuitBreaker } from './core/providers/circuit-breaker.js';
@@ -80,7 +81,8 @@ export async function startWorkerProcess(): Promise<void> {
     priority: envAuthoritativeProvider.toLowerCase().includes('portal') ? 1 : 3,
   });
 
-  await providerRegistry.loadProvidersFromDatabase(db).catch((err) => {
+  const workerCredentialStore = new SupabaseVaultCredentialStore(db);
+  await providerRegistry.loadProvidersFromDatabase(db, workerCredentialStore).catch((err) => {
     logger.warn({ err }, '[WORKER_PROCESS] Failed to load dynamic telecom providers from database on boot');
   });
 

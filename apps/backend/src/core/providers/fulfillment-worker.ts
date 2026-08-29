@@ -237,7 +237,11 @@ export class FulfillmentWorker {
           });
 
           await this.db.query(
-            `UPDATE orders SET order_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            `UPDATE orders
+             SET order_status = $1,
+                 refund_status = CASE WHEN payment_status = 'PAID' THEN 'PENDING' ELSE refund_status END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
             [OrderStatus.FAILED, order.id],
           );
 
@@ -245,6 +249,44 @@ export class FulfillmentWorker {
             `UPDATE provider_orders SET provider_status = $1, last_synced_at = CURRENT_TIMESTAMP WHERE order_id = $2`,
             [ProviderStatus.FAILED, order.id],
           );
+
+          // Automated Wallet Refund for paid orders on permanent fulfillment failure
+          if (order.payment_status === 'PAID' && order.user_id && order.amount_pesewas) {
+            try {
+              const payRes = await this.db.query(
+                `SELECT id, payment_method as "paymentMethod", provider FROM payments WHERE order_id = $1 AND status = 'PAID' LIMIT 1`,
+                [order.id],
+              );
+              const pay = payRes.rows[0];
+              if (pay && (String(pay.paymentMethod).toUpperCase() === 'WALLET' || String(pay.provider).toUpperCase() === 'WALLET')) {
+                await this.db.query(
+                  `UPDATE users
+                   SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+                       wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [order.amount_pesewas, order.user_id],
+                );
+                await this.db.query(
+                  `UPDATE orders SET refund_status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                  [order.id],
+                );
+                await this.db.query(
+                  `INSERT INTO order_events (order_id, event_type, correlation_id, actor_type, source, previous_state, new_state)
+                   VALUES ($1, 'ORDER_REFUNDED', $2, 'SYSTEM', 'FULFILLMENT_WORKER', $3, $4)`,
+                  [
+                    order.id,
+                    correlationId,
+                    JSON.stringify({ refundStatus: 'PENDING' }),
+                    JSON.stringify({ refundStatus: 'COMPLETED', amountPesewas: order.amount_pesewas, reason: 'AUTOMATIC_FULFILLMENT_FAILURE_REFUND' }),
+                  ],
+                );
+                logger.info({ orderId: order.id, amountPesewas: order.amount_pesewas }, 'Automated wallet refund executed for failed fulfillment order');
+              }
+            } catch (refundErr) {
+              logger.error({ refundErr, orderId: order.id }, 'Failed to execute automated wallet refund on permanent fulfillment failure');
+            }
+          }
 
           return {
             orderId,

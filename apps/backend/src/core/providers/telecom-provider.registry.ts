@@ -105,7 +105,16 @@ export class TelecomProviderRegistry implements ITelecomProvider {
   ): ITelecomProvider {
     const key = config.providerName.toLowerCase();
     const existing = this.providers.get(key);
-    const adapter = new DynamicHttpTelecomAdapter(config);
+    const existingProv = existing?.provider as any;
+
+    const mergedConfig: DynamicHttpProviderConfig = {
+      ...config,
+      apiKey: config.apiKey || existingProv?.config?.apiKey || '',
+      apiSecret: config.apiSecret || existingProv?.config?.apiSecret || '',
+      webhookSecret: config.webhookSecret || existingProv?.config?.webhookSecret || '',
+    };
+
+    const adapter = new DynamicHttpTelecomAdapter(mergedConfig);
     const isAuth = options.isAuthoritative ?? existing?.isAuthoritative ?? false;
     this.providers.set(key, {
       provider: adapter,
@@ -149,6 +158,7 @@ export class TelecomProviderRegistry implements ITelecomProvider {
 
       for (const row of provRes.rows) {
         const key = row.name.toLowerCase();
+        const normalizedName = row.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
         let secrets: any = null;
         if (credentialStore) {
@@ -158,17 +168,23 @@ export class TelecomProviderRegistry implements ITelecomProvider {
         const existingProv = this.providers.get(key)?.provider as any;
         const envKey =
           process.env[`${row.name.toUpperCase()}_API_KEY`] ||
+          process.env[`${normalizedName}_API_KEY`] ||
+          (normalizedName.includes('PORTAL') ? process.env.PORTAL02_API_KEY : undefined) ||
           (key === 'datahouse' ? process.env.DATAHOUSE_API_KEY : undefined) ||
           (key === 'gmpl' ? process.env.GMPL_API_KEY : undefined);
         const envSecret =
           process.env[`${row.name.toUpperCase()}_API_SECRET`] ||
+          process.env[`${normalizedName}_API_SECRET`] ||
           (key === 'datahouse' ? process.env.DATAHOUSE_API_SECRET : undefined) ||
           (key === 'gmpl' ? process.env.GMPL_API_SECRET : undefined);
         const envWebhook =
           process.env[`${row.name.toUpperCase()}_WEBHOOK_SECRET`] ||
+          process.env[`${normalizedName}_WEBHOOK_SECRET`] ||
           (key === 'datahouse' ? process.env.DATAHOUSE_WEBHOOK_SECRET : undefined);
         const envBaseUrl =
           process.env[`${row.name.toUpperCase()}_BASE_URL`] ||
+          process.env[`${normalizedName}_BASE_URL`] ||
+          (normalizedName.includes('PORTAL') ? process.env.PORTAL02_BASE_URL : undefined) ||
           (key === 'datahouse' ? process.env.DATAHOUSE_BASE_URL : undefined);
 
         const effectiveApiKey =

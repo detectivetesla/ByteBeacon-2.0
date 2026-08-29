@@ -1709,6 +1709,11 @@ export class TelecomProviderManagementService {
       // Ensure provider is in registry with credentials and update carrier routing
       const targetProv = await this.getProvider(promoted.id);
       const secrets = await this.credentialStore.getSecrets(targetProv.id, targetProv.environment).catch(() => null);
+      const existingInRegistry = this.registry.getProvider(promoted.name) as any;
+      const fallbackApiKey = existingInRegistry?.config?.apiKey || existingInRegistry?.client?.apiKey || '';
+      const fallbackApiSecret = existingInRegistry?.config?.apiSecret || existingInRegistry?.client?.apiSecret || '';
+      const fallbackWebhookSecret = existingInRegistry?.config?.webhookSecret || existingInRegistry?.client?.webhookSecret || '';
+
       this.registry.updateDynamicCustomProvider({
         providerName: targetProv.name,
         providerSlug: targetProv.slug,
@@ -1716,9 +1721,9 @@ export class TelecomProviderManagementService {
         apiVersion: targetProv.apiVersion,
         authMethod: targetProv.authMethod,
         environment: targetProv.environment,
-        apiKey: secrets?.apiKey || '',
-        apiSecret: secrets?.apiSecret || '',
-        webhookSecret: secrets?.webhookSecret || '',
+        apiKey: secrets?.apiKey || fallbackApiKey,
+        apiSecret: secrets?.apiSecret || fallbackApiSecret,
+        webhookSecret: secrets?.webhookSecret || fallbackWebhookSecret,
         supportedNetworks: targetProv.supportedNetworks,
       }, {
         isAuthoritative: true,

@@ -570,12 +570,19 @@ export class BulkOrderService {
 
         // Insert provider order projection
         const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
-        const activeProviderName = envProvider || 'DataHouse';
-        await client.query(
-          `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
-           VALUES ($1, $2, $3, 'RECEIVED')`,
-          [childOrderId, activeProviderName, childRef],
-        );
+        if (envProvider) {
+          await client.query(
+            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
+             VALUES ($1, $2, $3, 'UNKNOWN')`,
+            [childOrderId, envProvider, childRef],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
+             VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse'), $2, 'UNKNOWN')`,
+            [childOrderId, childRef],
+          );
+        }
 
         childOrders.push({
           id: childPublicId,

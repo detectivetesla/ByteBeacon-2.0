@@ -40,6 +40,7 @@ import { DataHouseAdapter } from './core/providers/datahouse/datahouse.adapter.j
 import { GmplClient } from './core/providers/gmpl/gmpl.client.js';
 import { GmplAdapter } from './core/providers/gmpl/gmpl.adapter.js';
 import { DynamicHttpTelecomAdapter } from './core/providers/dynamic-http/dynamic-http.adapter.js';
+import { SupabaseVaultCredentialStore } from './core/providers/credentials/supabase-vault-credential-store.js';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { DataHouseWebhookService } from './core/providers/datahouse-webhook.service.js';
 import { CircuitBreaker } from './core/providers/circuit-breaker.js';
@@ -346,7 +347,8 @@ export function createApp(options: AppOptions = {}) {
   }
 
   if (dbPool) {
-    providerRegistry.loadProvidersFromDatabase(dbPool)
+    const credentialStore = new SupabaseVaultCredentialStore(dbPool);
+    providerRegistry.loadProvidersFromDatabase(dbPool, credentialStore)
       .then(() => {
         // After DB load, re-assert the env var override (DB may have set a different provider as authoritative)
         if (envAuthoritativeProvider) {
