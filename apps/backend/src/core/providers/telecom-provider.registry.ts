@@ -16,6 +16,8 @@ import {
   ProviderBundleDto,
   ProviderHealth,
   NetworkProvider,
+  ProviderAuthMethod,
+  TelecomEnvironment,
   ProviderConnectionTestResult,
   SandboxTransactionTestInput,
   SandboxTransactionTestResult,
@@ -136,32 +138,34 @@ export class TelecomProviderRegistry implements ITelecomProvider {
     try {
       let provRes: any;
       try {
-        provRes = await db.query(`
-          SELECT id, name, slug, api_base_url as "apiBaseUrl", api_version as "apiVersion",
-                 auth_method as "authMethod", webhook_url as "webhookUrl", environment,
-                 is_authoritative as "isAuthoritative", supported_networks as "supportedNetworks",
-                 api_key as "apiKey", api_secret as "apiSecret", webhook_secret as "webhookSecret",
-                 COALESCE(endpoint_paths, '{}'::jsonb) as "endpointPaths",
-                 COALESCE(field_mappings, '{}'::jsonb) as "fieldMappings",
-                 COALESCE(custom_headers, '{}'::jsonb) as "customHeaders"
-          FROM telecom_providers
-          WHERE is_active = TRUE OR status = 'ACTIVE'
-          ORDER BY is_authoritative DESC, created_at ASC
-        `);
+        provRes = await db.query(`SELECT * FROM telecom_providers`);
       } catch {
-        provRes = await db.query(`
-          SELECT id, name, slug, api_base_url as "apiBaseUrl", api_version as "apiVersion",
-                 auth_method as "authMethod", webhook_url as "webhookUrl", environment,
-                 is_authoritative as "isAuthoritative", supported_networks as "supportedNetworks"
-          FROM telecom_providers
-          WHERE is_active = TRUE OR status = 'ACTIVE'
-          ORDER BY is_authoritative DESC, created_at ASC
-        `);
+        provRes = { rows: [] };
       }
 
       let foundAuthoritativeInDb = false;
 
-      for (const row of provRes.rows) {
+      for (const rawRow of provRes.rows) {
+        if (rawRow.is_active === false || rawRow.status === 'INACTIVE') continue;
+
+        const row = {
+          id: rawRow.id,
+          name: rawRow.name,
+          slug: rawRow.slug || String(rawRow.name || 'custom').toLowerCase().replace(/[^a-z0-9]/g, '-'),
+          apiBaseUrl: rawRow.api_base_url || rawRow.apiBaseUrl || '',
+          apiVersion: rawRow.api_version || rawRow.apiVersion || 'v1',
+          authMethod: rawRow.auth_method || rawRow.authMethod || ProviderAuthMethod.API_KEY,
+          webhookUrl: rawRow.webhook_url || rawRow.webhookUrl || null,
+          environment: rawRow.environment || TelecomEnvironment.PRODUCTION,
+          isAuthoritative: Boolean(rawRow.is_authoritative || rawRow.isAuthoritative),
+          supportedNetworks: rawRow.supported_networks || rawRow.supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+          apiKey: rawRow.api_key || rawRow.apiKey || '',
+          apiSecret: rawRow.api_secret || rawRow.apiSecret || '',
+          webhookSecret: rawRow.webhook_secret || rawRow.webhookSecret || '',
+          endpointPaths: rawRow.endpoint_paths || rawRow.endpointPaths || {},
+          fieldMappings: rawRow.field_mappings || rawRow.fieldMappings || {},
+          customHeaders: rawRow.custom_headers || rawRow.customHeaders || {},
+        };
         const key = row.name.toLowerCase();
         const normalizedName = row.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
 

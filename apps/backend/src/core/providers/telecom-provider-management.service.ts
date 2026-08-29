@@ -361,41 +361,16 @@ export class TelecomProviderManagementService {
   // =========================================================================
 
   public async getProviders(): Promise<TelecomProviderDetailDto[]> {
-    const provRes = await this.db.query(`
-      SELECT 
-        p.id,
-        p.name,
-        p.slug,
-        p.description,
-        p.provider_type as "providerType",
-        p.environment,
-        p.status,
-        p.is_authoritative as "isAuthoritative",
-        p.supported_networks as "supportedNetworks",
-        p.api_base_url as "apiBaseUrl",
-        p.api_version as "apiVersion",
-        p.auth_method as "authMethod",
-        p.api_key as "apiKey",
-        p.api_secret as "apiSecret",
-        p.webhook_secret as "webhookSecret",
-        p.webhook_support as "webhookSupport",
-        p.webhook_url as "webhookUrl",
-        p.sandbox_support as "sandboxSupport",
-        p.sandbox_base_url as "sandboxBaseUrl",
-        p.last_health_check as "lastHealthCheck",
-        p.last_successful_request as "lastSuccessfulRequest",
-        p.last_failure as "lastFailure",
-        p.last_error as "lastError",
-        COALESCE(p.avg_latency_ms, 180) as "avgLatencyMs",
-        COALESCE(p.p95_latency_ms, 350) as "p95LatencyMs",
-        COALESCE(p.success_rate, 99.8) as "successRate",
-        COALESCE(p.total_requests_count, 0) as "totalRequestsCount",
-        COALESCE(p.failed_requests_count, 0) as "failedRequestsCount",
-        p.created_at as "createdAt",
-        p.updated_at as "updatedAt"
-      FROM telecom_providers p
-      ORDER BY p.is_authoritative DESC, p.name ASC
-    `).catch(() => ({ rows: [] }));
+    let provRes: any;
+    try {
+      provRes = await this.db.query(`SELECT * FROM telecom_providers ORDER BY created_at DESC`);
+    } catch {
+      try {
+        provRes = await this.db.query(`SELECT * FROM telecom_providers`);
+      } catch {
+        provRes = { rows: [] };
+      }
+    }
 
     if (provRes.rows.length === 0) {
       // Fallback baseline providers
@@ -541,7 +516,8 @@ export class TelecomProviderManagementService {
     }
 
     return provRes.rows.map((row: any) => {
-      const caps = capsByProv.get(row.id) || {
+      const rowId = row.id;
+      const caps = capsByProv.get(rowId) || {
         NETWORKS: true,
         CATALOG: true,
         BENEFICIARY_VALIDATION: true,
@@ -555,50 +531,51 @@ export class TelecomProviderManagementService {
         PRECHECK: true,
         WALLET_BALANCE: true,
       };
-      const hasDirectApiKey = Boolean(row.apiKey && String(row.apiKey).trim().length > 0);
-      const creds = credsByProv.get(row.id) || {
+      const directKey = row.api_key || row.apiKey || '';
+      const hasDirectApiKey = Boolean(directKey && String(directKey).trim().length > 0);
+      const creds = credsByProv.get(rowId) || {
         sandbox: true,
         production: true,
         masked: {
-          apiKeyMasked: hasDirectApiKey ? `••••••••${String(row.apiKey).trim().slice(-4)}` : '••••••••••••••••',
+          apiKeyMasked: hasDirectApiKey ? `••••••••${String(directKey).trim().slice(-4)}` : '••••••••••••••••',
           webhookSecretMasked: '••••••••••••••••',
           status: 'Configured',
         },
       };
-      const mappings = mapsByProv.get(row.id) || [];
+      const mappings = mapsByProv.get(rowId) || [];
 
       return {
         id: row.id,
-        name: row.name,
-        slug: row.slug,
+        name: row.name || 'Custom Provider',
+        slug: row.slug || String(row.name || 'custom').toLowerCase().replace(/[^a-z0-9]/g, '-'),
         description: row.description || '',
-        providerType: row.providerType,
-        environment: row.environment,
-        status: row.status,
-        isAuthoritative: Boolean(row.isAuthoritative),
-        supportedNetworks: row.supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-        apiBaseUrl: row.apiBaseUrl,
-        apiVersion: row.apiVersion || 'v1',
-        authMethod: row.authMethod || ProviderAuthMethod.API_KEY,
-        webhookSupport: Boolean(row.webhookSupport),
-        webhookUrl: row.webhookUrl,
-        sandboxSupport: Boolean(row.sandboxSupport),
-        sandboxBaseUrl: row.sandboxBaseUrl,
+        providerType: row.provider_type || row.providerType || TelecomProviderType.AGGREGATOR,
+        environment: row.environment || TelecomEnvironment.PRODUCTION,
+        status: row.status || TelecomProviderStatus.ACTIVE,
+        isAuthoritative: Boolean(row.is_authoritative || row.isAuthoritative),
+        supportedNetworks: row.supported_networks || row.supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+        apiBaseUrl: row.api_base_url || row.apiBaseUrl || '',
+        apiVersion: row.api_version || row.apiVersion || 'v1',
+        authMethod: row.auth_method || row.authMethod || ProviderAuthMethod.API_KEY,
+        webhookSupport: row.webhook_support !== undefined ? Boolean(row.webhook_support) : true,
+        webhookUrl: row.webhook_url || row.webhookUrl || null,
+        sandboxSupport: row.sandbox_support !== undefined ? Boolean(row.sandbox_support) : true,
+        sandboxBaseUrl: row.sandbox_base_url || row.sandboxBaseUrl || null,
         hasCredentials: { sandbox: creds.sandbox, production: creds.production },
         credentialsMasked: creds.masked,
-        lastHealthCheck: safeIsoDate(row.lastHealthCheck),
-        lastSuccessfulRequest: safeIsoDate(row.lastSuccessfulRequest),
-        lastFailure: safeIsoDate(row.lastFailure),
-        lastError: row.lastError,
-        avgLatencyMs: Number(row.avgLatencyMs || 180),
-        p95LatencyMs: Number(row.p95LatencyMs || 350),
-        successRate: Number(row.successRate || 99.8),
-        totalRequestsCount: Number(row.totalRequestsCount || 0),
-        failedRequestsCount: Number(row.failedRequestsCount || 0),
+        lastHealthCheck: safeIsoDate(row.last_health_check || row.lastHealthCheck),
+        lastSuccessfulRequest: safeIsoDate(row.last_successful_request || row.lastSuccessfulRequest),
+        lastFailure: safeIsoDate(row.last_failure || row.lastFailure),
+        lastError: row.last_error || row.lastError || null,
+        avgLatencyMs: Number(row.avg_latency_ms || row.avgLatencyMs || 180),
+        p95LatencyMs: Number(row.p95_latency_ms || row.p95LatencyMs || 350),
+        successRate: Number(row.success_rate || row.successRate || 99.8),
+        totalRequestsCount: Number(row.total_requests_count || row.totalRequestsCount || 0),
+        failedRequestsCount: Number(row.failed_requests_count || row.failedRequestsCount || 0),
         capabilities: caps,
         networkMappings: mappings,
-        createdAt: safeIsoDate(row.createdAt, new Date().toISOString())!,
-        updatedAt: safeIsoDate(row.updatedAt, new Date().toISOString())!,
+        createdAt: safeIsoDate(row.created_at || row.createdAt, new Date().toISOString())!,
+        updatedAt: safeIsoDate(row.updated_at || row.updatedAt, new Date().toISOString())!,
       };
     });
   }
@@ -606,12 +583,78 @@ export class TelecomProviderManagementService {
   public async getProvider(idOrSlug: string): Promise<TelecomProviderDetailDto> {
     const providers = await this.getProviders();
     const provider = providers.find(
-      (p) => p.id === idOrSlug || p.slug.toLowerCase() === idOrSlug.toLowerCase() || p.name.toLowerCase() === idOrSlug.toLowerCase(),
+      (p) =>
+        String(p.id).toLowerCase() === String(idOrSlug).toLowerCase() ||
+        String(p.slug).toLowerCase() === String(idOrSlug).toLowerCase() ||
+        String(p.name).toLowerCase() === String(idOrSlug).toLowerCase(),
     );
-    if (!provider) {
-      throw new NotFoundError(`Telecom provider [${idOrSlug}] not found`);
+    if (provider) {
+      return provider;
     }
-    return provider;
+
+    // Try direct query in database by id/slug/name
+    const directRes = await this.db.query(
+      `SELECT * FROM telecom_providers WHERE id::text = $1 OR LOWER(slug) = LOWER($1) OR LOWER(name) = LOWER($1) LIMIT 1`,
+      [idOrSlug.trim()],
+    ).catch(() => ({ rows: [] }));
+
+    if (directRes.rows.length > 0) {
+      const row = directRes.rows[0];
+      const directKey = row.api_key || row.apiKey || '';
+      const hasDirectApiKey = Boolean(directKey && String(directKey).trim().length > 0);
+      return {
+        id: row.id,
+        name: row.name || 'Custom Provider',
+        slug: row.slug || String(row.name || 'custom').toLowerCase().replace(/[^a-z0-9]/g, '-'),
+        description: row.description || '',
+        providerType: row.provider_type || row.providerType || TelecomProviderType.AGGREGATOR,
+        environment: row.environment || TelecomEnvironment.PRODUCTION,
+        status: row.status || TelecomProviderStatus.ACTIVE,
+        isAuthoritative: Boolean(row.is_authoritative || row.isAuthoritative),
+        supportedNetworks: row.supported_networks || row.supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+        apiBaseUrl: row.api_base_url || row.apiBaseUrl || '',
+        apiVersion: row.api_version || row.apiVersion || 'v1',
+        authMethod: row.auth_method || row.authMethod || ProviderAuthMethod.API_KEY,
+        webhookSupport: row.webhook_support !== undefined ? Boolean(row.webhook_support) : true,
+        webhookUrl: row.webhook_url || row.webhookUrl || null,
+        sandboxSupport: row.sandbox_support !== undefined ? Boolean(row.sandbox_support) : true,
+        sandboxBaseUrl: row.sandbox_base_url || row.sandboxBaseUrl || null,
+        hasCredentials: { sandbox: true, production: true },
+        credentialsMasked: {
+          apiKeyMasked: hasDirectApiKey ? `••••••••${String(directKey).trim().slice(-4)}` : '••••••••••••••••',
+          webhookSecretMasked: '••••••••••••••••',
+          status: 'Configured',
+        },
+        lastHealthCheck: safeIsoDate(row.last_health_check || row.lastHealthCheck),
+        lastSuccessfulRequest: safeIsoDate(row.last_successful_request || row.lastSuccessfulRequest),
+        lastFailure: safeIsoDate(row.last_failure || row.lastFailure),
+        lastError: row.last_error || row.lastError || null,
+        avgLatencyMs: Number(row.avg_latency_ms || row.avgLatencyMs || 180),
+        p95LatencyMs: Number(row.p95_latency_ms || row.p95LatencyMs || 350),
+        successRate: Number(row.success_rate || row.successRate || 99.8),
+        totalRequestsCount: Number(row.total_requests_count || row.totalRequestsCount || 0),
+        failedRequestsCount: Number(row.failed_requests_count || row.failedRequestsCount || 0),
+        capabilities: {
+          NETWORKS: true,
+          CATALOG: true,
+          BENEFICIARY_VALIDATION: true,
+          SINGLE_ORDERS: true,
+          BULK_ORDERS: true,
+          ORDER_STATUS: true,
+          WEBHOOKS: true,
+          RECONCILIATION: true,
+          REFUNDS: false,
+          SANDBOX: true,
+          PRECHECK: true,
+          WALLET_BALANCE: true,
+        },
+        networkMappings: [],
+        createdAt: safeIsoDate(row.created_at || row.createdAt, new Date().toISOString())!,
+        updatedAt: safeIsoDate(row.updated_at || row.updatedAt, new Date().toISOString())!,
+      };
+    }
+
+    throw new NotFoundError(`Telecom provider [${idOrSlug}] not found`);
   }
 
   public async createProvider(
