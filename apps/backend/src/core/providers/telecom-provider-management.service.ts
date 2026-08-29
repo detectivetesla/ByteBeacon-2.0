@@ -640,32 +640,66 @@ export class TelecomProviderManagementService {
     try {
       await client.query('BEGIN');
 
-      const insertRes = await client.query(
-        `INSERT INTO telecom_providers (
-           name, slug, description, provider_type, environment, status,
-           is_authoritative, supported_networks, api_base_url, api_version,
-           auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-         RETURNING id`,
-        [
-          name.trim(),
-          slug.trim().toLowerCase(),
-          description || null,
-          providerType,
-          environment,
-          status,
-          isAuthoritative,
-          supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-          apiBaseUrl.trim(),
-          apiVersion,
-          authMethod,
-          webhookSupport,
-          webhookUrl || null,
-          sandboxSupport,
-          sandboxBaseUrl || null,
-        ],
-      );
+      let insertRes: any;
+      try {
+        insertRes = await client.query(
+          `INSERT INTO telecom_providers (
+             name, slug, description, provider_type, environment, status,
+             is_authoritative, supported_networks, api_base_url, api_version,
+             auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url,
+             api_key, api_secret, webhook_secret
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+           RETURNING id`,
+          [
+            name.trim(),
+            slug.trim().toLowerCase(),
+            description || null,
+            providerType,
+            environment,
+            status,
+            isAuthoritative,
+            supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+            apiBaseUrl.trim(),
+            apiVersion,
+            authMethod,
+            webhookSupport,
+            webhookUrl || null,
+            sandboxSupport,
+            sandboxBaseUrl || null,
+            apiKey ? apiKey.trim() : null,
+            apiSecret ? apiSecret.trim() : null,
+            webhookSecret ? webhookSecret.trim() : null,
+          ],
+        );
+      } catch {
+        insertRes = await client.query(
+          `INSERT INTO telecom_providers (
+             name, slug, description, provider_type, environment, status,
+             is_authoritative, supported_networks, api_base_url, api_version,
+             auth_method, webhook_support, webhook_url, sandbox_support, sandbox_base_url
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+           RETURNING id`,
+          [
+            name.trim(),
+            slug.trim().toLowerCase(),
+            description || null,
+            providerType,
+            environment,
+            status,
+            isAuthoritative,
+            supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+            apiBaseUrl.trim(),
+            apiVersion,
+            authMethod,
+            webhookSupport,
+            webhookUrl || null,
+            sandboxSupport,
+            sandboxBaseUrl || null,
+          ],
+        );
+      }
 
       createdId = insertRes.rows[0].id;
 
@@ -691,7 +725,7 @@ export class TelecomProviderManagementService {
            VALUES ($1, $2, $3)
            ON CONFLICT (provider_id, capability) DO UPDATE SET is_supported = EXCLUDED.is_supported`,
           [createdId, cap, Boolean(isSupported)],
-        );
+        ).catch(() => {});
       }
 
       // Default network mapping
@@ -702,7 +736,7 @@ export class TelecomProviderManagementService {
            VALUES ($1, $2, 'AVAILABLE', 2, 0, 'ACTIVE')
            ON CONFLICT (network_code, provider_id) DO NOTHING`,
           [net, createdId],
-        );
+        ).catch(() => {});
       }
 
       await client.query('COMMIT');
@@ -724,24 +758,26 @@ export class TelecomProviderManagementService {
           webhookSecret,
         },
         actorId,
-      );
+      ).catch(() => {});
     }
 
-    // Immediately register in runtime registry so it is ready for instant test and fulfillment
-    this.registry.registerDynamicCustomProvider({
-      providerName: name.trim(),
-      providerSlug: slug.trim().toLowerCase(),
-      apiBaseUrl: apiBaseUrl.trim(),
-      apiVersion,
-      authMethod,
-      environment,
-      apiKey: apiKey || '',
-      apiSecret: apiSecret || '',
-      webhookSecret: webhookSecret || '',
-      supportedNetworks: supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
-    }, {
-      isAuthoritative: Boolean(isAuthoritative),
-      supportedNetworks: supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+    // Immediately reload dynamic providers in runtime registry
+    await this.registry.loadProvidersFromDatabase(this.db, this.credentialStore).catch(() => {
+      this.registry.registerDynamicCustomProvider({
+        providerName: name.trim(),
+        providerSlug: slug.trim().toLowerCase(),
+        apiBaseUrl: apiBaseUrl.trim(),
+        apiVersion,
+        authMethod,
+        environment,
+        apiKey: apiKey || '',
+        apiSecret: apiSecret || '',
+        webhookSecret: webhookSecret || '',
+        supportedNetworks: supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+      }, {
+        isAuthoritative: Boolean(isAuthoritative),
+        supportedNetworks: supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+      });
     });
 
     if (this.auditService && actorId) {
@@ -753,7 +789,7 @@ export class TelecomProviderManagementService {
         resourceType: 'telecom_providers',
         resourceId: createdId,
         metadata: { name, slug, providerType, environment },
-      });
+      }).catch(() => {});
     }
 
     return this.getProvider(createdId);
