@@ -127,7 +127,7 @@ export async function startWorkerProcess(): Promise<void> {
   // 2. Register Reconciliation Worker on BullMQ
   queueManager.registerWorker(QUEUE_NAMES.RECONCILIATION, async (job) => {
     logger.info({ jobId: job.id }, '[WORKER_PROCESS] Executing scheduled provider reconciliation audit');
-    return reconService.reconcileStaleOrders(new Date().toISOString(), 300);
+    return reconService.reconcileStaleOrders(new Date().toISOString(), 1);
   });
 
   logger.info('[WORKER_PROCESS] All background workers successfully registered and listening for jobs.');

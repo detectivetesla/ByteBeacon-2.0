@@ -244,7 +244,7 @@ export class OrderService {
       } else {
         await client.query(
           `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-           VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse'), 'UNKNOWN')`,
+           VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Portal-02'), 'UNKNOWN')`,
           [orderRow.id],
         );
       }
@@ -425,7 +425,7 @@ export class OrderService {
         refundStatus: orderRow.refundStatus as RefundStatus,
         pricingSnapshot,
         providerOrder: {
-          providerName: 'DataHouse',
+          providerName: envProvider || 'Portal-02',
           providerReference: null,
           providerStatus: ProviderStatus.UNKNOWN,
           lastSyncedAt: null,
@@ -540,11 +540,68 @@ export class OrderService {
       throw new NotFoundError(`Order '${orderIdOrPublicId}' not found`);
     }
 
-    const row = result.rows[0];
+    let row = result.rows[0];
 
     // Strict Cross-Tenant Authorization Check
     if (!isAdmin && row.userId !== userId) {
       throw new ForbiddenError('You are not authorized to access this order record');
+    }
+
+    // 1. Self-Healing: If order is PAID & READY_FOR_FULFILLMENT, trigger background fulfillment
+    if (row.orderStatus === OrderStatus.READY_FOR_FULFILLMENT && this.fulfillmentWorker) {
+      setImmediate(() => {
+        this.fulfillmentWorker!.processOrderFulfillment(row.id, `lookup_self_heal_${Date.now()}`).catch(() => {});
+      });
+    }
+
+    // 2. Live Provider Reconciliation: If submitted/processing and has provider reference, check live provider status
+    if (
+      (row.orderStatus === OrderStatus.SUBMITTED || row.orderStatus === OrderStatus.PROCESSING) &&
+      row.poProviderReference &&
+      this.fulfillmentWorker
+    ) {
+      const isStale = !row.poLastSyncedAt || Date.now() - new Date(row.poLastSyncedAt).getTime() > 10000;
+      if (isStale) {
+        try {
+          const provider = (this.fulfillmentWorker as any).provider;
+          if (provider && typeof provider.getOrderStatus === 'function') {
+            const liveStatus = await provider.getOrderStatus({
+              providerReference: row.poProviderReference,
+              orderId: row.id,
+            });
+            if (liveStatus && liveStatus.providerStatus && liveStatus.providerStatus !== ProviderStatus.UNKNOWN) {
+              const isCompleted = liveStatus.providerStatus === ProviderStatus.COMPLETED;
+              const isFailed =
+                liveStatus.providerStatus === ProviderStatus.FAILED ||
+                liveStatus.providerStatus === ProviderStatus.REJECTED;
+              const newOrderStatus = isCompleted
+                ? OrderStatus.COMPLETED
+                : isFailed
+                ? OrderStatus.FAILED
+                : OrderStatus.PROCESSING;
+
+              await this.db.query(
+                `UPDATE provider_orders
+                 SET provider_status = $1, last_synced_at = CURRENT_TIMESTAMP, sync_version = sync_version + 1
+                 WHERE order_id = $2`,
+                [liveStatus.providerStatus, row.id],
+              );
+              await this.db.query(
+                `UPDATE orders
+                 SET order_status = $1, provider_status = $2, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3`,
+                [newOrderStatus, liveStatus.providerStatus, row.id],
+              );
+              row.orderStatus = newOrderStatus;
+              row.providerStatus = liveStatus.providerStatus;
+              row.poProviderStatus = liveStatus.providerStatus;
+              row.poLastSyncedAt = new Date();
+            }
+          }
+        } catch (err: any) {
+          logger.debug({ orderId: row.id, err: err?.message }, 'Order lookup status reconciliation notice');
+        }
+      }
     }
 
     // Fetch Events History
@@ -616,18 +673,21 @@ export class OrderService {
     }
 
     const res = await this.db.query(
-      `SELECT id, public_id as "publicId", recipient_phone as "recipientPhone", network,
-              data_amount_mb as "dataAmountMb", amount_pesewas as "amountPesewas", currency,
-              payment_status as "paymentStatus", order_status as "orderStatus",
-              pricing_snapshot as "pricingSnapshot",
-              created_at as "createdAt", updated_at as "updatedAt"
-       FROM orders
-       WHERE LOWER(public_id) = LOWER($1)
-          OR id::text = $1
-          OR LOWER(id::text) = LOWER($1)
-          OR recipient_phone = $1
-          OR recipient_phone = $2
-       ORDER BY created_at DESC
+      `SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone", o.network,
+              o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas", o.currency,
+              o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+              o.pricing_snapshot as "pricingSnapshot",
+              o.created_at as "createdAt", o.updated_at as "updatedAt",
+              po.provider_reference as "poProviderReference", po.provider_status as "poProviderStatus",
+              po.last_synced_at as "poLastSyncedAt"
+       FROM orders o
+       LEFT JOIN provider_orders po ON o.id = po.order_id
+       WHERE LOWER(o.public_id) = LOWER($1)
+          OR o.id::text = $1
+          OR LOWER(o.id::text) = LOWER($1)
+          OR o.recipient_phone = $1
+          OR o.recipient_phone = $2
+       ORDER BY o.created_at DESC
        LIMIT 1`,
       [cleanRef, altPhone],
     );
@@ -636,7 +696,63 @@ export class OrderService {
       return null;
     }
 
-    const row = res.rows[0];
+    let row = res.rows[0];
+
+    // 1. Self-Healing: If order is PAID & READY_FOR_FULFILLMENT, trigger background fulfillment
+    if (row.orderStatus === OrderStatus.READY_FOR_FULFILLMENT && this.fulfillmentWorker) {
+      setImmediate(() => {
+        this.fulfillmentWorker!.processOrderFulfillment(row.id, `track_self_heal_${Date.now()}`).catch(() => {});
+      });
+    }
+
+    // 2. Live Provider Reconciliation
+    if (
+      (row.orderStatus === OrderStatus.SUBMITTED || row.orderStatus === OrderStatus.PROCESSING) &&
+      row.poProviderReference &&
+      this.fulfillmentWorker
+    ) {
+      const isStale = !row.poLastSyncedAt || Date.now() - new Date(row.poLastSyncedAt).getTime() > 10000;
+      if (isStale) {
+        try {
+          const provider = (this.fulfillmentWorker as any).provider;
+          if (provider && typeof provider.getOrderStatus === 'function') {
+            const liveStatus = await provider.getOrderStatus({
+              providerReference: row.poProviderReference,
+              orderId: row.id,
+            });
+            if (liveStatus && liveStatus.providerStatus && liveStatus.providerStatus !== ProviderStatus.UNKNOWN) {
+              const isCompleted = liveStatus.providerStatus === ProviderStatus.COMPLETED;
+              const isFailed =
+                liveStatus.providerStatus === ProviderStatus.FAILED ||
+                liveStatus.providerStatus === ProviderStatus.REJECTED;
+              const newOrderStatus = isCompleted
+                ? OrderStatus.COMPLETED
+                : isFailed
+                ? OrderStatus.FAILED
+                : OrderStatus.PROCESSING;
+
+              await this.db.query(
+                `UPDATE provider_orders
+                 SET provider_status = $1, last_synced_at = CURRENT_TIMESTAMP, sync_version = sync_version + 1
+                 WHERE order_id = $2`,
+                [liveStatus.providerStatus, row.id],
+              );
+              await this.db.query(
+                `UPDATE orders
+                 SET order_status = $1, provider_status = $2, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3`,
+                [newOrderStatus, liveStatus.providerStatus, row.id],
+              );
+              row.orderStatus = newOrderStatus;
+              row.providerStatus = liveStatus.providerStatus;
+            }
+          }
+        } catch (err: any) {
+          logger.debug({ orderId: row.id, err: err?.message }, 'Track order status reconciliation notice');
+        }
+      }
+    }
+
     const { status, statusLabel } = toCustomerFacingStatus(
       row.orderStatus as OrderStatus,
       row.paymentStatus as PaymentStatus,
@@ -996,7 +1112,59 @@ export class OrderService {
       throw new NotFoundError(`Order '${orderIdOrPublicId}' not found for current agent`);
     }
 
-    const r = result.rows[0];
+    let r = result.rows[0];
+
+    // 1. Self-Healing: If order is PAID & READY_FOR_FULFILLMENT, trigger background fulfillment
+    if (r.orderStatus === OrderStatus.READY_FOR_FULFILLMENT && this.fulfillmentWorker) {
+      setImmediate(() => {
+        this.fulfillmentWorker!.processOrderFulfillment(r.id, `agent_self_heal_${Date.now()}`).catch(() => {});
+      });
+    }
+
+    // 2. Live Provider Reconciliation
+    if (
+      (r.orderStatus === OrderStatus.SUBMITTED || r.orderStatus === OrderStatus.PROCESSING) &&
+      r.providerReference &&
+      this.fulfillmentWorker
+    ) {
+      try {
+        const provider = (this.fulfillmentWorker as any).provider;
+        if (provider && typeof provider.getOrderStatus === 'function') {
+          const liveStatus = await provider.getOrderStatus({
+            providerReference: r.providerReference,
+            orderId: r.id,
+          });
+          if (liveStatus && liveStatus.providerStatus && liveStatus.providerStatus !== ProviderStatus.UNKNOWN) {
+            const isCompleted = liveStatus.providerStatus === ProviderStatus.COMPLETED;
+            const isFailed =
+              liveStatus.providerStatus === ProviderStatus.FAILED ||
+              liveStatus.providerStatus === ProviderStatus.REJECTED;
+            const newOrderStatus = isCompleted
+              ? OrderStatus.COMPLETED
+              : isFailed
+              ? OrderStatus.FAILED
+              : OrderStatus.PROCESSING;
+
+            await this.db.query(
+              `UPDATE provider_orders
+               SET provider_status = $1, last_synced_at = CURRENT_TIMESTAMP, sync_version = sync_version + 1
+               WHERE order_id = $2`,
+              [liveStatus.providerStatus, r.id],
+            );
+            await this.db.query(
+              `UPDATE orders
+               SET order_status = $1, provider_status = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $3`,
+              [newOrderStatus, liveStatus.providerStatus, r.id],
+            );
+            r.orderStatus = newOrderStatus;
+            r.providerStatus = liveStatus.providerStatus;
+          }
+        }
+      } catch (err: any) {
+        logger.debug({ orderId: r.id, err: err?.message }, 'Agent order status reconciliation notice');
+      }
+    }
     const isApproved = r.orderStatus === 'COMPLETED' || r.providerStatus === 'COMPLETED';
     const isFailed = r.orderStatus === 'FAILED' || r.orderStatus === 'CANCELLED' || r.providerStatus === 'FAILED' || r.providerStatus === 'REJECTED';
     const isPending = !isApproved && !isFailed;

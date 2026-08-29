@@ -287,28 +287,36 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     let payload: Record<string, unknown>;
 
     if (isPortal02) {
-      // Strict 5-field Portal-02 payload format
+      // Primary Portal-02 payload format with aliasing attributes
       payload = {
         type: 'single',
         volume: volumeGb,
         phone: localPhone,
         offerSlug: offerSlug,
+        recipient_msisdn: normPhone,
+        localPhoneNumber: localPhone,
+        package_size_mb: input.dataAmountMb,
+        client_reference: input.clientReference,
         ...(webhookUrl ? { webhookUrl } : {}),
       };
     } else {
       // Standard Aggregator / Custom REST format
       payload = {
-        phone: localPhone,
+        phone: normPhone || localPhone,
         phoneNumber: localPhone,
         recipient: localPhone,
         recipient_phone: normPhone,
+        recipient_msisdn: normPhone,
+        localPhoneNumber: localPhone,
         volume: volumeGb,
         dataAmountMb: input.dataAmountMb,
+        package_size_mb: input.dataAmountMb,
         offerSlug: offerSlug,
         bundleId: bundleId || input.orderId,
         type: 'single',
         reference: input.clientReference,
         clientReference: input.clientReference,
+        client_reference: input.clientReference,
         orderId: input.orderId,
         network: input.network,
         ...(webhookUrl ? { webhookUrl, callbackUrl: webhookUrl } : {}),

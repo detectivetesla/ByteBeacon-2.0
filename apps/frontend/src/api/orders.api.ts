@@ -60,6 +60,10 @@ export const ordersApi = {
     return apiClient.get<any>(`/orders/track/${encodeURIComponent(query)}`, { skipAuth: true });
   },
 
+  verifyPayment: async (reference: string, orderId?: string): Promise<any> => {
+    return apiClient.post<any>('/payments/verify', { reference, orderId });
+  },
+
   listOrders: async (filters: OrderListFilters = {}): Promise<PaginatedOrdersResponse> => {
     const raw = await apiClient.get<any>('/orders', {
       params: filters as Record<string, string | number | boolean | undefined>,

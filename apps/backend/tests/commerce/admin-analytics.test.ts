@@ -132,7 +132,7 @@ describe('Admin Analytics & Overview Dashboard Telemetry', () => {
         }
 
         // 9. Active Stores
-        if (sql.includes('FROM agent_stores')) {
+        if (sql.includes('FROM stores') || sql.includes('FROM agent_stores') || sql.includes('FROM agents')) {
           return Promise.resolve({
             rows: [{ totalStores: '18', activeStores: '16' }],
           });

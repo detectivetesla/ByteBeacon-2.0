@@ -357,15 +357,25 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                     recipientPhone: i.recipientPhone,
                     productId: i.productId,
                   })),
+                  paymentMethod: PaymentMethod.PAYSTACK,
                   idempotencyKey: response.reference || `bulk_${Date.now()}`,
                 });
+                if (response.reference) {
+                  await ordersApi.verifyPayment(response.reference, submission.id).catch(() => {});
+                }
                 setCompletedOrder({ id: submission.id, count: bulkItems.length });
               } else if (bundleId) {
                 const created = await ordersApi.createOrder({
                   productId: bundleId,
                   recipientPhone: targetPhone,
+                  paymentMethod: PaymentMethod.PAYSTACK,
                   idempotencyKey: response.reference || `ord_${Date.now()}`,
                 });
+                if (response.reference) {
+                  await ordersApi
+                    .verifyPayment(response.reference, created.id || created.publicId)
+                    .catch(() => {});
+                }
                 setCompletedOrder({ id: created.publicId || created.id || response.reference });
               } else {
                 setCompletedOrder({ id: response.reference });

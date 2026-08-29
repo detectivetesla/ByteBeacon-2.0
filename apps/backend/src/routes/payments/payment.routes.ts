@@ -98,4 +98,26 @@ export async function paymentRoutes(
       });
     },
   );
+
+  // VERIFY PAYMENT & TRIGGER FULFILLMENT
+  app.post<{ Body: { reference: string; orderId?: string } }>(
+    '/payments/verify',
+    async (req: FastifyRequest<{ Body: { reference: string; orderId?: string } }>, reply: FastifyReply) => {
+      const { reference, orderId } = req.body || {};
+      if (!reference) {
+        throw new BadRequestError('Payment reference is required');
+      }
+
+      const result = await deps.paymentService.verifyAndProcessPayment(
+        reference,
+        req.id,
+        orderId,
+      );
+
+      reply.send({
+        success: result.success,
+        data: result,
+      });
+    },
+  );
 }

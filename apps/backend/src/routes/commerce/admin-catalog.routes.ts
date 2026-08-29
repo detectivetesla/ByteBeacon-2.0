@@ -1379,6 +1379,11 @@ export async function adminCatalogRoutes(
       try {
         await client.query('BEGIN');
 
+        const syncProviderName =
+          (telecomProvider as any).providerName ||
+          (providerBundles.length > 0 && (providerBundles[0] as any).providerName) ||
+          'Portal-02';
+
         const batchRes = await client.query(
           `INSERT INTO provider_catalog_sync_batches (
             provider_name, initiated_by, total_provider_plans, matched_plans,
@@ -1387,7 +1392,7 @@ export async function adminCatalogRoutes(
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
           RETURNING *`,
           [
-            'DataHouse',
+            syncProviderName,
             req.user?.sub || null,
             providerBundles.length,
             matchedPlans,
@@ -1433,7 +1438,8 @@ export async function adminCatalogRoutes(
            SET last_synced_at = CURRENT_TIMESTAMP,
                provider_status = 'AVAILABLE',
                sync_error = NULL
-           WHERE provider_name = 'DataHouse'`,
+           WHERE provider_name = $1 OR provider_name = 'DataHouse' OR provider_name = 'Portal-02'`,
+          [syncProviderName],
         );
 
         await client.query('COMMIT');

@@ -405,9 +405,9 @@ export function createApp(options: AppOptions = {}) {
 
   const paymentProvider =
     options.paymentProvider ??
-    (config.NODE_ENV !== 'production' && config.ALLOW_MOCK_PROVIDERS
+    (config.NODE_ENV !== 'production' && config.ALLOW_MOCK_PROVIDERS && !config.PAYSTACK_SECRET_KEY && !process.env.PAYSTACK_SECRET_KEY
       ? (new MockPaymentProvider() as unknown as IPaymentProvider)
-      : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || 'sk_test_paystack_secret_key' }));
+      : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || '' }));
 
   const paymentService =
     options.paymentService ??
@@ -426,9 +426,18 @@ export function createApp(options: AppOptions = {}) {
     options.refundService ??
     new RefundService(dbPool, paymentProvider, ledgerService, idempotencyService);
 
-  const beneficiaryService = options.beneficiaryService ?? new BeneficiaryService(dbPool, telecomProvider);
+  const beneficiaryService =
+    options.beneficiaryService ?? new BeneficiaryService(dbPool, telecomProvider);
+
   const bulkOrderService =
-    options.bulkOrderService ?? new BulkOrderService(dbPool, catalogService, ledgerService);
+    options.bulkOrderService ??
+    new BulkOrderService(
+      dbPool,
+      catalogService,
+      ledgerService,
+      fulfillmentQueueService,
+      fulfillmentWorker,
+    );
 
   const providerReconciliationService =
     options.providerReconciliationService ??
@@ -785,6 +794,22 @@ export function createApp(options: AppOptions = {}) {
       },
     });
   });
+
+  // 7. Background status reconciliation ticker (runs every 60s to sync pending/submitted orders)
+  if (config.NODE_ENV !== 'test') {
+    const reconInterval = setInterval(() => {
+      providerReconciliationService
+        .reconcileStaleOrders(new Date().toISOString(), 1)
+        .catch((err) => {
+          logger.debug({ err: err?.message }, 'Background status reconciliation notice');
+        });
+    }, 60000);
+
+    app.addHook('onClose', (_instance, done) => {
+      clearInterval(reconInterval);
+      done();
+    });
+  }
 
   return app;
 }

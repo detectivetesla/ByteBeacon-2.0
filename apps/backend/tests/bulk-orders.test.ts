@@ -29,13 +29,17 @@ describe('Bulk Order Engine & Batch Chunking', () => {
           return Promise.resolve({ rows: [insertedSubmission] });
         }
         if (q.includes('INSERT INTO bulk_submission_items')) {
+          const hasOrderIdCol = q.includes('order_id');
+          const recipientPhone = hasOrderIdCol ? params[2] : params[1];
+          const productId = hasOrderIdCol ? params[3] : params[2];
+          const amountPesewas = hasOrderIdCol ? params[4] : params[3];
           const item = {
             id: `item_${insertedItems.length + 1}`,
             submissionId: params[0],
-            orderId: null,
-            recipientPhone: params[1],
-            productId: params[2],
-            amountPesewas: params[3],
+            orderId: hasOrderIdCol ? params[1] : null,
+            recipientPhone,
+            productId,
+            amountPesewas,
             status: 'CREATED',
             errorMessage: null,
             createdAt: new Date(),

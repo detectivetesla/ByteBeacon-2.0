@@ -17,16 +17,29 @@ import {
 import { CatalogService } from './catalog.service.js';
 import { FinancialLedgerService } from '../payments/financial-ledger.service.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnprocessableEntityError } from '../errors/app-error.js';
+import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.js';
+import { FulfillmentWorker } from '../providers/fulfillment-worker.js';
+import { logger } from '../logging/logger.js';
 
 export class BulkOrderService {
   private readonly db: pg.Pool;
   private readonly catalogService: CatalogService;
   private readonly ledgerService: FinancialLedgerService;
+  private readonly fulfillmentQueueService?: FulfillmentQueueService;
+  private readonly fulfillmentWorker?: FulfillmentWorker;
 
-  constructor(db: pg.Pool, catalogService: CatalogService, ledgerService?: FinancialLedgerService) {
+  constructor(
+    db: pg.Pool,
+    catalogService: CatalogService,
+    ledgerService?: FinancialLedgerService,
+    fulfillmentQueueService?: FulfillmentQueueService,
+    fulfillmentWorker?: FulfillmentWorker,
+  ) {
     this.db = db;
     this.catalogService = catalogService;
     this.ledgerService = ledgerService ?? new FinancialLedgerService(db);
+    this.fulfillmentQueueService = fulfillmentQueueService;
+    this.fulfillmentWorker = fulfillmentWorker;
   }
 
   public async createBulkSubmission(
@@ -137,7 +150,7 @@ export class BulkOrderService {
       ]);
       const subRow = subRes.rows[0];
 
-      // 3. Batch Insert Items
+      // 3. Batch Insert Items & Child Orders if paid
       const createdItems: Array<{
         id: string;
         submissionId: string;
@@ -149,16 +162,72 @@ export class BulkOrderService {
         errorMessage: string | null;
         createdAt: string;
       }> = [];
+      const dispatchedOrderIds: string[] = [];
+      const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
 
       for (const item of itemsToInsert) {
+        let childOrderId: string | null = null;
+
+        if (isWalletPayment) {
+          const product = await this.catalogService.getProductById(item.productId);
+          const childPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
+          const childRef = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+          const childOrderRes = await client.query(
+            `INSERT INTO orders (
+              public_id, user_id, product_id, recipient_phone,
+              network, data_amount_mb, amount_pesewas, currency,
+              pricing_snapshot, payment_status, order_status, provider_status,
+              refund_status, idempotency_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'GHS', $8, 'PAID', 'READY_FOR_FULFILLMENT', 'UNKNOWN', 'NONE', $9)
+            RETURNING id`,
+            [
+              childPublicId,
+              userId,
+              product.id,
+              item.recipientPhone,
+              product.network,
+              product.dataAmountMb,
+              item.amountPesewas,
+              JSON.stringify({ productId: product.id, dataAmountMb: product.dataAmountMb, pricePesewas: item.amountPesewas }),
+              `${subRow.id}_${item.recipientPhone}_${Date.now()}`,
+            ],
+          );
+          childOrderId = childOrderRes.rows[0].id;
+          if (childOrderId) {
+            dispatchedOrderIds.push(childOrderId);
+          }
+
+          await client.query(
+            `INSERT INTO order_items (order_id, product_id, quantity, unit_price_pesewas, total_pesewas)
+             VALUES ($1, $2, 1, $3, $3)`,
+            [childOrderId, product.id, item.amountPesewas],
+          ).catch(() => {});
+
+          if (envProvider) {
+            await client.query(
+              `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
+               VALUES ($1, $2, $3, 'UNKNOWN')`,
+              [childOrderId, envProvider, childRef],
+            );
+          } else {
+            await client.query(
+              `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
+               VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Portal-02'), $2, 'UNKNOWN')`,
+              [childOrderId, childRef],
+            );
+          }
+        }
+
         const itemRes = await client.query(
-          `INSERT INTO bulk_submission_items (submission_id, recipient_phone, product_id, amount_pesewas, status)
-           VALUES ($1, $2, $3, $4, 'CREATED')
+          `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, submission_id as "submissionId", order_id as "orderId",
                      recipient_phone as "recipientPhone", product_id as "productId",
                      amount_pesewas as "amountPesewas", status, error_message as "errorMessage",
                      created_at as "createdAt"`,
-          [subRow.id, item.recipientPhone, item.productId, item.amountPesewas],
+          [subRow.id, childOrderId, item.recipientPhone, item.productId, item.amountPesewas, isWalletPayment ? 'READY_FOR_FULFILLMENT' : 'CREATED'],
         );
         const ir = itemRes.rows[0];
         createdItems.push({
@@ -201,6 +270,35 @@ export class BulkOrderService {
       }
 
       await client.query('COMMIT');
+
+      // 4. Trigger fulfillment for all created child orders
+      if (isWalletPayment && dispatchedOrderIds.length > 0) {
+        logger.info(
+          { submissionId: subRow.id, count: dispatchedOrderIds.length },
+          '[BULK_ORDER_SERVICE] Dispatching child orders to fulfillment pipeline',
+        );
+        for (const orderId of dispatchedOrderIds) {
+          if (this.fulfillmentQueueService) {
+            this.fulfillmentQueueService
+              .enqueueOrderFulfillment({
+                orderId,
+                correlationId: `bulk_sub_${subRow.id}`,
+                idempotencyKey: `bulk_sub_${orderId}`,
+                attemptCount: 1,
+              })
+              .catch(() => {});
+          }
+          if (this.fulfillmentWorker) {
+            setImmediate(() => {
+              this.fulfillmentWorker!
+                .processOrderFulfillment(orderId, `bulk_sub_${subRow.id}`)
+                .catch((err) => {
+                  logger.error({ err, orderId }, 'Bulk submission item background fulfillment error');
+                });
+            });
+          }
+        }
+      }
 
       return {
         id: subRow.id,
@@ -467,7 +565,7 @@ export class BulkOrderService {
       };
     }
 
-    // 6. Group accepted recipients by distinct bundle size (ascending)
+    // 6. Group accepted recipients by distinct bundle size for summary
     const sizeMap = new Map<number, Array<{ phoneNumber: string; dataSizeGb: number }>>();
     for (const r of acceptedRecipients) {
       const list = sizeMap.get(r.dataSizeGb) || [];
@@ -485,140 +583,24 @@ export class BulkOrderService {
 
       const submissionPublicId = `sub_${crypto.randomBytes(12).toString('hex')}`;
       const submissionRef = `BLK-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
+      const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
 
-      for (const sizeGb of sortedSizes) {
-        const recipientsForSize = sizeMap.get(sizeGb)!;
-        const count = recipientsForSize.length;
-
-        // Determine price per unit: e.g. 4.20 GHS per GB -> Math.round(sizeGb * 420) pesewas
-        let unitPricePesewas = Math.round(sizeGb * 420);
-        let matchedProductId: string | null = null;
-
+      // Pre-calculate grand total
+      for (const r of acceptedRecipients) {
+        let unitPricePesewas = Math.round(r.dataSizeGb * 420);
         try {
           const productRes = await client.query(
             `SELECT id, agent_price_pesewas as "agentPrice", base_price_pesewas as "basePrice"
              FROM catalog_products
              WHERE network = $1 AND data_amount_mb = $2 AND is_active = TRUE
              LIMIT 1`,
-            [netUpper, Math.round(sizeGb * 1024)],
+            [netUpper, Math.round(r.dataSizeGb * 1024)],
           );
           if (productRes.rows.length > 0) {
-            matchedProductId = productRes.rows[0].id;
-            let price = productRes.rows[0].agentPrice || productRes.rows[0].basePrice || unitPricePesewas;
-
-            // Check user_pricing override
-            try {
-              const userPriceRes = await client.query(
-                `SELECT custom_price_pesewas FROM user_pricing WHERE user_id = $1 AND product_id = $2 AND is_active = TRUE`,
-                [userId, matchedProductId],
-              );
-              if (userPriceRes?.rows?.length > 0 && userPriceRes.rows[0]?.custom_price_pesewas) {
-                price = parseInt(userPriceRes.rows[0].custom_price_pesewas, 10);
-              } else {
-                // Check agent_pricing if agent record exists
-                const agentPriceRes = await client.query(
-                  `SELECT ap.custom_price_pesewas FROM agent_pricing ap
-                   JOIN agents a ON a.id = ap.agent_id
-                   WHERE a.user_id = $1 AND ap.product_id = $2 AND ap.is_active = TRUE`,
-                  [userId, matchedProductId],
-                );
-                if (agentPriceRes?.rows?.length > 0 && agentPriceRes.rows[0]?.custom_price_pesewas) {
-                  price = parseInt(agentPriceRes.rows[0].custom_price_pesewas, 10);
-                }
-              }
-            } catch {
-              // ignore
-            }
-
-            unitPricePesewas = price;
+            unitPricePesewas = productRes.rows[0].agentPrice || productRes.rows[0].basePrice || unitPricePesewas;
           }
-        } catch {
-          // fallback
-        }
-
-        const childTotalPesewas = unitPricePesewas * count;
-        grandTotalPesewas += childTotalPesewas;
-
-        const childPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
-        const childRef = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-
-        // Insert child order
-        const childOrderRes = await client.query(
-          `INSERT INTO orders (
-            public_id, user_id, agent_id, product_id, recipient_phone,
-            network, data_amount_mb, amount_pesewas, currency,
-            pricing_snapshot, payment_status, order_status, provider_status,
-            refund_status, idempotency_key
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'GHS', $9, 'PAID', 'CREATED', 'RECEIVED', 'NONE', $10)
-          RETURNING id`,
-          [
-            childPublicId,
-            userId,
-            agentId,
-            matchedProductId,
-            recipientsForSize[0]?.phoneNumber || '0000000000',
-            netUpper,
-            Math.round(sizeGb * 1024),
-            childTotalPesewas,
-            JSON.stringify({ sizeGb, count, unitPricePesewas }),
-            `${params.idempotencyKey}_${sizeGb}`,
-          ],
-        );
-
-        const childOrderId = childOrderRes.rows[0].id;
-
-        // Insert provider order projection
-        const envProvider = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
-        if (envProvider) {
-          await client.query(
-            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
-             VALUES ($1, $2, $3, 'UNKNOWN')`,
-            [childOrderId, envProvider, childRef],
-          );
-        } else {
-          await client.query(
-            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
-             VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse'), $2, 'UNKNOWN')`,
-            [childOrderId, childRef],
-          );
-        }
-
-        childOrders.push({
-          id: childPublicId,
-          publicId: childPublicId,
-          referenceCode: childRef,
-          sizeGb,
-          beneficiaryCount: count,
-          amount: (childTotalPesewas / 100).toFixed(2),
-          status: 'received',
-        });
-      }
-
-      // Insert Bulk Submission
-      const subRes = await client.query(
-        `INSERT INTO bulk_submissions (
-          user_id, name, total_count, total_amount_pesewas, status, idempotency_key
-        )
-        VALUES ($1, $2, $3, $4, 'PROCESSING', $5)
-        RETURNING id`,
-        [
-          userId,
-          `Bulk ${netUpper} (${acceptedRecipients.length} recipients)`,
-          acceptedRecipients.length,
-          grandTotalPesewas,
-          params.idempotencyKey,
-        ],
-      );
-      const subDbId = subRes.rows[0].id;
-
-      // Insert bulk items
-      for (const r of acceptedRecipients) {
-        await client.query(
-          `INSERT INTO bulk_submission_items (submission_id, recipient_phone, product_id, amount_pesewas, status)
-           VALUES ($1, $2, (SELECT id FROM catalog_products WHERE network = $3 LIMIT 1), $4, 'CREATED')`,
-          [subDbId, r.phoneNumber, netUpper, Math.round(r.dataSizeGb * 420)],
-        ).catch(() => {});
+        } catch {}
+        grandTotalPesewas += unitPricePesewas;
       }
 
       // Check agent wallet balance and verify sufficient funds
@@ -643,7 +625,7 @@ export class BulkOrderService {
         );
       }
 
-      // Debit agent wallet for the linear per-GB total
+      // Debit agent wallet for the grand total
       await client.query(
         `UPDATE users
          SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
@@ -652,6 +634,117 @@ export class BulkOrderService {
          WHERE id = $2`,
         [grandTotalPesewas, userId],
       );
+
+      // Insert Bulk Submission
+      const subRes = await client.query(
+        `INSERT INTO bulk_submissions (
+          user_id, name, total_count, total_amount_pesewas, status, idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, 'PROCESSING', $5)
+        RETURNING id`,
+        [
+          userId,
+          `Bulk ${netUpper} (${acceptedRecipients.length} recipients)`,
+          acceptedRecipients.length,
+          grandTotalPesewas,
+          params.idempotencyKey,
+        ],
+      );
+      const subDbId = subRes.rows[0].id;
+      const createdChildOrderIds: string[] = [];
+
+      // Create individual orders for EACH recipient to guarantee full fulfillment
+      for (const r of acceptedRecipients) {
+        let unitPricePesewas = Math.round(r.dataSizeGb * 420);
+        let matchedProductId: string | null = null;
+
+        try {
+          const productRes = await client.query(
+            `SELECT id, agent_price_pesewas as "agentPrice", base_price_pesewas as "basePrice"
+             FROM catalog_products
+             WHERE network = $1 AND data_amount_mb = $2 AND is_active = TRUE
+             LIMIT 1`,
+            [netUpper, Math.round(r.dataSizeGb * 1024)],
+          );
+          if (productRes.rows.length > 0) {
+            matchedProductId = productRes.rows[0].id;
+            unitPricePesewas = productRes.rows[0].agentPrice || productRes.rows[0].basePrice || unitPricePesewas;
+          }
+        } catch {}
+
+        const childPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
+        const childRef = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+        const childOrderRes = await client.query(
+          `INSERT INTO orders (
+            public_id, user_id, agent_id, product_id, recipient_phone,
+            network, data_amount_mb, amount_pesewas, currency,
+            pricing_snapshot, payment_status, order_status, provider_status,
+            refund_status, idempotency_key
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'GHS', $9, 'PAID', 'READY_FOR_FULFILLMENT', 'UNKNOWN', 'NONE', $10)
+          RETURNING id`,
+          [
+            childPublicId,
+            userId,
+            agentId,
+            matchedProductId,
+            r.phoneNumber,
+            netUpper,
+            Math.round(r.dataSizeGb * 1024),
+            unitPricePesewas,
+            JSON.stringify({ sizeGb: r.dataSizeGb, unitPricePesewas }),
+            `${params.idempotencyKey}_${r.phoneNumber}_${Date.now()}`,
+          ],
+        );
+
+        const childOrderId = childOrderRes.rows[0].id;
+        createdChildOrderIds.push(childOrderId);
+
+        if (matchedProductId) {
+          await client.query(
+            `INSERT INTO order_items (order_id, product_id, quantity, unit_price_pesewas, total_pesewas)
+             VALUES ($1, $2, 1, $3, $3)`,
+            [childOrderId, matchedProductId, unitPricePesewas],
+          ).catch(() => {});
+        }
+
+        if (envProvider) {
+          await client.query(
+            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
+             VALUES ($1, $2, $3, 'UNKNOWN')`,
+            [childOrderId, envProvider, childRef],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
+             VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Portal-02'), $2, 'UNKNOWN')`,
+            [childOrderId, childRef],
+          );
+        }
+
+        await client.query(
+          `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)
+           VALUES ($1, $2, $3, $4, $5, 'READY_FOR_FULFILLMENT')`,
+          [subDbId, childOrderId, r.phoneNumber, matchedProductId, unitPricePesewas],
+        ).catch(() => {});
+      }
+
+      // Group display for UI response
+      for (const sizeGb of sortedSizes) {
+        const recipientsForSize = sizeMap.get(sizeGb)!;
+        const count = recipientsForSize.length;
+        const groupAmount = (count * Math.round(sizeGb * 420)) / 100;
+        childOrders.push({
+          id: `grp_${sizeGb}gb`,
+          publicId: `grp_${sizeGb}gb`,
+          referenceCode: `${sizeGb}GB Group (${count})`,
+          sizeGb,
+          beneficiaryCount: count,
+          amount: groupAmount.toFixed(2),
+          status: 'received',
+        });
+      }
 
       // Post double-entry financial ledger journal lines
       const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
@@ -679,6 +772,33 @@ export class BulkOrderService {
       ]);
 
       await client.query('COMMIT');
+
+      // Dispatch all child orders to fulfillment pipeline
+      logger.info(
+        { submissionId: submissionPublicId, count: createdChildOrderIds.length },
+        '[BULK_ORDER_SERVICE] Agent bulk submission dispatching child orders to fulfillment pipeline',
+      );
+      for (const orderId of createdChildOrderIds) {
+        if (this.fulfillmentQueueService) {
+          this.fulfillmentQueueService
+            .enqueueOrderFulfillment({
+              orderId,
+              correlationId: `bulk_${submissionPublicId}`,
+              idempotencyKey: `bulk_sub_${orderId}`,
+              attemptCount: 1,
+            })
+            .catch(() => {});
+        }
+        if (this.fulfillmentWorker) {
+          setImmediate(() => {
+            this.fulfillmentWorker!
+              .processOrderFulfillment(orderId, `bulk_${submissionPublicId}`)
+              .catch((err) => {
+                logger.error({ err, orderId }, 'Agent bulk child order background fulfillment error');
+              });
+          });
+        }
+      }
 
       return {
         id: submissionPublicId,

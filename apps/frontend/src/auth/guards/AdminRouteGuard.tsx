@@ -73,8 +73,8 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
             }}
           >
-            <h1 style={{ fontSize: '3rem', fontWeight: 900, margin: '0 0 0.5rem 0', letterSpacing: '-0.02em', color: '#64748B' }}>
-              404
+            <h1 style={{ fontSize: '2.5rem', fontWeight: 900, margin: '0 0 0.5rem 0', letterSpacing: '-0.02em', color: '#64748B' }}>
+              404 — Access Restricted
             </h1>
             <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem 0', letterSpacing: '-0.01em' }}>
               Page Not Found
@@ -96,7 +96,7 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
 
     return (
       <Navigate
-        to={`/gateway/secure-admin-entry?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
+        to={`/admin-auth/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
         replace
       />
     );

@@ -913,7 +913,7 @@ export async function storeRoutes(
       } else {
         await client.query(
           `INSERT INTO provider_orders (order_id, provider_name, provider_status)
-           VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse'), 'UNKNOWN')`,
+           VALUES ($1, COALESCE((SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Portal-02'), 'UNKNOWN')`,
           [orderRow.id],
         );
       }

@@ -211,6 +211,10 @@ export const migration00000000000002: MigrationFile = {
             ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS reason TEXT;
             ALTER TABLE provider_sync_records ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
         END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'bulk_submission_items') THEN
+            ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS order_id UUID REFERENCES orders(id) ON DELETE SET NULL;
+        END IF;
     END $$;
 
     CREATE TABLE IF NOT EXISTS catalog_products (

@@ -218,8 +218,15 @@ export async function adminAnalyticsRoutes(
           COUNT(CASE WHEN store_status = 'ACTIVE' THEN 1 END) as "activeStores"
         FROM stores
       `).catch(async (err) => {
-        app.log.warn({ err }, '[ADMIN_ANALYTICS] Primary stores count failed, trying agent_stores / agents fallback');
-        return db.query(`SELECT COUNT(*) as "totalStores", COUNT(CASE WHEN is_active = true THEN 1 END) as "activeStores" FROM agents`).catch(() => ({ rows: [{ totalStores: 0, activeStores: 0 }] }));
+        app.log.warn({ err }, '[ADMIN_ANALYTICS] Primary stores count failed, trying agent_stores fallback');
+        return db.query(`
+          SELECT 
+            COUNT(*) as "totalStores",
+            COUNT(CASE WHEN is_active = true OR store_status = 'ACTIVE' THEN 1 END) as "activeStores"
+          FROM agent_stores
+        `).catch(async () => {
+          return db.query(`SELECT COUNT(*) as "totalStores", COUNT(CASE WHEN is_active = true THEN 1 END) as "activeStores" FROM agents`).catch(() => ({ rows: [{ totalStores: 0, activeStores: 0 }] }));
+        });
       });
 
       const userStats = userStatsRes.rows[0] || {};

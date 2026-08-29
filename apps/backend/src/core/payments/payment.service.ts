@@ -696,4 +696,115 @@ export class PaymentService {
       ledgerEntries,
     };
   }
+
+  /**
+   * Verifies an external payment reference (e.g. Paystack) and marks the matching order as PAID,
+   * transitioning it to READY_FOR_FULFILLMENT and immediately dispatching it to the fulfillment pipeline.
+   */
+  public async verifyAndProcessPayment(
+    reference: string,
+    correlationId: string,
+    orderIdHint?: string,
+  ): Promise<{ success: boolean; orderId?: string; status: PaymentStatus; message: string }> {
+    if (!reference) {
+      throw new BadRequestError('Payment reference is required for verification.');
+    }
+
+    // 1. Verify against payment gateway
+    const verifyResult = await this.paymentProvider.verifyPayment(reference);
+    if (verifyResult.status !== 'SUCCESS') {
+      logger.warn({ reference, verifyResult }, 'Payment verification failed at gateway');
+      return {
+        success: false,
+        status: PaymentStatus.FAILED,
+        message: verifyResult.gatewayResponse || 'Payment was not approved by gateway.',
+      };
+    }
+
+    const client = await this.db.connect();
+    try {
+      // 2. Find existing payment record or find matching order
+      let paymentRes = await client.query(
+        `SELECT id, order_id as "orderId", user_id as "userId", amount_pesewas as "amountPesewas", status
+         FROM payments
+         WHERE provider_reference = $1`,
+        [reference],
+      );
+
+      let paymentId: string;
+      let orderId: string;
+
+      if (paymentRes.rows.length > 0) {
+        paymentId = paymentRes.rows[0].id;
+        orderId = paymentRes.rows[0].orderId;
+      } else {
+        // Find order by ID / publicId / idempotency key
+        const orderQuery = `
+          SELECT id, user_id as "userId", amount_pesewas as "amountPesewas", payment_status as "paymentStatus"
+          FROM orders
+          WHERE id::text = $1 OR public_id = $1 OR idempotency_key = $1
+             OR id::text = $2 OR public_id = $2 OR idempotency_key = $2
+          LIMIT 1
+        `;
+        const orderRes = await client.query(orderQuery, [
+          reference,
+          orderIdHint || '00000000-0000-0000-0000-000000000000',
+        ]);
+        if (orderRes.rows.length === 0) {
+          logger.warn({ reference, orderIdHint }, 'No matching order found for verified payment reference');
+          return {
+            success: true,
+            status: PaymentStatus.PAID,
+            message: 'Payment verified with gateway, but order record not yet found.',
+          };
+        }
+
+        const matchedOrder = orderRes.rows[0];
+        orderId = matchedOrder.id;
+        const paymentPublicId = `pay_${crypto.randomBytes(8).toString('hex')}`;
+
+        const newPayRes = await client.query(
+          `INSERT INTO payments (
+              public_id, order_id, user_id, amount_pesewas, currency,
+              provider, provider_reference, payment_method, status, paid_at
+           ) VALUES ($1, $2, $3, $4, 'GHS', 'PAYSTACK', $5, 'PAYSTACK', 'PENDING', CURRENT_TIMESTAMP)
+           RETURNING id`,
+          [
+            paymentPublicId,
+            orderId,
+            matchedOrder.userId,
+            verifyResult.amountPesewas || matchedOrder.amountPesewas,
+            reference,
+          ],
+        );
+        paymentId = newPayRes.rows[0].id;
+      }
+
+      client.release();
+
+      // Process payment status transition and fulfillment trigger
+      await this.processSuccessfulPayment(
+        paymentId,
+        reference,
+        {
+          amountPesewas: verifyResult.amountPesewas,
+          channel: verifyResult.channel,
+          authorizationCode: verifyResult.authorizationCode,
+          paidAt: verifyResult.paidAt || new Date(),
+        },
+        correlationId,
+      );
+
+      return {
+        success: true,
+        orderId,
+        status: PaymentStatus.PAID,
+        message: 'Payment verified and order fulfillment dispatched successfully.',
+      };
+    } catch (err: any) {
+      client.release();
+      logger.error({ err, reference }, 'Error verifying and processing payment');
+      throw err;
+    }
+  }
 }
