@@ -71,6 +71,7 @@ export class ProductionSchemaVerifier {
     'user_pricing',
     'store_payouts',
     'agent_customers',
+    'pending_beneficiary_approvals',
 
     // Finance & Reconciliation Control Plane
     'reconciliation_cases',
@@ -123,8 +124,10 @@ export class ProductionSchemaVerifier {
     'agent_stores',
     'payment_transactions',
     'ledger_entries',
+    'financial_ledger_entries',
     'feature_flags',
     'beneficiary_records',
+    'beneficiary_approvals',
     'financial_safety_controls',
   ];
 

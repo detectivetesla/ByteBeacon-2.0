@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type pg from 'pg';
 import { ApiKeyEnvironment, ApiKeyStatus, Permission } from '@bytebeacon/shared';
-import { UnauthorizedError, ForbiddenError } from '../errors/app-error.js';
+import { UnauthorizedError, AgentInactiveError } from '../errors/app-error.js';
 
 export interface CreateApiKeyParams {
   agentId: string;
@@ -132,15 +132,31 @@ export class ApiKeyService {
     }
 
     if (row.status !== ApiKeyStatus.ACTIVE) {
-      throw new ForbiddenError(`API key is ${row.status.toLowerCase()}`);
+      throw new AgentInactiveError(`API key is ${row.status.toLowerCase()}`);
     }
 
     if (row.expiresAt && new Date(row.expiresAt) < new Date()) {
-      throw new ForbiddenError('API key has expired');
+      throw new AgentInactiveError('API key has expired');
     }
 
-    if (requiredScope && !row.scopes.includes(requiredScope)) {
-      throw new ForbiddenError(`API key lacks required permission scope: ${requiredScope}`);
+    // A key created with no scopes is unrestricted (full access).
+    // A scoped key is limited to exactly its scopes — calling an endpoint it lacks the scope for returns 403.
+    if (requiredScope) {
+      const isScoped = Array.isArray(row.scopes) && row.scopes.length > 0;
+      if (isScoped) {
+        const hasDirect = row.scopes.includes(requiredScope);
+        const hasAlias =
+          (requiredScope === Permission.ORDERS_CREATE && ((row.scopes as any[]).includes('orders:write') || (row.scopes as any[]).includes('orders.create'))) ||
+          (requiredScope === Permission.ORDERS_READ && ((row.scopes as any[]).includes('orders:read') || (row.scopes as any[]).includes('orders.read') || (row.scopes as any[]).includes('bundles:read') || (row.scopes as any[]).includes('bundles.read'))) ||
+          (requiredScope === Permission.WALLET_READ && ((row.scopes as any[]).includes('wallet:read') || (row.scopes as any[]).includes('wallet.read'))) ||
+          (requiredScope === Permission.PENDING_MTN_MANAGE && ((row.scopes as any[]).includes('beneficiaries:read') || (row.scopes as any[]).includes('beneficiaries.read'))) ||
+          (requiredScope === Permission.WEBHOOKS_READ && ((row.scopes as any[]).includes('webhooks:read') || (row.scopes as any[]).includes('webhooks.read') || (row.scopes as any[]).includes('webhooks:write') || (row.scopes as any[]).includes('webhooks.write') || (row.scopes as any[]).includes('webhooks.manage'))) ||
+          ((requiredScope === Permission.WEBHOOKS_WRITE || requiredScope === Permission.WEBHOOKS_MANAGE) && ((row.scopes as any[]).includes('webhooks:write') || (row.scopes as any[]).includes('webhooks.write') || (row.scopes as any[]).includes('webhooks.manage')));
+
+        if (!hasDirect && !hasAlias) {
+          throw new AgentInactiveError(`API key lacks required permission scope: ${requiredScope}`);
+        }
+      }
     }
 
     // Update last_used_at asynchronously

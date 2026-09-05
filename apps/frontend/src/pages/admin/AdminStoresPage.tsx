@@ -1175,7 +1175,11 @@ export const AdminStoresPage: React.FC = () => {
                     <Card style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                       <div>
                         <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Storefront URL</span>
-                        <div style={{ fontWeight: 700, color: 'var(--color-brand)' }}>https://bytebeacon.com/store/{storeDetail.store.slug}</div>
+                        <div style={{ fontWeight: 700, color: 'var(--color-brand)' }}>
+                          {typeof window !== 'undefined' && window.location?.origin
+                            ? `${window.location.origin}/store/${storeDetail.store.slug}`
+                            : `/store/${storeDetail.store.slug}`}
+                        </div>
                       </div>
                       <div>
                         <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Tagline</span>

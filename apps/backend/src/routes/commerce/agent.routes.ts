@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import crypto from 'node:crypto';
 import type pg from 'pg';
 import { TokenService } from '../../core/security/token.service.js';
 import { ApiKeyService } from '../../core/security/api-key.service.js';
@@ -6,10 +7,11 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
 import { IPaymentProvider } from '../../core/payments/payment-provider.interface.js';
 import { OrderService } from '../../core/commerce/order.service.js';
+import { AgentWebhookDispatcherService } from '../../core/webhooks/agent-webhook-dispatcher.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
-import { BadRequestError, NotFoundError, ConflictError } from '../../core/errors/app-error.js';
+import { BadRequestError, NotFoundError, ConflictError, InvalidPhoneError, BeneficiaryNotValidatedError } from '../../core/errors/app-error.js';
 import {
   ApplyAgentRequest,
   AgentProfileDto,
@@ -18,6 +20,7 @@ import {
   PaymentMethod,
   LedgerEntryType,
   LedgerAccountType,
+  Permission,
 } from '@bytebeacon/shared';
 
 export interface AgentRouteDependencies {
@@ -106,12 +109,12 @@ export async function agentRoutes(
 
   app.get<{ Querystring: ListAgentOrdersQuery }>(
     '/agent/orders',
-    { preHandler: [authHooks.authenticate] },
+    { preHandler: [authHooks.authenticate(Permission.ORDERS_READ)] },
     handleListAgentOrders,
   );
   app.get<{ Querystring: ListAgentOrdersQuery }>(
     '/agents/orders',
-    { preHandler: [authHooks.authenticate] },
+    { preHandler: [authHooks.authenticate(Permission.ORDERS_READ)] },
     handleListAgentOrders,
   );
 
@@ -141,13 +144,870 @@ export async function agentRoutes(
 
   app.get<{ Params: { id: string } }>(
     '/agent/orders/:id',
-    { preHandler: [authHooks.authenticate] },
+    { preHandler: [authHooks.authenticate(Permission.ORDERS_READ)] },
     handleGetAgentOrder,
   );
   app.get<{ Params: { id: string } }>(
     '/agents/orders/:id',
-    { preHandler: [authHooks.authenticate] },
+    { preHandler: [authHooks.authenticate(Permission.ORDERS_READ)] },
     handleGetAgentOrder,
+  );
+
+  // 0.2 PLACE SINGLE AGENT ORDER: POST /agent/orders
+  app.post<{
+    Body: {
+      bundleId: string;
+      phoneNumber: string;
+      idempotencyKey: string;
+      email?: string;
+    };
+  }>(
+    '/agent/orders',
+    {
+      preHandler: [
+        authHooks.authenticate(Permission.ORDERS_CREATE),
+        authHooks.requirePermission(Permission.ORDERS_CREATE),
+        maintenanceHook,
+      ],
+    },
+    async (req, reply) => {
+      const { bundleId, phoneNumber, idempotencyKey, email } = req.body || {};
+
+      if (!bundleId) {
+        throw new BadRequestError('bundleId is required');
+      }
+      if (!phoneNumber) {
+        throw new BadRequestError('phoneNumber is required');
+      }
+
+      // Ghanaian MSISDN validation (0XXXXXXXXX or +233XXXXXXXXX)
+      const cleanPhone = String(phoneNumber).trim().replace(/\s+/g, '');
+      const ghanaPhoneRegex = /^(?:\+233|0)[235]\d{8}$/;
+      if (!ghanaPhoneRegex.test(cleanPhone)) {
+        throw new InvalidPhoneError('Phone not a Ghanaian MSISDN');
+      }
+
+      // idempotencyKey is required and must be a UUID v4
+      const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!idempotencyKey || !uuidV4Regex.test(idempotencyKey)) {
+        throw new BadRequestError('idempotencyKey is required and must be a UUID v4');
+      }
+
+      const apiKeyHeader = (req.headers['x-api-key'] as string) || '';
+      const isSandbox =
+        Boolean((req as any).apiKey?.isSandbox) ||
+        Boolean((req.user as any)?.isSandbox) ||
+        apiKeyHeader.startsWith('ak_test_');
+
+      // First-time MTN validation check
+      const normalizedLocal = cleanPhone.startsWith('+233') ? `0${cleanPhone.slice(4)}` : cleanPhone;
+      const isMtn = /^(?:\+233|0)(?:24|25|54|55|59)\d{7}$/.test(cleanPhone);
+
+      if (isMtn && !isSandbox) {
+        const validatedCheck = await db.query(
+          `SELECT 1 FROM beneficiary_validation
+           WHERE (phone_number = $1 OR phone_number = $2)
+             AND network = 'MTN'
+             AND validation_status = 'VALID'
+             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+           UNION
+           SELECT 1 FROM orders
+           WHERE (recipient_phone = $1 OR recipient_phone = $2)
+             AND network = 'MTN'
+             AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED')
+           LIMIT 1`,
+          [normalizedLocal, `+233${normalizedLocal.slice(1)}`],
+        );
+
+        if (validatedCheck.rows.length === 0) {
+          await db.query(
+            `INSERT INTO pending_beneficiary_approvals (
+                phone_number, network, agent_id, status, created_at, updated_at
+             ) VALUES ($1, 'MTN', $2, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT DO NOTHING`,
+            [normalizedLocal, req.user!.sub],
+          ).catch(() => {});
+
+          throw new BeneficiaryNotValidatedError(
+            'First-time MTN number not yet validated — recorded for MTN approval; precheck first.',
+          );
+        }
+      }
+
+      // Sandbox key short-circuit
+      if (isSandbox) {
+        const isSimulatedFailure = cleanPhone.endsWith('0000');
+        const sandboxRef = `SBX-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+        const sandboxPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
+        const simulatedStatus = isSimulatedFailure ? 'fulfillment_failed' : 'fulfilled';
+
+        const sandboxDispatcher = new AgentWebhookDispatcherService(db);
+        sandboxDispatcher.dispatchAgentEvent(req.user!.sub, 'order.received', {
+          id: sandboxPublicId,
+          order_id: sandboxPublicId,
+          public_id: sandboxPublicId,
+          reference: sandboxRef,
+          bundle_id: bundleId,
+          phone_number: normalizedLocal,
+          network: isMtn ? 'MTN' : 'TELECEL',
+          amount: '21.00',
+          status: 'received',
+          created_at: new Date().toISOString(),
+        }).catch(() => {});
+
+        return reply.status(201).send({
+          success: true,
+          statusCode: 201,
+          message: 'Order placed and queued for processing.',
+          data: {
+            id: sandboxPublicId,
+            publicId: sandboxPublicId,
+            referenceCode: sandboxRef,
+            idempotencyKey,
+            userId: req.user!.sub,
+            agentId: req.user!.sub,
+            channel: 'agent_api',
+            bundleId,
+            amount: '21.00',
+            network: isMtn ? 'MTN' : 'TELECEL',
+            bundleType: 'DATA',
+            groupSizeGb: '5.00',
+            phoneNumber: normalizedLocal,
+            email: email || null,
+            status: simulatedStatus,
+            isSandbox: true,
+            createdAt: new Date().toISOString(),
+          },
+        });
+      }
+
+      if (!orderService) {
+        throw new BadRequestError('Order service is unavailable');
+      }
+
+      const { order } = await orderService.createOrder(
+        {
+          productId: bundleId,
+          recipientPhone: normalizedLocal,
+          idempotencyKey,
+          paymentMethod: PaymentMethod.WALLET,
+          agentId: req.user!.sub,
+        },
+        {
+          userId: req.user!.sub,
+          correlationId: req.id,
+          actorType: 'AGENT',
+          agentId: req.user!.sub,
+          ipAddress: req.ip,
+        },
+      );
+
+      const refCode = order.providerReference || `TXN-${order.publicId.slice(-6).toUpperCase()}`;
+      const amountGhs = (Number(order.amountPesewas || 0) / 100).toFixed(2);
+      const groupSizeGb = (Number(order.dataAmountMb || 1024) / 1024).toFixed(2);
+
+      // Dispatch order.received webhook event to agent
+      const targetAgentId = order.agentId || req.user!.sub;
+      if (targetAgentId) {
+        const dispatcher = new AgentWebhookDispatcherService(db);
+        dispatcher.dispatchAgentEvent(targetAgentId, 'order.received', {
+          id: order.id,
+          order_id: order.id,
+          public_id: order.publicId,
+          reference: refCode,
+          bundle_id: bundleId,
+          phone_number: normalizedLocal,
+          network: order.network,
+          amount: amountGhs,
+          status: 'received',
+          created_at: order.createdAt,
+        }).catch(() => {});
+      }
+
+      return reply.status(201).send({
+        success: true,
+        statusCode: 201,
+        message: 'Order placed and queued for processing.',
+        data: {
+          id: order.id,
+          publicId: order.publicId,
+          referenceCode: refCode,
+          idempotencyKey,
+          userId: order.userId,
+          agentId: order.agentId || req.user!.sub,
+          channel: 'agent_api',
+          bundleId,
+          amount: amountGhs,
+          network: order.network,
+          bundleType: 'DATA',
+          groupSizeGb,
+          phoneNumber: normalizedLocal,
+          email: email || null,
+          status: 'received',
+          isSandbox: false,
+          createdAt: order.createdAt,
+        },
+      });
+    },
+  );
+
+  // 0.3 GET AGENT PROFILE ME: GET /agent/me & GET /agents/me
+  const handleGetAgentMe = async (req: FastifyRequest, reply: FastifyReply) => {
+    const userId = req.user!.sub;
+
+    let balancePesewas = 0;
+    if (ledgerService) {
+      try {
+        const bal = await ledgerService.getAccountBalance(LedgerAccountType.CUSTOMER_WALLET, userId);
+        balancePesewas = bal.balancePesewas;
+      } catch {
+        // Continue with zero balance
+      }
+    } else {
+      try {
+        const balRes = await db.query(
+          `SELECT COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as balance
+           FROM financial_ledger WHERE account_id = $1`,
+          [userId],
+        );
+        balancePesewas = Number(balRes.rows[0]?.balance || 0);
+      } catch {
+        // Table might not exist or empty
+      }
+    }
+    const balanceGhs = Number((balancePesewas / 100).toFixed(2));
+
+    let agentRow: any = null;
+    let userRow: any = null;
+
+    try {
+      const qRes = await db.query(
+        `SELECT u.id as user_id, u.full_name, u.email, u.phone_number, u.status as user_status,
+                a.id as agent_id, a.business_name, a.agent_tier, a.status as agent_status,
+                a.commission_rate
+         FROM users u
+         LEFT JOIN agents a ON a.user_id = u.id
+         WHERE u.id = $1 OR a.id = $1
+         LIMIT 1`,
+        [userId],
+      );
+      if (qRes.rows.length > 0) {
+        const row = qRes.rows[0];
+        userRow = {
+          id: row.user_id,
+          fullName: row.full_name,
+          email: row.email,
+          phone: row.phone_number,
+          status: row.user_status,
+        };
+        agentRow = {
+          id: row.agent_id,
+          businessName: row.business_name,
+          tier: row.agent_tier,
+          status: row.agent_status,
+          commissionRate: row.commission_rate,
+        };
+      }
+    } catch {
+      // Fallback
+    }
+
+    const effectiveId = agentRow?.id || userId;
+    const publicId = `agt_${effectiveId.replace(/-/g, '').slice(0, 10)}`;
+    const businessName = agentRow?.businessName || userRow?.fullName || req.apiKey?.name || 'Agent';
+    const email = userRow?.email || req.user?.email || '';
+    const phone = userRow?.phone || '';
+    const status = (agentRow?.status || userRow?.status || 'active').toLowerCase();
+    const tier = agentRow?.tier || 'TIER_1';
+
+    return reply.status(200).send({
+      success: true,
+      statusCode: 200,
+      message: 'Success',
+      data: {
+        id: effectiveId,
+        publicId,
+        businessName,
+        email,
+        phone,
+        status,
+        tier,
+        pricePerGb: 4.5,
+        wallet: {
+          balance: balanceGhs,
+          overdraftLimit: 0.0,
+          availableToSpend: balanceGhs,
+        },
+      },
+    });
+  };
+
+  app.get('/agent/me', { preHandler: [authHooks.authenticate] }, handleGetAgentMe);
+  app.get('/agents/me', { preHandler: [authHooks.authenticate] }, handleGetAgentMe);
+
+  // 0.4 GET AGENT BUNDLES: GET /agent/bundles
+  app.get<{
+    Querystring: {
+      type?: string;
+      network?: string;
+      search?: string;
+      page?: string;
+      limit?: string;
+    };
+  }>(
+    '/agent/bundles',
+    { preHandler: [authHooks.authenticate(Permission.ORDERS_READ)] },
+    async (req, reply) => {
+      const { type, network, search, page, limit } = req.query;
+      const pageNum = Math.max(1, parseInt(page || '1', 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit || '50', 10) || 50));
+      const offset = (pageNum - 1) * limitNum;
+
+      const userId = req.user!.sub;
+
+      let agentRow: any = null;
+      try {
+        const aRes = await db.query(
+          `SELECT id, agent_tier, price_per_gb
+           FROM agents
+           WHERE user_id = $1 OR id = $1
+           LIMIT 1`,
+          [userId],
+        ).catch(async () => {
+          return await db.query(
+            `SELECT id, agent_tier FROM agents WHERE user_id = $1 OR id = $1 LIMIT 1`,
+            [userId],
+          );
+        });
+        if (aRes && aRes.rows.length > 0) {
+          agentRow = aRes.rows[0];
+        }
+      } catch {
+        // Non-fatal
+      }
+
+      const agentId = agentRow?.id || userId;
+
+      const conditions: string[] = ['cp.is_active = true'];
+      const params: any[] = [agentId];
+      let paramIdx = 2;
+
+      if (network && network.toUpperCase() !== 'ALL') {
+        conditions.push(`UPPER(cp.network) = UPPER($${paramIdx++})`);
+        params.push(network);
+      }
+
+      if (search && search.trim().length > 0) {
+        conditions.push(`(cp.name ILIKE $${paramIdx} OR cp.sku ILIKE $${paramIdx})`);
+        params.push(`%${search.trim()}%`);
+        paramIdx++;
+      }
+
+      const whereClause = conditions.join(' AND ');
+
+      let total = 0;
+      let rows: any[] = [];
+
+      try {
+        const countRes = await db.query(
+          `SELECT COUNT(*) as total
+           FROM catalog_products cp
+           WHERE ${whereClause}`,
+          params.slice(1),
+        );
+        total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listRes = await db.query(
+          `SELECT cp.id, cp.name, cp.network, cp.data_amount_mb,
+                  cp.base_price_pesewas, cp.agent_price_pesewas,
+                  cp.validity_days, cp.validity_desc, cp.is_active,
+                  ap.custom_price_pesewas
+           FROM catalog_products cp
+           LEFT JOIN agent_pricing ap ON ap.product_id = cp.id AND ap.agent_id = $1 AND ap.is_active = true
+           WHERE ${whereClause}
+           ORDER BY cp.data_amount_mb ASC, cp.base_price_pesewas ASC
+           LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+          [...params, limitNum, offset],
+        );
+        rows = listRes.rows;
+      } catch {
+        const fallbackRes = await db.query(
+          `SELECT cp.* FROM catalog_products cp WHERE cp.is_active = true LIMIT $1 OFFSET $2`,
+          [limitNum, offset],
+        ).catch(() => ({ rows: [] }));
+        rows = fallbackRes.rows || [];
+        total = rows.length;
+      }
+
+      const bundles = rows.map((r: any) => {
+        const mb = Number(r.data_amount_mb || 1024);
+        const gb = mb / 1024;
+        const basePesewas = Number(r.base_price_pesewas || 0);
+
+        // Price resolution hierarchy:
+        // 1. per-bundle override (agent_pricing)
+        // 2. agent.pricePerGb * GB
+        // 3. bundle.agent_amount (agent_price_pesewas)
+        // 4. bundle.amount (base_price_pesewas)
+        let effectivePesewas: number;
+        if (r.custom_price_pesewas != null) {
+          effectivePesewas = Number(r.custom_price_pesewas);
+        } else if (agentRow?.price_per_gb != null && Number(agentRow.price_per_gb) > 0) {
+          effectivePesewas = Math.round(Number(agentRow.price_per_gb) * gb * 100);
+        } else if (r.agent_price_pesewas != null && Number(r.agent_price_pesewas) > 0) {
+          effectivePesewas = Number(r.agent_price_pesewas);
+        } else {
+          effectivePesewas = basePesewas;
+        }
+
+        const price = Number((basePesewas / 100).toFixed(2));
+        const agentPrice = Number((effectivePesewas / 100).toFixed(2));
+
+        return {
+          id: r.id,
+          name: r.name,
+          network: r.network,
+          capacity: Math.round(gb),
+          capacityUnit: 'GB',
+          dataSizeGb: Number(gb.toFixed(2)),
+          price,
+          amount: price,
+          agentPrice,
+          agentAmount: agentPrice,
+          validity: r.validity_desc || `${r.validity_days || 30} Days`,
+          validityDays: Number(r.validity_days || 30),
+          type: type || 'DATA',
+          isActive: Boolean(r.is_active),
+        };
+      });
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        message: 'Success',
+        data: bundles,
+        meta: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+        },
+      });
+    },
+  );
+
+  // 0.5 GET AGENT BENEFICIARIES STATUS: GET /agent/beneficiaries
+  app.get<{
+    Querystring: {
+      status?: string;
+      network?: string;
+      search?: string;
+      page?: string;
+      limit?: string;
+    };
+  }>(
+    '/agent/beneficiaries',
+    { preHandler: [authHooks.authenticate(Permission.PENDING_MTN_MANAGE)] },
+    async (req, reply) => {
+      const { status, network, search, page, limit } = req.query;
+      const pageNum = Math.max(1, parseInt(page || '1', 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit || '30', 10) || 30));
+      const offset = (pageNum - 1) * limitNum;
+
+      const conditions: string[] = [];
+      const params: any[] = [];
+      let idx = 1;
+
+      if (status && status.toLowerCase() !== 'all') {
+        const s = status.toLowerCase();
+        if (s === 'approved') {
+          conditions.push(`validation_status = 'VALID'`);
+        } else if (s === 'rejected') {
+          conditions.push(`validation_status = 'INVALID'`);
+        } else if (s === 'pending' || s === 'submitted') {
+          conditions.push(`validation_status = 'PENDING'`);
+        } else {
+          conditions.push(`validation_status = $${idx++}`);
+          params.push(status.toUpperCase());
+        }
+      }
+
+      if (network && network.toUpperCase() !== 'ALL') {
+        conditions.push(`UPPER(network) = UPPER($${idx++})`);
+        params.push(network);
+      }
+
+      if (search && search.trim().length > 0) {
+        const digits = search.replace(/\D/g, '');
+        conditions.push(`phone_number ILIKE $${idx++}`);
+        params.push(`%${digits || search.trim()}%`);
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      let total = 0;
+      let beneficiaries: any[] = [];
+
+      try {
+        const agentId = req.user!.sub;
+        const approvalConditions: string[] = [`(agent_id = $1 OR agent_id IS NULL)`];
+        const approvalParams: any[] = [agentId];
+        let aIdx = 2;
+
+        if (status && status.toLowerCase() !== 'all') {
+          const s = status.toLowerCase();
+          approvalConditions.push(`LOWER(status) = LOWER($${aIdx++})`);
+          approvalParams.push(s);
+        }
+
+        if (network && network.toUpperCase() !== 'ALL') {
+          approvalConditions.push(`UPPER(network) = UPPER($${aIdx++})`);
+          approvalParams.push(network);
+        }
+
+        if (search && search.trim().length > 0) {
+          const digits = search.replace(/\D/g, '');
+          approvalConditions.push(`phone_number ILIKE $${aIdx++}`);
+          approvalParams.push(`%${digits || search.trim()}%`);
+        }
+
+        const approvalWhere = `WHERE ${approvalConditions.join(' AND ')}`;
+
+        const countRes = await db.query(
+          `SELECT COUNT(*) as total FROM pending_beneficiary_approvals ${approvalWhere}`,
+          approvalParams,
+        ).catch(() => null);
+
+        if (countRes && parseInt(countRes.rows[0]?.total || '0', 10) > 0) {
+          total = parseInt(countRes.rows[0]?.total || '0', 10);
+          const listRes = await db.query(
+            `SELECT id, phone_number, network, status, attempt_count, last_bundle_size_gb,
+                    first_detected_at, last_detected_at, submitted_at, resolved_at, created_at, updated_at
+             FROM pending_beneficiary_approvals
+             ${approvalWhere}
+             ORDER BY created_at DESC
+             LIMIT $${aIdx++} OFFSET $${aIdx++}`,
+            [...approvalParams, limitNum, offset],
+          );
+          beneficiaries = listRes.rows.map((r: any) => {
+            let mappedStatus = 'pending';
+            if (r.status) {
+              mappedStatus = String(r.status).toLowerCase();
+            } else if (r.validation_status === 'VALID') {
+              mappedStatus = 'approved';
+            } else if (r.validation_status === 'INVALID') {
+              mappedStatus = 'rejected';
+            }
+            return {
+              msisdn: r.phone_number,
+              network: r.network,
+              status: mappedStatus,
+              attemptCount: Number(r.attempt_count || 1),
+              lastBundleSizeGb: r.last_bundle_size_gb ? String(r.last_bundle_size_gb) : null,
+              firstDetectedAt: new Date(r.first_detected_at || r.created_at).toISOString(),
+              lastDetectedAt: new Date(r.last_detected_at || r.updated_at || r.created_at).toISOString(),
+              submittedAt: r.submitted_at ? new Date(r.submitted_at).toISOString() : null,
+              resolvedAt: r.resolved_at ? new Date(r.resolved_at).toISOString() : null,
+            };
+          });
+        } else {
+          // Fallback to beneficiary_validation for legacy/mock compatibility
+          const fbCount = await db.query(
+            `SELECT COUNT(*) as total FROM beneficiary_validation ${whereClause}`,
+            params,
+          );
+          total = parseInt(fbCount.rows[0]?.total || '0', 10);
+
+          const listRes = await db.query(
+            `SELECT id, phone_number, network, validation_status, created_at, updated_at, validated_at,
+                    attempt_count, last_bundle_size_gb, first_detected_at, last_detected_at, submitted_at, resolved_at
+             FROM beneficiary_validation
+             ${whereClause}
+             ORDER BY created_at DESC
+             LIMIT $${idx++} OFFSET $${idx++}`,
+            [...params, limitNum, offset],
+          );
+
+          beneficiaries = listRes.rows.map((r: any) => {
+            let mappedStatus = 'pending';
+            if (r.validation_status === 'VALID') mappedStatus = 'approved';
+            else if (r.validation_status === 'INVALID') mappedStatus = 'rejected';
+            else if (r.validation_status === 'PENDING') mappedStatus = 'pending';
+            else mappedStatus = String(r.status || r.validation_status || 'pending').toLowerCase();
+
+            return {
+              msisdn: r.phone_number,
+              network: r.network,
+              status: mappedStatus,
+              attemptCount: Number(r.attempt_count || 1),
+              lastBundleSizeGb: r.last_bundle_size_gb ? String(r.last_bundle_size_gb) : null,
+              firstDetectedAt: new Date(r.first_detected_at || r.created_at).toISOString(),
+              lastDetectedAt: new Date(r.last_detected_at || r.updated_at || r.created_at).toISOString(),
+              submittedAt: r.submitted_at ? new Date(r.submitted_at).toISOString() : null,
+              resolvedAt:
+                r.resolved_at
+                  ? new Date(r.resolved_at).toISOString()
+                  : (mappedStatus === 'approved' || mappedStatus === 'rejected') && r.validated_at
+                  ? new Date(r.validated_at).toISOString()
+                  : null,
+            };
+          });
+        }
+      } catch {
+        beneficiaries = [];
+        total = 0;
+      }
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        message: 'Success',
+        data: {
+          data: beneficiaries,
+          meta: {
+            page: pageNum,
+            limit: limitNum,
+            total,
+          },
+        },
+      });
+    },
+  );
+
+  // 0.6 GET AGENT WALLET LEDGER: GET /agent/wallet/ledger
+  app.get(
+    '/agent/wallet/ledger',
+    { preHandler: [authHooks.authenticate(Permission.WALLET_READ)] },
+    async (req, reply) => {
+      const userId = req.user!.sub;
+
+      let rows: any[] = [];
+      let total = 0;
+
+      try {
+        const countRes = await db.query(
+          `SELECT COUNT(*) as total FROM financial_ledger WHERE account_id = $1`,
+          [userId],
+        );
+        total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+        const listRes = await db.query(
+          `WITH running AS (
+             SELECT id, transaction_id, entry_type, account_type, account_id, amount_pesewas,
+                    reference_type, reference_id, description, created_at,
+                    SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END)
+                      OVER (ORDER BY created_at ASC, id ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as running_pesewas
+             FROM financial_ledger
+             WHERE account_id = $1
+           )
+           SELECT *,
+                  running_pesewas as balance_after,
+                  running_pesewas - (CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END) as balance_before
+           FROM running
+           ORDER BY created_at DESC, id DESC
+           LIMIT 50 OFFSET 0`,
+          [userId],
+        );
+        rows = listRes.rows;
+      } catch {
+        const fallbackRes = await db.query(
+          `SELECT * FROM financial_ledger WHERE account_id = $1 ORDER BY created_at DESC LIMIT 50`,
+          [userId],
+        ).catch(() => ({ rows: [] }));
+
+        let running = 0;
+        rows = (fallbackRes.rows || []).map((r: any) => {
+          const amt = Number(r.amount_pesewas || 0);
+          const isCredit = r.entry_type === 'CREDIT';
+          const balAfter = running;
+          const balBefore = isCredit ? running - amt : running + amt;
+          running = balBefore;
+          return {
+            ...r,
+            balance_after: balAfter,
+            balance_before: balBefore,
+          };
+        });
+        total = rows.length;
+      }
+
+      const ledger = rows.map((r: any) => ({
+        id: r.id,
+        walletId: `w_${String(userId).replace(/-/g, '').slice(0, 16)}`,
+        direction: String(r.entry_type || 'debit').toLowerCase(),
+        amount: Number((Number(r.amount_pesewas || 0) / 100).toFixed(2)),
+        balanceAfter: Number((Number(r.balance_after || 0) / 100).toFixed(2)),
+        balanceBefore: Number((Number(r.balance_before || 0) / 100).toFixed(2)),
+        category: String(r.reference_type || 'purchase').toLowerCase(),
+        referenceType: r.reference_type || 'Order',
+        referenceId: r.reference_id || r.id,
+        reference: r.reference_id || r.id,
+        description: r.description || 'Agent wallet ledger transaction',
+        source: r.source || null,
+        createdAt: new Date(r.created_at).toISOString(),
+      }));
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        message: 'Success',
+        data: {
+          data: ledger,
+          meta: {
+            page: 1,
+            limit: 50,
+            total,
+          },
+        },
+      });
+    },
+  );
+
+  // 0.7 AGENT WEBHOOKS: GET /agent/webhooks
+  app.get(
+    '/agent/webhooks',
+    { preHandler: [authHooks.authenticate(Permission.WEBHOOKS_READ)] },
+    async (req, reply) => {
+      const userId = req.user!.sub;
+      const res = await db.query(
+        `SELECT id, agent_id, url, events, status, created_at as "createdAt"
+         FROM agent_webhooks
+         WHERE agent_id = $1 AND status != 'DISABLED'
+         ORDER BY created_at DESC`,
+        [userId],
+      ).catch(() => ({ rows: [] }));
+
+      const webhooks = res.rows.map((row: any) => ({
+        id: row.id,
+        agentId: row.agent_id || userId,
+        url: row.url,
+        events: row.events || [],
+        isActive: row.status === 'ACTIVE',
+        createdAt: new Date(row.createdAt).toISOString(),
+      }));
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        message: 'Success',
+        data: webhooks,
+      });
+    },
+  );
+
+  // 0.8 AGENT CREATE WEBHOOK: POST /agent/webhooks
+  app.post<{ Body: { url: string; events: string[] } }>(
+    '/agent/webhooks',
+    { preHandler: [authHooks.authenticate(Permission.WEBHOOKS_WRITE)] },
+    async (req, reply) => {
+      const { url, events } = req.body || {};
+
+      if (!url || typeof url !== 'string' || (!url.startsWith('https://') && !url.startsWith('http://localhost'))) {
+        throw new BadRequestError('A valid HTTPS webhook destination URL is required');
+      }
+
+      if (!events || !Array.isArray(events) || events.length === 0) {
+        throw new BadRequestError('At least one event subscription string is required');
+      }
+
+      const userId = req.user!.sub;
+      const rawSecret = `whsec_${crypto.randomBytes(24).toString('base64url')}`;
+      const secretHash = crypto.createHash('sha256').update(rawSecret).digest('hex');
+
+      const res = await db.query(
+        `INSERT INTO agent_webhooks (agent_id, url, secret_hash, events, status, rate_limit_per_minute)
+         VALUES ($1, $2, $3, $4, 'ACTIVE', 60)
+         RETURNING id, agent_id, url, events, status, created_at as "createdAt"`,
+        [userId, url.trim(), secretHash, events],
+      );
+
+      const created = res.rows[0];
+
+      return reply.status(201).send({
+        success: true,
+        statusCode: 201,
+        message: 'Subscription created. The secret is shown ONCE — store it now.',
+        data: {
+          id: created.id,
+          agentId: created.agent_id || userId,
+          url: created.url,
+          events: created.events || events,
+          isActive: true,
+          createdAt: new Date(created.createdAt).toISOString(),
+          signingSecret: rawSecret,
+        },
+      });
+    },
+  );
+
+  // 0.9 AGENT ROTATE WEBHOOK SECRET: POST /agent/webhooks/:id/rotate-secret
+  app.post<{ Params: { id: string } }>(
+    '/agent/webhooks/:id/rotate-secret',
+    { preHandler: [authHooks.authenticate(Permission.WEBHOOKS_WRITE)] },
+    async (req, reply) => {
+      const { id } = req.params;
+      const userId = req.user!.sub;
+
+      const existing = await db.query(
+        `SELECT id, agent_id as "agentId", url, events, status, created_at as "createdAt"
+         FROM agent_webhooks WHERE id = $1 AND agent_id = $2`,
+        [id, userId],
+      );
+      if (existing.rows.length === 0) {
+        throw new NotFoundError(`Webhook subscription '${id}' not found`);
+      }
+
+      const rawSecret = `whsec_${crypto.randomBytes(24).toString('base64url')}`;
+      const secretHash = crypto.createHash('sha256').update(rawSecret).digest('hex');
+
+      await db.query(
+        `UPDATE agent_webhooks
+         SET secret_hash = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 AND agent_id = $3`,
+        [secretHash, id, userId],
+      );
+
+      const row = existing.rows[0];
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        message: 'New signing secret generated. It is shown ONCE — store it now.',
+        data: {
+          id,
+          agentId: row.agentId || userId,
+          url: row.url,
+          events: row.events || [],
+          isActive: row.status === 'ACTIVE',
+          createdAt: new Date(row.createdAt).toISOString(),
+          signingSecret: rawSecret,
+        },
+      });
+    },
+  );
+
+  // 0.10 AGENT DELETE WEBHOOK: DELETE /agent/webhooks/:id
+  app.delete<{ Params: { id: string } }>(
+    '/agent/webhooks/:id',
+    { preHandler: [authHooks.authenticate(Permission.WEBHOOKS_WRITE)] },
+    async (req, reply) => {
+      const { id } = req.params;
+      const userId = req.user!.sub;
+
+      const existing = await db.query(
+        `SELECT id FROM agent_webhooks WHERE id = $1 AND agent_id = $2`,
+        [id, userId],
+      );
+      if (existing.rows.length === 0) {
+        throw new NotFoundError(`Webhook subscription '${id}' not found`);
+      }
+
+      await db.query(
+        `UPDATE agent_webhooks SET status = 'DISABLED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [id],
+      );
+
+      return reply.status(204).send();
+    },
   );
 
   // 1. GET AGENT PROFILE
@@ -407,22 +1267,37 @@ export async function agentRoutes(
       balancePesewas = Number(res.rows[0]?.balance || 0);
     }
 
-    return reply.send({
+    const balanceGhs = Number((balancePesewas / 100).toFixed(2));
+    const overdraftLimit = 0.0;
+    const overdraftUsed = 0.0;
+    const overdraftAvailable = 0.0;
+    const overdraftActive = false;
+    const availableToSpend = balanceGhs;
+
+    return reply.status(200).send({
       success: true,
+      statusCode: 200,
+      message: 'Success',
       data: {
-        balancePesewas,
-        balanceGhs: balancePesewas / 100,
-        availablePesewas: balancePesewas,
-        availableGhs: balancePesewas / 100,
+        balance: balanceGhs,
         currency: 'GHS',
+        overdraftLimit,
+        overdraftUsed,
+        overdraftAvailable,
+        overdraftActive,
+        availableToSpend,
+        balancePesewas,
+        balanceGhs,
+        availablePesewas: balancePesewas,
+        availableGhs: balanceGhs,
       },
     });
   };
 
-  app.get('/agents/wallet/balance', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletBalance);
-  app.get('/agent/wallet/balance', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletBalance);
-  app.get('/wallet/balance', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletBalance);
-  app.get('/customer/wallet/balance', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletBalance);
+  app.get('/agents/wallet/balance', { preHandler: [authHooks.authenticate(Permission.WALLET_READ)] }, handleGetWalletBalance);
+  app.get('/agent/wallet/balance', { preHandler: [authHooks.authenticate(Permission.WALLET_READ)] }, handleGetWalletBalance);
+  app.get('/wallet/balance', { preHandler: [authHooks.authenticate(Permission.WALLET_READ)] }, handleGetWalletBalance);
+  app.get('/customer/wallet/balance', { preHandler: [authHooks.authenticate(Permission.WALLET_READ)] }, handleGetWalletBalance);
 
   // 5. INITIALIZE WALLET TOPUP (Paystack)
   app.post<{ Body: { amountPesewas: number; callbackUrl?: string } }>(

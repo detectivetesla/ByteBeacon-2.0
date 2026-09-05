@@ -14,6 +14,9 @@ Status: `FOUNDATION ONLY`
 - **Threat**: Attacker intercepts and replays a valid webhook payload to credit a balance multiple times.
 - **Mitigation**: Redis distributed lock / idempotency record: `SET webhook:lock:{providerTxId} EX 86400 NX`. If the key already exists, return `200 OK` immediately without re-processing.
 
-### 1.3 Unverified Telecom Webhooks (DataHouse Status)
-- **Status**: `AUTHORITATIVE SOURCE NOT VERIFIED`
-- **Rule**: DataHouse webhook signature schemes, headers, and payloads must not be fabricated. Concrete verification will only be implemented when authoritative vendor documentation is officially provided.
+### 1.3 Telecom Webhooks (DataHouse Status)
+- **Status**: `CONFIRMED EXTERNAL REQUIREMENT`
+- **Specification**: Validated against authoritative DataHouse Gateway specification (`https://api.getmorepaylessdatahouse.net/api/v1`).
+- **Signature Scheme**: Header `X-Telecom-Signature: t=<unix-ts>,v1=<hex-sig>`.
+- **Verification Rule**: HMAC-SHA256 computed over `${ts}.${rawBody}` using the subscription secret (`whsec_...`).
+- **Replay Protection**: Reject timestamps outside the 5-minute window (`Math.abs(nowSec - ts) > 300`) and enforce Redis deduplication (`webhook:datahouse:dedup:{eventId}`) with PostgreSQL durable uniqueness check on `provider_events`.

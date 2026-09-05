@@ -32,6 +32,10 @@ import {
 } from '@bytebeacon/shared';
 import { DataHouseClient } from './datahouse.client.js';
 import { DataHouseMapper } from './datahouse.mapper.js';
+import {
+  DataHouseApiAccessStatus,
+  DataHouseApiAccessPaymentInitiation,
+} from './datahouse.types.js';
 
 export class DataHouseAdapter implements ITelecomProvider {
   public readonly providerName = 'DATAHOUSE';
@@ -427,6 +431,22 @@ export class DataHouseAdapter implements ITelecomProvider {
 
   public verifyWebhookSignature(rawBody: string | Buffer, signature: string): boolean {
     return this.client.verifyWebhookSignature(rawBody, signature);
+  }
+
+  public isSandbox(): boolean {
+    return this.client.isSandbox();
+  }
+
+  public isLive(): boolean {
+    return this.client.isLive();
+  }
+
+  public async getApiAccessStatus(bearerJwt: string): Promise<DataHouseApiAccessStatus> {
+    return this.client.getApiAccessStatus(bearerJwt);
+  }
+
+  public async initiateApiAccessPayment(bearerJwt: string): Promise<DataHouseApiAccessPaymentInitiation> {
+    return this.client.initiateApiAccessPayment(bearerJwt);
   }
 }
 

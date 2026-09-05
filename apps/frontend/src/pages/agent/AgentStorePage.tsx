@@ -94,6 +94,7 @@ export const AgentStorePage: React.FC = () => {
               setSetupState('AWAITING_APPROVAL');
               toastSuccess('Store Activated', 'Payment verified! Your storefront has been submitted for review.');
               fetchStore();
+              if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('bytebeacon:store-updated'));
             }
           })
           .catch((err) => {
@@ -136,6 +137,7 @@ export const AgentStorePage: React.FC = () => {
           setSetupState('AWAITING_APPROVAL');
           toastSuccess('Store Submitted', 'Store submitted for activation review.');
           fetchStore();
+          if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('bytebeacon:store-updated'));
         } else {
           setSetupState('AWAITING_APPROVAL');
           toastSuccess('Store Submitted', 'Store submitted for activation review.');

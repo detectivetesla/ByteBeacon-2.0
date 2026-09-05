@@ -6,6 +6,8 @@ import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { MaintenanceBanner } from '../../components/navigation/MaintenanceBanner.js';
 import { storesApi, StoreProfileDto, PublicStoreProductDto } from '../../api/stores.api.js';
 import { ordersApi } from '../../api/orders.api.js';
+import { beneficiaryApi } from '../../api/beneficiary.api.js';
+import { BeneficiaryNotApprovedModal } from '../../components/commerce/BeneficiaryNotApprovedModal.js';
 import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
 import {
   Store,
@@ -82,6 +84,8 @@ export const PublicStorefrontPage: React.FC = () => {
   const [customerEmail, setCustomerEmail] = useState('');
   const [selectedChannel, setSelectedChannel] = useState<'mobile_money' | 'card'>('mobile_money');
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
+  const [unapprovedPhone, setUnapprovedPhone] = useState('');
 
   // Order Complete / Confirmation state
   const [confirmedOrder, setConfirmedOrder] = useState<CustomerOrderDto | null>(null);
@@ -186,6 +190,24 @@ export const PublicStorefrontPage: React.FC = () => {
 
     setIsCheckingOut(true);
     try {
+      if (selectedProduct.network === 'MTN' || (selectedProduct.network as any) === NetworkProvider.MTN) {
+        try {
+          const precheckRes = await beneficiaryApi.precheckPublic({
+            network: NetworkProvider.MTN,
+            phoneNumbers: [cleanRecipient],
+          });
+          const result = precheckRes?.results?.[0];
+          if (result && !result.known) {
+            setUnapprovedPhone(cleanRecipient);
+            setUnapprovedModalOpen(true);
+            setIsCheckingOut(false);
+            return;
+          }
+        } catch {
+          // Fallback to server checkout response
+        }
+      }
+
       const idempotencyKey = `ord_sf_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       const checkoutRes = await storesApi.publicCheckout({
         slug: store?.slug || storeSlug,
@@ -234,6 +256,17 @@ export const PublicStorefrontPage: React.FC = () => {
         toastSuccess('Order Placed', 'Payment processed and bundle is being dispatched!');
       }
     } catch (err: any) {
+      const isBeneficiaryUnapproved =
+        err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+        err?.status === 422 ||
+        err?.message?.toLowerCase().includes('beneficiary') ||
+        err?.message?.toLowerCase().includes('mtn number not yet validated') ||
+        err?.message?.toLowerCase().includes('not added to our beneficiary');
+      if (isBeneficiaryUnapproved) {
+        setUnapprovedPhone(cleanRecipient);
+        setUnapprovedModalOpen(true);
+        return;
+      }
       toastError('Checkout Failed', err.message || 'Unable to complete order. Please verify details and try again.');
     } finally {
       setIsCheckingOut(false);
@@ -1313,6 +1346,12 @@ export const PublicStorefrontPage: React.FC = () => {
         </div>
       </footer>
 
+      {/* Beneficiary Not Approved Warning Modal */}
+      <BeneficiaryNotApprovedModal
+        isOpen={unapprovedModalOpen}
+        onClose={() => setUnapprovedModalOpen(false)}
+        phoneNumber={unapprovedPhone}
+      />
     </div>
   );
 };

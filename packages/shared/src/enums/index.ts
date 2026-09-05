@@ -90,6 +90,8 @@ export enum Permission {
   // Developer & Infrastructure
   API_KEYS_MANAGE = 'api_keys.manage',
   WEBHOOKS_MANAGE = 'webhooks.manage',
+  WEBHOOKS_READ = 'webhooks.read',
+  WEBHOOKS_WRITE = 'webhooks.write',
   SANDBOX_MANAGE = 'sandbox.manage',
 
   // Communication

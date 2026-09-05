@@ -97,6 +97,10 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
           return Promise.resolve({ rows: [] });
         }
 
+        if (sql.includes('FROM beneficiary_validation')) {
+          return Promise.resolve({ rows: [{ 1: 1 }] });
+        }
+
         return Promise.resolve({ rows: [] });
       }),
     } as unknown as pg.Pool;
@@ -264,6 +268,142 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
       const json = JSON.parse(res.body);
       expect(json.success).toBe(false);
       expect(json.error.code).toBe('NOT_FOUND');
+    });
+  });
+
+  describe('POST /agent/orders (Single Order Submission)', () => {
+    it('should reject requests with missing or invalid UUID v4 idempotencyKey', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_live_8f3c12345678',
+        },
+        payload: {
+          bundleId: '550e8400-e29b-41d4-a716-446655440000',
+          phoneNumber: '0241234567',
+          idempotencyKey: 'not-a-valid-uuid-v4',
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      const json = JSON.parse(res.body);
+      expect(json.error?.message || json.message).toContain('idempotencyKey is required and must be a UUID v4');
+    });
+
+    it('should reject requests with invalid Ghanaian phone format with 422 INVALID_PHONE', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_live_8f3c12345678',
+        },
+        payload: {
+          bundleId: '550e8400-e29b-41d4-a716-446655440000',
+          phoneNumber: '1234567', // invalid phone
+          idempotencyKey: 'b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f',
+        },
+      });
+
+      expect(res.statusCode).toBe(422);
+      const json = JSON.parse(res.body);
+      expect(json.error?.code || json.code).toBe('INVALID_PHONE');
+    });
+
+    it('should short-circuit sandbox key returning fulfilled status with SBX- reference', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_test_sandbox_test_key_123',
+        },
+        payload: {
+          bundleId: '550e8400-e29b-41d4-a716-446655440000',
+          phoneNumber: '0241234567',
+          idempotencyKey: 'b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f',
+          email: 'cust@example.com',
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.status).toBe('fulfilled');
+      expect(json.data.isSandbox).toBe(true);
+      expect(json.data.referenceCode).toMatch(/^SBX-/);
+      expect(json.data.channel).toBe('agent_api');
+      expect(json.data.bundleId).toBe('550e8400-e29b-41d4-a716-446655440000');
+    });
+
+    it('should return fulfillment_failed when sandbox order has phone ending in 0000', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_test_sandbox_test_key_123',
+        },
+        payload: {
+          bundleId: '550e8400-e29b-41d4-a716-446655440000',
+          phoneNumber: '0240000000', // ends in 0000
+          idempotencyKey: 'c82b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f',
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const json = JSON.parse(res.body);
+      expect(json.data.status).toBe('fulfillment_failed');
+      expect(json.data.referenceCode).toMatch(/^SBX-/);
+    });
+
+    it('should place a live order via orderService.createOrder and return 201 status received', async () => {
+      vi.spyOn(orderService, 'createOrder').mockResolvedValueOnce({
+        order: {
+          id: 'ord_uuid_live_1',
+          publicId: 'ord_01J8NEWXYZ',
+          userId: 'usr_agent_1',
+          agentId: 'agt_uuid_1',
+          network: 'MTN',
+          dataAmountMb: 5120,
+          amountPesewas: '2100',
+          currency: 'GHS',
+          paymentStatus: 'PAID',
+          orderStatus: 'READY_FOR_FULFILLMENT',
+          providerStatus: 'RECEIVED',
+          providerReference: 'TXN-7GH2K9',
+          createdAt: '2026-07-07T12:00:00.000Z',
+          updatedAt: '2026-07-07T12:00:00.000Z',
+        } as any,
+        isIdempotentReplay: false,
+      });
+
+      // Mock beneficiary validation as known/validated
+      (mockDb.query as any).mockImplementationOnce(() => Promise.resolve({ rows: [{ 1: 1 }] }));
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_live_8f3c12345678',
+        },
+        payload: {
+          bundleId: '550e8400-e29b-41d4-a716-446655440000',
+          phoneNumber: '+233241234567',
+          idempotencyKey: 'b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f',
+          email: 'customer@example.com',
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.publicId).toBe('ord_01J8NEWXYZ');
+      expect(json.data.referenceCode).toBe('TXN-7GH2K9');
+      expect(json.data.status).toBe('received');
+      expect(json.data.amount).toBe('21.00');
+      expect(json.data.groupSizeGb).toBe('5.00');
+      expect(json.data.network).toBe('MTN');
+      expect(json.data.channel).toBe('agent_api');
+      expect(json.data.isSandbox).toBe(false);
     });
   });
 });

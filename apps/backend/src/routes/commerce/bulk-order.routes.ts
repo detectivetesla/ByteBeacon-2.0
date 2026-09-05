@@ -105,7 +105,7 @@ export async function bulkOrderRoutes(
     {
       preHandler: [
         bulkRateLimit,
-        authHooks.authenticate,
+        authHooks.authenticate(Permission.ORDERS_CREATE),
         authHooks.requirePermission(Permission.ORDERS_CREATE),
         maintenanceHook,
       ],

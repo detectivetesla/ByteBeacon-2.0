@@ -6,7 +6,7 @@ import {
   CatalogProviderStatus,
   CatalogPricingMode,
 } from '@bytebeacon/shared';
-import { NotFoundError } from '../errors/app-error.js';
+import { BundleNotFoundError, BundleInactiveError } from '../errors/app-error.js';
 
 export interface ListCatalogProductsOptions {
   network?: NetworkProvider;
@@ -242,7 +242,7 @@ export class CatalogService {
       FROM catalog_products cp
       ${userPricingJoin}
       ${agentPricingJoin}
-      WHERE (cp.id::text = $1 OR cp.sku = $1 OR cp.provider_plan_id = $1 OR cp.provider_plan_code = $1 OR cp.provider_product_code = $1) AND cp.is_active = TRUE
+      WHERE (cp.id::text = $1 OR cp.sku = $1 OR cp.provider_plan_id = $1 OR cp.provider_plan_code = $1 OR cp.provider_product_code = $1)
     `;
 
     const result = await this.db.query(query, params).catch(() => ({ rows: [] }));
@@ -250,17 +250,26 @@ export class CatalogService {
       // Fallback query if joins failed on un-migrated tables
       const fallback = await this.db
         .query(
-          `SELECT * FROM catalog_products WHERE (id::text = $1 OR sku = $1 OR provider_plan_id = $1 OR provider_plan_code = $1 OR provider_product_code = $1) AND is_active = TRUE LIMIT 1`,
+          `SELECT * FROM catalog_products WHERE (id::text = $1 OR sku = $1 OR provider_plan_id = $1 OR provider_plan_code = $1 OR provider_product_code = $1) LIMIT 1`,
           [productId],
         )
         .catch(() => ({ rows: [] }));
 
       if (!fallback?.rows || fallback.rows.length === 0) {
-        throw new NotFoundError(`Product '${productId}' not found or inactive in catalog`);
+        throw new BundleNotFoundError(`Bundle '${productId}' not found in catalog`);
       }
-      return this.mapRowToDto(fallback.rows[0], options);
+      const raw = fallback.rows[0];
+      if (raw.is_active === false || raw.status === 'DISABLED' || raw.status === 'INACTIVE') {
+        throw new BundleInactiveError(`Requested bundle is currently inactive`);
+      }
+      return this.mapRowToDto(raw, options);
     }
 
-    return this.mapRowToDto(result.rows[0], options);
+    const row = result.rows[0];
+    if (row.isActive === false || row.status === 'DISABLED' || row.status === 'INACTIVE') {
+      throw new BundleInactiveError(`Requested bundle is currently inactive`);
+    }
+
+    return this.mapRowToDto(row, options);
   }
 }

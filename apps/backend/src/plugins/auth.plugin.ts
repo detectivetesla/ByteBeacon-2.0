@@ -104,16 +104,37 @@ export function createAuthHooks(
     };
   };
 
-  const authenticate = async (req: FastifyRequest, reply: FastifyReply) => {
-    const authHeader = req.headers.authorization;
-    const apiKeyHeader = req.headers['x-api-key'];
+  function authenticate(req: FastifyRequest, reply: FastifyReply): Promise<void>;
+  function authenticate(requiredScope?: Permission): (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  function authenticate(
+    reqOrScope?: FastifyRequest | Permission,
+    maybeReply?: FastifyReply,
+  ): Promise<void> | ((req: FastifyRequest, reply: FastifyReply) => Promise<void>) {
+    if (reqOrScope && typeof reqOrScope === 'object' && 'headers' in reqOrScope && maybeReply) {
+      const req = reqOrScope as FastifyRequest;
+      const reply = maybeReply;
+      const authHeader = req.headers.authorization;
+      const apiKeyHeader = req.headers['x-api-key'];
 
-    if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
-      await authenticateApiKey()(req, reply);
-    } else {
-      await authenticateCustomer(req, reply);
+      if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        return authenticateApiKey()(req, reply);
+      } else {
+        return authenticateCustomer(req, reply);
+      }
     }
-  };
+
+    const scope = reqOrScope as Permission | undefined;
+    return async (req: FastifyRequest, reply: FastifyReply) => {
+      const authHeader = req.headers.authorization;
+      const apiKeyHeader = req.headers['x-api-key'];
+
+      if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        await authenticateApiKey(scope)(req, reply);
+      } else {
+        await authenticateCustomer(req, reply);
+      }
+    };
+  }
 
   const requirePermission = (permission: Permission) => {
     return async (req: FastifyRequest, _reply: FastifyReply) => {

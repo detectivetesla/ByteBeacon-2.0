@@ -101,10 +101,44 @@ export class ProviderReconciliationService {
             `UPDATE orders
              SET order_status = $1,
                  provider_status = $2,
+                 refund_status = CASE WHEN $4 = TRUE AND payment_status = 'PAID' THEN 'COMPLETED' ELSE refund_status END,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $3`,
-            [newOrderStatus, actualStatus.providerStatus, row.orderId],
+            [newOrderStatus, actualStatus.providerStatus, row.orderId, isFailed],
           );
+
+          if (isFailed) {
+            const orderInfo = await this.db.query(
+              `SELECT user_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
+              [row.orderId],
+            );
+            if (orderInfo.rows.length > 0) {
+              const ord = orderInfo.rows[0];
+              if (ord.payment_status === 'PAID' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+                const refundAmt = Number(ord.amount_pesewas);
+                await this.db.query(
+                  `UPDATE users
+                   SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+                       wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [refundAmt, ord.user_id],
+                );
+                await this.db.query(
+                  `INSERT INTO financial_ledger (
+                      transaction_id, entry_type, account_type, account_id,
+                      amount_pesewas, currency, reference_type, reference_id,
+                      description
+                   ) VALUES (
+                      uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
+                      $2, 'GHS', 'ORDER_REFUND', $3,
+                      $4
+                   )`,
+                  [ord.user_id, refundAmt, row.orderId, `Automated refund on reconciliation failure [${row.orderId}]`],
+                ).catch(() => {});
+              }
+            }
+          }
 
           await this.db.query(
             `INSERT INTO order_events (
@@ -257,10 +291,44 @@ export class ProviderReconciliationService {
       `UPDATE orders
        SET order_status = $1,
            provider_status = $2,
+           refund_status = CASE WHEN $4 = TRUE AND payment_status = 'PAID' THEN 'COMPLETED' ELSE refund_status END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
-      [newOrderStatus, actualStatus.providerStatus, row.id],
+      [newOrderStatus, actualStatus.providerStatus, row.id, isFailed],
     );
+
+    if (isFailed) {
+      const orderInfo = await this.db.query(
+        `SELECT user_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
+        [row.id],
+      );
+      if (orderInfo.rows.length > 0) {
+        const ord = orderInfo.rows[0];
+        if (ord.payment_status === 'PAID' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+          const refundAmt = Number(ord.amount_pesewas);
+          await this.db.query(
+            `UPDATE users
+             SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+                 wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [refundAmt, ord.user_id],
+          );
+          await this.db.query(
+            `INSERT INTO financial_ledger (
+                transaction_id, entry_type, account_type, account_id,
+                amount_pesewas, currency, reference_type, reference_id,
+                description
+             ) VALUES (
+                uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
+                $2, 'GHS', 'ORDER_REFUND', $3,
+                $4
+             )`,
+            [ord.user_id, refundAmt, row.id, `Automated refund on single reconciliation failure [${row.id}]`],
+          ).catch(() => {});
+        }
+      }
+    }
 
     await this.db.query(
       `INSERT INTO order_events (

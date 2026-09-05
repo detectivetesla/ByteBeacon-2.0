@@ -1046,12 +1046,17 @@ export const AgentCustomersPage: React.FC = () => {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--color-bg-base)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', marginTop: 'var(--space-2)' }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)' }}>
-                  https://bytebeacon.com/store/{selectedAgent.storeSlug}
+                  {typeof window !== 'undefined' && window.location?.origin
+                    ? `${window.location.origin}/store/${selectedAgent.storeSlug}`
+                    : `/store/${selectedAgent.storeSlug}`}
                 </span>
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText(`https://bytebeacon.com/store/${selectedAgent.storeSlug}`);
+                    const fullUrl = typeof window !== 'undefined' && window.location?.origin
+                      ? `${window.location.origin}/store/${selectedAgent.storeSlug}`
+                      : `/store/${selectedAgent.storeSlug}`;
+                    navigator.clipboard.writeText(fullUrl);
                     toastSuccess('Copied', 'Storefront link copied');
                   }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-brand)' }}

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { AppShell } from './AppShell.js';
 import { AGENT_NAVIGATION_GROUPS } from '../components/navigation/navigation.config.js';
 import { Store } from 'lucide-react';
@@ -16,14 +16,40 @@ export const AgentLayout: React.FC = () => {
   const { balancePesewas } = useWalletBalance();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const [storeSlug, setStoreSlug] = useState<string | undefined>(undefined);
+  const [isStoreApproved, setIsStoreApproved] = useState<boolean>(false);
+  const location = useLocation();
+
+  const fetchStoreStatus = useCallback(() => {
+    storesApi
+      .getStore()
+      .then((store) => {
+        if (store) {
+          if (store.slug) {
+            setStoreSlug(store.slug);
+          }
+          // Only show My Store in the header after the store setup has been APPROVED
+          setIsStoreApproved(store.approvalStatus === 'APPROVED');
+        } else {
+          setIsStoreApproved(false);
+        }
+      })
+      .catch(() => {
+        setIsStoreApproved(false);
+      });
+  }, []);
 
   useEffect(() => {
-    storesApi.getStore().then((store) => {
-      if (store?.slug) {
-        setStoreSlug(store.slug);
-      }
-    }).catch(() => {});
-  }, []);
+    fetchStoreStatus();
+
+    const handleStoreUpdated = () => {
+      fetchStoreStatus();
+    };
+
+    window.addEventListener('bytebeacon:store-updated', handleStoreUpdated);
+    return () => {
+      window.removeEventListener('bytebeacon:store-updated', handleStoreUpdated);
+    };
+  }, [fetchStoreStatus, location.pathname]);
 
   return (
     <>
@@ -39,6 +65,7 @@ export const AgentLayout: React.FC = () => {
         balancePesewas={balancePesewas}
         onTopUpClick={() => (window.location.href = '/agent/wallet')}
         storeSlug={storeSlug}
+        isStoreApproved={isStoreApproved}
       >
         <Outlet />
       </AppShell>

@@ -6,6 +6,7 @@ import { BundleSelector, BundleItem } from '../../components/commerce/BundleSele
 import { catalogApi } from '../../api/catalog.api.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { PurchaseModal, BulkOrderItem } from '../../components/commerce/PurchaseModal.js';
+import { BeneficiaryNotApprovedModal } from '../../components/commerce/BeneficiaryNotApprovedModal.js';
 import { Card } from '../../components/ui/Card/Card.js';
 import { PhoneInput, Select, Checkbox, Textarea } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -238,6 +239,9 @@ export const BuyDataPage: React.FC = () => {
 
   // Purchase Modal Trigger State
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
+  const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
+  const [unapprovedPhone, setUnapprovedPhone] = useState('');
+  const [isCheckingBeneficiary, setIsCheckingBeneficiary] = useState(false);
   const [modalPayload, setModalPayload] = useState<{
     title?: string;
     packageSummary?: string;
@@ -274,7 +278,7 @@ export const BuyDataPage: React.FC = () => {
   }, [availableBundles, singleBundleId, selectedNetwork]);
 
   // Single Order Submit
-  const handleSingleOrderSubmit = () => {
+  const handleSingleOrderSubmit = async () => {
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
@@ -289,6 +293,36 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
     setSinglePhoneError('');
+
+    // If network is MTN, run precheck for the beneficiary number
+    if (selectedNetwork === NetworkProvider.MTN) {
+      try {
+        setIsCheckingBeneficiary(true);
+        const precheckRes = await beneficiaryApi.precheckPublic({
+          network: NetworkProvider.MTN,
+          phoneNumbers: [cleaned],
+        });
+        const result = precheckRes?.results?.[0];
+        if (result && !result.known) {
+          setUnapprovedPhone(cleaned);
+          setUnapprovedModalOpen(true);
+          return;
+        }
+      } catch (err: any) {
+        if (
+          err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+          err?.status === 422 ||
+          err?.message?.toLowerCase().includes('beneficiary') ||
+          err?.message?.toLowerCase().includes('mtn number not yet validated')
+        ) {
+          setUnapprovedPhone(cleaned);
+          setUnapprovedModalOpen(true);
+          return;
+        }
+      } finally {
+        setIsCheckingBeneficiary(false);
+      }
+    }
 
     setModalPayload({
       title: isRecurring ? `Recurring Order (${recurringFrequency})` : 'Purchase Data',
@@ -1107,29 +1141,35 @@ export const BuyDataPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleSingleOrderSubmit}
-                  disabled={isMaintenanceMode}
+                  disabled={isMaintenanceMode || isCheckingBeneficiary}
                   style={{
                     width: '100%',
                     padding: '0.65rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                    color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                    backgroundColor: isMaintenanceMode || isCheckingBeneficiary ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                    color: isMaintenanceMode || isCheckingBeneficiary ? 'var(--color-text-muted)' : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-sm)',
-                    cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
-                    opacity: isMaintenanceMode ? 0.6 : 1,
+                    cursor: isMaintenanceMode || isCheckingBeneficiary ? 'not-allowed' : 'pointer',
+                    opacity: isMaintenanceMode || isCheckingBeneficiary ? 0.6 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.4rem',
-                    boxShadow: !isMaintenanceMode ? `0 3px 12px ${theme.glowColor}` : 'none',
+                    boxShadow: !isMaintenanceMode && !isCheckingBeneficiary ? `0 3px 12px ${theme.glowColor}` : 'none',
                     transition: 'transform 100ms ease',
                   }}
-                  onMouseDown={(e) => (!isMaintenanceMode && (e.currentTarget.style.transform = 'translateY(1px)'))}
-                  onMouseUp={(e) => (!isMaintenanceMode && (e.currentTarget.style.transform = 'translateY(0)'))}
+                  onMouseDown={(e) => (!isMaintenanceMode && !isCheckingBeneficiary && (e.currentTarget.style.transform = 'translateY(1px)'))}
+                  onMouseUp={(e) => (!isMaintenanceMode && !isCheckingBeneficiary && (e.currentTarget.style.transform = 'translateY(0)'))}
                 >
-                  <span>{isMaintenanceMode ? 'Platform in Maintenance' : `Buy Data (${currentSingleBundle.priceDisplay})`}</span>
+                  <span>
+                    {isMaintenanceMode
+                      ? 'Platform in Maintenance'
+                      : isCheckingBeneficiary
+                        ? 'Verifying Beneficiary...'
+                        : `Buy Data (${currentSingleBundle.priceDisplay})`}
+                  </span>
                   <ArrowRight size={16} strokeWidth={2.6} />
                 </button>
               </Card>
@@ -1874,6 +1914,13 @@ export const BuyDataPage: React.FC = () => {
         channel={channel}
         walletBalanceGhs={balanceGhs}
         bulkItems={modalPayload.bulkItems}
+      />
+
+      {/* 6. Beneficiary Not Approved Modal for Individual Orders */}
+      <BeneficiaryNotApprovedModal
+        isOpen={unapprovedModalOpen}
+        onClose={() => setUnapprovedModalOpen(false)}
+        phoneNumber={unapprovedPhone}
       />
     </div>
   );

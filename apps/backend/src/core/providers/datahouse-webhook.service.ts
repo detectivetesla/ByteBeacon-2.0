@@ -194,6 +194,34 @@ export class DataHouseWebhookService {
         nextOrderStatus = OrderStatus.FAILED;
         if (projection.paymentStatus === 'PAID') {
           refundStatus = RefundStatus.PENDING;
+          // Auto refund wallet
+          const orderInfo = await client.query(
+            `SELECT user_id, amount_pesewas FROM orders WHERE id = $1`,
+            [projection.orderId],
+          );
+          if (orderInfo.rows.length > 0 && orderInfo.rows[0].user_id && orderInfo.rows[0].amount_pesewas) {
+            const refundAmt = Number(orderInfo.rows[0].amount_pesewas);
+            await client.query(
+              `UPDATE users
+               SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+                   wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2`,
+              [refundAmt, orderInfo.rows[0].user_id],
+            );
+            await client.query(
+              `INSERT INTO financial_ledger (
+                  transaction_id, entry_type, account_type, account_id,
+                  amount_pesewas, currency, reference_type, reference_id,
+                  description
+               ) VALUES (
+                  uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
+                  $2, 'GHS', 'ORDER_REFUND', $3,
+                  $4
+               )`,
+              [orderInfo.rows[0].user_id, refundAmt, projection.orderId, `Automated refund on DataHouse webhook failure [${projection.orderId}]`],
+            ).catch(() => {});
+          }
         }
       } else if (incomingStatus === ProviderStatus.PROCESSING) {
         nextOrderStatus = OrderStatus.PROCESSING;

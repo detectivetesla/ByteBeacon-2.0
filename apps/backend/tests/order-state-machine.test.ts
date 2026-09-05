@@ -54,4 +54,68 @@ describe('Order State Machine Transition Engine', () => {
     expect(OrderStateMachine.isTerminal(OrderStatus.CREATED)).toBe(false);
     expect(OrderStateMachine.isTerminal(OrderStatus.PROCESSING)).toBe(false);
   });
+
+  describe('Agent Order Lifecycle Finite State Machine', () => {
+    it('allows valid transitions along the happy path: received -> processing -> delivered / approved', () => {
+      expect(OrderStateMachine.canTransitionAgentLifecycle('received', 'processing')).toBe(true);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('processing', 'delivered')).toBe(true);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('processing', 'approved')).toBe(true);
+    });
+
+    it('allows valid transitions along the failure & refund path: received -> processing -> could_not_deliver -> refunded', () => {
+      expect(OrderStateMachine.canTransitionAgentLifecycle('received', 'could_not_deliver')).toBe(true);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('received', 'rejected')).toBe(true);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('processing', 'could_not_deliver')).toBe(true);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('processing', 'rejected')).toBe(true);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('could_not_deliver', 'refunded')).toBe(true);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('rejected', 'refunded')).toBe(true);
+    });
+
+    it('allows mixed batch transition to partially_approved', () => {
+      expect(OrderStateMachine.canTransitionAgentLifecycle('processing', 'partially_approved')).toBe(true);
+    });
+
+    it('strictly rejects illegal transitions from terminal states or invalid steps', () => {
+      expect(OrderStateMachine.canTransitionAgentLifecycle('delivered', 'processing')).toBe(false);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('delivered', 'could_not_deliver')).toBe(false);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('approved', 'received')).toBe(false);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('refunded', 'processing')).toBe(false);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('refunded', 'delivered')).toBe(false);
+      expect(OrderStateMachine.canTransitionAgentLifecycle('partially_approved', 'received')).toBe(false);
+    });
+
+    it('validates transitions and throws BadRequestError for illegal transitions', () => {
+      expect(() =>
+        OrderStateMachine.validateAgentLifecycleTransition('delivered', 'processing'),
+      ).toThrow("Invalid order lifecycle transition: Cannot transition from 'delivered' to 'processing'");
+    });
+
+    it('correctly maps internal order and refund statuses to agent lifecycle status', () => {
+      expect(OrderStateMachine.mapToAgentLifecycleStatus(OrderStatus.READY_FOR_FULFILLMENT)).toBe('received');
+      expect(OrderStateMachine.mapToAgentLifecycleStatus(OrderStatus.SUBMITTED)).toBe('received');
+      expect(OrderStateMachine.mapToAgentLifecycleStatus(OrderStatus.PROCESSING)).toBe('processing');
+      expect(OrderStateMachine.mapToAgentLifecycleStatus(OrderStatus.COMPLETED)).toBe('delivered');
+      expect(OrderStateMachine.mapToAgentLifecycleStatus(OrderStatus.FAILED)).toBe('could_not_deliver');
+      expect(OrderStateMachine.mapToAgentLifecycleStatus(OrderStatus.FAILED, 'PAID', 'COMPLETED')).toBe('refunded');
+      expect(OrderStateMachine.mapToAgentLifecycleStatus(OrderStatus.COMPLETED, 'REFUNDED')).toBe('refunded');
+    });
+
+    it('maps lifecycle statuses to expected webhook events', () => {
+      expect(OrderStateMachine.getWebhookEventsForLifecycle('received')).toContain('order.received');
+      expect(OrderStateMachine.getWebhookEventsForLifecycle('processing')).toContain('order.processing');
+      expect(OrderStateMachine.getWebhookEventsForLifecycle('delivered', { isAuto: true })).toEqual([
+        'order.approved',
+        'purchase.success',
+      ]);
+      expect(OrderStateMachine.getWebhookEventsForLifecycle('could_not_deliver', { isAuto: true })).toEqual([
+        'order.rejected',
+        'purchase.failed',
+      ]);
+      expect(OrderStateMachine.getWebhookEventsForLifecycle('refunded')).toContain('wallet.updated');
+      expect(OrderStateMachine.getWebhookEventsForLifecycle('partially_approved')).toEqual([
+        'order.partially_approved',
+        'wallet.updated',
+      ]);
+    });
+  });
 });

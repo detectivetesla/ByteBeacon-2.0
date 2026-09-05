@@ -13,6 +13,7 @@ import { RetryPolicy } from './retry-policy.js';
 import { FulfillmentQueueService } from './fulfillment-queue.service.js';
 import { QueueManager } from '../../infrastructure/queues/queue.manager.js';
 import { logger } from '../logging/logger.js';
+import { AgentWebhookDispatcherService } from '../webhooks/agent-webhook-dispatcher.service.js';
 
 export interface ProcessOrderResult {
   orderId: string;
@@ -29,6 +30,7 @@ export class FulfillmentWorker {
   private readonly circuitBreaker: CircuitBreaker;
   private readonly retryPolicy: RetryPolicy;
   private readonly queueService: FulfillmentQueueService;
+  private readonly webhookDispatcher?: AgentWebhookDispatcherService;
 
   constructor(
     db: pg.Pool,
@@ -36,12 +38,14 @@ export class FulfillmentWorker {
     circuitBreaker: CircuitBreaker,
     retryPolicy: RetryPolicy,
     queueService: FulfillmentQueueService,
+    webhookDispatcher?: AgentWebhookDispatcherService,
   ) {
     this.db = db;
     this.provider = provider;
     this.circuitBreaker = circuitBreaker;
     this.retryPolicy = retryPolicy;
     this.queueService = queueService;
+    this.webhookDispatcher = webhookDispatcher || new AgentWebhookDispatcherService(db);
   }
 
   /**
@@ -97,7 +101,7 @@ export class FulfillmentWorker {
     try {
       // 2. Fetch Order and Provider Projection with Catalog Plan Mapping
       const orderRes = await this.db.query(
-        `SELECT o.id, o.public_id, o.user_id, o.recipient_phone, o.network,
+        `SELECT o.id, o.public_id, o.user_id, o.agent_id, o.recipient_phone, o.network,
                 o.data_amount_mb, o.payment_status, o.order_status, o.product_id,
                 cp.provider_plan_id as "providerPlanId", cp.provider_plan_code as "providerPlanCode",
                 cp.provider_product_code as "providerProductCode", cp.sku, cp.name as "productName",
@@ -147,6 +151,18 @@ export class FulfillmentWorker {
           providerStatus: ProviderStatus.COMPLETED,
           orderStatus: OrderStatus.COMPLETED,
         };
+      }
+
+      // Dispatch order.processing for agent orders entering active processing
+      if (order.agent_id) {
+        this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'order.processing', {
+          id: order.id,
+          order_id: order.id,
+          public_id: order.public_id,
+          status: 'processing',
+          network: order.network,
+          recipient_phone: order.recipient_phone,
+        }).catch(() => {});
       }
 
       // Resolve specific provider (using current active/routing provider for unsubmitted orders)
@@ -238,7 +254,6 @@ export class FulfillmentWorker {
           await this.db.query(
             `UPDATE orders
              SET order_status = $1,
-                 refund_status = CASE WHEN payment_status = 'PAID' THEN 'PENDING' ELSE refund_status END,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $2`,
             [OrderStatus.FAILED, order.id],
@@ -249,43 +264,26 @@ export class FulfillmentWorker {
             [ProviderStatus.FAILED, order.id],
           ).catch(() => {});
 
-          // Automated Wallet Refund for paid orders on permanent fulfillment failure
-          if (order.payment_status === 'PAID' && order.user_id && order.amount_pesewas) {
-            try {
-              const payRes = await this.db.query(
-                `SELECT id, payment_method as "paymentMethod", provider FROM payments WHERE order_id = $1 AND status = 'PAID' LIMIT 1`,
-                [order.id],
-              );
-              const pay = payRes.rows[0];
-              if (pay && (String(pay.paymentMethod).toUpperCase() === 'WALLET' || String(pay.provider).toUpperCase() === 'WALLET')) {
-                await this.db.query(
-                  `UPDATE users
-                   SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
-                       wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
-                       updated_at = CURRENT_TIMESTAMP
-                   WHERE id = $2`,
-                  [order.amount_pesewas, order.user_id],
-                );
-                await this.db.query(
-                  `UPDATE orders SET refund_status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-                  [order.id],
-                );
-                await this.db.query(
-                  `INSERT INTO order_events (order_id, event_type, correlation_id, actor_type, source, previous_state, new_state)
-                   VALUES ($1, 'ORDER_REFUNDED', $2, 'SYSTEM', 'FULFILLMENT_WORKER', $3, $4)`,
-                  [
-                    order.id,
-                    correlationId,
-                    JSON.stringify({ refundStatus: 'PENDING' }),
-                    JSON.stringify({ refundStatus: 'COMPLETED', amountPesewas: order.amount_pesewas, reason: 'AUTOMATIC_FULFILLMENT_FAILURE_REFUND' }),
-                  ],
-                ).catch(() => {});
-                logger.info({ orderId: order.id, amountPesewas: order.amount_pesewas }, 'Automated wallet refund executed for failed fulfillment order');
-              }
-            } catch (refundErr) {
-              logger.error({ refundErr, orderId: order.id }, 'Failed to execute automated wallet refund on permanent fulfillment failure');
-            }
+          if (order.agent_id) {
+            this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'order.rejected', {
+              id: order.id,
+              order_id: order.id,
+              public_id: order.public_id,
+              status: 'rejected',
+              reason: err.message || 'Fulfillment failure',
+            }).catch(() => {});
+
+            this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'purchase.failed', {
+              id: order.id,
+              order_id: order.id,
+              public_id: order.public_id,
+              status: 'rejected',
+              reason: err.message || 'Fulfillment failure',
+            }).catch(() => {});
           }
+
+          // Automated Wallet Refund on permanent fulfillment failure
+          await this.executeAutomaticRefund(order.id, correlationId, err.message || 'Fulfillment failure');
 
           return {
             orderId,
@@ -394,20 +392,190 @@ export class FulfillmentWorker {
         ],
       ).catch(() => {});
 
+      // Dispatch agent webhooks on completion or failure
+      if (order.agent_id) {
+        if (isCompleted) {
+          this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'order.approved', {
+            id: order.id,
+            order_id: order.id,
+            public_id: order.public_id,
+            reference: submitResult.providerReference,
+            provider_reference: submitResult.providerReference,
+            status: 'approved',
+            network: order.network,
+            recipient_phone: order.recipient_phone,
+          }).catch(() => {});
+
+          this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'purchase.success', {
+            id: order.id,
+            order_id: order.id,
+            public_id: order.public_id,
+            reference: submitResult.providerReference,
+            provider_reference: submitResult.providerReference,
+            status: 'approved',
+            network: order.network,
+            recipient_phone: order.recipient_phone,
+          }).catch(() => {});
+        } else if (isFailed) {
+          this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'order.rejected', {
+            id: order.id,
+            order_id: order.id,
+            public_id: order.public_id,
+            status: 'rejected',
+            reason: `Provider rejected order with status [${initialProviderStatus}]`,
+          }).catch(() => {});
+
+          this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'purchase.failed', {
+            id: order.id,
+            order_id: order.id,
+            public_id: order.public_id,
+            status: 'rejected',
+            reason: `Provider rejected order with status [${initialProviderStatus}]`,
+          }).catch(() => {});
+        }
+      }
+
+      // If provider explicitly rejected/failed, trigger automatic refund immediately
+      if (isFailed) {
+        await this.executeAutomaticRefund(order.id, correlationId, `Provider rejected order with status [${initialProviderStatus}]`);
+      }
+
       logger.info(
         { orderId: order.id, providerReference: submitResult.providerReference, providerName: activeProvider.providerName, status: finalOrderStatus },
-        `Order explicitly accepted by ${activeProvider.providerName} and transitioned to ${finalOrderStatus}`,
+        `Order processed by ${activeProvider.providerName} and transitioned to ${finalOrderStatus}`,
       );
 
       return {
         orderId,
-        success: true,
+        success: !isFailed,
         providerStatus: initialProviderStatus,
         orderStatus: finalOrderStatus,
         reconciledBeforeRetry,
       };
     } finally {
       await this.queueService.releaseOrderLock(orderId);
+    }
+  }
+
+  /**
+   * Executes an automatic, idempotent wallet refund whenever an order experiences a permanent fulfillment failure.
+   */
+  public async executeAutomaticRefund(
+    orderId: string,
+    correlationId: string,
+    reason: string = 'AUTOMATIC_FULFILLMENT_FAILURE_REFUND',
+  ): Promise<boolean> {
+    try {
+      // 1. Fetch order details
+      const orderRes = await this.db.query(
+        `SELECT id, user_id, agent_id, amount_pesewas, payment_status, refund_status
+         FROM orders
+         WHERE id = $1`,
+        [orderId],
+      );
+
+      if (orderRes.rows.length === 0) return false;
+      const order = orderRes.rows[0];
+
+      // Verification: must be paid and not already refunded
+      if (
+        order.payment_status !== PaymentStatus.PAID ||
+        order.refund_status === 'COMPLETED' ||
+        !order.user_id ||
+        !order.amount_pesewas ||
+        Number(order.amount_pesewas) <= 0
+      ) {
+        return false;
+      }
+
+      const amountPesewas = Number(order.amount_pesewas);
+
+      // 2. Refund user's wallet
+      await this.db.query(
+        `UPDATE users
+         SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+             wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [amountPesewas, order.user_id],
+      );
+
+      // 3. Mark order as refunded
+      await this.db.query(
+        `UPDATE orders
+         SET refund_status = 'COMPLETED',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [orderId],
+      );
+
+      // 4. Record ledger entry (double-entry accounting)
+      await this.db.query(
+        `INSERT INTO financial_ledger (
+            transaction_id, entry_type, account_type, account_id,
+            amount_pesewas, currency, reference_type, reference_id,
+            description
+         ) VALUES (
+            uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
+            $2, 'GHS', 'ORDER_REFUND', $3,
+            $4
+         )`,
+        [order.user_id, amountPesewas, orderId, `Automated refund for failed order [${orderId}]: ${reason}`],
+      ).catch(() => {});
+
+      // 5. Insert order event
+      await this.db.query(
+        `INSERT INTO order_events (
+            order_id, event_type, correlation_id, actor_id, actor_type, source,
+            previous_state, new_state
+         ) VALUES ($1, 'ORDER_REFUNDED', $2, $3, 'SYSTEM', 'FULFILLMENT_WORKER', $4, $5)`,
+        [
+          orderId,
+          correlationId,
+          order.user_id,
+          JSON.stringify({ refundStatus: order.refund_status || 'NONE' }),
+          JSON.stringify({
+            refundStatus: 'COMPLETED',
+            amountPesewas,
+            reason,
+            refundedAt: new Date().toISOString(),
+          }),
+        ],
+      ).catch(() => {});
+
+      // 6. Webhook dispatching: wallet.updated
+      const targetAgentId = order.agent_id || order.user_id;
+      if (targetAgentId) {
+        const balRes = await this.db.query(
+          'SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1',
+          [order.user_id],
+        ).catch(() => ({ rows: [] }));
+        const balanceAfter =
+          balRes.rows[0]?.wallet_balance ??
+          ((balRes.rows[0]?.wallet_balance_pesewas || 0) / 100).toFixed(2);
+
+        this.webhookDispatcher?.dispatchAgentEvent(targetAgentId, 'wallet.updated', {
+          wallet_id: order.user_id,
+          agent_id: targetAgentId,
+          direction: 'credit',
+          amount: (amountPesewas / 100).toFixed(2),
+          currency: 'GHS',
+          balance_after: balanceAfter,
+          reason: `Automated refund for failed order [${orderId}]: ${reason}`,
+        }).catch(() => {});
+      }
+
+      logger.info(
+        { orderId, userId: order.user_id, amountPesewas, reason },
+        '[FULFILLMENT_WORKER] Automated wallet refund successfully executed for failed order',
+      );
+      return true;
+    } catch (err: any) {
+      logger.error(
+        { orderId, err: err?.message, stack: err?.stack },
+        '[FULFILLMENT_WORKER] Failed to execute automatic refund',
+      );
+      return false;
     }
   }
 
@@ -432,7 +600,7 @@ export class FulfillmentWorker {
            sync_version = sync_version + 1
        WHERE order_id = $2`,
       [statusData.providerStatus, orderId],
-    );
+    ).catch(() => {});
 
     await this.db.query(
       `UPDATE orders
@@ -458,7 +626,66 @@ export class FulfillmentWorker {
           providerStatus: statusData.providerStatus,
         }),
       ],
-    );
+    ).catch(() => {});
+
+    // Dispatch agent webhooks on projection update
+    const orderMetaRes = await this.db.query(
+      'SELECT id, public_id, agent_id, network, recipient_phone FROM orders WHERE id = $1',
+      [orderId],
+    ).catch(() => ({ rows: [] }));
+    const ordMeta = orderMetaRes.rows[0];
+
+    if (ordMeta?.agent_id) {
+      if (isCompleted) {
+        this.webhookDispatcher?.dispatchAgentEvent(ordMeta.agent_id, 'order.approved', {
+          id: ordMeta.id,
+          order_id: ordMeta.id,
+          public_id: ordMeta.public_id,
+          status: 'approved',
+          network: ordMeta.network,
+          recipient_phone: ordMeta.recipient_phone,
+        }).catch(() => {});
+
+        this.webhookDispatcher?.dispatchAgentEvent(ordMeta.agent_id, 'purchase.success', {
+          id: ordMeta.id,
+          order_id: ordMeta.id,
+          public_id: ordMeta.public_id,
+          status: 'approved',
+          network: ordMeta.network,
+          recipient_phone: ordMeta.recipient_phone,
+        }).catch(() => {});
+      } else if (isFailed) {
+        this.webhookDispatcher?.dispatchAgentEvent(ordMeta.agent_id, 'order.rejected', {
+          id: ordMeta.id,
+          order_id: ordMeta.id,
+          public_id: ordMeta.public_id,
+          status: 'rejected',
+          reason: `Provider status transitioned to ${statusData.providerStatus}`,
+        }).catch(() => {});
+
+        this.webhookDispatcher?.dispatchAgentEvent(ordMeta.agent_id, 'purchase.failed', {
+          id: ordMeta.id,
+          order_id: ordMeta.id,
+          public_id: ordMeta.public_id,
+          status: 'rejected',
+          reason: `Provider status transitioned to ${statusData.providerStatus}`,
+        }).catch(() => {});
+      } else if (statusData.providerStatus === ProviderStatus.PROCESSING) {
+        this.webhookDispatcher?.dispatchAgentEvent(ordMeta.agent_id, 'order.processing', {
+          id: ordMeta.id,
+          order_id: ordMeta.id,
+          public_id: ordMeta.public_id,
+          status: 'processing',
+          network: ordMeta.network,
+          recipient_phone: ordMeta.recipient_phone,
+        }).catch(() => {});
+      }
+    }
+
+    // If transitioned to FAILED/REJECTED, automatically refund the order
+    if (isFailed) {
+      await this.executeAutomaticRefund(orderId, correlationId, `Provider status transitioned to ${statusData.providerStatus}`);
+    }
 
     return {
       orderId,

@@ -9,7 +9,7 @@ import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
-import { BadRequestError } from '../../core/errors/app-error.js';
+import { BadRequestError, InsufficientBalanceError, BeneficiaryNotValidatedError } from '../../core/errors/app-error.js';
 import {
   CreateOrderRequest,
   ApiResponse,
@@ -97,6 +97,58 @@ export async function orderRoutes(
           : req.user!.role === UserRole.AGENT
             ? 'AGENT'
             : 'CUSTOMER';
+
+      // Beneficiary validation enforcement for MTN individual orders (Up2U first-time rule)
+      const prodRes = await Promise.resolve(
+        db.query(`SELECT network FROM products WHERE id = $1 LIMIT 1`, [productId]),
+      ).catch(() => ({ rows: [] }));
+      const prodNetwork = prodRes.rows?.[0]?.network;
+      if (prodNetwork === 'MTN' || prodNetwork === NetworkProvider.MTN) {
+        const cleanPhone = recipientPhone.trim().replace(/\s+/g, '');
+        const normalizedLocal = cleanPhone.startsWith('+233')
+          ? `0${cleanPhone.slice(4)}`
+          : cleanPhone.startsWith('233')
+            ? `0${cleanPhone.slice(3)}`
+            : cleanPhone;
+
+        const validatedCheck = await Promise.resolve(
+          db.query(
+            `SELECT 1 FROM beneficiary_validation
+              WHERE phone_number = $1
+                AND network = 'MTN'
+                AND validation_status = 'VALID'
+                AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+              UNION
+              SELECT 1 FROM pending_beneficiary_approvals
+              WHERE (phone_number = $1 OR phone_number = $2)
+                AND network = 'MTN'
+                AND status = 'APPROVED'
+              UNION
+              SELECT 1 FROM orders
+              WHERE (recipient_phone = $1 OR recipient_phone = $2)
+                AND network = 'MTN'
+                AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
+              LIMIT 1`,
+            [normalizedLocal, `+233${normalizedLocal.slice(1)}`],
+          ),
+        ).catch(() => ({ rows: [{ dummy: 1 }] })); // fallback gracefully if query fails
+
+        if (validatedCheck.rows.length === 0) {
+          await Promise.resolve(
+            db.query(
+              `INSERT INTO pending_beneficiary_approvals (
+                  phone_number, network, agent_id, status, created_at, updated_at
+               ) VALUES ($1, 'MTN', $2, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT DO NOTHING`,
+              [normalizedLocal, req.user!.sub],
+            ),
+          ).catch(() => {});
+
+          throw new BeneficiaryNotValidatedError(
+            `The phone number ${normalizedLocal} is not added to our beneficiary list at the moment. Number has been recorded and will be added to our beneficiary list. Please try again later.`,
+          );
+        }
+      }
 
       const { order, isIdempotentReplay } = await orderService.createOrder(
         {
@@ -330,11 +382,11 @@ export async function orderRoutes(
             : parseInt(product.base_price_pesewas, 10);
 
         if (balancePesewas < pricePesewas) {
-          return reply.status(400).send({
-            success: false,
-            error: 'Insufficient wallet balance',
-            type: 'INSUFFICIENT_BALANCE',
-          });
+          const have = (balancePesewas / 100).toFixed(2);
+          const need = (pricePesewas / 100).toFixed(2);
+          throw new InsufficientBalanceError(
+            `Insufficient agent wallet balance: have ${have} GHS, need ${need} GHS`,
+          );
         }
 
         const idempotencyKey =
@@ -425,11 +477,11 @@ export async function orderRoutes(
       }
 
       if (balancePesewas < totalCostPesewas) {
-        return reply.status(400).send({
-          success: false,
-          error: 'Insufficient wallet balance',
-          type: 'INSUFFICIENT_BALANCE',
-        });
+        const have = (balancePesewas / 100).toFixed(2);
+        const need = (totalCostPesewas / 100).toFixed(2);
+        throw new InsufficientBalanceError(
+          `Insufficient agent wallet balance: have ${have} GHS, need ${need} GHS`,
+        );
       }
 
       let primaryOrderId = `ORD-${Date.now().toString().slice(-6)}`;

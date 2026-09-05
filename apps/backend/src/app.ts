@@ -552,6 +552,7 @@ export function createApp(options: AppOptions = {}) {
         tokenService,
         apiKeyService,
         rbacService,
+        rateLimiter,
       });
       await bulkOrderRoutes(commerceSubApp, {
         db: dbPool!,

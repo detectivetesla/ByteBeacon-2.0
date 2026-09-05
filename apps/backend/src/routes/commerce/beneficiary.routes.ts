@@ -6,11 +6,14 @@ import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { BadRequestError } from '../../core/errors/app-error.js';
+import { RateLimiterService } from '../../core/security/rate-limiter.service.js';
+import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
 import {
   ValidateBeneficiaryRequest,
   BeneficiaryValidationDto,
   ApiResponse,
   NetworkProvider,
+  Permission,
 } from '@bytebeacon/shared';
 
 export interface BeneficiaryRouteDependencies {
@@ -19,14 +22,18 @@ export interface BeneficiaryRouteDependencies {
   tokenService: TokenService;
   apiKeyService: ApiKeyService;
   rbacService: RbacService;
+  rateLimiter?: RateLimiterService;
 }
 
 export async function beneficiaryRoutes(
   app: FastifyInstance,
   deps: BeneficiaryRouteDependencies,
 ) {
-  const { db, beneficiaryService, tokenService, apiKeyService, rbacService } = deps;
+  const { db, beneficiaryService, tokenService, apiKeyService, rbacService, rateLimiter } = deps;
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
+  const publicPrecheckRateLimit = rateLimiter
+    ? createRateLimitHook(rateLimiter, { limit: 30, windowSeconds: 60 })
+    : undefined;
 
   // 1. VALIDATE BENEFICIARY
   app.post<{ Body: ValidateBeneficiaryRequest }>(
@@ -112,10 +119,12 @@ export async function beneficiaryRoutes(
 
   app.post<{ Body: { network: NetworkProvider | string; phoneNumbers: string[] } }>(
     '/orders/beneficiaries/precheck',
+    { preHandler: publicPrecheckRateLimit ? [publicPrecheckRateLimit] : [] },
     handlePublicPrecheck,
   );
   app.post<{ Body: { network: NetworkProvider | string; phoneNumbers: string[] } }>(
     '/beneficiaries/precheck',
+    { preHandler: publicPrecheckRateLimit ? [publicPrecheckRateLimit] : [] },
     handlePublicPrecheck,
   );
 
@@ -128,7 +137,7 @@ export async function beneficiaryRoutes(
     };
   }>(
     '/agent/beneficiaries/precheck',
-    { preHandler: [authHooks.authenticate] },
+    { preHandler: [authHooks.authenticate(Permission.PENDING_MTN_MANAGE)] },
     async (req, reply) => {
       const { network, phoneNumbers, record = false } = req.body || {};
 

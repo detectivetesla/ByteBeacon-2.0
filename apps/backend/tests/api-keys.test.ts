@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import crypto from 'node:crypto';
 import { ApiKeyService } from '../src/core/security/api-key.service.js';
 import { ApiKeyEnvironment, ApiKeyStatus, Permission } from '@bytebeacon/shared';
 import type pg from 'pg';
@@ -85,6 +86,89 @@ describe('API Key System (Agent/Developer Domain)', () => {
     // Invalid when lacking required scope
     await expect(apiKeyService.validateApiKey(rawKey, Permission.ORDERS_REFUND)).rejects.toThrow(
       'API key lacks required permission scope: orders.refund',
+    );
+  });
+
+  it('should allow unrestricted access when key is created with no scopes', async () => {
+    const rawKey = 'ak_live_unrestricted1234567890';
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+
+    const mockDb = {
+      query: vi.fn().mockImplementation((query: string) => {
+        if (query.includes('FROM api_keys')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'key_unrestricted',
+                agentId: 'agt_unrestricted',
+                name: 'Unrestricted Master Key',
+                keyHash,
+                environment: ApiKeyEnvironment.LIVE,
+                scopes: [], // No scopes = unrestricted
+                rateLimitTier: 'TIER_AGENT',
+                status: ApiKeyStatus.ACTIVE,
+                expiresAt: null,
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+    } as unknown as pg.Pool;
+
+    const apiKeyService = new ApiKeyService(mockDb);
+
+    // Should grant access regardless of required scope
+    const resOrdersRead = await apiKeyService.validateApiKey(rawKey, Permission.ORDERS_READ);
+    expect(resOrdersRead.id).toBe('key_unrestricted');
+
+    const resOrdersCreate = await apiKeyService.validateApiKey(rawKey, Permission.ORDERS_CREATE);
+    expect(resOrdersCreate.id).toBe('key_unrestricted');
+
+    const resWalletRead = await apiKeyService.validateApiKey(rawKey, Permission.WALLET_READ);
+    expect(resWalletRead.id).toBe('key_unrestricted');
+  });
+
+  it('should accept string scope aliases like orders:write and orders:read', async () => {
+    const rawKey = 'ak_live_scoped1234567890';
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+
+    const mockDb = {
+      query: vi.fn().mockImplementation((query: string) => {
+        if (query.includes('FROM api_keys')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'key_scoped',
+                agentId: 'agt_scoped',
+                name: 'Scoped Key',
+                keyHash,
+                environment: ApiKeyEnvironment.LIVE,
+                scopes: ['orders:write', 'orders:read', 'wallet:read'],
+                rateLimitTier: 'TIER_AGENT',
+                status: ApiKeyStatus.ACTIVE,
+                expiresAt: null,
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+    } as unknown as pg.Pool;
+
+    const apiKeyService = new ApiKeyService(mockDb);
+
+    const resWrite = await apiKeyService.validateApiKey(rawKey, Permission.ORDERS_CREATE);
+    expect(resWrite.id).toBe('key_scoped');
+
+    const resRead = await apiKeyService.validateApiKey(rawKey, Permission.ORDERS_READ);
+    expect(resRead.id).toBe('key_scoped');
+
+    const resWallet = await apiKeyService.validateApiKey(rawKey, Permission.WALLET_READ);
+    expect(resWallet.id).toBe('key_scoped');
+
+    await expect(apiKeyService.validateApiKey(rawKey, Permission.PENDING_MTN_MANAGE)).rejects.toThrow(
+      'API key lacks required permission scope',
     );
   });
 });

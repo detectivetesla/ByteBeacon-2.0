@@ -53,13 +53,55 @@ export class ConflictError extends AppError {
 
 export class RateLimitExceededError extends AppError {
   constructor(message = 'Rate limit exceeded. Please retry later.') {
-    super(message, 429, 'RATE_LIMIT_EXCEEDED');
+    super(message, 429, 'RATE_LIMITED');
   }
 }
 
 export class UnprocessableEntityError extends AppError {
   constructor(message = 'Unprocessable entity', details?: Array<{ field?: string; code: string; message: string }>) {
     super(message, 422, 'UNPROCESSABLE_ENTITY', details);
+  }
+}
+
+export class InsufficientBalanceError extends AppError {
+  constructor(message = 'Insufficient agent wallet balance') {
+    super(message, 400, 'INSUFFICIENT_BALANCE');
+  }
+}
+
+export class BundleInactiveError extends AppError {
+  constructor(message = 'Requested bundle is currently inactive') {
+    super(message, 400, 'BUNDLE_INACTIVE');
+  }
+}
+
+export class BulkNotOnSandboxError extends AppError {
+  constructor(message = 'Bulk orders cannot be executed with sandbox test keys (ak_test_...). Please use a live API key.') {
+    super(message, 400, 'BULK_NOT_ON_SANDBOX');
+  }
+}
+
+export class AgentInactiveError extends AppError {
+  constructor(message = 'Agent account is inactive or missing required scope') {
+    super(message, 403, 'AGENT_INACTIVE');
+  }
+}
+
+export class BundleNotFoundError extends AppError {
+  constructor(message = 'Requested bundle ID was not found in catalog') {
+    super(message, 404, 'BUNDLE_NOT_FOUND');
+  }
+}
+
+export class InvalidPhoneError extends AppError {
+  constructor(message = 'Phone not a Ghanaian MSISDN') {
+    super(message, 422, 'INVALID_PHONE');
+  }
+}
+
+export class BeneficiaryNotValidatedError extends AppError {
+  constructor(message = 'First-time MTN number not yet validated — recorded for MTN approval; precheck first.') {
+    super(message, 422, 'BENEFICIARY_NOT_VALIDATED');
   }
 }
 
@@ -88,7 +130,7 @@ export function errorHandler(
   );
 
   let statusCode = 500;
-  let errorCode = 'INTERNAL_SERVER_ERROR';
+  let errorCode = 'INTERNAL_ERROR';
   let message = isProd
     ? 'An unexpected error occurred. Please contact ByteBeacon support.'
     : error.message;
@@ -112,6 +154,9 @@ export function errorHandler(
       message,
       ...(details ? { details } : {}),
       requestId,
+    },
+    meta: {
+      correlationId: requestId,
     },
   });
 }

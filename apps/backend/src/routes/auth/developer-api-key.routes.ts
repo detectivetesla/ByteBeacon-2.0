@@ -37,16 +37,24 @@ function normalizeScope(scope: string): Permission {
     'orders:read': Permission.ORDERS_READ,
     'orders.create': Permission.ORDERS_CREATE,
     'orders.read': Permission.ORDERS_READ,
+    'bundles:read': Permission.ORDERS_READ,
+    'bundles.read': Permission.ORDERS_READ,
     'catalog:read': Permission.ORDERS_READ,
     'catalog.read': Permission.ORDERS_READ,
     'wallet:read': Permission.WALLET_READ,
     'wallet.read': Permission.WALLET_READ,
     'wallet:write': Permission.WALLET_ADJUST,
     'wallet.adjust': Permission.WALLET_ADJUST,
-    'api_keys:manage': Permission.API_KEYS_MANAGE,
-    'api_keys.manage': Permission.API_KEYS_MANAGE,
+    'webhooks:read': Permission.WEBHOOKS_READ,
+    'webhooks.read': Permission.WEBHOOKS_READ,
+    'webhooks:write': Permission.WEBHOOKS_WRITE,
+    'webhooks.write': Permission.WEBHOOKS_WRITE,
     'webhooks:manage': Permission.WEBHOOKS_MANAGE,
     'webhooks.manage': Permission.WEBHOOKS_MANAGE,
+    'beneficiaries:read': Permission.PENDING_MTN_MANAGE,
+    'beneficiaries.read': Permission.PENDING_MTN_MANAGE,
+    'api_keys:manage': Permission.API_KEYS_MANAGE,
+    'api_keys.manage': Permission.API_KEYS_MANAGE,
   };
   return map[scope] || (scope as Permission);
 }
@@ -76,9 +84,7 @@ export async function developerApiKeyRoutes(
       }
 
       const normalizedEnv = normalizeApiKeyEnvironment(environment);
-      const rawScopes = Array.isArray(scopes) && scopes.length > 0
-        ? scopes
-        : ['orders:create', 'orders:read'];
+      const rawScopes = Array.isArray(scopes) ? scopes : [];
       const normalizedScopes = rawScopes.map(normalizeScope);
 
       const generated = await apiKeyService.generateApiKey({

@@ -24,6 +24,8 @@ import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { ordersApi } from '../../api/orders.api.js';
+import { beneficiaryApi } from '../../api/beneficiary.api.js';
+import { BeneficiaryNotApprovedModal } from './BeneficiaryNotApprovedModal.js';
 
 export interface BulkOrderItem {
   recipientPhone: string;
@@ -142,6 +144,8 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<{ id: string; count?: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
+  const [unapprovedPhone, setUnapprovedPhone] = useState('');
 
   // Determine active channel: explicitly passed, or inferred from authenticated user role
   const isAgentRole = user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin';
@@ -270,7 +274,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   // Early return when modal is closed
   if (!isOpen) return null;
 
-  const handleValidateAndContinue = () => {
+  const handleValidateAndContinue = async () => {
     if (isMaintenanceMode) {
       toastError(
         'Maintenance in Progress',
@@ -284,6 +288,39 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       return;
     }
     setPhoneError('');
+
+    // Precheck MTN numbers before advancing
+    if (network === NetworkProvider.MTN) {
+      try {
+        setIsProcessing(true);
+        const precheckRes = await beneficiaryApi.precheckPublic({
+          network: NetworkProvider.MTN,
+          phoneNumbers: [cleaned],
+        });
+        const result = precheckRes?.results?.[0];
+        if (result && !result.known) {
+          setUnapprovedPhone(cleaned);
+          setUnapprovedModalOpen(true);
+          setIsProcessing(false);
+          return;
+        }
+      } catch (err: any) {
+        if (
+          err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+          err?.status === 422 ||
+          err?.message?.toLowerCase().includes('beneficiary') ||
+          err?.message?.toLowerCase().includes('mtn number not yet validated')
+        ) {
+          setUnapprovedPhone(cleaned);
+          setUnapprovedModalOpen(true);
+          setIsProcessing(false);
+          return;
+        }
+      } finally {
+        setIsProcessing(false);
+      }
+    }
+
     setStep(2); // Proceed to Payment Review
   };
 
@@ -380,7 +417,19 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               } else {
                 setCompletedOrder({ id: response.reference });
               }
-            } catch {
+            } catch (err: any) {
+              const isBeneficiaryUnapproved =
+                err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+                err?.status === 422 ||
+                err?.message?.toLowerCase().includes('beneficiary') ||
+                err?.message?.toLowerCase().includes('mtn number not yet validated') ||
+                err?.message?.toLowerCase().includes('not added to our beneficiary');
+              if (isBeneficiaryUnapproved && !isBulk) {
+                setUnapprovedPhone(targetPhone);
+                setUnapprovedModalOpen(true);
+                setIsProcessing(false);
+                return;
+              }
               setCompletedOrder({ id: response.reference });
             }
             setIsProcessing(false);
@@ -431,6 +480,17 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       }
     } catch (err: any) {
       setIsProcessing(false);
+      const isBeneficiaryUnapproved =
+        err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+        err?.status === 422 ||
+        err?.message?.toLowerCase().includes('beneficiary') ||
+        err?.message?.toLowerCase().includes('mtn number not yet validated') ||
+        err?.message?.toLowerCase().includes('not added to our beneficiary');
+      if (isBeneficiaryUnapproved && !isBulk) {
+        setUnapprovedPhone(targetPhone);
+        setUnapprovedModalOpen(true);
+        return;
+      }
       toastError('Payment Failed', err.message || 'Unable to complete Paystack payment.');
     }
   };
@@ -507,6 +567,23 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       }
     } catch (err: any) {
       setIsProcessing(false);
+      const isBeneficiaryUnapproved =
+        err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+        err?.status === 422 ||
+        err?.message?.toLowerCase().includes('beneficiary') ||
+        err?.message?.toLowerCase().includes('mtn number not yet validated') ||
+        err?.message?.toLowerCase().includes('not added to our beneficiary');
+      if (isBeneficiaryUnapproved && !isBulk) {
+        const cleanedPhone = (
+          recipientPhone ||
+          initialRecipientPhone ||
+          (customRecipientSummary && !isBulk ? customRecipientSummary : '') ||
+          ''
+        ).trim().replace(/\s+/g, '');
+        setUnapprovedPhone(cleanedPhone);
+        setUnapprovedModalOpen(true);
+        return;
+      }
       toastError('Order Failed', err.message || 'Unable to complete purchase. Please try again.');
     }
   };
@@ -538,7 +615,8 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   };
 
   return (
-    <div
+    <>
+      <div
       style={{
         position: 'fixed',
         inset: 0,
@@ -1521,5 +1599,11 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         </div>
       </div>
     </div>
-  );
+    <BeneficiaryNotApprovedModal
+      isOpen={unapprovedModalOpen}
+      onClose={() => setUnapprovedModalOpen(false)}
+      phoneNumber={unapprovedPhone}
+    />
+  </>
+);
 };

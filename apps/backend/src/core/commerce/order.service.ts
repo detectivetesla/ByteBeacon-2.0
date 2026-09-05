@@ -27,7 +27,7 @@ import { OrderStateMachine } from './order-state-machine.js';
 import { CatalogService } from './catalog.service.js';
 import { IdempotencyService } from './idempotency.service.js';
 import { FinancialLedgerService } from '../payments/financial-ledger.service.js';
-import { NotFoundError, ForbiddenError, BadRequestError } from '../errors/app-error.js';
+import { NotFoundError, ForbiddenError, InsufficientBalanceError, BundleInactiveError } from '../errors/app-error.js';
 import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.js';
 import { FulfillmentWorker } from '../providers/fulfillment-worker.js';
 import { logger } from '../logging/logger.js';
@@ -88,6 +88,9 @@ export class OrderService {
 
     // 2. Resolve Product & Authoritative Pricing from Server Catalog
     const product = await this.catalogService.getProductById(input.productId);
+    if (!product.isActive || (product.status as string) === 'DISABLED' || (product.status as string) === 'INACTIVE') {
+      throw new BundleInactiveError('Requested bundle is currently inactive');
+    }
 
     // 2a. Check individual user custom pricing override first
     let pricePesewas: number | null = null;
@@ -174,8 +177,11 @@ export class OrderService {
         }
 
         if (currentBalancePesewas < pricePesewas) {
-          throw new BadRequestError(
-            `Insufficient wallet balance. Required: GH₵ ${(pricePesewas / 100).toFixed(2)}, Available: GH₵ ${(currentBalancePesewas / 100).toFixed(2)}. Please top up your wallet.`,
+          const have = (currentBalancePesewas / 100).toFixed(2);
+          const need = (pricePesewas / 100).toFixed(2);
+          const target = context.actorType === 'AGENT' ? 'agent wallet' : 'wallet';
+          throw new InsufficientBalanceError(
+            `Insufficient ${target} balance: have ${have} GHS, need ${need} GHS`,
           );
         }
 
@@ -1186,7 +1192,12 @@ export class OrderService {
       createdAt: new Date(r.createdAt).toISOString(),
       approvedAt: isApproved ? new Date(r.updatedAt).toISOString() : null,
       approvedByName: isApproved ? 'Ops Team' : null,
-      paymentSplit: null,
+      paymentSplit: r.pricingSnapshot?.paymentSplit
+        ? {
+            fromMain: Number(r.pricingSnapshot.paymentSplit.fromMain ?? 0),
+            fromOverdraft: Number(r.pricingSnapshot.paymentSplit.fromOverdraft ?? 0),
+          }
+        : null,
       beneficiaryCount: 1,
       totalDataGb: sizeGb,
       delivery: {

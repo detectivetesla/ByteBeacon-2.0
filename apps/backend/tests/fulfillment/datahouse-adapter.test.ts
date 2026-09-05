@@ -511,5 +511,54 @@ describe('DataHouseAdapter and DataHouseClient', () => {
       expect(isValid).toBe(false);
     });
   });
+
+  describe('Key Prefixes & Live API Access Paywall', () => {
+    it('should identify ak_live_ vs ak_test_ key prefixes', () => {
+      const liveClient = new DataHouseClient({
+        baseUrl: 'https://api.getmorepaylessdatahouse.net/api/v1',
+        apiKey: 'ak_live_abcdef1234567890',
+      });
+      const sandboxClient = new DataHouseClient({
+        baseUrl: 'https://api.getmorepaylessdatahouse.net/api/v1',
+        apiKey: 'ak_test_abcdef1234567890',
+      });
+
+      expect(liveClient.isLive()).toBe(true);
+      expect(liveClient.isSandbox()).toBe(false);
+
+      expect(sandboxClient.isLive()).toBe(false);
+      expect(sandboxClient.isSandbox()).toBe(true);
+    });
+
+    it('should query live API access fee status via JWT', async () => {
+      vi.spyOn(mockClient, 'getApiAccessStatus').mockResolvedValueOnce({
+        access_granted: true,
+        paid_at: '2026-06-01T10:00:00.000Z',
+        fee_required: false,
+        fee_amount: null,
+        fee_label: 'Live API access',
+        fee_description: null,
+      });
+
+      const status = await adapter.getApiAccessStatus('mock_jwt_token_agent_123');
+
+      expect(status.access_granted).toBe(true);
+      expect(status.fee_required).toBe(false);
+      expect(status.paid_at).toBe('2026-06-01T10:00:00.000Z');
+    });
+
+    it('should initiate live API access payment when fee is unpaid', async () => {
+      vi.spyOn(mockClient, 'initiateApiAccessPayment').mockResolvedValueOnce({
+        access_granted: false,
+        authorizationUrl: 'https://checkout.paystack.com/access_fee_xyz',
+        reference: 'DH-ACC-12345',
+      });
+
+      const payment = await adapter.initiateApiAccessPayment('mock_jwt_token_agent_123');
+
+      expect(payment.access_granted).toBe(false);
+      expect(payment.authorizationUrl).toBe('https://checkout.paystack.com/access_fee_xyz');
+    });
+  });
 });
 

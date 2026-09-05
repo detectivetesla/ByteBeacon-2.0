@@ -16,9 +16,10 @@ import {
 } from '@bytebeacon/shared';
 import { CatalogService } from './catalog.service.js';
 import { FinancialLedgerService } from '../payments/financial-ledger.service.js';
-import { BadRequestError, NotFoundError, ForbiddenError, UnprocessableEntityError } from '../errors/app-error.js';
+import { BadRequestError, NotFoundError, ForbiddenError, UnprocessableEntityError, InsufficientBalanceError, BulkNotOnSandboxError } from '../errors/app-error.js';
 import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.js';
 import { FulfillmentWorker } from '../providers/fulfillment-worker.js';
+import { AgentWebhookDispatcherService } from '../webhooks/agent-webhook-dispatcher.service.js';
 import { logger } from '../logging/logger.js';
 
 export class BulkOrderService {
@@ -115,8 +116,10 @@ export class BulkOrderService {
         }
 
         if (currentBalancePesewas < totalAmountPesewas) {
-          throw new BadRequestError(
-            `Insufficient wallet balance. Required: GH₵ ${(totalAmountPesewas / 100).toFixed(2)}, Available: GH₵ ${(currentBalancePesewas / 100).toFixed(2)}. Please top up your wallet.`,
+          const have = (currentBalancePesewas / 100).toFixed(2);
+          const need = (totalAmountPesewas / 100).toFixed(2);
+          throw new InsufficientBalanceError(
+            `Insufficient agent wallet balance: have ${have} GHS, need ${need} GHS`,
           );
         }
 
@@ -399,9 +402,9 @@ export class BulkOrderService {
   }): Promise<AgentBulkOrderResult> {
     // 1. Sandbox key check
     if (params.isSandbox) {
-      const err = new BadRequestError('Bulk orders are not allowed on sandbox API keys. Please use a live API key.');
-      (err as any).code = 'BULK_NOT_ON_SANDBOX';
-      throw err;
+      throw new BulkNotOnSandboxError(
+        'Bulk orders cannot be executed with sandbox test keys (ak_test_...). Please use a live API key.',
+      );
     }
 
     // 2. Input validation
@@ -619,8 +622,10 @@ export class BulkOrderService {
       }
 
       if (currentBalancePesewas < grandTotalPesewas) {
-        throw new BadRequestError(
-          `Insufficient wallet balance. Required: GH₵ ${(grandTotalPesewas / 100).toFixed(2)}, Available: GH₵ ${(currentBalancePesewas / 100).toFixed(2)}. Please top up your wallet.`,
+        const have = (currentBalancePesewas / 100).toFixed(2);
+        const need = (grandTotalPesewas / 100).toFixed(2);
+        throw new InsufficientBalanceError(
+          `Insufficient agent wallet balance: have ${have} GHS, need ${need} GHS`,
         );
       }
 
@@ -772,6 +777,19 @@ export class BulkOrderService {
       ]);
 
       await client.query('COMMIT');
+
+      // Dispatch order.received webhook events for the agent
+      const webhookDispatcher = new AgentWebhookDispatcherService(this.db);
+      for (const orderId of createdChildOrderIds) {
+        webhookDispatcher.dispatchAgentEvent(agentId, 'order.received', {
+          id: orderId,
+          order_id: orderId,
+          submission_id: submissionPublicId,
+          network: netUpper,
+          status: 'received',
+          created_at: new Date().toISOString(),
+        }).catch(() => {});
+      }
 
       // Dispatch all child orders to fulfillment pipeline
       logger.info(

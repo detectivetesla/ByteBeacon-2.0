@@ -133,10 +133,61 @@ export class ProviderSyncService {
       );
 
       // Update main order provider_status projection
-      await client.query(
-        `UPDATE orders SET provider_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-        [event.providerStatus, event.orderId],
-      );
+      const isFailed = event.providerStatus === 'FAILED' || event.providerStatus === 'REJECTED';
+      const isCompleted = event.providerStatus === 'COMPLETED';
+
+      if (isFailed) {
+        await client.query(
+          `UPDATE orders
+           SET provider_status = $1,
+               order_status = 'FAILED',
+               refund_status = CASE WHEN payment_status = 'PAID' THEN 'COMPLETED' ELSE refund_status END,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [event.providerStatus, event.orderId],
+        );
+
+        // Auto refund wallet balance
+        const orderInfo = await client.query(
+          `SELECT user_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
+          [event.orderId],
+        );
+        if (orderInfo.rows.length > 0) {
+          const ord = orderInfo.rows[0];
+          if (ord.payment_status === 'PAID' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+            const refundAmt = Number(ord.amount_pesewas);
+            await client.query(
+              `UPDATE users
+               SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+                   wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2`,
+              [refundAmt, ord.user_id],
+            );
+            await client.query(
+              `INSERT INTO financial_ledger (
+                  transaction_id, entry_type, account_type, account_id,
+                  amount_pesewas, currency, reference_type, reference_id,
+                  description
+               ) VALUES (
+                  uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
+                  $2, 'GHS', 'ORDER_REFUND', $3,
+                  $4
+               )`,
+              [ord.user_id, refundAmt, event.orderId, `Automated refund on provider sync failure [${event.orderId}]`],
+            ).catch(() => {});
+          }
+        }
+      } else {
+        await client.query(
+          `UPDATE orders
+           SET provider_status = $1,
+               order_status = CASE WHEN $3 = TRUE THEN 'COMPLETED' ELSE order_status END,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [event.providerStatus, event.orderId, isCompleted],
+        );
+      }
 
       // Record successful sync
       await client.query(

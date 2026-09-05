@@ -225,6 +225,12 @@ export class BeneficiaryService {
             AND network = 'MTN'
             AND validation_status = 'VALID'
             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+          UNION
+          SELECT phone_number as "phoneNumber"
+          FROM pending_beneficiary_approvals
+          WHERE phone_number = ANY($1)
+            AND network = 'MTN'
+            AND status = 'APPROVED'
         `;
         const dbRes = await this.db.query(dbQuery, [validNormalizedPhones]);
         dbRes.rows.forEach((r: any) => {
@@ -370,7 +376,40 @@ export class BeneficiaryService {
       };
     }
 
-    // 3. Live MTN Enforcement
+    // 3. Check Global Kill Switch (enforcement_off)
+    const isEnforcementOff =
+      process.env.MTN_UP2U_ENFORCEMENT === 'false' ||
+      process.env.ENABLE_UP2U_ENFORCEMENT === 'false' ||
+      process.env.UP2U_KILL_SWITCH === 'true';
+
+    if (isEnforcementOff) {
+      const results = uniqueItems.map((item) => ({
+        phone: item.phone,
+        normalized: item.normalized,
+        valid: item.valid,
+        known: item.valid,
+      }));
+
+      return {
+        network: net,
+        enforced: false,
+        sandbox: false,
+        recorded: false,
+        reason: 'enforcement_off',
+        summary: {
+          requested: requestedCount,
+          unique: uniqueItems.length,
+          valid: results.filter((r) => r.valid).length,
+          invalid: results.filter((r) => !r.valid).length,
+          known: results.filter((r) => r.known).length,
+          unknown: 0,
+        },
+        unknown: [],
+        results,
+      };
+    }
+
+    // 4. Live MTN Enforcement
     const validNormalizedPhones = uniqueItems.filter((item) => item.valid).map((item) => item.normalized);
     const knownPhonesSet = new Set<string>();
 
@@ -404,6 +443,12 @@ export class BeneficiaryService {
             AND network = 'MTN'
             AND validation_status = 'VALID'
             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+          UNION
+          SELECT phone_number as "phoneNumber"
+          FROM pending_beneficiary_approvals
+          WHERE phone_number = ANY($1)
+            AND network = 'MTN'
+            AND status = 'APPROVED'
         `;
         const dbRes = await this.db.query(dbQuery, [validNormalizedPhones]);
         dbRes.rows.forEach((r: any) => {
@@ -443,12 +488,33 @@ export class BeneficiaryService {
       recorded = true;
       try {
         for (const unkPhone of unknownList) {
+          // 1. Record into pending_beneficiary_approvals attributed to this agent
+          if (_userId) {
+            await this.db.query(
+              `INSERT INTO pending_beneficiary_approvals (
+                phone_number, network, agent_id, status, attempt_count,
+                first_detected_at, last_detected_at, created_at, updated_at
+              ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+              ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+              SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                  last_detected_at = CURRENT_TIMESTAMP,
+                  updated_at = CURRENT_TIMESTAMP`,
+              [unkPhone, _userId],
+            ).catch(() => {});
+          }
+
+          // 2. Also record in beneficiary_validation for system-wide validation tracking
+          const metadata = JSON.stringify({
+            agentId: _userId || null,
+            recordedVia: 'agent_precheck',
+            recordedAt: new Date().toISOString(),
+          });
           const insertPendingQuery = `
-            INSERT INTO beneficiary_validation (phone_number, network, validation_status, created_at, updated_at)
-            VALUES ($1, 'MTN', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT DO NOTHING
+            INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
+            VALUES ($1, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (phone_number, network) DO NOTHING
           `;
-          await this.db.query(insertPendingQuery, [unkPhone]);
+          await this.db.query(insertPendingQuery, [unkPhone, metadata, _userId || null]).catch(() => {});
         }
       } catch {
         // Non-fatal recording error

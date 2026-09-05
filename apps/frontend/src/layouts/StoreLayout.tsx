@@ -45,7 +45,8 @@ export const StoreLayout: React.FC = () => {
       style={{
         display: 'flex',
         minHeight: '100vh',
-        backgroundColor: 'var(--color-bg-app)',
+        background: 'var(--gradient-portal-mesh, var(--gradient-portal-bg, var(--color-bg-base)))',
+        backgroundAttachment: 'fixed',
         color: 'var(--color-text-primary)',
         fontFamily: 'var(--font-sans)',
       }}
@@ -509,7 +510,7 @@ export const StoreLayout: React.FC = () => {
         </header>
 
         {/* Page View Body */}
-        <main style={{ flex: 1, padding: 'var(--space-6)', overflowY: 'auto' }}>
+        <main style={{ flex: 1, padding: 'var(--space-6)', overflowY: 'auto', background: 'transparent' }}>
           <Outlet />
         </main>
       </div>

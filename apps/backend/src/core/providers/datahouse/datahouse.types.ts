@@ -403,3 +403,20 @@ export interface DataHouseWebhookPayload {
   };
   [key: string]: unknown;
 }
+
+export interface DataHouseApiAccessStatus {
+  access_granted: boolean;
+  paid_at?: string | null;
+  fee_required: boolean;
+  fee_amount?: string | number | null;
+  fee_label?: string | null;
+  fee_description?: string | null;
+  [key: string]: unknown;
+}
+
+export interface DataHouseApiAccessPaymentInitiation {
+  access_granted: boolean;
+  authorizationUrl?: string;
+  reference?: string;
+  [key: string]: unknown;
+}

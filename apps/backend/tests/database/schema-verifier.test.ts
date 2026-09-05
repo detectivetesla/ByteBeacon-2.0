@@ -4,8 +4,8 @@ import { allMigrations } from '../../src/infrastructure/database/migrations.regi
 import type pg from 'pg';
 
 describe('Production Schema Verifier & Migration Registry', () => {
-  it('should include all 16 consecutive migrations in registry from 00 to 15', () => {
-    for (let i = 0; i <= 15; i++) {
+  it('should include all 20 consecutive migrations in registry from 00 to 19', () => {
+    for (let i = 0; i <= 19; i++) {
       const versionStr = String(i).padStart(14, '0');
       expect(allMigrations[i].version).toBe(versionStr);
       expect(allMigrations[i].name).toBeDefined();

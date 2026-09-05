@@ -16,6 +16,8 @@ import {
   DataHouseWebhookSubscription,
   DataHouseWebhookCreateRequest,
   DataHouseWebhookCreateResponse,
+  DataHouseApiAccessStatus,
+  DataHouseApiAccessPaymentInitiation,
 } from './datahouse.types.js';
 import {
   DataHouseError,
@@ -55,6 +57,60 @@ export class DataHouseClient {
     this.webhookSecret = (config.webhookSecret || '').trim();
     this.timeoutMs = config.timeoutMs || 15000;
     this.maxRetries = config.maxRetries ?? 2;
+  }
+
+  /**
+   * Returns true if configured with an integration testing sandbox key (ak_test_...).
+   */
+  public isSandbox(): boolean {
+    return this.apiKey.startsWith('ak_test_');
+  }
+
+  /**
+   * Returns true if configured with a live production key (ak_live_...).
+   */
+  public isLive(): boolean {
+    return this.apiKey.startsWith('ak_live_');
+  }
+
+  /**
+   * Live API-key access status (fee required? paid?). Drives the live-key paywall.
+   * Scoped to agent JWT session: GET /me/agent/api-access/status
+   */
+  public async getApiAccessStatus(
+    bearerJwt: string,
+    correlationId = 'api_access_status',
+  ): Promise<DataHouseApiAccessStatus> {
+    const cleanJwt = bearerJwt.replace(/^Bearer\s+/i, '').trim();
+    const resp = await this.request<{ success?: boolean; data?: DataHouseApiAccessStatus } | DataHouseApiAccessStatus>(
+      '/me/agent/api-access/status',
+      'GET',
+      undefined,
+      correlationId,
+      false,
+      { Authorization: `Bearer ${cleanJwt}` },
+    );
+    return (resp as any)?.data || resp;
+  }
+
+  /**
+   * Initiates payment for live API key access via Paystack.
+   * Scoped to agent JWT session: POST /me/agent/api-access/initiate-payment
+   */
+  public async initiateApiAccessPayment(
+    bearerJwt: string,
+    correlationId = 'api_access_initiate',
+  ): Promise<DataHouseApiAccessPaymentInitiation> {
+    const cleanJwt = bearerJwt.replace(/^Bearer\s+/i, '').trim();
+    const resp = await this.request<{ success?: boolean; data?: DataHouseApiAccessPaymentInitiation } | DataHouseApiAccessPaymentInitiation>(
+      '/me/agent/api-access/initiate-payment',
+      'POST',
+      undefined,
+      correlationId,
+      false,
+      { Authorization: `Bearer ${cleanJwt}` },
+    );
+    return (resp as any)?.data || resp;
   }
 
   /**
@@ -428,6 +484,7 @@ export class DataHouseClient {
     body?: unknown,
     correlationId = 'req_internal',
     includeApiKey = true,
+    customHeaders?: Record<string, string>,
   ): Promise<T> {
     const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const url = `${this.baseUrl}${cleanPath}`;
@@ -448,6 +505,10 @@ export class DataHouseClient {
           headers['x-api-key'] = this.apiKey;
           headers['X-API-Key'] = this.apiKey;
           headers['Authorization'] = `Bearer ${this.apiKey}`;
+        }
+
+        if (customHeaders) {
+          Object.assign(headers, customHeaders);
         }
 
         if (body) {

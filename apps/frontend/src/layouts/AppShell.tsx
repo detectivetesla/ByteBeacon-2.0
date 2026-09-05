@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import { usePermissions } from '../auth/hooks/usePermissions.js';
@@ -20,7 +20,6 @@ import {
   LogOut,
   Moon,
   Sun,
-  ExternalLink,
   Copy,
   Check,
   CheckCheck,
@@ -39,6 +38,7 @@ export interface AppShellProps {
   balancePesewas?: number;
   onTopUpClick?: () => void;
   storeSlug?: string;
+  isStoreApproved?: boolean;
 }
 
 interface NotificationItem {
@@ -60,7 +60,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   userRole = 'customer',
   balancePesewas,
   onTopUpClick,
-  storeSlug = 'my-store',
+  storeSlug,
+  isStoreApproved = false,
 }) => {
   const { user, logout } = useAuth();
   const { can } = usePermissions();
@@ -84,16 +85,25 @@ export const AppShell: React.FC<AppShellProps> = ({
   // Popover menus
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [storeMenuOpen, setStoreMenuOpen] = useState(false);
   const [copiedStore, setCopiedStore] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   const profileRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
-  const storeRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => n.unread).length;
-  const storeUrl = `https://bytebeacon.com/store/${storeSlug}`;
+
+  const storeUrl = useMemo(() => {
+    if (!storeSlug) return '';
+    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PUBLIC_STOREFRONT_BASE_URL) {
+      const base = String(import.meta.env.VITE_PUBLIC_STOREFRONT_BASE_URL).trim().replace(/\/+$/, '');
+      return `${base}/${storeSlug}`;
+    }
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return `${window.location.origin}/store/${storeSlug}`;
+    }
+    return `/store/${storeSlug}`;
+  }, [storeSlug]);
 
   const toggleCollapse = () => {
     setCollapsed((prev) => {
@@ -113,9 +123,6 @@ export const AppShell: React.FC<AppShellProps> = ({
       }
       if (notificationRef.current && !notificationRef.current.contains(e.target as Node)) {
         setNotificationsOpen(false);
-      }
-      if (storeRef.current && !storeRef.current.contains(e.target as Node)) {
-        setStoreMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -141,14 +148,15 @@ export const AppShell: React.FC<AppShellProps> = ({
         setMobileDrawerOpen(false);
         setProfileMenuOpen(false);
         setNotificationsOpen(false);
-        setStoreMenuOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleCopyStoreUrl = () => {
+  const handleCopyStoreUrl = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!storeUrl) return;
     navigator.clipboard.writeText(storeUrl);
     setCopiedStore(true);
     setTimeout(() => setCopiedStore(false), 2000);
@@ -298,9 +306,17 @@ export const AppShell: React.FC<AppShellProps> = ({
       </div>
     );
   };
-
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--color-bg-base)', width: '100%' }}>
+    <div
+      className="app-shell-root"
+      style={{
+        display: 'flex',
+        minHeight: '100vh',
+        background: 'var(--gradient-portal-mesh, var(--gradient-portal-bg, var(--color-bg-base)))',
+        backgroundAttachment: 'fixed',
+        width: '100%',
+      }}
+    >
       <style>{`
         .app-desktop-sidebar {
           width: ${collapsed ? '76px' : '260px'};
@@ -603,12 +619,25 @@ export const AppShell: React.FC<AppShellProps> = ({
       {/* =========================================================================
           3. MAIN CONTENT WORKSPACE & UNIVERSAL TOPBAR
           ========================================================================= */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowX: 'hidden' }}>
+      <div
+        className="app-workspace-container"
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minWidth: 0,
+          overflowX: 'hidden',
+          background: 'var(--gradient-portal-mesh, var(--gradient-portal-bg, var(--color-bg-base)))',
+          backgroundAttachment: 'fixed',
+        }}
+      >
         {/* Topbar Header */}
         <header
           style={{
             height: '64px',
-            backgroundColor: 'var(--color-bg-surface)',
+            backgroundColor: 'var(--color-bg-surface-glass, rgba(255, 255, 255, 0.88))',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
             borderBottom: '1px solid var(--color-border-default)',
             padding: '0 var(--space-page-x, var(--space-6))',
             display: 'flex',
@@ -645,12 +674,15 @@ export const AppShell: React.FC<AppShellProps> = ({
 
           {/* Right: Actions, Badges, Store link, Notifications & Profile */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {/* Storefront Link (Agents only) */}
-            {userRole === 'agent' && (
-              <div style={{ position: 'relative' }} ref={storeRef}>
-                <button
-                  type="button"
-                  onClick={() => setStoreMenuOpen(!storeMenuOpen)}
+            {/* Storefront Link (Agents only, and ONLY when StoreFront Setup has been approved) */}
+            {userRole === 'agent' && isStoreApproved && Boolean(storeSlug) && (
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+              >
+                <a
+                  href={storeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -662,46 +694,37 @@ export const AppShell: React.FC<AppShellProps> = ({
                     color: 'var(--color-agent)',
                     fontSize: 'var(--font-size-xs)',
                     fontWeight: 700,
+                    textDecoration: 'none',
                     cursor: 'pointer',
+                    transition: 'all 0.15s ease',
                   }}
+                  title={`Open My Storefront: ${storeUrl}`}
                 >
                   <Store size={14} strokeWidth={2.4} />
                   <span>My Store ↗</span>
-                </button>
+                </a>
 
-                {storeMenuOpen && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      right: 0,
-                      top: 'calc(100% + 8px)',
-                      width: '240px',
-                      backgroundColor: 'var(--color-bg-surface)',
-                      border: '1px solid var(--color-border-default)',
-                      borderRadius: 'var(--radius-lg)',
-                      boxShadow: 'var(--shadow-tactile-lg)',
-                      padding: 'var(--space-3)',
-                      zIndex: 100,
-                    }}
-                  >
-                    <div style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>
-                      Branded Storefront Link
-                    </div>
-                    <code style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-agent)', display: 'block', wordBreak: 'break-all', marginBottom: 'var(--space-3)' }}>
-                      {storeUrl}
-                    </code>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <Button variant="outline" size="sm" fullWidth onClick={handleCopyStoreUrl}>
-                        {copiedStore ? <Check size={12} /> : <Copy size={12} />}
-                        {copiedStore ? 'Copied' : 'Copy'}
-                      </Button>
-                      <Button variant="primary" size="sm" fullWidth onClick={() => window.open(storeUrl, '_blank')}>
-                        <ExternalLink size={12} />
-                        Preview
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={handleCopyStoreUrl}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: 'var(--radius-full)',
+                    backgroundColor: 'var(--color-agent-surface)',
+                    border: '1px solid var(--color-agent-border)',
+                    color: 'var(--color-agent)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title={copiedStore ? 'Copied Storefront Link!' : 'Copy Storefront Link'}
+                  aria-label="Copy Storefront Link"
+                >
+                  {copiedStore ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} strokeWidth={2.2} />}
+                </button>
               </div>
             )}
 
@@ -1019,6 +1042,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             flex: 1,
             padding: 'var(--space-page-y, var(--space-6)) var(--space-page-x, var(--space-6))',
             overflowY: 'auto',
+            background: 'transparent',
           }}
         >
           <style>{`

@@ -4,10 +4,11 @@ import { ProviderResult } from '@bytebeacon/shared';
  * Telecom Provider Contract
  *
  * NOTE: DataHouse specific API behavior, status codes, payload structures,
- * authentication headers, and webhook verification are currently:
- * AUTHORITATIVE SOURCE NOT VERIFIED.
+ * authentication headers, and webhook verification are:
+ * CONFIRMED EXTERNAL REQUIREMENT (Authoritative Vendor Specification: https://api.getmorepaylessdatahouse.net/api/v1).
  *
- * This interface defines generic abstract capabilities only.
+ * This interface defines generic abstract capabilities. Concrete implementation
+ * is provided by DataHouseAdapter / DynamicHttpAdapter.
  */
 
 export interface TelecomOrderDispatchParams {
