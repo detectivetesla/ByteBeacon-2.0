@@ -31,6 +31,7 @@ import {
   Loader2,
   XCircle,
   FileText,
+  RefreshCw,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
@@ -40,6 +41,7 @@ import {
   parseSpreadsheetFile,
   generateSpreadsheetTemplate,
   generateSpreadsheetReport,
+  normalizeGhanaPhoneNumber,
   ParsedSpreadsheetRow,
   RecipientRowStatus,
 } from '../../utils/spreadsheetParser.js';
@@ -241,6 +243,7 @@ export const BuyDataPage: React.FC = () => {
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
   const [unapprovedPhone, setUnapprovedPhone] = useState('');
+  const [unapprovedPhones, setUnapprovedPhones] = useState<string[]>([]);
   const [isCheckingBeneficiary, setIsCheckingBeneficiary] = useState(false);
   const [modalPayload, setModalPayload] = useState<{
     title?: string;
@@ -305,6 +308,7 @@ export const BuyDataPage: React.FC = () => {
         const result = precheckRes?.results?.[0];
         if (result && !result.known) {
           setUnapprovedPhone(cleaned);
+          setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
           return;
         }
@@ -316,6 +320,7 @@ export const BuyDataPage: React.FC = () => {
           err?.message?.toLowerCase().includes('mtn number not yet validated')
         ) {
           setUnapprovedPhone(cleaned);
+          setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
           return;
         }
@@ -513,6 +518,168 @@ export const BuyDataPage: React.FC = () => {
   const handleDownloadSimpleTemplate = () => handleDownloadTemplate('csv', 'simple');
   const handleDownloadFullTemplate = () => handleDownloadTemplate('xlsx', 'full');
 
+  // Helper to verify spreadsheet rows against MTN approval list / precheck
+  const verifySpreadsheetRows = async (rows: ParsedSpreadsheetRow[]): Promise<ParsedSpreadsheetRow[]> => {
+    const mtnRows = rows.filter((r) => {
+      if (!r.isValid) return false;
+      if (r.network === 'TELECEL' || r.network === 'AIRTELTIGO') return false;
+      if (r.network === 'MTN') return true;
+      return selectedNetwork === NetworkProvider.MTN;
+    });
+
+    if (mtnRows.length === 0) {
+      return rows.map((r) => {
+        if (!r.isValid) {
+          return {
+            ...r,
+            status: 'REJECTED' as const,
+            statusReason: r.error || 'Invalid Ghanaian phone number format',
+          };
+        }
+        return {
+          ...r,
+          status: 'APPROVED' as const,
+          statusReason: 'Direct carrier fulfillment',
+          isKnown: true,
+        };
+      });
+    }
+
+    const uniqueMtnPhones = Array.from(
+      new Set(mtnRows.map((r) => normalizeGhanaPhoneNumber(r.phone)).filter(Boolean)),
+    );
+    const knownSet = new Set<string>();
+
+    const batchSize = isAgentPortal ? 100 : 50;
+    for (let i = 0; i < uniqueMtnPhones.length; i += batchSize) {
+      const batch = uniqueMtnPhones.slice(i, i + batchSize);
+      let batchSuccess = false;
+
+      // 1. Try precheck with opt-in recording
+      try {
+        const res: any = await beneficiaryApi.precheck({
+          network: NetworkProvider.MTN,
+          phoneNumbers: batch,
+          record: true,
+        });
+
+        const results = res?.results || res?.data?.results;
+        if (Array.isArray(results)) {
+          results.forEach((item: any) => {
+            const isApproved = Boolean(item.known || item.isKnown);
+            if (isApproved) {
+              const rawP = item.phone || item.phoneNumber || item.normalized;
+              const normP = normalizeGhanaPhoneNumber(rawP);
+              if (normP) {
+                knownSet.add(normP);
+                knownSet.add(`+233${normP.slice(1)}`);
+                knownSet.add(`233${normP.slice(1)}`);
+              }
+              if (item.phone) knownSet.add(item.phone);
+              if (item.normalized) knownSet.add(item.normalized);
+            }
+          });
+          batchSuccess = true;
+        }
+      } catch {
+        batchSuccess = false;
+      }
+
+      // 2. Fallback to public precheck in chunks of 10 if full precheck fails
+      if (!batchSuccess) {
+        for (let j = 0; j < batch.length; j += 10) {
+          const subChunk = batch.slice(j, j + 10);
+          try {
+            const pubRes = await beneficiaryApi.precheckPublic({
+              network: NetworkProvider.MTN,
+              phoneNumbers: subChunk,
+            });
+            if (pubRes && Array.isArray(pubRes.results)) {
+              pubRes.results.forEach((item: any) => {
+                const isApproved = Boolean(item.known || (item as any).isKnown);
+                if (isApproved) {
+                  const normP = normalizeGhanaPhoneNumber(item.phone || item.normalized);
+                  if (normP) {
+                    knownSet.add(normP);
+                    knownSet.add(`+233${normP.slice(1)}`);
+                    knownSet.add(`233${normP.slice(1)}`);
+                  }
+                  if (item.phone) knownSet.add(item.phone);
+                  if (item.normalized) knownSet.add(item.normalized);
+                }
+              });
+            }
+          } catch {
+            // Non-fatal per-chunk fallback error
+          }
+        }
+      }
+    }
+
+    return rows.map((row) => {
+      if (!row.isValid) {
+        return {
+          ...row,
+          status: 'REJECTED' as const,
+          statusReason: row.error || 'Invalid Ghanaian phone number format',
+        };
+      }
+
+      const isMtn =
+        row.network === 'MTN' ||
+        (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO' && selectedNetwork === NetworkProvider.MTN);
+
+      if (!isMtn) {
+        return {
+          ...row,
+          status: 'APPROVED' as const,
+          statusReason: 'Direct carrier fulfillment',
+          isKnown: true,
+        };
+      }
+
+      const normRowPhone = normalizeGhanaPhoneNumber(row.phone);
+      const isKnown =
+        knownSet.has(normRowPhone) ||
+        knownSet.has(row.phone) ||
+        knownSet.has(`+233${normRowPhone.slice(1)}`) ||
+        knownSet.has(`233${normRowPhone.slice(1)}`);
+
+      if (isKnown) {
+        return {
+          ...row,
+          status: 'APPROVED' as const,
+          statusReason: 'Validated MTN recipient (Instant Delivery)',
+          isKnown: true,
+        };
+      } else {
+        return {
+          ...row,
+          status: 'UNAPPROVED' as const,
+          statusReason: 'Unregistered / First-Time MTN (Recorded for Approval)',
+          isKnown: false,
+        };
+      }
+    });
+  };
+
+  // Re-verify current spreadsheet rows against updated database approvals
+  const handleRecheckApprovals = async () => {
+    if (excelParsedRows.length === 0) return;
+    setExcelLoading(true);
+    try {
+      const rechecked = await verifySpreadsheetRows(excelParsedRows);
+      setExcelParsedRows(rechecked);
+      const approvedCount = rechecked.filter((r) => r.status === 'APPROVED').length;
+      const unapprovedCount = rechecked.filter((r) => r.status === 'UNAPPROVED').length;
+      toastSuccess('Approvals Refreshed', `${approvedCount} approved, ${unapprovedCount} pending approval.`);
+    } catch (err: any) {
+      toastError('Refresh Failed', err?.message || 'Could not refresh approvals.');
+    } finally {
+      setExcelLoading(false);
+    }
+  };
+
   // File Upload Handlers (Supports .xlsx, .xls, .csv standardized in GB)
   const handleFileUpload = async (file: File) => {
     setExcelFile(file);
@@ -536,66 +703,7 @@ export const BuyDataPage: React.FC = () => {
         return;
       }
 
-      let enrichedRows = [...result.rows];
-      const validPhoneRows = enrichedRows.filter((r) => r.isValid);
-      const uniqueValidPhones = Array.from(new Set(validPhoneRows.map((r) => r.phone)));
-
-      if (uniqueValidPhones.length > 0 && selectedNetwork === NetworkProvider.MTN) {
-        try {
-          const knownSet = new Set<string>();
-          const chunkSize = 10;
-          for (let i = 0; i < uniqueValidPhones.length; i += chunkSize) {
-            const chunk = uniqueValidPhones.slice(i, i + chunkSize);
-            const precheckRes = await beneficiaryApi.precheckPublic({
-              network: NetworkProvider.MTN,
-              phoneNumbers: chunk,
-            });
-            if (precheckRes && Array.isArray(precheckRes.results)) {
-              precheckRes.results.forEach((item) => {
-                if (item.known) {
-                  knownSet.add(item.phone);
-                  knownSet.add(item.normalized);
-                }
-              });
-            }
-          }
-
-          enrichedRows = enrichedRows.map((row) => {
-            if (!row.isValid) {
-              return {
-                ...row,
-                status: 'REJECTED' as const,
-                statusReason: row.error || 'Invalid Ghanaian phone number format',
-              };
-            }
-            const isKnown = knownSet.has(row.phone);
-            if (isKnown) {
-              return {
-                ...row,
-                status: 'APPROVED' as const,
-                statusReason: 'Validated MTN recipient (Instant Delivery)',
-                isKnown: true,
-              };
-            } else {
-              return {
-                ...row,
-                status: 'UNAPPROVED' as const,
-                statusReason: 'Unregistered / First-Time MTN (Recorded for Approval)',
-                isKnown: false,
-              };
-            }
-          });
-        } catch {
-          // If precheck fails temporarily, keep valid rows with default note
-        }
-      } else {
-        enrichedRows = enrichedRows.map((row) => ({
-          ...row,
-          status: row.isValid ? ('APPROVED' as const) : ('REJECTED' as const),
-          statusReason: row.isValid ? 'Direct carrier fulfillment' : row.error || 'Invalid Ghanaian phone number format',
-        }));
-      }
-
+      const enrichedRows = await verifySpreadsheetRows(result.rows);
       setExcelParsedRows(enrichedRows);
       setExcelLoading(false);
 
@@ -637,10 +745,6 @@ export const BuyDataPage: React.FC = () => {
     return excelParsedRows.filter((r) => r.status === 'REJECTED');
   }, [excelParsedRows]);
 
-  const validExcelRows = useMemo(() => {
-    return excelParsedRows.filter((r) => r.isValid);
-  }, [excelParsedRows]);
-
   const displayedExcelRows = useMemo(() => {
     if (excelFilter === 'APPROVED') return approvedExcelRows;
     if (excelFilter === 'UNAPPROVED') return unapprovedExcelRows;
@@ -649,9 +753,8 @@ export const BuyDataPage: React.FC = () => {
   }, [excelParsedRows, excelFilter, approvedExcelRows, unapprovedExcelRows, rejectedExcelRows]);
 
   const excelTotalPesewas = useMemo(() => {
-    return (approvedExcelRows.length > 0 ? approvedExcelRows : validExcelRows)
-      .reduce((sum, r) => sum + r.pricePesewas, 0);
-  }, [approvedExcelRows, validExcelRows]);
+    return approvedExcelRows.reduce((sum, r) => sum + r.pricePesewas, 0);
+  }, [approvedExcelRows]);
 
   const handleDownloadReport = (filter: RecipientRowStatus | 'ALL' = 'ALL') => {
     if (excelParsedRows.length === 0) return;
@@ -672,12 +775,29 @@ export const BuyDataPage: React.FC = () => {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
-    const targetRows = approvedExcelRows.length > 0 ? approvedExcelRows : validExcelRows;
-    if (!excelFile || targetRows.length === 0) {
+    if (!excelFile || excelParsedRows.length === 0) {
+      toastError('No Orders', 'Please upload a spreadsheet first.');
+      return;
+    }
+
+    // Gating check: if 0 rows are approved, unapproved numbers must NOT be charged or submitted
+    if (approvedExcelRows.length === 0) {
+      if (unapprovedExcelRows.length > 0) {
+        const unapprovedNumbers = unapprovedExcelRows.map((r) => r.phone);
+        setUnapprovedPhone(unapprovedNumbers[0] || '');
+        setUnapprovedPhones(unapprovedNumbers);
+        setUnapprovedModalOpen(true);
+        toastError(
+          'MTN Approval Required',
+          `${unapprovedExcelRows.length} MTN recipient(s) must be approved before purchasing. They have been recorded for approval.`,
+        );
+        return;
+      }
       toastError('No Valid Orders', 'Please upload a spreadsheet with at least one valid recipient phone number.');
       return;
     }
 
+    const targetRows = approvedExcelRows;
     const bulkItems: BulkOrderItem[] = targetRows.map((r) => ({
       recipientPhone: r.phone.replace(/\s+/g, ''),
       productId: r.bundleId,
@@ -685,12 +805,19 @@ export const BuyDataPage: React.FC = () => {
       pricePesewas: r.pricePesewas,
     }));
 
+    if (unapprovedExcelRows.length > 0) {
+      toastInfo(
+        'Partial Batch',
+        `Proceeding with ${approvedExcelRows.length} approved recipient(s). ${unapprovedExcelRows.length} unapproved MTN recipient(s) were excluded and recorded for approval.`,
+      );
+    }
+
     setModalPayload({
       title: 'Excel Bulk Order',
       packageSummary: `${targetRows.length} Packages (${selectedNetwork})`,
       recipientSummary: `${targetRows.length} Recipients (${excelFile.name})`,
       amountDisplay: `GH₵ ${(excelTotalPesewas / 100).toFixed(2)}`,
-      bundleId: currentSingleBundle.id,
+      bundleId: targetRows[0]?.bundleId || currentSingleBundle.id,
       bulkItems,
     });
     setPurchaseModalOpen(true);
@@ -1591,9 +1718,38 @@ export const BuyDataPage: React.FC = () => {
                         color: 'var(--color-warning)',
                         fontSize: 'var(--font-size-2xs)',
                         lineHeight: 1.4,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '8px',
                       }}
                     >
-                      <strong>⏳ {unapprovedExcelRows.length} Unapproved / First-Time MTN number(s):</strong> Under MTN telecom compliance, first-time recipients must be approved before direct fulfillment. They will be recorded in the MTN verification queue and excluded from immediate charges.
+                      <div>
+                        <strong>⏳ {unapprovedExcelRows.length} Unapproved / First-Time MTN number(s):</strong> Under MTN telecom compliance, first-time recipients must be approved before direct fulfillment. They will be recorded in the MTN verification queue and excluded from immediate charges.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const phones = unapprovedExcelRows.map((r) => r.phone);
+                          setUnapprovedPhone(phones[0] || '');
+                          setUnapprovedPhones(phones);
+                          setUnapprovedModalOpen(true);
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: 'rgba(255, 204, 0, 0.15)',
+                          border: '1px solid var(--color-warning-border)',
+                          color: 'var(--color-warning)',
+                          fontSize: 'var(--font-size-3xs)',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        View Unapproved Numbers ↗
+                      </button>
                     </div>
                   )}
 
@@ -1683,6 +1839,15 @@ export const BuyDataPage: React.FC = () => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRecheckApprovals}
+                        disabled={excelLoading || excelParsedRows.length === 0}
+                        leftIcon={<RefreshCw size={12} className={excelLoading ? 'spin' : ''} />}
+                      >
+                        Re-check Approvals
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1825,25 +1990,44 @@ export const BuyDataPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleExcelSubmit}
-                      disabled={isMaintenanceMode || (approvedExcelRows.length === 0 && validExcelRows.length === 0)}
+                      disabled={isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)}
                       style={{
                         padding: '0.55rem 1.5rem',
                         borderRadius: 'var(--radius-md)',
-                        border: 'none',
-                        backgroundColor: isMaintenanceMode || (approvedExcelRows.length === 0 && validExcelRows.length === 0) ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                        color: isMaintenanceMode || (approvedExcelRows.length === 0 && validExcelRows.length === 0) ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                        border: approvedExcelRows.length === 0 && unapprovedExcelRows.length > 0 ? '1px solid var(--color-warning-border)' : 'none',
+                        backgroundColor:
+                          isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
+                            ? 'var(--color-bg-surface-muted)'
+                            : approvedExcelRows.length === 0
+                            ? 'var(--color-warning-surface)'
+                            : theme.buttonBg,
+                        color:
+                          isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
+                            ? 'var(--color-text-muted)'
+                            : approvedExcelRows.length === 0
+                            ? 'var(--color-warning)'
+                            : theme.buttonTextColor,
                         fontWeight: 900,
                         fontSize: 'var(--font-size-sm)',
-                        cursor: isMaintenanceMode || (approvedExcelRows.length === 0 && validExcelRows.length === 0) ? 'not-allowed' : 'pointer',
-                        opacity: isMaintenanceMode || (approvedExcelRows.length === 0 && validExcelRows.length === 0) ? 0.6 : 1,
-                        boxShadow: !isMaintenanceMode && (approvedExcelRows.length > 0 || validExcelRows.length > 0) ? `0 2px 8px ${theme.glowColor}` : 'none',
+                        cursor:
+                          isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
+                            ? 'not-allowed'
+                            : 'pointer',
+                        opacity: isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0) ? 0.6 : 1,
+                        boxShadow: !isMaintenanceMode && approvedExcelRows.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.375rem',
+                        transition: 'all 0.15s ease',
                       }}
                     >
                       {isMaintenanceMode
                         ? 'Platform in Maintenance'
                         : approvedExcelRows.length > 0
                         ? `Continue to Payment (${approvedExcelRows.length} Approved) →`
-                        : `Continue to Payment (${validExcelRows.length} Valid) →`}
+                        : unapprovedExcelRows.length > 0
+                        ? `Review ${unapprovedExcelRows.length} Unapproved Recipient(s) ⚠️`
+                        : 'No Approved Orders'}
                     </button>
                   </div>
                 </Card>
@@ -1916,11 +2100,12 @@ export const BuyDataPage: React.FC = () => {
         bulkItems={modalPayload.bulkItems}
       />
 
-      {/* 6. Beneficiary Not Approved Modal for Individual Orders */}
+      {/* 6. Beneficiary Not Approved Modal for Individual & Bulk Orders */}
       <BeneficiaryNotApprovedModal
         isOpen={unapprovedModalOpen}
         onClose={() => setUnapprovedModalOpen(false)}
         phoneNumber={unapprovedPhone}
+        phoneNumbers={unapprovedPhones}
       />
     </div>
   );

@@ -5,6 +5,7 @@ export type RecipientRowStatus = 'APPROVED' | 'UNAPPROVED' | 'REJECTED';
 
 export interface ParsedSpreadsheetRow {
   phone: string;
+  network?: string;
   bundleId: string;
   data: string;
   pricePesewas: number;
@@ -65,6 +66,19 @@ export function normalizeGhanaPhoneNumber(input: string | number | undefined | n
 
 export function isValidGhanaPhoneNumber(phone: string): boolean {
   return /^(0|\+?233)[25][0-9]{8}$/.test(phone);
+}
+
+/**
+ * Detects Ghanaian telecom network from MSISDN prefix.
+ */
+export function detectGhanaNetwork(phone: string): 'MTN' | 'TELECEL' | 'AIRTELTIGO' | 'UNKNOWN' {
+  const norm = normalizeGhanaPhoneNumber(phone);
+  if (!norm || norm.length !== 10) return 'UNKNOWN';
+  const prefix = norm.slice(0, 3);
+  if (['024', '054', '055', '059', '025'].includes(prefix)) return 'MTN';
+  if (['020', '050'].includes(prefix)) return 'TELECEL';
+  if (['027', '057', '026', '056'].includes(prefix)) return 'AIRTELTIGO';
+  return 'UNKNOWN';
 }
 
 /**
@@ -234,6 +248,7 @@ export async function parseSpreadsheetFile(
   // Detect header row and column mappings
   let phoneColIdx = 0;
   let volumeColIdx = 1;
+  let networkColIdx = -1;
   let startDataRowIdx = 0;
 
   // Search first 5 rows for header row
@@ -243,6 +258,7 @@ export async function parseSpreadsheetFile(
 
     let foundPhone = -1;
     let foundVolume = -1;
+    let foundNetwork = -1;
 
     for (let c = 0; c < row.length; c++) {
       const cell = String(row[c] || '').trim().toLowerCase();
@@ -267,12 +283,20 @@ export async function parseSpreadsheetFile(
         cell.includes('mb')
       ) {
         foundVolume = c;
+      } else if (
+        cell.includes('network') ||
+        cell.includes('carrier') ||
+        cell.includes('telco') ||
+        cell.includes('provider')
+      ) {
+        foundNetwork = c;
       }
     }
 
     if (foundPhone !== -1 || foundVolume !== -1) {
       if (foundPhone !== -1) phoneColIdx = foundPhone;
       if (foundVolume !== -1) volumeColIdx = foundVolume;
+      if (foundNetwork !== -1) networkColIdx = foundNetwork;
       startDataRowIdx = r + 1;
       break;
     }
@@ -289,12 +313,34 @@ export async function parseSpreadsheetFile(
     // Extract raw cell values
     const rawPhone = row[phoneColIdx] !== undefined ? String(row[phoneColIdx]).trim() : '';
     const rawVol = row[volumeColIdx] !== undefined ? String(row[volumeColIdx]).trim() : '';
+    const rawNet = networkColIdx !== -1 && row[networkColIdx] !== undefined ? String(row[networkColIdx]).trim() : '';
 
     // Ignore completely empty rows
-    if (!rawPhone && !rawVol) continue;
+    if (!rawPhone && !rawVol && !rawNet) continue;
 
     const normalizedPhone = normalizeGhanaPhoneNumber(rawPhone);
     const isValidPhone = isValidGhanaPhoneNumber(normalizedPhone);
+
+    // Resolve network: from column or inferred from phone prefix
+    let rowNetwork: string = rawNet.toUpperCase();
+    if (
+      !rowNetwork ||
+      (!rowNetwork.includes('MTN') &&
+        !rowNetwork.includes('TELECEL') &&
+        !rowNetwork.includes('VODAFONE') &&
+        !rowNetwork.includes('AIRTEL') &&
+        !rowNetwork.includes('TIGO') &&
+        rowNetwork !== 'AT')
+    ) {
+      const detected = detectGhanaNetwork(normalizedPhone);
+      rowNetwork = detected !== 'UNKNOWN' ? detected : 'MTN';
+    } else if (rowNetwork.includes('MTN')) {
+      rowNetwork = 'MTN';
+    } else if (rowNetwork.includes('TELECEL') || rowNetwork.includes('VODAFONE')) {
+      rowNetwork = 'TELECEL';
+    } else if (rowNetwork.includes('AIRTEL') || rowNetwork.includes('TIGO') || rowNetwork === 'AT') {
+      rowNetwork = 'AIRTELTIGO';
+    }
 
     const matched = matchBundleVolume(rawVol, availableBundles);
 
@@ -310,17 +356,25 @@ export async function parseSpreadsheetFile(
       ? 'No matching data bundle'
       : undefined;
 
-    const status: RecipientRowStatus = isValid ? 'APPROVED' : 'REJECTED';
-    const statusReason = isValid ? 'Valid recipient and bundle' : errorMsg;
+    // MTN numbers require live verification; other carriers fulfill directly
+    const isMtn = rowNetwork === 'MTN';
+    const status: RecipientRowStatus = isValid
+      ? (isMtn ? 'UNAPPROVED' : 'APPROVED')
+      : 'REJECTED';
+    const statusReason = isValid
+      ? (isMtn ? 'Pending MTN Up2U precheck' : 'Direct carrier fulfillment')
+      : errorMsg;
 
     parsedRows.push({
       phone: normalizedPhone || rawPhone,
+      network: rowNetwork,
       bundleId: matched?.id || '',
       data: matched?.dataDisplay || String(rawVol),
       pricePesewas: price,
       isValid,
       status,
       statusReason,
+      isKnown: isValid && !isMtn,
       rawPhone,
       rawVolume: rawVol,
       error: errorMsg,

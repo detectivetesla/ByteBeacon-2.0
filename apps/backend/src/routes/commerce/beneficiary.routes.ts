@@ -77,7 +77,7 @@ export async function beneficiaryRoutes(
     },
   );
 
-  // 1. PUBLIC PRECHECK: POST /orders/beneficiaries/precheck & /beneficiaries/precheck
+  // 1. PUBLIC PRECHECK: POST /orders/beneficiaries/precheck
   const handlePublicPrecheck = async (
     req: FastifyRequest<{
       Body: {
@@ -122,10 +122,72 @@ export async function beneficiaryRoutes(
     { preHandler: publicPrecheckRateLimit ? [publicPrecheckRateLimit] : [] },
     handlePublicPrecheck,
   );
-  app.post<{ Body: { network: NetworkProvider | string; phoneNumbers: string[] } }>(
+
+  // 1b. BENEFICIARIES PRECHECK (Supports both Customer/Agent sessions, bulk up to 1000, and opt-in recording)
+  app.post<{
+    Body: {
+      network: NetworkProvider | string;
+      phoneNumbers: string[];
+      record?: boolean;
+    };
+  }>(
     '/beneficiaries/precheck',
-    { preHandler: publicPrecheckRateLimit ? [publicPrecheckRateLimit] : [] },
-    handlePublicPrecheck,
+    async (req, reply) => {
+      const { network, phoneNumbers, record = false } = req.body || {};
+
+      if (!network) {
+        throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
+      }
+      if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
+        throw new BadRequestError('phoneNumbers array is required and cannot be empty');
+      }
+
+      // Check optional authentication for higher rate/batch limits
+      let authenticatedUserId: string | undefined;
+      const authHeader = req.headers.authorization;
+      const apiKeyHeader = req.headers['x-api-key'];
+
+      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
+        try {
+          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
+          authenticatedUserId = payload.sub;
+        } catch {
+          // unauthenticated fallback
+        }
+      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        try {
+          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
+          const key = await apiKeyService.validateApiKey(rawKey);
+          authenticatedUserId = key.agentId;
+        } catch {
+          // unauthenticated fallback
+        }
+      }
+
+      const maxLimit = authenticatedUserId ? 1000 : 10;
+      if (phoneNumbers.length > maxLimit) {
+        throw new BadRequestError(`Up to ${maxLimit} phone numbers allowed per precheck call`);
+      }
+      for (const phone of phoneNumbers) {
+        if (typeof phone !== 'string' || phone.length > 25) {
+          throw new BadRequestError('Each phone number must be a string of at most 25 characters');
+        }
+      }
+
+      const result = await beneficiaryService.precheckPublicBeneficiaries({
+        network: network as NetworkProvider,
+        phoneNumbers,
+        record: Boolean(record),
+        userId: authenticatedUserId,
+      });
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        message: 'Success',
+        data: result,
+      });
+    },
   );
 
   // 2. AGENT PRECHECK (Bulk-sized, opt-in recording): POST /agent/beneficiaries/precheck

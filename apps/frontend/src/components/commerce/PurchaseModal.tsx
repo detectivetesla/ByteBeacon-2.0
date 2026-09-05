@@ -146,6 +146,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
   const [unapprovedPhone, setUnapprovedPhone] = useState('');
+  const [unapprovedPhones, setUnapprovedPhones] = useState<string[]>([]);
 
   // Determine active channel: explicitly passed, or inferred from authenticated user role
   const isAgentRole = user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin';
@@ -424,8 +425,14 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 err?.message?.toLowerCase().includes('beneficiary') ||
                 err?.message?.toLowerCase().includes('mtn number not yet validated') ||
                 err?.message?.toLowerCase().includes('not added to our beneficiary');
-              if (isBeneficiaryUnapproved && !isBulk) {
-                setUnapprovedPhone(targetPhone);
+              if (isBeneficiaryUnapproved) {
+                const unkList: string[] = Array.isArray(err?.details?.unknown)
+                  ? err.details.unknown
+                  : Array.isArray(err?.details?.unapproved)
+                  ? err.details.unapproved
+                  : [];
+                setUnapprovedPhone(targetPhone || unkList[0] || '');
+                setUnapprovedPhones(unkList.length > 0 ? unkList : (targetPhone ? [targetPhone] : []));
                 setUnapprovedModalOpen(true);
                 setIsProcessing(false);
                 return;
@@ -486,8 +493,14 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         err?.message?.toLowerCase().includes('beneficiary') ||
         err?.message?.toLowerCase().includes('mtn number not yet validated') ||
         err?.message?.toLowerCase().includes('not added to our beneficiary');
-      if (isBeneficiaryUnapproved && !isBulk) {
-        setUnapprovedPhone(targetPhone);
+      if (isBeneficiaryUnapproved) {
+        const unkList: string[] = Array.isArray(err?.details?.unknown)
+          ? err.details.unknown
+          : Array.isArray(err?.details?.unapproved)
+          ? err.details.unapproved
+          : [];
+        setUnapprovedPhone(targetPhone || unkList[0] || '');
+        setUnapprovedPhones(unkList.length > 0 ? unkList : (targetPhone ? [targetPhone] : []));
         setUnapprovedModalOpen(true);
         return;
       }
@@ -573,14 +586,21 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         err?.message?.toLowerCase().includes('beneficiary') ||
         err?.message?.toLowerCase().includes('mtn number not yet validated') ||
         err?.message?.toLowerCase().includes('not added to our beneficiary');
-      if (isBeneficiaryUnapproved && !isBulk) {
+      if (isBeneficiaryUnapproved) {
+        const unkList: string[] = Array.isArray(err?.details?.unknown)
+          ? err.details.unknown
+          : Array.isArray(err?.details?.unapproved)
+          ? err.details.unapproved
+          : [];
         const cleanedPhone = (
           recipientPhone ||
           initialRecipientPhone ||
           (customRecipientSummary && !isBulk ? customRecipientSummary : '') ||
           ''
         ).trim().replace(/\s+/g, '');
-        setUnapprovedPhone(cleanedPhone);
+        const target = cleanedPhone || unkList[0] || '';
+        setUnapprovedPhone(target);
+        setUnapprovedPhones(unkList.length > 0 ? unkList : (target ? [target] : []));
         setUnapprovedModalOpen(true);
         return;
       }
@@ -1603,6 +1623,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       isOpen={unapprovedModalOpen}
       onClose={() => setUnapprovedModalOpen(false)}
       phoneNumber={unapprovedPhone}
+      phoneNumbers={unapprovedPhones}
     />
   </>
 );

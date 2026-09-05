@@ -483,22 +483,43 @@ export class BulkOrderService {
       const knownPhones = new Set<string>();
 
       try {
+        const queryPhones = Array.from(
+          new Set(
+            allPhones.flatMap((p) => [
+              p,
+              `+233${p.startsWith('0') ? p.slice(1) : p}`,
+              `233${p.startsWith('0') ? p.slice(1) : p}`,
+            ]),
+          ),
+        );
+
         const valRes = await this.db.query(
           `SELECT phone_number as "phone" FROM beneficiary_validation
-           WHERE phone_number = ANY($1) AND network = 'MTN' AND validation_status IN ('VALID', 'APPROVED')`,
-          [allPhones],
+           WHERE phone_number = ANY($1) AND network = 'MTN' AND validation_status IN ('VALID', 'APPROVED')
+           UNION
+           SELECT phone_number as "phone" FROM pending_beneficiary_approvals
+           WHERE phone_number = ANY($1) AND network = 'MTN' AND status = 'APPROVED'`,
+          [queryPhones],
         );
         for (const row of valRes.rows) {
-          knownPhones.add(row.phone);
+          if (row.phone) {
+            const norm = this.normalizePhone(row.phone).normalized;
+            knownPhones.add(norm);
+            knownPhones.add(row.phone);
+          }
         }
 
         const prevOrdersRes = await this.db.query(
           `SELECT DISTINCT recipient_phone as "phone" FROM orders
-           WHERE recipient_phone = ANY($1) AND network = 'MTN' AND order_status IN ('COMPLETED', 'DELIVERED')`,
-          [allPhones],
+           WHERE recipient_phone = ANY($1) AND network = 'MTN' AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')`,
+          [queryPhones],
         );
         for (const row of prevOrdersRes.rows) {
-          knownPhones.add(row.phone);
+          if (row.phone) {
+            const norm = this.normalizePhone(row.phone).normalized;
+            knownPhones.add(norm);
+            knownPhones.add(row.phone);
+          }
         }
       } catch {
         // Table or query fallback
@@ -507,7 +528,7 @@ export class BulkOrderService {
       const unvalidatedPhones: string[] = [];
 
       for (const r of normalizedRecipients) {
-        const isKnown = knownPhones.has(r.normalizedPhone);
+        const isKnown = knownPhones.has(r.normalizedPhone) || knownPhones.has(r.rawPhone);
         if (isKnown) {
           acceptedRecipients.push({
             phoneNumber: r.normalizedPhone,
@@ -528,15 +549,29 @@ export class BulkOrderService {
           );
         }
 
-        // Record unvalidated numbers into beneficiary_validation for MTN approval
+        // Record unvalidated numbers into pending_beneficiary_approvals and beneficiary_validation for MTN approval
         try {
           for (const phone of unvalidatedPhones) {
+            if (agentId || userId) {
+              await this.db.query(
+                `INSERT INTO pending_beneficiary_approvals (
+                  phone_number, network, agent_id, status, attempt_count,
+                  first_detected_at, last_detected_at, created_at, updated_at
+                ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+                SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                    last_detected_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP`,
+                [phone, agentId || userId],
+              ).catch(() => {});
+            }
+
             await this.db.query(
               `INSERT INTO beneficiary_validation (phone_number, network, validation_status, created_at, updated_at)
                VALUES ($1, 'MTN', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                ON CONFLICT (phone_number, network) DO NOTHING`,
               [phone],
-            );
+            ).catch(() => {});
           }
         } catch {
           // Ignore unique conflicts

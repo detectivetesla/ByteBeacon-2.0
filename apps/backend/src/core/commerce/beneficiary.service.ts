@@ -162,6 +162,8 @@ export class BeneficiaryService {
   public async precheckPublicBeneficiaries(params: {
     network: NetworkProvider | string;
     phoneNumbers: string[];
+    record?: boolean;
+    userId?: string;
   }): Promise<{
     network: NetworkProvider | string;
     results: Array<{
@@ -207,6 +209,7 @@ export class BeneficiaryService {
             if (r.isKnown || (r as any).known) {
               const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
               knownPhonesSet.add(norm);
+              if (r.phoneNumber) knownPhonesSet.add(r.phoneNumber);
             }
           });
         }
@@ -218,12 +221,22 @@ export class BeneficiaryService {
     // Check DB for validated beneficiary records
     if (validNormalizedPhones.length > 0) {
       try {
+        const queryPhones = Array.from(
+          new Set(
+            validNormalizedPhones.flatMap((p) => [
+              p,
+              `+233${p.startsWith('0') ? p.slice(1) : p}`,
+              `233${p.startsWith('0') ? p.slice(1) : p}`,
+            ]),
+          ),
+        );
+
         const dbQuery = `
           SELECT phone_number as "phoneNumber"
           FROM beneficiary_validation
           WHERE phone_number = ANY($1)
             AND network = 'MTN'
-            AND validation_status = 'VALID'
+            AND validation_status IN ('VALID', 'APPROVED')
             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
           UNION
           SELECT phone_number as "phoneNumber"
@@ -232,9 +245,13 @@ export class BeneficiaryService {
             AND network = 'MTN'
             AND status = 'APPROVED'
         `;
-        const dbRes = await this.db.query(dbQuery, [validNormalizedPhones]);
+        const dbRes = await this.db.query(dbQuery, [queryPhones]);
         dbRes.rows.forEach((r: any) => {
-          knownPhonesSet.add(r.phoneNumber);
+          if (r.phoneNumber) {
+            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+            knownPhonesSet.add(norm);
+            knownPhonesSet.add(r.phoneNumber);
+          }
         });
 
         // Also check if any orders have been fulfilled/processing for this number
@@ -243,11 +260,15 @@ export class BeneficiaryService {
           FROM orders
           WHERE recipient_phone = ANY($1)
             AND network = 'MTN'
-            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED')
+            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
         `;
-        const orderRes = await this.db.query(orderQuery, [validNormalizedPhones]);
+        const orderRes = await this.db.query(orderQuery, [queryPhones]);
         orderRes.rows.forEach((r: any) => {
-          knownPhonesSet.add(r.recipientPhone);
+          if (r.recipientPhone) {
+            const norm = this.normalizeGhanaPhone(r.recipientPhone).normalized;
+            knownPhonesSet.add(norm);
+            knownPhonesSet.add(r.recipientPhone);
+          }
         });
       } catch {
         // Continue with memory set
@@ -258,8 +279,50 @@ export class BeneficiaryService {
       phone: item.raw,
       normalized: item.normalized,
       valid: item.valid,
-      known: item.valid ? knownPhonesSet.has(item.normalized) : false,
+      known: item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.raw)) : false,
     }));
+
+    // If record is requested, persist any unknown valid MTN numbers for approval
+    if (params.record) {
+      const unknownList = results.filter((r) => r.valid && !r.known).map((r) => r.normalized);
+      if (unknownList.length > 0) {
+        try {
+          for (const unkPhone of unknownList) {
+            if (params.userId) {
+              await this.db.query(
+                `INSERT INTO pending_beneficiary_approvals (
+                  phone_number, network, agent_id, status, attempt_count,
+                  first_detected_at, last_detected_at, created_at, updated_at
+                ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+                SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                    last_detected_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP`,
+                [unkPhone, params.userId],
+              ).catch(() => {});
+            } else {
+              await this.db.query(
+                `INSERT INTO pending_beneficiary_approvals (
+                  phone_number, network, status, attempt_count,
+                  first_detected_at, last_detected_at, created_at, updated_at
+                ) VALUES ($1, 'MTN', 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT DO NOTHING`,
+                [unkPhone],
+              ).catch(() => {});
+            }
+
+            await this.db.query(
+              `INSERT INTO beneficiary_validation (phone_number, network, validation_status, created_at, updated_at)
+               VALUES ($1, 'MTN', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT (phone_number, network) DO NOTHING`,
+              [unkPhone],
+            ).catch(() => {});
+          }
+        } catch {
+          // Non-fatal recording failure
+        }
+      }
+    }
 
     return {
       network: net,
@@ -436,12 +499,22 @@ export class BeneficiaryService {
     // Query DB for known/validated MTN beneficiaries
     if (validNormalizedPhones.length > 0) {
       try {
+        const queryPhones = Array.from(
+          new Set(
+            validNormalizedPhones.flatMap((p) => [
+              p,
+              `+233${p.startsWith('0') ? p.slice(1) : p}`,
+              `233${p.startsWith('0') ? p.slice(1) : p}`,
+            ]),
+          ),
+        );
+
         const dbQuery = `
           SELECT phone_number as "phoneNumber"
           FROM beneficiary_validation
           WHERE phone_number = ANY($1)
             AND network = 'MTN'
-            AND validation_status = 'VALID'
+            AND validation_status IN ('VALID', 'APPROVED')
             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
           UNION
           SELECT phone_number as "phoneNumber"
@@ -450,9 +523,13 @@ export class BeneficiaryService {
             AND network = 'MTN'
             AND status = 'APPROVED'
         `;
-        const dbRes = await this.db.query(dbQuery, [validNormalizedPhones]);
+        const dbRes = await this.db.query(dbQuery, [queryPhones]);
         dbRes.rows.forEach((r: any) => {
-          knownPhonesSet.add(r.phoneNumber);
+          if (r.phoneNumber) {
+            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+            knownPhonesSet.add(norm);
+            knownPhonesSet.add(r.phoneNumber);
+          }
         });
 
         // Query historical successful orders
@@ -461,11 +538,15 @@ export class BeneficiaryService {
           FROM orders
           WHERE recipient_phone = ANY($1)
             AND network = 'MTN'
-            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED')
+            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
         `;
-        const orderRes = await this.db.query(orderQuery, [validNormalizedPhones]);
+        const orderRes = await this.db.query(orderQuery, [queryPhones]);
         orderRes.rows.forEach((r: any) => {
-          knownPhonesSet.add(r.recipientPhone);
+          if (r.recipientPhone) {
+            const norm = this.normalizeGhanaPhone(r.recipientPhone).normalized;
+            knownPhonesSet.add(norm);
+            knownPhonesSet.add(r.recipientPhone);
+          }
         });
       } catch {
         // Continue with available known set
@@ -476,7 +557,7 @@ export class BeneficiaryService {
       phone: item.phone,
       normalized: item.normalized,
       valid: item.valid,
-      known: item.valid ? knownPhonesSet.has(item.normalized) : false,
+      known: item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.phone)) : false,
     }));
 
     const unknownList = results
