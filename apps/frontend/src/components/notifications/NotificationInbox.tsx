@@ -14,6 +14,8 @@ import {
   Shield,
   ExternalLink,
   ChevronRight,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { Badge } from '../ui/Badge/Badge.js';
 import { Button } from '../ui/Button/Button.js';
@@ -100,6 +102,30 @@ export const NotificationInbox: React.FC<NotificationInboxProps> = ({
     }
   };
 
+  const handleClearAll = async () => {
+    if (notifications.length === 0) return;
+    try {
+      await adminApi.clearUserNotifications();
+      setNotifications([]);
+      setCounts({ total: 0, unread: 0, critical: 0 });
+      toastSuccess('Notifications Cleared', 'All notifications have been cleared.');
+    } catch (err: any) {
+      toastError('Clear Failed', err.message);
+    }
+  };
+
+  const handleDeleteItem = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await adminApi.deleteUserNotification(id);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      setCounts((prev) => ({
+        ...prev,
+        total: Math.max(0, prev.total - 1),
+      }));
+    } catch {}
+  };
+
   const handleItemClick = (item: UserNotificationItemDto) => {
     if (!item.isRead) {
       adminApi.markNotificationRead(item.id).catch(() => {});
@@ -162,7 +188,7 @@ export const NotificationInbox: React.FC<NotificationInboxProps> = ({
                   </Badge>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 {counts.unread > 0 && (
                   <button
                     onClick={handleMarkAllRead}
@@ -170,6 +196,15 @@ export const NotificationInbox: React.FC<NotificationInboxProps> = ({
                   >
                     <CheckCheck size={13} />
                     Mark all read
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button
+                    onClick={handleClearAll}
+                    className="text-xs text-gray-400 hover:text-red-400 font-medium flex items-center gap-1 transition-colors"
+                  >
+                    <Trash2 size={13} />
+                    Clear
                   </button>
                 )}
               </div>
@@ -235,13 +270,23 @@ export const NotificationInbox: React.FC<NotificationInboxProps> = ({
                         >
                           {item.title}
                         </span>
-                        {!item.isRead && (
-                          <span
-                            onClick={(e) => handleMarkAsRead(item.id, e)}
-                            title="Mark as read"
-                            className="h-2 w-2 rounded-full bg-indigo-500 shrink-0 mt-1 hover:scale-150 transition-transform"
-                          />
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {!item.isRead && (
+                            <span
+                              onClick={(e) => handleMarkAsRead(item.id, e)}
+                              title="Mark as read"
+                              className="h-2 w-2 rounded-full bg-indigo-500 shrink-0 hover:scale-150 transition-transform"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteItem(item.id, e)}
+                            title="Dismiss"
+                            className="text-gray-500 hover:text-red-400 p-0.5 rounded transition-colors"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
                       </div>
                       <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
                         {item.body}

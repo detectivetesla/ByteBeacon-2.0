@@ -423,4 +423,74 @@ export async function adminAlertsRoutes(
       return reply.send({ success: true, data: { noteAdded: true } });
     },
   );
+
+  // 8. POST /admin/alerts/acknowledge-all — Acknowledge all active alerts
+  app.post(
+    '/admin/alerts/acknowledge-all',
+    { preHandler: [authHooks.authenticateAdmin, authHooks.requirePermission(Permission.AUDIT_READ)] },
+    async (req, reply: FastifyReply) => {
+      const actorId = req.user!.sub;
+
+      const result = await db.query(
+        `UPDATE system_alerts
+         SET status = $1, acknowledged_by_id = $2, acknowledged_at = NOW(), updated_at = NOW()
+         WHERE status IN ('OPEN', 'DETECTED', 'REOPENED')`,
+        [AlertStatus.ACKNOWLEDGED, actorId],
+      );
+
+      auditService.logEvent({
+        correlationId: req.id,
+        actorId,
+        actorType: 'ADMIN',
+        action: 'ALERTS_BULK_ACKNOWLEDGED',
+        resourceType: 'system_alerts',
+        resourceId: 'bulk',
+        severity: AuditSeverity.INFO,
+        category: AuditCategory.ADMIN_ACTION,
+        result: AuditResult.SUCCESS,
+        ipAddress: req.ip,
+        metadata: { acknowledgedCount: result.rowCount ?? 0 },
+      });
+
+      return reply.send({
+        success: true,
+        data: { count: result.rowCount ?? 0 },
+      });
+    },
+  );
+
+  // 9. POST /admin/alerts/clear — Bulk resolve acknowledged/investigating alerts
+  app.post(
+    '/admin/alerts/clear',
+    { preHandler: [authHooks.authenticateAdmin, authHooks.requirePermission(Permission.AUDIT_READ)] },
+    async (req, reply: FastifyReply) => {
+      const actorId = req.user!.sub;
+
+      const result = await db.query(
+        `UPDATE system_alerts
+         SET status = $1, resolved_by_id = $2, resolved_at = NOW(), resolution = 'Bulk dismissed by operator', updated_at = NOW()
+         WHERE status IN ('ACKNOWLEDGED', 'INVESTIGATING')`,
+        [AlertStatus.RESOLVED, actorId],
+      );
+
+      auditService.logEvent({
+        correlationId: req.id,
+        actorId,
+        actorType: 'ADMIN',
+        action: 'ALERTS_BULK_CLEARED',
+        resourceType: 'system_alerts',
+        resourceId: 'bulk',
+        severity: AuditSeverity.INFO,
+        category: AuditCategory.ADMIN_ACTION,
+        result: AuditResult.SUCCESS,
+        ipAddress: req.ip,
+        metadata: { resolvedCount: result.rowCount ?? 0 },
+      });
+
+      return reply.send({
+        success: true,
+        data: { count: result.rowCount ?? 0 },
+      });
+    },
+  );
 }

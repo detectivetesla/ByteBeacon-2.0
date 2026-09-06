@@ -727,6 +727,72 @@ describe('Phase 11.15 — Notifications, Alerts & System Communications Administ
     expect(body.data.markedCount).toBe(2);
   });
 
+  it('DELETE /notifications — clears all notifications for current user', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/notifications',
+      headers: { authorization: 'Bearer valid_customer_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty('clearedCount');
+  });
+
+  it('POST /notifications/clear — alias clears notifications for current user', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/notifications/clear',
+      headers: { authorization: 'Bearer valid_customer_token' },
+      payload: { readOnly: true },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty('clearedCount');
+  });
+
+  it('DELETE /notifications/:id — deletes single notification', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/notifications/00000000-0000-0000-0000-000000000501',
+      headers: { authorization: 'Bearer valid_customer_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(true);
+    expect(body.data.deleted).toBe(true);
+  });
+
+  it('POST /admin/alerts/acknowledge-all — acknowledges all active alerts', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/alerts/acknowledge-all',
+      headers: { authorization: 'Bearer valid_admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty('count');
+  });
+
+  it('POST /admin/alerts/clear — bulk resolves acknowledged alerts', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/alerts/clear',
+      headers: { authorization: 'Bearer valid_admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty('count');
+  });
+
   // 7. Security & Authorization Boundary Checks
   it('GET /admin/alerts — rejects customer role with 403 Forbidden', async () => {
     const res = await app.inject({

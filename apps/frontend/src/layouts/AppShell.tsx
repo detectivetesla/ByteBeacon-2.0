@@ -24,7 +24,9 @@ import {
   Check,
   CheckCheck,
   User,
+  Trash2,
 } from 'lucide-react';
+import { notificationsApi } from '../api/wallet.api.js';
 
 export interface AppShellProps {
   portalTitle: string;
@@ -87,6 +89,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [copiedStore, setCopiedStore] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notifFilter, setNotifFilter] = useState<'all' | 'unread'>('all');
 
   const profileRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -162,8 +165,71 @@ export const AppShell: React.FC<AppShellProps> = ({
     setTimeout(() => setCopiedStore(false), 2000);
   };
 
-  const markAllNotificationsRead = () => {
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await notificationsApi.getNotifications({ limit: 20 });
+      if (res?.items) {
+        const mapped: NotificationItem[] = res.items.map((n: any) => {
+          let type: 'order' | 'payment' | 'system' = 'system';
+          const t = (n.type || '').toLowerCase();
+          if (t.includes('order')) type = 'order';
+          else if (t.includes('wallet') || t.includes('payment')) type = 'payment';
+
+          const d = new Date(n.createdAt);
+          const time = d.toLocaleDateString([], {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+
+          return {
+            id: n.id,
+            title: n.title,
+            detail: n.body,
+            time,
+            unread: !n.isRead,
+            type,
+          };
+        });
+        setNotifications(mapped);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  const markAllNotificationsRead = async () => {
+    try {
+      await notificationsApi.markAllAsRead();
+    } catch {}
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+  };
+
+  const clearAllNotifications = async () => {
+    if (notifications.length === 0) return;
+    try {
+      await notificationsApi.clearNotifications();
+    } catch {}
+    setNotifications([]);
+  };
+
+  const markSingleNotificationRead = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      await notificationsApi.markAsRead(id);
+    } catch {}
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+  };
+
+  const deleteSingleNotification = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await notificationsApi.deleteNotification(id);
+    } catch {}
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 
   const formatBalance = (pesewas?: number) => {
@@ -825,61 +891,160 @@ export const AppShell: React.FC<AppShellProps> = ({
                     zIndex: 100,
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                      Notifications ({unreadCount})
-                    </span>
-                    {unreadCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={markAllNotificationsRead}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--color-primary)',
-                          fontSize: 'var(--font-size-3xs)',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.25rem',
-                        }}
-                      >
-                        <CheckCheck size={12} />
-                        Mark all read
-                      </button>
-                    )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                        Notifications
+                      </span>
+                      {unreadCount > 0 && (
+                        <span
+                          style={{
+                            fontSize: 'var(--font-size-3xs)',
+                            fontWeight: 700,
+                            padding: '1px 6px',
+                            borderRadius: '999px',
+                            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                            color: '#ef4444',
+                          }}
+                        >
+                          {unreadCount} unread
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      {unreadCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={markAllNotificationsRead}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--color-primary)',
+                            fontSize: 'var(--font-size-3xs)',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                          }}
+                          title="Mark all read"
+                        >
+                          <CheckCheck size={12} />
+                          Mark all read
+                        </button>
+                      )}
+                      {notifications.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={clearAllNotifications}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--color-text-muted)',
+                            fontSize: 'var(--font-size-3xs)',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                          }}
+                          title="Clear notifications"
+                        >
+                          <Trash2 size={12} />
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Filter Pills: All / Unread */}
+                  <div style={{ display: 'flex', gap: 'var(--space-1)', marginBottom: 'var(--space-2.5)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setNotifFilter('all')}
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 'var(--font-size-3xs)',
+                        fontWeight: notifFilter === 'all' ? 700 : 500,
+                        backgroundColor: notifFilter === 'all' ? 'var(--color-bg-surface-elevated)' : 'transparent',
+                        border: notifFilter === 'all' ? '1px solid var(--color-border-hover)' : '1px solid transparent',
+                        color: notifFilter === 'all' ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      All ({notifications.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNotifFilter('unread')}
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 'var(--font-size-3xs)',
+                        fontWeight: notifFilter === 'unread' ? 700 : 500,
+                        backgroundColor: notifFilter === 'unread' ? 'var(--color-bg-surface-elevated)' : 'transparent',
+                        border: notifFilter === 'unread' ? '1px solid var(--color-border-hover)' : '1px solid transparent',
+                        color: notifFilter === 'unread' ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Unread ({unreadCount})
+                    </button>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: '240px', overflowY: 'auto' }}>
-                    {notifications.length === 0 ? (
+                    {notifications.filter((n) => notifFilter === 'all' || n.unread).length === 0 ? (
                       <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
-                        No new notifications
+                        {notifFilter === 'unread' ? 'No unread notifications' : 'No notifications'}
                       </div>
                     ) : (
-                      notifications.map((n) => (
-                        <div
-                          key={n.id}
-                          style={{
-                            padding: 'var(--space-2) var(--space-3)',
-                            borderRadius: 'var(--radius-md)',
-                            backgroundColor: n.unread ? 'var(--color-bg-surface-elevated)' : 'transparent',
-                            border: n.unread ? '1px solid var(--color-border-hover)' : '1px solid transparent',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                              {n.title}
-                            </span>
-                            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                              {n.time}
-                            </span>
+                      notifications
+                        .filter((n) => notifFilter === 'all' || n.unread)
+                        .map((n) => (
+                          <div
+                            key={n.id}
+                            onClick={() => n.unread && markSingleNotificationRead(n.id)}
+                            style={{
+                              padding: 'var(--space-2) var(--space-3)',
+                              borderRadius: 'var(--radius-md)',
+                              backgroundColor: n.unread ? 'var(--color-bg-surface-elevated)' : 'transparent',
+                              border: n.unread ? '1px solid var(--color-border-hover)' : '1px solid transparent',
+                              cursor: n.unread ? 'pointer' : 'default',
+                              position: 'relative',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                                {n.title}
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                                  {n.time}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => deleteSingleNotification(n.id, e)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--color-text-muted)',
+                                    cursor: 'pointer',
+                                    padding: '2px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                  }}
+                                  title="Dismiss"
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            </div>
+                            <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0', lineHeight: 1.3 }}>
+                              {n.detail}
+                            </p>
                           </div>
-                          <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0', lineHeight: 1.3 }}>
-                            {n.detail}
-                          </p>
-                        </div>
-                      ))
+                        ))
                     )}
                   </div>
 

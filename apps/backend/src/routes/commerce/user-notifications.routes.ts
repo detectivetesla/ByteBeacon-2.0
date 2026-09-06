@@ -157,4 +157,76 @@ export async function userNotificationsRoutes(
       });
     },
   );
+
+  // 5. DELETE /notifications — Clear notifications for current user
+  app.delete<{
+    Querystring: { readOnly?: string };
+  }>(
+    '/notifications',
+    { preHandler: [authHooks.authenticate] },
+    async (req, reply: FastifyReply) => {
+      const userId = req.user!.sub;
+      const readOnly = req.query.readOnly === 'true';
+
+      let query = `DELETE FROM notifications WHERE user_id = $1`;
+      if (readOnly) {
+        query += ` AND is_read = true`;
+      }
+
+      const result = await db.query(query, [userId]);
+
+      return reply.send({
+        success: true,
+        data: { clearedCount: result.rowCount ?? 0 },
+      });
+    },
+  );
+
+  // 6. POST /notifications/clear — Clear notifications alias
+  app.post<{
+    Body?: { readOnly?: boolean };
+  }>(
+    '/notifications/clear',
+    { preHandler: [authHooks.authenticate] },
+    async (req, reply: FastifyReply) => {
+      const userId = req.user!.sub;
+      const readOnly = req.body?.readOnly === true;
+
+      let query = `DELETE FROM notifications WHERE user_id = $1`;
+      if (readOnly) {
+        query += ` AND is_read = true`;
+      }
+
+      const result = await db.query(query, [userId]);
+
+      return reply.send({
+        success: true,
+        data: { clearedCount: result.rowCount ?? 0 },
+      });
+    },
+  );
+
+  // 7. DELETE /notifications/:id — Dismiss/delete single notification (anti-IDOR guarded)
+  app.delete<{ Params: { id: string } }>(
+    '/notifications/:id',
+    { preHandler: [authHooks.authenticate] },
+    async (req, reply: FastifyReply) => {
+      const userId = req.user!.sub;
+      const { id } = req.params;
+
+      const result = await db.query(
+        `DELETE FROM notifications WHERE id = $1 AND user_id = $2`,
+        [id, userId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundError(`Notification '${id}' not found or unauthorized.`);
+      }
+
+      return reply.send({
+        success: true,
+        data: { id, deleted: true },
+      });
+    },
+  );
 }

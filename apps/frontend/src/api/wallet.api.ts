@@ -218,5 +218,13 @@ export const notificationsApi = {
   markAllAsRead: async (): Promise<{ markedCount: number }> => {
     return apiClient.post('/notifications/read-all');
   },
+
+  clearNotifications: async (readOnly?: boolean): Promise<{ clearedCount: number }> => {
+    return apiClient.delete('/notifications', { params: { readOnly: readOnly ? 'true' : 'false' } });
+  },
+
+  deleteNotification: async (id: string): Promise<{ id: string; deleted: boolean }> => {
+    return apiClient.delete(`/notifications/${id}`);
+  },
 };
 

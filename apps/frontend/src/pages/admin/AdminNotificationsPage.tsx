@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -24,6 +25,8 @@ import {
   AdminNotificationAnalyticsDto,
   AdminNotificationHistoryItemDto,
   AdminNotificationDeliveryDetailDto,
+  UserNotificationItemDto,
+  UserNotificationCountsDto,
 } from '../../api/admin.api.js';
 import {
   Bell,
@@ -40,16 +43,23 @@ import {
   Layers,
   Lock,
   Sparkles,
+  CheckCheck,
+  Trash2,
+  X,
+  Check,
 } from 'lucide-react';
 
-type TabKey = 'overview' | 'alerts' | 'rules' | 'analytics' | 'history' | 'emergency';
+type TabKey = 'notifications' | 'overview' | 'alerts' | 'rules' | 'analytics' | 'history' | 'emergency';
 
 export const AdminNotificationsPage: React.FC = () => {
+  const location = useLocation();
   const { user } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
   const isSuperAdmin = user?.role === UserRole.SUPER_ADMIN;
 
-  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    location.pathname.endsWith('/alerts') ? 'alerts' : 'notifications',
+  );
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Data states
@@ -60,6 +70,13 @@ export const AdminNotificationsPage: React.FC = () => {
   const [analytics, setAnalytics] = useState<AdminNotificationAnalyticsDto | null>(null);
   const [history, setHistory] = useState<AdminNotificationHistoryItemDto[]>([]);
   const [historyMeta, setHistoryMeta] = useState({ page: 1, limit: 25, total: 0, totalPages: 1 });
+
+  // Admin In-App Notifications state
+  const [adminNotifications, setAdminNotifications] = useState<UserNotificationItemDto[]>([]);
+  const [adminNotifCounts, setAdminNotifCounts] = useState<UserNotificationCountsDto | null>(null);
+  const [adminNotifTab, setAdminNotifTab] = useState<'all' | 'unread'>('all');
+  const [isLoadingAdminNotifs, setIsLoadingAdminNotifs] = useState<boolean>(false);
+  const [isClearingAdminNotifs, setIsClearingAdminNotifs] = useState<boolean>(false);
 
   // Filters for Alerts
   const [alertSeverityFilter, setAlertSeverityFilter] = useState<string>('ALL');
@@ -169,12 +186,105 @@ export const AdminNotificationsPage: React.FC = () => {
     }
   }, [histSearch, histChannel, histStatus, historyMeta.page, historyMeta.limit, toastError]);
 
+  // Fetch Admin In-App Notifications
+  const loadAdminNotifications = useCallback(async () => {
+    setIsLoadingAdminNotifs(true);
+    try {
+      const [res, counts] = await Promise.all([
+        adminApi.getUserNotifications({ limit: 50 }),
+        adminApi.getUserNotificationCounts(),
+      ]);
+      setAdminNotifications(res?.items || []);
+      setAdminNotifCounts(counts);
+    } catch (err: any) {
+      toastError('Failed to load admin notifications', err.message);
+    } finally {
+      setIsLoadingAdminNotifs(false);
+    }
+  }, [toastError]);
+
+  const handleMarkAllAdminNotificationsRead = async () => {
+    try {
+      await adminApi.markAllNotificationsRead();
+      setAdminNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      if (adminNotifCounts) {
+        setAdminNotifCounts({ ...adminNotifCounts, unreadCount: 0 });
+      }
+      toastSuccess('All Read', 'Marked all notifications as read.');
+    } catch (err: any) {
+      toastError('Action Failed', err.message);
+    }
+  };
+
+  const handleClearAdminNotifications = async () => {
+    if (adminNotifications.length === 0) return;
+    setIsClearingAdminNotifs(true);
+    try {
+      await adminApi.clearUserNotifications();
+      setAdminNotifications([]);
+      if (adminNotifCounts) {
+        setAdminNotifCounts({ totalCount: 0, unreadCount: 0, criticalCount: 0 });
+      }
+      toastSuccess('Notifications Cleared', 'All notifications cleared.');
+    } catch (err: any) {
+      toastError('Clear Failed', err.message);
+    } finally {
+      setIsClearingAdminNotifs(false);
+    }
+  };
+
+  const handleMarkSingleAdminNotificationRead = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      await adminApi.markNotificationRead(id);
+      setAdminNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+      if (adminNotifCounts) {
+        setAdminNotifCounts({ ...adminNotifCounts, unreadCount: Math.max(0, adminNotifCounts.unreadCount - 1) });
+      }
+    } catch (err: any) {
+      toastError('Action Failed', err.message);
+    }
+  };
+
+  const handleDeleteAdminNotification = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await adminApi.deleteUserNotification(id);
+      setAdminNotifications((prev) => prev.filter((n) => n.id !== id));
+      toastSuccess('Dismissed', 'Notification deleted.');
+    } catch (err: any) {
+      toastError('Delete Failed', err.message);
+    }
+  };
+
+  const handleAcknowledgeAllAlerts = async () => {
+    try {
+      const res = await adminApi.acknowledgeAllAlerts();
+      toastSuccess('Alerts Acknowledged', `${res.count} alerts marked as acknowledged.`);
+      loadAlerts();
+      loadOverview();
+    } catch (err: any) {
+      toastError('Action Failed', err.message);
+    }
+  };
+
+  const handleClearAlerts = async () => {
+    try {
+      const res = await adminApi.clearAlerts();
+      toastSuccess('Alerts Cleared', `${res.count} alerts cleared/resolved.`);
+      loadAlerts();
+      loadOverview();
+    } catch (err: any) {
+      toastError('Clear Failed', err.message);
+    }
+  };
+
   // Initial load
   const loadAll = useCallback(async () => {
     setIsLoading(true);
-    await Promise.all([loadOverview(), loadAlerts(), loadRules(), loadAnalytics(), loadHistory()]);
+    await Promise.all([loadOverview(), loadAdminNotifications(), loadAlerts(), loadRules(), loadAnalytics(), loadHistory()]);
     setIsLoading(false);
-  }, [loadOverview, loadAlerts, loadRules, loadAnalytics, loadHistory]);
+  }, [loadOverview, loadAdminNotifications, loadAlerts, loadRules, loadAnalytics, loadHistory]);
 
   useEffect(() => {
     loadAll();
@@ -182,7 +292,8 @@ export const AdminNotificationsPage: React.FC = () => {
 
   // Refresh current tab
   const handleRefresh = () => {
-    if (activeTab === 'overview') loadOverview();
+    if (activeTab === 'notifications') loadAdminNotifications();
+    else if (activeTab === 'overview') loadOverview();
     else if (activeTab === 'alerts') loadAlerts();
     else if (activeTab === 'rules') loadRules();
     else if (activeTab === 'analytics') loadAnalytics();
@@ -437,6 +548,21 @@ export const AdminNotificationsPage: React.FC = () => {
           <Activity size={16} /> Overview
         </button>
         <button
+          onClick={() => setActiveTab('notifications')}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${
+            activeTab === 'notifications'
+              ? 'border-indigo-500 text-indigo-400'
+              : 'border-transparent text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <Bell size={16} /> In-App Notifications
+          {adminNotifCounts?.unreadCount ? (
+            <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-indigo-500/20 text-indigo-400 rounded-full font-semibold">
+              {adminNotifCounts.unreadCount}
+            </span>
+          ) : null}
+        </button>
+        <button
           onClick={() => setActiveTab('alerts')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${
             activeTab === 'alerts'
@@ -586,9 +712,222 @@ export const AdminNotificationsPage: React.FC = () => {
         </div>
       )}
 
+      {/* TAB: IN-APP NOTIFICATIONS */}
+      {activeTab === 'notifications' && (
+        <div className="space-y-4">
+          {/* Header Controls Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-gray-800 bg-gray-900/60 backdrop-blur">
+            {/* Filter Pills */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAdminNotifTab('all')}
+                className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+                  adminNotifTab === 'all'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-gray-800/80 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                }`}
+              >
+                All
+                <span className="px-1.5 py-0.2 rounded-full text-xs bg-black/20">
+                  {adminNotifCounts?.totalCount ?? adminNotifications.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminNotifTab('unread')}
+                className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+                  adminNotifTab === 'unread'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-gray-800/80 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                }`}
+              >
+                Unread
+                {(adminNotifCounts?.unreadCount ?? adminNotifications.filter((n) => !n.isRead).length) > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-xs bg-red-500/30 text-red-300 font-bold">
+                    {adminNotifCounts?.unreadCount ?? adminNotifications.filter((n) => !n.isRead).length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleMarkAllAdminNotificationsRead}
+                disabled={adminNotifications.filter((n) => !n.isRead).length === 0}
+                className="flex items-center gap-1.5 text-xs"
+              >
+                <CheckCheck size={14} />
+                Mark all read
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleClearAdminNotifications}
+                disabled={adminNotifications.length === 0 || isClearingAdminNotifs}
+                className="flex items-center gap-1.5 text-xs"
+              >
+                <Trash2 size={14} />
+                {isClearingAdminNotifs ? 'Clearing...' : 'Clear'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Notifications Feed */}
+          <Card>
+            {isLoadingAdminNotifs ? (
+              <div className="py-12 text-center text-gray-400">
+                <RefreshCw size={24} className="animate-spin mx-auto mb-2 text-indigo-400" />
+                <p className="text-sm">Loading admin notifications...</p>
+              </div>
+            ) : adminNotifications.filter((n) => adminNotifTab === 'all' || !n.isRead).length === 0 ? (
+              <div className="py-12 text-center text-gray-500">
+                <Bell size={32} className="mx-auto mb-3 opacity-30 text-gray-400" />
+                <p className="text-base font-semibold text-gray-300">No notifications found</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {adminNotifTab === 'unread'
+                    ? 'All admin notifications have been read.'
+                    : 'System notifications and operational notices will be displayed here.'}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-800/60">
+                {adminNotifications
+                  .filter((n) => adminNotifTab === 'all' || !n.isRead)
+                  .map((item) => (
+                    <div
+                      key={item.id}
+                      className={`p-4 flex items-start justify-between gap-4 transition-colors hover:bg-gray-800/30 ${
+                        !item.isRead ? 'bg-indigo-950/20 border-l-2 border-indigo-500' : ''
+                      }`}
+                    >
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="mt-0.5">{getSeverityBadge(item.severity)}</div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h4
+                              className={`text-sm font-semibold truncate ${
+                                !item.isRead ? 'text-white' : 'text-gray-300'
+                              }`}
+                            >
+                              {item.title}
+                            </h4>
+                            {!item.isRead && (
+                              <span className="w-2 h-2 rounded-full bg-indigo-400 inline-block shrink-0" />
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1 leading-relaxed whitespace-pre-line">
+                            {item.body}
+                          </p>
+                          <div className="flex items-center gap-3 mt-2 text-[11px] text-gray-500 font-mono">
+                            <span>{new Date(item.createdAt).toLocaleString()}</span>
+                            {item.actionUrl && (
+                              <a
+                                href={item.actionUrl}
+                                className="text-indigo-400 hover:underline flex items-center gap-1"
+                              >
+                                View Action →
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Single item actions */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {!item.isRead && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleMarkSingleAdminNotificationRead(item.id, e)}
+                            title="Mark as read"
+                            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+                          >
+                            <Check size={14} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteAdminNotification(item.id, e)}
+                          title="Delete notification"
+                          className="p-1.5 rounded text-gray-500 hover:text-red-400 hover:bg-gray-800 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
       {/* TAB 2: ACTIVE ALERTS */}
       {activeTab === 'alerts' && (
         <div className="space-y-4">
+          {/* Action and Filter Control Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-gray-800 bg-gray-900/60 backdrop-blur">
+            {/* Filter Pills */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAlertStatusFilter('ALL')}
+                className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+                  alertStatusFilter === 'ALL'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-gray-800/80 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                }`}
+              >
+                All
+                <span className="px-1.5 py-0.2 rounded-full text-xs bg-black/20">
+                  {alertMeta.total || alerts.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAlertStatusFilter(AlertStatus.OPEN)}
+                className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+                  alertStatusFilter === AlertStatus.OPEN
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-gray-800/80 text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                }`}
+              >
+                Unread / Active
+                {alerts.filter((a) => a.status === AlertStatus.OPEN || a.status === AlertStatus.DETECTED).length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-xs bg-red-500/30 text-red-300 font-bold">
+                    {alerts.filter((a) => a.status === AlertStatus.OPEN || a.status === AlertStatus.DETECTED).length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAcknowledgeAllAlerts}
+                disabled={alerts.filter((a) => a.status === AlertStatus.OPEN || a.status === AlertStatus.DETECTED || a.status === AlertStatus.REOPENED).length === 0}
+                className="flex items-center gap-1.5 text-xs"
+              >
+                <CheckCheck size={14} />
+                Mark all read (Acknowledge all)
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleClearAlerts}
+                disabled={alerts.filter((a) => a.status === AlertStatus.ACKNOWLEDGED || a.status === AlertStatus.INVESTIGATING).length === 0}
+                className="flex items-center gap-1.5 text-xs"
+              >
+                <Trash2 size={14} />
+                Clear
+              </Button>
+            </div>
+          </div>
           {/* Filter Toolbar */}
           <Card>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

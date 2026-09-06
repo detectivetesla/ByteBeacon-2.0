@@ -1797,6 +1797,22 @@ export const adminApi = {
     return apiClient.post('/notifications/read-all');
   },
 
+  clearUserNotifications: async (readOnly?: boolean): Promise<{ clearedCount: number }> => {
+    return apiClient.delete('/notifications', { params: { readOnly: readOnly ? 'true' : 'false' } });
+  },
+
+  deleteUserNotification: async (id: string): Promise<{ id: string; deleted: boolean }> => {
+    return apiClient.delete(`/notifications/${id}`);
+  },
+
+  acknowledgeAllAlerts: async (): Promise<{ count: number }> => {
+    return apiClient.post('/admin/alerts/acknowledge-all');
+  },
+
+  clearAlerts: async (): Promise<{ count: number }> => {
+    return apiClient.post('/admin/alerts/clear');
+  },
+
   // =========================================================================
   // Phase 11.9: Telecom Provider & Networks Control Plane APIs
   // =========================================================================
