@@ -52,8 +52,8 @@ export const StoreSettingsPage: React.FC = () => {
           </p>
 
           <Switch
-            label="Instant GMPL Automated Delivery"
-            description="Fulfill bundles instantly via direct API without manual confirmation"
+            label="Instant ByteBeacon Automated Delivery"
+            description="Fulfill bundles instantly via ByteBeacon automated rails without manual confirmation"
             checked={autoFulfill}
             onChange={() => setAutoFulfill(!autoFulfill)}
           />

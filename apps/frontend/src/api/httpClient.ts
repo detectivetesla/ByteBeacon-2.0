@@ -1,5 +1,6 @@
 import { ApiClientConfig, RequestOptions, ApiError, AuthTokens } from './types.js';
 import { ApiResponse } from '@bytebeacon/shared';
+import { sanitizeText, sanitizeObject } from '../utils/console-scrubber.js';
 
 export class HttpClient {
   private config: ApiClientConfig;
@@ -221,13 +222,14 @@ export class HttpClient {
         let responseBody: any;
         try {
           const text = await response.text();
-          responseBody = text ? JSON.parse(text) : {};
+          responseBody = text ? sanitizeObject(JSON.parse(text)) : {};
         } catch {
           responseBody = {};
         }
-        const errorMessage = responseBody?.error?.message || responseBody?.message || `HTTP error ${response.status}`;
+        const rawErrorMessage = responseBody?.error?.message || responseBody?.message || `HTTP error ${response.status}`;
+        const errorMessage = sanitizeText(rawErrorMessage);
         const errorCode = responseBody?.error?.code || responseBody?.code || 'API_ERROR';
-        const details = responseBody?.error?.details || responseBody?.details;
+        const details = sanitizeObject(responseBody?.error?.details || responseBody?.details);
 
         if (
           typeof window !== 'undefined' &&
@@ -247,23 +249,24 @@ export class HttpClient {
         return (await response.blob()) as unknown as T;
       }
       if (options.responseType === 'text') {
-        return (await response.text()) as unknown as T;
+        const textData = await response.text();
+        return sanitizeText(textData) as unknown as T;
       }
 
       // Parse JSON response
       let responseBody: any;
       const text = await response.text();
       try {
-        responseBody = text ? JSON.parse(text) : {};
+        responseBody = text ? sanitizeObject(JSON.parse(text)) : {};
       } catch {
-        responseBody = { rawText: text };
+        responseBody = { rawText: sanitizeText(text) };
       }
 
       // If backend returned standardized ApiResponse envelope, extract data
       if (responseBody && typeof responseBody === 'object' && 'success' in responseBody) {
         if (!responseBody.success) {
           throw new ApiError(
-            responseBody.error?.message || 'Request was not successful',
+            sanitizeText(responseBody.error?.message || 'Request was not successful'),
             response.status,
             responseBody.error?.code || 'API_ERROR',
             responseBody.error?.details,
@@ -282,7 +285,8 @@ export class HttpClient {
       if (err.name === 'AbortError') {
         throw new ApiError('Request timed out. Please try again.', 408, 'REQUEST_TIMEOUT', undefined, requestId);
       }
-      throw new ApiError(err.message || 'Network error occurred', 0, 'NETWORK_ERROR', undefined, requestId);
+      const cleanMessage = sanitizeText(err.message || 'Network error occurred');
+      throw new ApiError(cleanMessage, 0, 'NETWORK_ERROR', undefined, requestId);
     }
   }
 

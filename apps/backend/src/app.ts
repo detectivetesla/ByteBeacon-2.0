@@ -263,6 +263,34 @@ export function createApp(options: AppOptions = {}) {
   // 4. Register Global Error Handler
   app.setErrorHandler(errorHandler);
 
+  // 4b. Non-Admin Vendor Information Leak Protection Hook
+  // Sanitizes outgoing HTTP response payloads so that Customer and Agent systems
+  // never transmit upstream telecom vendor strings (DataHouse, GMPL, GetMorePayLess, Portal-02) over the network.
+  app.addHook('onSend', async (request, _reply, payload) => {
+    const url = request.url || '';
+    const isAdminRoute = url.startsWith('/api/v1/admin') || url.startsWith('/admin');
+    if (isAdminRoute) {
+      return payload;
+    }
+
+    if (typeof payload === 'string' && payload.length > 0) {
+      return payload
+        .replace(/https?:\/\/api\.getmorepaylessdatahouse\.net(\/api\/v1)?/gi, 'https://api.bytebeacon.com/api/v1')
+        .replace(/https?:\/\/www\.getmorepaylessdatahouse\.net(\/agent\/api)?/gi, '/agent/api')
+        .replace(/getmorepaylessdatahouse\.net/gi, 'bytebeacon.com')
+        .replace(/datahouse\.com\.gh/gi, 'bytebeacon.com')
+        .replace(/gmpl\.com\.gh/gi, 'bytebeacon.com')
+        .replace(/getmorepayless/gi, 'ByteBeacon')
+        .replace(/DataHouse\s+Telecom\s+Gateway/gi, 'ByteBeacon Telecom Gateway')
+        .replace(/DataHouse\s+Carrier\s+Gateway/gi, 'ByteBeacon Carrier Gateway')
+        .replace(/DataHouse/gi, 'ByteBeacon')
+        .replace(/GMPL/gi, 'ByteBeacon')
+        .replace(/Portal-02/gi, 'ByteBeacon');
+    }
+
+    return payload;
+  });
+
   // 4. Initialize Core & Security Services with test fallbacks
   let dbPool = options.dbPool;
   if (!dbPool) {

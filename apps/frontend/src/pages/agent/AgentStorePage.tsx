@@ -303,7 +303,7 @@ export const AgentStorePage: React.FC = () => {
                   100% Automated Delivery
                 </strong>
                 <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                  Instant telecom fulfillment via GMPL direct API
+                  Instant telecom fulfillment via ByteBeacon direct API
                 </span>
               </div>
 

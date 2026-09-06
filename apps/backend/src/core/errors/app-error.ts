@@ -147,6 +147,20 @@ export function errorHandler(
     message = error.message;
   }
 
+  // Ensure customer and agent requests never receive internal telecom vendor names
+  const isAdminRequest =
+    request.url.startsWith('/api/v1/admin') ||
+    request.url.startsWith('/admin');
+  if (!isAdminRequest) {
+    message = sanitizeBackendVendorText(message);
+    if (details && Array.isArray(details)) {
+      details = details.map((d) => ({
+        ...d,
+        message: sanitizeBackendVendorText(d.message),
+      }));
+    }
+  }
+
   reply.status(statusCode).send({
     success: false,
     error: {
@@ -159,4 +173,19 @@ export function errorHandler(
       correlationId: requestId,
     },
   });
+}
+
+export function sanitizeBackendVendorText(msg: string): string {
+  if (!msg || typeof msg !== 'string') return msg;
+  return msg
+    .replace(/https?:\/\/api\.getmorepaylessdatahouse\.net(\/api\/v1)?/gi, 'https://api.bytebeacon.com/api/v1')
+    .replace(/https?:\/\/www\.getmorepaylessdatahouse\.net(\/agent\/api)?/gi, '/agent/api')
+    .replace(/getmorepaylessdatahouse\.net/gi, 'bytebeacon.com')
+    .replace(/datahouse\.com\.gh/gi, 'bytebeacon.com')
+    .replace(/getmorepayless/gi, 'ByteBeacon')
+    .replace(/DataHouse\s+Telecom\s+Gateway/gi, 'ByteBeacon Telecom Gateway')
+    .replace(/DataHouse\s+Carrier\s+Gateway/gi, 'ByteBeacon Carrier Gateway')
+    .replace(/DataHouse/gi, 'ByteBeacon')
+    .replace(/GMPL/gi, 'ByteBeacon')
+    .replace(/Portal-02/gi, 'ByteBeacon');
 }

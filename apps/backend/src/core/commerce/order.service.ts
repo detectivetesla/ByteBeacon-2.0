@@ -432,7 +432,7 @@ export class OrderService {
         refundStatus: orderRow.refundStatus as RefundStatus,
         pricingSnapshot,
         providerOrder: {
-          providerName: authoritativeProviderName,
+          providerName: context.actorType === 'ADMIN' ? authoritativeProviderName : 'ByteBeacon Telecom Network',
           providerReference: null,
           providerStatus: ProviderStatus.UNKNOWN,
           lastSyncedAt: null,
@@ -640,8 +640,8 @@ export class OrderService {
       pricingSnapshot: row.pricingSnapshot,
       providerOrder: row.poProviderName
         ? {
-            providerName: row.poProviderName,
-            providerReference: row.poProviderReference,
+            providerName: isAdmin ? row.poProviderName : 'ByteBeacon Telecom Network',
+            providerReference: isAdmin ? row.poProviderReference : (row.poProviderReference ? 'BB_' + String(row.poProviderReference).slice(-6) : null),
             providerStatus: row.poProviderStatus as ProviderStatus,
             lastSyncedAt: row.poLastSyncedAt ? new Date(row.poLastSyncedAt).toISOString() : null,
             lastProviderEventAt: row.poLastProviderEventAt
