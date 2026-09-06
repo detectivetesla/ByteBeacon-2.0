@@ -268,9 +268,13 @@ export class DataHouseMapper {
     requestedNetwork?: NetworkProvider,
   ): BeneficiaryValidationResult {
     const network = (resp.network as NetworkProvider) || requestedNetwork || NetworkProvider.MTN;
-    const results = resp.results || resp.data || [];
+    const rawItems: any[] =
+      resp.results ||
+      (Array.isArray(resp.data) ? resp.data : (resp.data as any)?.rows || (resp.data as any)?.results) ||
+      (resp as any).rows ||
+      [];
 
-    if (results.length === 0) {
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
       return {
         isValid: false,
         network,
@@ -279,7 +283,7 @@ export class DataHouseMapper {
       };
     }
 
-    const first = results[0];
+    const first = rawItems[0];
     const isKnown = Boolean(first.isKnown || first.known || first.valid || first.isValid);
 
     return {
@@ -297,36 +301,126 @@ export class DataHouseMapper {
     resp: DataHousePrecheckResponse,
     network: NetworkProvider,
   ): DataHousePrecheckResult {
-    const results = resp.results || resp.data || [];
+    const payload: any =
+      resp && typeof resp === 'object' && 'data' in resp && resp.data && typeof resp.data === 'object' && !Array.isArray(resp.data)
+        ? (resp as any).data
+        : resp;
 
-    const summary = resp.summary || {
-      requested: results.length,
+    const rawRows: any[] =
+      payload.rows ||
+      payload.results ||
+      (Array.isArray(payload.data) ? payload.data : []) ||
+      payload.items ||
+      (Array.isArray(payload) ? payload : []);
+
+    const blockedList: any[] = payload.blockedFirstTime || payload.blocked || [];
+    const blockedSet = new Set<string>();
+    blockedList.forEach((b: any) => {
+      const p = typeof b === 'string' ? b : b.phoneNumber || b.phone || b.msisdn;
+      if (p) {
+        const norm = DataHouseMapper.normalizePhone(p);
+        const local = norm.startsWith('233') ? '0' + norm.slice(3) : norm;
+        blockedSet.add(p);
+        blockedSet.add(norm);
+        blockedSet.add(local);
+        blockedSet.add(`+${norm}`);
+      }
+    });
+
+    const portedList: any[] = payload.flaggedPorted || payload.mismatched || [];
+    const portedMap = new Map<string, string>();
+    portedList.forEach((item: any) => {
+      const p = typeof item === 'string' ? item : item.phoneNumber || item.phone;
+      if (p) {
+        const norm = DataHouseMapper.normalizePhone(p);
+        const local = norm.startsWith('233') ? '0' + norm.slice(3) : norm;
+        const net = item.detectedNetwork || 'UNKNOWN';
+        portedMap.set(p, net);
+        portedMap.set(norm, net);
+        portedMap.set(local, net);
+        portedMap.set(`+${norm}`, net);
+      }
+    });
+
+    const results = rawRows.map((r: any) => {
+      const phone = r.phoneNumber || r.phone || r.msisdn || '';
+      const norm = DataHouseMapper.normalizePhone(phone);
+      const local = norm.startsWith('233') ? '0' + norm.slice(3) : norm;
+
+      const isPorted =
+        portedMap.has(phone) ||
+        portedMap.has(norm) ||
+        portedMap.has(local) ||
+        r.matchesSelected === false;
+
+      const isBlocked =
+        blockedSet.has(phone) ||
+        blockedSet.has(norm) ||
+        blockedSet.has(local);
+
+      const isKnown =
+        r.isKnown !== undefined
+          ? Boolean(r.isKnown)
+          : r.known !== undefined
+          ? Boolean(r.known)
+          : (!isBlocked && !isPorted && r.matchesSelected !== false);
+
+      const isValid =
+        r.isValid !== undefined
+          ? Boolean(r.isValid)
+          : r.valid !== undefined
+          ? Boolean(r.valid)
+          : !isPorted;
+
+      const status = isPorted
+        ? 'REJECTED'
+        : isBlocked
+        ? 'UNAPPROVED'
+        : (r.status || 'APPROVED');
+
+      const message = isPorted
+        ? `Carrier mismatch: detected as ${r.detectedNetwork || portedMap.get(norm) || 'non-MTN'}`
+        : isBlocked
+        ? 'First-time MTN recipient - pending approval'
+        : (r.message || 'Validated recipient');
+
+      return {
+        phoneNumber: phone || local,
+        phone: local || phone,
+        normalized: local,
+        isKnown,
+        isValid,
+        status,
+        accountName: r.accountName,
+        network: r.detectedNetwork || r.network || payload.network || network,
+        message,
+      };
+    });
+
+    const summary = payload.summary || {
+      requested: payload.count || rawRows.length,
       unique: results.length,
-      valid: results.filter((r) => r.isValid || r.valid).length,
-      invalid: results.filter((r) => r.isValid === false || r.valid === false).length,
-      known: results.filter((r) => r.isKnown || r.known).length,
-      unknown: results.filter((r) => r.isKnown === false || r.known === false).length,
+      valid: payload.matchingCount !== undefined ? payload.matchingCount : results.filter((r: any) => r.isValid).length,
+      invalid: payload.mismatchedCount !== undefined ? payload.mismatchedCount : results.filter((r: any) => !r.isValid).length,
+      known: payload.placeableCount !== undefined ? payload.placeableCount : results.filter((r: any) => r.isKnown).length,
+      unknown: payload.blockedCount !== undefined ? payload.blockedCount : results.filter((r: any) => !r.isKnown && r.isValid).length,
     };
 
     return {
-      network: (resp.network as NetworkProvider) || network,
-      enforced: resp.enforced !== undefined ? resp.enforced : true,
-      sandbox: Boolean(resp.sandbox),
-      recorded: Boolean(resp.recorded),
-      reason: resp.reason,
+      network: (payload.network as NetworkProvider) || network,
+      enforced: payload.enforced !== undefined ? payload.enforced : true,
+      sandbox: Boolean(payload.sandbox),
+      recorded: Boolean(payload.recorded),
+      reason: payload.reason,
       summary,
-      unknown: resp.unknown || results.filter((r) => !r.isKnown && !r.known).map((r) => r.phoneNumber || r.phone || r.msisdn || ''),
-      results: results.map((r) => ({
-        phoneNumber: r.phoneNumber || r.phone || r.msisdn || '',
-        phone: r.phone || r.phoneNumber || r.msisdn || '',
-        normalized: r.normalized || r.phoneNumber || r.phone || '',
-        isKnown: Boolean(r.isKnown || r.known),
-        isValid: Boolean(r.isValid !== undefined ? r.isValid : r.valid !== undefined ? r.valid : true),
-        status: r.status,
-        accountName: r.accountName,
-        network: r.network || resp.network,
-        message: r.message,
-      })),
+      unknown:
+        payload.unknown ||
+        results.filter((r: any) => !r.isKnown).map((r: any) => r.phoneNumber || r.phone || r.normalized || ''),
+      results,
+      blockedCount: payload.blockedCount,
+      placeableCount: payload.placeableCount,
+      blockedFirstTime: payload.blockedFirstTime,
+      flaggedPorted: payload.flaggedPorted,
       rawResponse: resp,
     };
   }

@@ -237,6 +237,10 @@ export interface DataHousePrecheckResult {
   summary: DataHousePrecheckSummary;
   unknown: string[];
   results: DataHousePrecheckItemResult[];
+  blockedCount?: number;
+  placeableCount?: number;
+  blockedFirstTime?: Array<{ phoneNumber: string; sizeGb?: number }>;
+  flaggedPorted?: Array<{ phoneNumber: string; detectedNetwork?: string }>;
   rawResponse?: Record<string, unknown>;
 }
 

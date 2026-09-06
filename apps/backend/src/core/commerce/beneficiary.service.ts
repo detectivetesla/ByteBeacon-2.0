@@ -595,13 +595,13 @@ export class BeneficiaryService {
           const providerRes: any = await Promise.race([providerCall, timeoutPromise]);
           if (providerRes && Array.isArray(providerRes.results)) {
             providerRes.results.forEach((r: any) => {
+              const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
               const isApproved = Boolean(
-                r.isKnown ||
-                (r as any).known ||
-                (r.isValid === true && (r.status === 'APPROVED' || r.status === 'VALID' || r.status === 'approved' || r.status === 'valid'))
+                (r.isKnown === true || (r as any).known === true) &&
+                r.status !== 'UNAPPROVED' &&
+                r.status !== 'REJECTED'
               );
               if (isApproved) {
-                const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
                 if (norm) {
                   knownPhonesSet.add(norm);
                   knownPhonesSet.add(`+233${norm.slice(1)}`);
@@ -610,6 +610,15 @@ export class BeneficiaryService {
                 }
                 if (r.phoneNumber) knownPhonesSet.add(r.phoneNumber);
                 if ((r as any).phone) knownPhonesSet.add((r as any).phone);
+              } else {
+                // Explicitly unapproved or rejected by provider: remove from known set so local DB cache doesn't mask it
+                if (norm) {
+                  knownPhonesSet.delete(norm);
+                  knownPhonesSet.delete(`+233${norm.slice(1)}`);
+                  knownPhonesSet.delete(`233${norm.slice(1)}`);
+                }
+                if (r.phoneNumber) knownPhonesSet.delete(r.phoneNumber);
+                if ((r as any).phone) knownPhonesSet.delete((r as any).phone);
               }
             });
           }

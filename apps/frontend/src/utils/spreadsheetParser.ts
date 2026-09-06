@@ -76,7 +76,7 @@ export function detectGhanaNetwork(phone: string): 'MTN' | 'TELECEL' | 'AIRTELTI
   const norm = normalizeGhanaPhoneNumber(phone);
   if (!norm || norm.length !== 10) return 'UNKNOWN';
   const prefix = norm.slice(0, 3);
-  if (['024', '054', '055', '059', '025'].includes(prefix)) return 'MTN';
+  if (['024', '054', '055', '059', '025', '053'].includes(prefix)) return 'MTN';
   if (['020', '050'].includes(prefix)) return 'TELECEL';
   if (['027', '057', '026', '056'].includes(prefix)) return 'AIRTELTIGO';
   return 'UNKNOWN';

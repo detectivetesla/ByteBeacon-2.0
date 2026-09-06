@@ -269,7 +269,29 @@ export interface DataHousePrecheckResponse {
   summary?: DataHousePrecheckSummary;
   unknown?: string[];
   results?: DataHousePrecheckItem[];
-  data?: DataHousePrecheckItem[];
+  data?: DataHousePrecheckItem[] | {
+    rows?: any[];
+    count?: number;
+    matchingCount?: number;
+    mismatchedCount?: number;
+    blockedCount?: number;
+    blockedFirstTime?: Array<{ phoneNumber: string; sizeGb?: number }>;
+    placeableCount?: number;
+    placeableAmount?: number;
+    flaggedPorted?: Array<{ phoneNumber: string; detectedNetwork?: string }>;
+    groups?: Array<{ sizeGb: number; count: number; amount: number }>;
+    [key: string]: unknown;
+  };
+  rows?: any[];
+  count?: number;
+  matchingCount?: number;
+  mismatchedCount?: number;
+  blockedCount?: number;
+  blockedFirstTime?: Array<{ phoneNumber: string; sizeGb?: number }>;
+  placeableCount?: number;
+  placeableAmount?: number;
+  flaggedPorted?: Array<{ phoneNumber: string; detectedNetwork?: string }>;
+  groups?: Array<{ sizeGb: number; count: number; amount: number }>;
   [key: string]: unknown;
 }
 

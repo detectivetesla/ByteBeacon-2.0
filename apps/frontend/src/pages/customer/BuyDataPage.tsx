@@ -571,7 +571,11 @@ export const BuyDataPage: React.FC = () => {
           const results = res?.results || res?.data?.results;
           if (Array.isArray(results)) {
             results.forEach((item: any) => {
-              const isApproved = Boolean(item.known || item.isKnown);
+              const isApproved = Boolean(
+                (item.known === true || item.isKnown === true) &&
+                item.status !== 'UNAPPROVED' &&
+                item.status !== 'REJECTED'
+              );
               if (isApproved) {
                 const rawP = item.phone || item.phoneNumber || item.normalized;
                 const normP = normalizeGhanaPhoneNumber(rawP);
@@ -600,7 +604,11 @@ export const BuyDataPage: React.FC = () => {
             const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
             if (Array.isArray(pubResults)) {
               pubResults.forEach((item: any) => {
-                const isApproved = Boolean(item.known || (item as any).isKnown);
+                const isApproved = Boolean(
+                  (item.known === true || (item as any).isKnown === true) &&
+                  item.status !== 'UNAPPROVED' &&
+                  item.status !== 'REJECTED'
+                );
                 if (isApproved) {
                   const normP = normalizeGhanaPhoneNumber(item.phone || item.normalized);
                   if (normP) {
@@ -626,6 +634,17 @@ export const BuyDataPage: React.FC = () => {
           ...row,
           status: 'REJECTED' as const,
           statusReason: row.error || 'Invalid Ghanaian phone number format',
+        };
+      }
+
+      // Check carrier mismatch against selected package network
+      if (selectedNetwork && row.network && row.network !== selectedNetwork) {
+        return {
+          ...row,
+          status: 'REJECTED' as const,
+          statusReason: `Carrier mismatch: Recipient is ${row.network}, but ${selectedNetwork} was selected`,
+          isValid: false,
+          isKnown: false,
         };
       }
 
@@ -716,6 +735,17 @@ export const BuyDataPage: React.FC = () => {
             statusReason: row.error || 'Invalid Ghanaian phone number format',
           };
         }
+        // Check carrier mismatch against selected package network
+        if (selectedNetwork && row.network && row.network !== selectedNetwork) {
+          return {
+            ...row,
+            status: 'REJECTED' as const,
+            statusReason: `Carrier mismatch: Recipient is ${row.network}, but ${selectedNetwork} was selected`,
+            isValid: false,
+            isKnown: false,
+          };
+        }
+
         const isMtn =
           row.network === 'MTN' ||
           (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO' && selectedNetwork === NetworkProvider.MTN);
