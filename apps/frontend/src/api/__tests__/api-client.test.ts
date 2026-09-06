@@ -176,4 +176,71 @@ describe('Frontend HttpClient & Interceptors Suite', () => {
       expect(err.details).toEqual([{ field: 'phoneNumber', message: 'Must be 10 digits' }]);
     }
   });
+
+  describe('Vendor Sanitization & Admin Exemption', () => {
+    it('should sanitize vendor names on customer and agent endpoints (non-admin)', async () => {
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            success: true,
+            data: {
+              orderId: 'ord_1',
+              provider: 'DataHouse',
+              gateway: 'GMPL Carrier Bridge',
+            },
+          }),
+      } as any);
+
+      const res = await client.get('/orders/ord_1');
+      expect(res.provider).toBe('ByteBeacon');
+      expect(res.gateway).toBe('ByteBeacon Carrier Bridge');
+    });
+
+    it('should NOT sanitize vendor names on admin endpoints (/admin/*)', async () => {
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            success: true,
+            data: {
+              authoritativeProvider: 'DataHouse',
+              providers: [
+                { name: 'DataHouse', isAuthoritative: true },
+                { name: 'GMPL', isAuthoritative: false },
+              ],
+              routingMatrix: [
+                { networkCode: 'MTN', primaryProvider: 'DataHouse', fallbackProvider: 'GMPL' },
+              ],
+            },
+          }),
+      } as any);
+
+      const res = await client.get('/admin/telecom/overview');
+      expect(res.authoritativeProvider).toBe('DataHouse');
+      expect(res.providers[0].name).toBe('DataHouse');
+      expect(res.providers[1].name).toBe('GMPL');
+      expect(res.routingMatrix[0].primaryProvider).toBe('DataHouse');
+      expect(res.routingMatrix[0].fallbackProvider).toBe('GMPL');
+    });
+
+    it('should preserve vendor names when skipSanitize is explicitly enabled in options', async () => {
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            success: true,
+            data: {
+              activeEngine: 'DataHouse',
+            },
+          }),
+      } as any);
+
+      const res = await client.get('/telemetry/direct', { skipSanitize: true });
+      expect(res.activeEngine).toBe('DataHouse');
+    });
+  });
 });

@@ -183,6 +183,16 @@ export class HttpClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+    const isAdminEndpoint =
+      endpoint.startsWith('/admin') ||
+      endpoint.startsWith('/api/v1/admin') ||
+      endpoint.includes('/admin/telecom') ||
+      endpoint.includes('/admin/');
+    const isAdminPath =
+      typeof window !== 'undefined' &&
+      (window.location.pathname.startsWith('/admin') || window.location.pathname.includes('/admin/'));
+    const shouldSkipSanitize = Boolean(options.skipSanitize || isAdminEndpoint || isAdminPath);
+
     try {
       const response = await fetch(url, {
         ...fetchOptions,
@@ -222,14 +232,17 @@ export class HttpClient {
         let responseBody: any;
         try {
           const text = await response.text();
-          responseBody = text ? sanitizeObject(JSON.parse(text)) : {};
+          const parsed = text ? JSON.parse(text) : {};
+          responseBody = shouldSkipSanitize ? parsed : sanitizeObject(parsed);
         } catch {
           responseBody = {};
         }
         const rawErrorMessage = responseBody?.error?.message || responseBody?.message || `HTTP error ${response.status}`;
-        const errorMessage = sanitizeText(rawErrorMessage);
+        const errorMessage = shouldSkipSanitize ? rawErrorMessage : sanitizeText(rawErrorMessage);
         const errorCode = responseBody?.error?.code || responseBody?.code || 'API_ERROR';
-        const details = sanitizeObject(responseBody?.error?.details || responseBody?.details);
+        const details = shouldSkipSanitize
+          ? (responseBody?.error?.details || responseBody?.details)
+          : sanitizeObject(responseBody?.error?.details || responseBody?.details);
 
         if (
           typeof window !== 'undefined' &&
@@ -250,23 +263,25 @@ export class HttpClient {
       }
       if (options.responseType === 'text') {
         const textData = await response.text();
-        return sanitizeText(textData) as unknown as T;
+        return (shouldSkipSanitize ? textData : sanitizeText(textData)) as unknown as T;
       }
 
       // Parse JSON response
       let responseBody: any;
       const text = await response.text();
       try {
-        responseBody = text ? sanitizeObject(JSON.parse(text)) : {};
+        const parsed = text ? JSON.parse(text) : {};
+        responseBody = shouldSkipSanitize ? parsed : sanitizeObject(parsed);
       } catch {
-        responseBody = { rawText: sanitizeText(text) };
+        responseBody = { rawText: shouldSkipSanitize ? text : sanitizeText(text) };
       }
 
       // If backend returned standardized ApiResponse envelope, extract data
       if (responseBody && typeof responseBody === 'object' && 'success' in responseBody) {
         if (!responseBody.success) {
+          const rawMsg = responseBody.error?.message || 'Request was not successful';
           throw new ApiError(
-            sanitizeText(responseBody.error?.message || 'Request was not successful'),
+            shouldSkipSanitize ? rawMsg : sanitizeText(rawMsg),
             response.status,
             responseBody.error?.code || 'API_ERROR',
             responseBody.error?.details,
@@ -285,7 +300,8 @@ export class HttpClient {
       if (err.name === 'AbortError') {
         throw new ApiError('Request timed out. Please try again.', 408, 'REQUEST_TIMEOUT', undefined, requestId);
       }
-      const cleanMessage = sanitizeText(err.message || 'Network error occurred');
+      const rawErrorMsg = err.message || 'Network error occurred';
+      const cleanMessage = shouldSkipSanitize ? rawErrorMsg : sanitizeText(rawErrorMsg);
       throw new ApiError(cleanMessage, 0, 'NETWORK_ERROR', undefined, requestId);
     }
   }

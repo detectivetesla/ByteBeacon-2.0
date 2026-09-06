@@ -80,6 +80,13 @@ export function initConsoleScrubber(): void {
   const wrapMethod = (original: (...args: any[]) => void) => {
     return (...args: any[]) => {
       try {
+        if (
+          typeof window !== 'undefined' &&
+          (window.location.pathname.startsWith('/admin') || window.location.pathname.includes('/admin/'))
+        ) {
+          original(...args);
+          return;
+        }
         const cleanedArgs = args.map((arg) => sanitizeObject(arg));
         original(...cleanedArgs);
       } catch {

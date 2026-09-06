@@ -214,7 +214,7 @@ export class BulkOrderService {
                COALESCE(
                  (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1),
                  (SELECT name FROM telecom_providers ORDER BY created_at ASC LIMIT 1),
-                 'Portal-02'
+                 'DataHouse'
                ),
                $2,
                'UNKNOWN'
@@ -761,11 +761,11 @@ export class BulkOrderService {
           `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
            VALUES (
              $1,
-             COALESCE(
-               (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1),
-               (SELECT name FROM telecom_providers ORDER BY created_at ASC LIMIT 1),
-               'Portal-02'
-             ),
+              COALESCE(
+                (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1),
+                (SELECT name FROM telecom_providers ORDER BY created_at ASC LIMIT 1),
+                'DataHouse'
+              ),
              $2,
              'UNKNOWN'
            )`,

@@ -18,6 +18,7 @@ export interface RequestOptions extends RequestInit {
   timeoutMs?: number;
   params?: Record<string, any>;
   responseType?: 'json' | 'blob' | 'text';
+  skipSanitize?: boolean;
 }
 
 export class ApiError extends Error {

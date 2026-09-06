@@ -258,7 +258,7 @@ export async function adminAnalyticsRoutes(
 
       // Determine authoritative provider name dynamically from database
       const activeDbProvider = telecomProvidersRes.rows.find((p: any) => p.isAuthoritative) || telecomProvidersRes.rows[0];
-      const authoritativeProviderName = activeDbProvider?.name || 'Portal-02';
+      const authoritativeProviderName = activeDbProvider?.name || 'DataHouse';
 
       // Providers list
       const providersList = telecomProvidersRes.rows.length > 0

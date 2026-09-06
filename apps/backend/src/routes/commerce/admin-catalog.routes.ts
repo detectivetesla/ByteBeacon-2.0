@@ -1382,7 +1382,7 @@ export async function adminCatalogRoutes(
         const syncProviderName =
           (telecomProvider as any).providerName ||
           (providerBundles.length > 0 && (providerBundles[0] as any).providerName) ||
-          'Portal-02';
+          'DataHouse';
 
         const batchRes = await client.query(
           `INSERT INTO provider_catalog_sync_batches (
