@@ -46,17 +46,17 @@ describe('AgentSandboxPage — Sandbox Playground Spec & Interactive Runner', ()
 
     // Lead paragraph copy
     expect(
-      screen.getByText(/pick a recipe, paste a sandbox key, hit run\. no wallet movement, no supplier calls, no paystack charges\./i)
+      screen.getByText(/pick a recipe, paste a sandbox key, hit run\. no wallet movement, no live carrier charges, no paystack charges\./i)
     ).toBeInTheDocument();
 
-    const mintLink = screen.getByRole('link', { name: /mint one →/i });
-    expect(mintLink).toBeInTheDocument();
-    expect(mintLink).toHaveAttribute('href', 'https://www.getmorepaylessdatahouse.net/agent/api');
+    const generateLink = screen.getByRole('link', { name: /generate one →/i });
+    expect(generateLink).toBeInTheDocument();
+    expect(generateLink).toHaveAttribute('href', '/agent/api');
 
     // Callout banner with exact target url and deterministic 0000 note
-    expect(screen.getByText(/https:\/\/api\.getmorepaylessdatahouse\.net\/api\/v1/i)).toBeInTheDocument();
+    expect(screen.getByText(/https:\/\/api\.bytebeacon\.com\/api\/v1/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/sandbox keys never reach the supplier; phone numbers ending in/i)
+      screen.getByText(/sandbox keys never reach live carrier rails; phone numbers ending in/i)
     ).toBeInTheDocument();
     expect(screen.getByText(/deterministically fail to fulfill for testing your error paths/i)).toBeInTheDocument();
   });
@@ -184,7 +184,7 @@ describe('AgentSandboxPage — Sandbox Playground Spec & Interactive Runner', ()
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
-        'https://api.getmorepaylessdatahouse.net/api/v1/agent/me',
+        'https://api.bytebeacon.com/api/v1/agent/me',
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({

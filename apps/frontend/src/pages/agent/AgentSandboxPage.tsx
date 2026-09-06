@@ -158,7 +158,7 @@ export const SANDBOX_RECIPES: ApiRecipe[] = [
   },
 ];
 
-const DEFAULT_SANDBOX_BASE_URL = 'https://api.getmorepaylessdatahouse.net/api/v1';
+const DEFAULT_SANDBOX_BASE_URL = 'https://api.bytebeacon.com/api/v1';
 
 export const AgentSandboxPage: React.FC = () => {
   const { toastSuccess, toastError, toastInfo } = useToast();
@@ -633,12 +633,10 @@ export const AgentSandboxPage: React.FC = () => {
             lineHeight: 1.6,
           }}
         >
-          Pick a recipe, paste a sandbox key, hit run. No wallet movement, no supplier calls, no Paystack charges.
+          Pick a recipe, paste a sandbox key, hit run. No wallet movement, no live carrier charges, no Paystack charges.
           Need a sandbox key?{' '}
           <a
-            href="https://www.getmorepaylessdatahouse.net/agent/api"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/agent/api"
             style={{
               color: '#059669',
               fontWeight: 700,
@@ -650,7 +648,7 @@ export const AgentSandboxPage: React.FC = () => {
               transition: 'color var(--transition-fast)',
             }}
           >
-            Mint one →
+            Generate one →
           </a>
         </p>
       </div>
@@ -691,9 +689,9 @@ export const AgentSandboxPage: React.FC = () => {
                 fontWeight: 600,
               }}
             >
-              https://api.getmorepaylessdatahouse.net/api/v1
+              https://api.bytebeacon.com/api/v1
             </code>
-            . Sandbox keys never reach the supplier; phone numbers ending in{' '}
+            . Sandbox keys never reach live carrier rails; phone numbers ending in{' '}
             <strong style={{ color: '#0284C7' }}>0000</strong> deterministically fail to fulfill for testing your error
             paths.
           </p>
@@ -1150,9 +1148,7 @@ export const AgentSandboxPage: React.FC = () => {
                     Stored safely in local session for testing. Never charges live GHS floats.
                   </span>
                   <a
-                    href="https://www.getmorepaylessdatahouse.net/agent/api"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href="/agent/api"
                     style={{
                       fontSize: '11px',
                       color: '#059669',
@@ -1162,7 +1158,7 @@ export const AgentSandboxPage: React.FC = () => {
                       gap: '3px',
                     }}
                   >
-                    Mint key <ExternalLink size={10} />
+                    Generate key <ExternalLink size={10} />
                   </a>
                 </div>
               </div>
