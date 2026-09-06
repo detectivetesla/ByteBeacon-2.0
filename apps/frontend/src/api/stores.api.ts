@@ -107,8 +107,34 @@ export const storesApi = {
   getStore: async (identifier?: string): Promise<StoreProfileDto | null> => {
     try {
       const res = await apiClient.get<any>(`/stores/${identifier || 'my-store'}`);
-      if (res && res.store) return res.store;
-      if (res && res.data && res.data.store) return res.data.store;
+      if (res && res.store) {
+        return {
+          ...res.store,
+          activationFeePesewas: res.activationFeePesewas ?? res.store.activationFeePesewas,
+        };
+      }
+      if (res && res.data && res.data.store) {
+        return {
+          ...res.data.store,
+          activationFeePesewas: res.data.activationFeePesewas ?? res.data.store.activationFeePesewas,
+        };
+      }
+      if (res && res.data && !res.data.store && res.data.activationFeePesewas !== undefined) {
+        return {
+          id: '',
+          userId: '',
+          storeName: '',
+          slug: '',
+          primaryColor: '#F97316',
+          accentColor: '#3B82F6',
+          paymentStatus: res.data.paymentStatus || 'NOT_STARTED',
+          approvalStatus: res.data.approvalStatus || 'NOT_SUBMITTED',
+          storeStatus: res.data.storeStatus || 'NOT_STARTED',
+          activationFeePesewas: res.data.activationFeePesewas,
+          createdAt: '',
+          updatedAt: '',
+        } as StoreProfileDto;
+      }
       if (res && res.storeName) return res;
       return null;
     } catch {

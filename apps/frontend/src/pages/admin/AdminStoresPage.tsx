@@ -48,7 +48,7 @@ export const AdminStoresPage: React.FC = () => {
 
   // Global Activation Fee (Paywall Price) State
   const [activationFeeGhs, setActivationFeeGhs] = useState<number | null>(null);
-  const [paywallFeeInput, setPaywallFeeInput] = useState<string>('500.00');
+  const [paywallFeeInput, setPaywallFeeInput] = useState<string>('');
   const [isUpdatingActivationFee, setIsUpdatingActivationFee] = useState<boolean>(false);
 
   // Filters

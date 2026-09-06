@@ -144,7 +144,45 @@ describe('Agent Storefront Setup & Activation Paywall Page', () => {
     expect(screen.getAllByText(/350.00/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('button', { name: /Pay GH₵ 350.00 via Paystack & Activate Store/i })).toBeTruthy();
     expect(screen.queryByText(/Verifying Paystack Payment.../i)).toBeNull();
+    expect(screen.queryByText(/500\.00/i)).toBeNull();
+  });
 
+  it('never displays paywall or GHC 500 fee when store is already paid and approved', async () => {
+    (storesApi.getStore as any).mockResolvedValue({
+      id: 'str_approved_99',
+      storeName: 'Kwame Live Store',
+      slug: 'kwame-live-store',
+      contactPhone: '0241234567',
+      contactEmail: 'kwame@bytebeacon.com',
+      paymentStatus: 'PAID',
+      approvalStatus: 'APPROVED',
+      storeStatus: 'ACTIVE',
+      activationFeePesewas: 35000,
+    });
+
+    render(
+      <MemoryRouter>
+        <ToastProvider>
+          <AgentStorePage />
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(storesApi.getStore).toHaveBeenCalled();
+    });
+
+    // Should render active store view directly
+    expect(screen.getByText(/Live & Active/i)).toBeTruthy();
+    expect(screen.getByText(/Kwame Live Store/i)).toBeTruthy();
+    expect(screen.getByText(/Open Agent Store Console/i)).toBeTruthy();
+
+    // Paywall elements and 500 fee MUST NEVER exist in DOM
+    expect(screen.queryByText(/Unlock Your Standalone Agent Store/i)).toBeNull();
+    expect(screen.queryByText(/HARD PAYWALL/i)).toBeNull();
+    expect(screen.queryByText(/500\.00/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Pay GH₵/i })).toBeNull();
   });
 });
+
 

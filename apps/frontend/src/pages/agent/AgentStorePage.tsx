@@ -36,6 +36,7 @@ export const AgentStorePage: React.FC = () => {
   const { user } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
 
+  const [isLoadingStore, setIsLoadingStore] = useState<boolean>(true);
   const [setupState, setSetupState] = useState<StoreSetupState>('LOCKED_PAYWALL');
   const [storeRaw, setStoreRaw] = useState<StoreDto | null>(null);
 
@@ -52,32 +53,44 @@ export const AgentStorePage: React.FC = () => {
   const publicStoreUrl = STOREFRONT_CONFIG.getRelativeStorePath(slug);
   const canonicalStoreUrl = STOREFRONT_CONFIG.getStoreUrl(slug);
 
+  const userPhone = user?.phone;
+  const userEmail = user?.email;
+
   const fetchStore = useCallback(async () => {
     try {
       const store = await storesApi.getStore();
       if (store) {
         setStoreRaw(store);
-        setStoreName(store.storeName || '');
-        setSlug(store.slug || '');
-        setPhone(store.contactPhone || user?.phone || '');
-        setEmail(store.contactEmail || user?.email || '');
+        if (store.storeName) setStoreName(store.storeName);
+        if (store.slug) setSlug(store.slug);
+        if (store.contactPhone) setPhone(store.contactPhone);
+        else if (userPhone) setPhone(userPhone);
+        if (store.contactEmail) setEmail(store.contactEmail);
+        else if (userEmail) setEmail(userEmail);
+
         if (store.activationFeePesewas) {
           setActivationFeeGhs(Number((store.activationFeePesewas / 100).toFixed(2)));
+        } else if ((store as any).activationFeeGhs) {
+          setActivationFeeGhs(Number((store as any).activationFeeGhs));
         }
 
-        if (store.storeStatus === 'ACTIVE' && store.approvalStatus === 'APPROVED') {
+        if (store.id && store.storeStatus === 'ACTIVE' && store.approvalStatus === 'APPROVED') {
           setSetupState('ACTIVE');
-        } else if (store.approvalStatus === 'AWAITING_APPROVAL') {
+        } else if (store.id && store.approvalStatus === 'AWAITING_APPROVAL') {
           setSetupState('AWAITING_APPROVAL');
         } else {
           // Unlocked/editable paywall state (even if previously initialized)
           setSetupState('LOCKED_PAYWALL');
         }
+      } else {
+        setSetupState('LOCKED_PAYWALL');
       }
     } catch {
       setSetupState('LOCKED_PAYWALL');
+    } finally {
+      setIsLoadingStore(false);
     }
-  }, [user]);
+  }, [userPhone, userEmail]);
 
   useEffect(() => {
     fetchStore();
@@ -153,6 +166,42 @@ export const AgentStorePage: React.FC = () => {
     }
   };
 
+
+  if (isLoadingStore) {
+    return (
+      <div style={{ maxWidth: '1050px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#F97316' }}>
+                AGENT PLATFORM
+              </span>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>•</span>
+              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                STOREFRONT SETUP
+              </span>
+            </div>
+            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
+              Agent Storefront Platform
+            </h1>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+              Verifying your storefront activation status...
+            </p>
+          </div>
+        </div>
+
+        <Card style={{ padding: 'var(--space-12)', textAlign: 'center', borderRadius: 'var(--radius-2xl)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', border: '3px solid var(--color-brand)', borderTopColor: 'transparent', animation: 'spin 1s linear infinite', margin: '0 auto var(--space-4) auto' }} />
+          <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+            Verifying Store Entitlement...
+          </h2>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.35rem' }}>
+            Checking your storefront approval and configuration status.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: '1050px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
