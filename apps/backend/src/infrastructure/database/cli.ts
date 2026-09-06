@@ -32,6 +32,14 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const isMain = process.argv[1] && (
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url)) ||
+  import.meta.url === `file://${process.argv[1]}`
+);
+
+if (isMain) {
   main();
 }

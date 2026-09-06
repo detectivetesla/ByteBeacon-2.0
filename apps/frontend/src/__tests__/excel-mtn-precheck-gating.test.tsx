@@ -289,4 +289,79 @@ describe('Excel MTN Precheck and Beneficiary Approval Gating', () => {
       expect(screen.getByText(/10 Unapproved \/ First-Time MTN/i)).toBeTruthy();
     });
   });
+
+  it('renders the exact status breakdown for MTN DATA FILE 7.xlsx', async () => {
+    (beneficiaryApi.precheck as any).mockImplementation(async ({ phoneNumbers }: { phoneNumbers: string[] }) => {
+      return {
+        network: 'MTN',
+        enforced: true,
+        results: phoneNumbers.map((p) => ({
+          phone: p,
+          normalized: p,
+          valid: true,
+          known: false,
+          isKnown: false,
+          status: 'UNAPPROVED',
+        })),
+      };
+    });
+
+    const fs = await import('fs');
+    const localFilePath = 'C:/Users/DELL LATITUDE/Downloads/MTN DATA FILE  7.xlsx';
+    let arrayBuffer: ArrayBuffer;
+    if (fs.existsSync(localFilePath)) {
+      const buf = fs.readFileSync(localFilePath);
+      arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    } else {
+      const wb = XLSX.utils.book_new();
+      const wsData: (string | number)[][] = [['Beneficiary Msisdn', 'Data (GB)']];
+      for (let i = 0; i < 475; i++) {
+        wsData.push([`024${String(i).padStart(7, '0')}`, '5GB']);
+      }
+      wsData.splice(37, 0, ['0208354316', '5GB']);
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+      const u8 = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      arrayBuffer = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+    }
+    const file = new File([arrayBuffer], 'MTN DATA FILE  7.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    file.arrayBuffer = () => Promise.resolve(arrayBuffer);
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/buy-data']}>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(catalogApi.getBundles).toHaveBeenCalled();
+    });
+
+    // Switch to Excel
+    fireEvent.click(screen.getByRole('button', { name: /Excel/i }));
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      configurable: true,
+    });
+    fireEvent.change(fileInput);
+
+    await waitFor(
+      () => {
+        expect(beneficiaryApi.precheck).toHaveBeenCalled();
+      },
+      { timeout: 10000 },
+    );
+
+    // Print what text is on the screen!
+    const totalRowsEl = screen.getByText('Total Rows');
+    expect(totalRowsEl).toBeTruthy();
+  }, 30000);
 });

@@ -784,6 +784,7 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       // Fallback
     }
 
+    const isMtn = input.network === NetworkProvider.MTN;
     return {
       network: input.network,
       enforced: false,
@@ -791,15 +792,15 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       recorded: false,
       summary: {
         total: input.phoneNumbers.length,
-        known: input.phoneNumbers.length,
-        unknown: 0,
+        known: isMtn ? 0 : input.phoneNumbers.length,
+        unknown: isMtn ? input.phoneNumbers.length : 0,
         valid: input.phoneNumbers.length,
         invalid: 0,
       },
-      unknown: [],
+      unknown: isMtn ? [...input.phoneNumbers] : [],
       results: input.phoneNumbers.map((phone) => ({
         phoneNumber: phone,
-        isKnown: true,
+        isKnown: !isMtn,
         isValid: true,
       })),
     };

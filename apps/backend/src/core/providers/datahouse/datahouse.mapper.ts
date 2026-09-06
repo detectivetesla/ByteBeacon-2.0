@@ -376,10 +376,25 @@ export class DataHouseMapper {
           ? Boolean(r.known)
           : undefined;
 
-      const isKnown =
-        isExplicitlyKnown !== undefined
-          ? isExplicitlyKnown
-          : (!isExplicitlyBlocked && !isPorted && r.matchesSelected !== false);
+      const hasDataHouseGatingData =
+        Array.isArray(payload.blockedFirstTime) ||
+        payload.blockedCount !== undefined ||
+        payload.placeableCount !== undefined;
+
+      let isKnown = false;
+      if (isExplicitlyKnown !== undefined) {
+        isKnown = isExplicitlyKnown;
+      } else if (r.status === 'APPROVED' || r.status === 'VALID' || r.status === 'approved' || r.status === 'valid') {
+        isKnown = true;
+      } else if (network !== NetworkProvider.MTN) {
+        isKnown = !isPorted;
+      } else if (hasDataHouseGatingData) {
+        // DataHouse explicitly provided gating data: unblocked matching numbers are placeable
+        isKnown = !isExplicitlyBlocked && !isPorted && r.matchesSelected !== false;
+      } else {
+        // No explicit approval or gating data for MTN: strictly default to unapproved
+        isKnown = false;
+      }
 
       const isValid =
         r.isValid !== undefined

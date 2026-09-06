@@ -43,6 +43,7 @@ import {
   normalizeGhanaPhoneNumber,
   ParsedSpreadsheetRow,
   RecipientRowStatus,
+  DEFAULT_FALLBACK_BUNDLES,
 } from '../../utils/spreadsheetParser.js';
 
 type OrderMode = 'single' | 'bulk' | 'excel';
@@ -209,7 +210,11 @@ export const BuyDataPage: React.FC = () => {
 
   // Derive available bundles for currently selected network instantly (0ms)
   const availableBundles = useMemo(() => {
-    return allBundlesByNetwork[selectedNetwork] || [];
+    const bundles = allBundlesByNetwork[selectedNetwork];
+    if (bundles && bundles.length > 0) {
+      return bundles;
+    }
+    return DEFAULT_FALLBACK_BUNDLES.map((b) => ({ ...b, network: selectedNetwork }));
   }, [allBundlesByNetwork, selectedNetwork]);
 
   // Synchronize default selected bundle whenever availableBundles or selectedNetwork changes
@@ -527,7 +532,7 @@ export const BuyDataPage: React.FC = () => {
       return selectedNetwork === NetworkProvider.MTN;
     });
 
-    if (mtnRows.length === 0) {
+    if (selectedNetwork !== NetworkProvider.MTN && mtnRows.length === 0) {
       return rows.map((r) => {
         if (!r.isValid) {
           return {

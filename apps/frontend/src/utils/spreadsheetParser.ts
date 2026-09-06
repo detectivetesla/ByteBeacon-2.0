@@ -82,6 +82,16 @@ export function detectGhanaNetwork(phone: string): 'MTN' | 'TELECEL' | 'AIRTELTI
   return 'UNKNOWN';
 }
 
+export const DEFAULT_FALLBACK_BUNDLES: BundleItem[] = [
+  { id: 'fallback-mtn-1gb', sku: 'MTN-1GB', network: 'MTN' as any, dataAmountMb: 1024, dataDisplay: '1 GB', pricePesewas: 600, priceDisplay: 'GH₵ 6.00', validityDays: 30, validityDisplay: '30 Days' },
+  { id: 'fallback-mtn-2gb', sku: 'MTN-2GB', network: 'MTN' as any, dataAmountMb: 2048, dataDisplay: '2 GB', pricePesewas: 1200, priceDisplay: 'GH₵ 12.00', validityDays: 30, validityDisplay: '30 Days' },
+  { id: 'fallback-mtn-3gb', sku: 'MTN-3GB', network: 'MTN' as any, dataAmountMb: 3072, dataDisplay: '3 GB', pricePesewas: 1700, priceDisplay: 'GH₵ 17.00', validityDays: 30, validityDisplay: '30 Days' },
+  { id: 'fallback-mtn-5gb', sku: 'MTN-5GB', network: 'MTN' as any, dataAmountMb: 5120, dataDisplay: '5 GB', pricePesewas: 2500, priceDisplay: 'GH₵ 25.00', validityDays: 30, validityDisplay: '30 Days', popular: true },
+  { id: 'fallback-mtn-10gb', sku: 'MTN-10GB', network: 'MTN' as any, dataAmountMb: 10240, dataDisplay: '10 GB', pricePesewas: 4800, priceDisplay: 'GH₵ 48.00', validityDays: 30, validityDisplay: '30 Days' },
+  { id: 'fallback-mtn-20gb', sku: 'MTN-20GB', network: 'MTN' as any, dataAmountMb: 20480, dataDisplay: '20 GB', pricePesewas: 9500, priceDisplay: 'GH₵ 95.00', validityDays: 30, validityDisplay: '30 Days' },
+  { id: 'fallback-mtn-50gb', sku: 'MTN-50GB', network: 'MTN' as any, dataAmountMb: 51200, dataDisplay: '50 GB', pricePesewas: 23000, priceDisplay: 'GH₵ 230.00', validityDays: 30, validityDisplay: '30 Days' },
+];
+
 /**
  * Match a raw volume string/number against available catalog bundles.
  */
@@ -89,45 +99,64 @@ export function matchBundleVolume(
   rawVol: string | number | undefined | null,
   availableBundles: BundleItem[],
 ): BundleItem | undefined {
-  if (!availableBundles || availableBundles.length === 0) return undefined;
-  if (rawVol === undefined || rawVol === null) return availableBundles[0];
+  const effectiveBundles =
+    availableBundles && availableBundles.length > 0
+      ? availableBundles
+      : DEFAULT_FALLBACK_BUNDLES;
+
+  if (rawVol === undefined || rawVol === null) return effectiveBundles[0];
 
   const volStr = String(rawVol).trim();
-  if (!volStr) return availableBundles[0];
+  if (!volStr) return effectiveBundles[0];
 
   const lower = volStr.toLowerCase().replace(/\s+/g, '');
 
   // 1. Direct match by display string (e.g. "5gb", "5 gb", "10gb")
-  const exactDisplay = availableBundles.find(
+  const exactDisplay = effectiveBundles.find(
     (b) => b.dataDisplay.toLowerCase().replace(/\s+/g, '') === lower,
   );
   if (exactDisplay) return exactDisplay;
 
   // 2. Direct match by SKU or ID
-  const exactSkuOrId = availableBundles.find(
+  const exactSkuOrId = effectiveBundles.find(
     (b) => b.sku.toLowerCase() === lower || b.id.toLowerCase() === lower,
   );
   if (exactSkuOrId) return exactSkuOrId;
 
   // 3. Parse numeric volume
   let numVal = parseFloat(lower.replace(/gb$/, '').replace(/mb$/, ''));
-  if (!isNaN(numVal)) {
+  if (!isNaN(numVal) && numVal > 0) {
     // If unit explicitly says 'mb' or value >= 100 (e.g. 1024, 2048, 5120), convert MB to GB
     if (lower.includes('mb') || numVal >= 100) {
       numVal = numVal / 1024;
     }
 
     // Find bundle with dataAmountMb / 1024 matching numVal (within small tolerance)
-    const matchedGb = availableBundles.find((b) => {
+    const matchedGb = effectiveBundles.find((b) => {
       const bGb = b.dataAmountMb / 1024;
       return Math.abs(bGb - numVal) < 0.05;
     });
 
     if (matchedGb) return matchedGb;
+
+    // Custom linear per-GB bundle fallback
+    const baseMb = Math.round(numVal * 1024);
+    const estPrice = Math.round(numVal * 500); // Baseline wholesale 5 GHS per GB
+    return {
+      id: `custom-bundle-${numVal}gb`,
+      sku: `CUSTOM-${numVal}GB`,
+      network: effectiveBundles[0]?.network || ('MTN' as any),
+      dataAmountMb: baseMb,
+      dataDisplay: `${numVal} GB`,
+      pricePesewas: estPrice,
+      priceDisplay: `GH₵ ${(estPrice / 100).toFixed(2)}`,
+      validityDays: 30,
+      validityDisplay: '30 Days',
+    };
   }
 
   // Fallback to default/first bundle
-  return availableBundles[0];
+  return effectiveBundles[0];
 }
 
 /**
@@ -177,7 +206,8 @@ export async function parseSpreadsheetFile(
 
   let workbook: XLSX.WorkBook;
   try {
-    workbook = XLSX.read(arrayBuffer, {
+    const u8 = new Uint8Array(arrayBuffer);
+    workbook = XLSX.read(u8, {
       type: 'array',
       raw: false, // Ensures values are parsed cleanly
     });
