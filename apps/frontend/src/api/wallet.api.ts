@@ -207,6 +207,13 @@ export const notificationsApi = {
     return apiClient.get('/notifications', { params });
   },
 
+  getNotifications: async (params: { page?: number; limit?: number; unreadOnly?: boolean } = {}): Promise<{
+    items: NotificationItemDto[];
+    meta: { page: number; limit: number; total: number; totalPages: number };
+  }> => {
+    return apiClient.get('/notifications', { params });
+  },
+
   getCounts: async (): Promise<{ total: number; unread: number }> => {
     return apiClient.get('/notifications/counts');
   },

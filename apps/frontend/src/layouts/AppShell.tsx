@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.js';
 import { usePermissions } from '../auth/hooks/usePermissions.js';
@@ -167,7 +167,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await notificationsApi.getNotifications({ limit: 20 });
+      const res = await notificationsApi.listNotifications({ limit: 20 });
       if (res?.items) {
         const mapped: NotificationItem[] = res.items.map((n: any) => {
           let type: 'order' | 'payment' | 'system' = 'system';

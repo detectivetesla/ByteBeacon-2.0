@@ -107,7 +107,7 @@ export const NotificationInbox: React.FC<NotificationInboxProps> = ({
     try {
       await adminApi.clearUserNotifications();
       setNotifications([]);
-      setCounts({ total: 0, unread: 0, critical: 0 });
+      setCounts({ total: 0, unread: 0 });
       toastSuccess('Notifications Cleared', 'All notifications have been cleared.');
     } catch (err: any) {
       toastError('Clear Failed', err.message);

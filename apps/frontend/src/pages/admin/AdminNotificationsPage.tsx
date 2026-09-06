@@ -208,7 +208,7 @@ export const AdminNotificationsPage: React.FC = () => {
       await adminApi.markAllNotificationsRead();
       setAdminNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       if (adminNotifCounts) {
-        setAdminNotifCounts({ ...adminNotifCounts, unreadCount: 0 });
+        setAdminNotifCounts({ ...adminNotifCounts, unread: 0 });
       }
       toastSuccess('All Read', 'Marked all notifications as read.');
     } catch (err: any) {
@@ -223,7 +223,7 @@ export const AdminNotificationsPage: React.FC = () => {
       await adminApi.clearUserNotifications();
       setAdminNotifications([]);
       if (adminNotifCounts) {
-        setAdminNotifCounts({ totalCount: 0, unreadCount: 0, criticalCount: 0 });
+        setAdminNotifCounts({ total: 0, unread: 0 });
       }
       toastSuccess('Notifications Cleared', 'All notifications cleared.');
     } catch (err: any) {
@@ -239,7 +239,7 @@ export const AdminNotificationsPage: React.FC = () => {
       await adminApi.markNotificationRead(id);
       setAdminNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
       if (adminNotifCounts) {
-        setAdminNotifCounts({ ...adminNotifCounts, unreadCount: Math.max(0, adminNotifCounts.unreadCount - 1) });
+        setAdminNotifCounts({ ...adminNotifCounts, unread: Math.max(0, adminNotifCounts.unread - 1) });
       }
     } catch (err: any) {
       toastError('Action Failed', err.message);
@@ -556,9 +556,9 @@ export const AdminNotificationsPage: React.FC = () => {
           }`}
         >
           <Bell size={16} /> In-App Notifications
-          {adminNotifCounts?.unreadCount ? (
+          {adminNotifCounts?.unread ? (
             <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-indigo-500/20 text-indigo-400 rounded-full font-semibold">
-              {adminNotifCounts.unreadCount}
+              {adminNotifCounts.unread}
             </span>
           ) : null}
         </button>
@@ -730,7 +730,7 @@ export const AdminNotificationsPage: React.FC = () => {
               >
                 All
                 <span className="px-1.5 py-0.2 rounded-full text-xs bg-black/20">
-                  {adminNotifCounts?.totalCount ?? adminNotifications.length}
+                  {adminNotifCounts?.total ?? adminNotifications.length}
                 </span>
               </button>
               <button
@@ -743,9 +743,9 @@ export const AdminNotificationsPage: React.FC = () => {
                 }`}
               >
                 Unread
-                {(adminNotifCounts?.unreadCount ?? adminNotifications.filter((n) => !n.isRead).length) > 0 && (
+                {(adminNotifCounts?.unread ?? adminNotifications.filter((n) => !n.isRead).length) > 0 && (
                   <span className="px-1.5 py-0.2 rounded-full text-xs bg-red-500/30 text-red-300 font-bold">
-                    {adminNotifCounts?.unreadCount ?? adminNotifications.filter((n) => !n.isRead).length}
+                    {adminNotifCounts?.unread ?? adminNotifications.filter((n) => !n.isRead).length}
                   </span>
                 )}
               </button>

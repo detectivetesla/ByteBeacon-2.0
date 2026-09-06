@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Badge } from '../../components/ui/Badge/Badge.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
 import {

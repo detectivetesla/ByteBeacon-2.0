@@ -28,7 +28,10 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({
     return <Navigate to="/signin" replace />;
   }
 
-  if (!allowedRoles.includes(user.role)) {
+  const userRole = (user.role || '').toLowerCase().trim();
+  const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase().trim());
+
+  if (!normalizedAllowed.includes(userRole)) {
     return <Navigate to={fallbackPath} replace />;
   }
 

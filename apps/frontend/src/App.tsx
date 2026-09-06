@@ -5,6 +5,7 @@ import { ToastProvider } from './context/ToastContext.js';
 import { AuthProvider } from './context/AuthContext.js';
 import { PlatformStatusProvider } from './context/PlatformStatusContext.js';
 import { PendingApprovalsProvider } from './context/PendingApprovalsContext.js';
+import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { routes } from './routes/index.js';
 
 const AppRoutes: React.FC = () => {
@@ -19,7 +20,9 @@ export const App: React.FC = () => {
           <PlatformStatusProvider>
             <PendingApprovalsProvider>
               <BrowserRouter>
-                <AppRoutes />
+                <ErrorBoundary>
+                  <AppRoutes />
+                </ErrorBoundary>
               </BrowserRouter>
             </PendingApprovalsProvider>
           </PlatformStatusProvider>

@@ -22,6 +22,10 @@ export const customerRoutes: RouteObject[] = [
     ),
     children: [
       {
+        index: true,
+        element: <Navigate to="/app/dashboard" replace />,
+      },
+      {
         path: '',
         element: <Navigate to="/app/dashboard" replace />,
       },

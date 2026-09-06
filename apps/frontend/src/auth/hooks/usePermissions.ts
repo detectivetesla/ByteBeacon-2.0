@@ -9,7 +9,7 @@ import {
 
 export function usePermissions() {
   const { user } = useAuth();
-  const role = user?.role;
+  const role = user?.role ? user.role.toLowerCase().trim() : undefined;
 
   const permissions = getPermissionsForRole(role);
 

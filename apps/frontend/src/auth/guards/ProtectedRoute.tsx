@@ -29,7 +29,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
 
   // If maintenance mode is active, non-admin accounts are locked out of portal access
-  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const userRole = (user?.role || '').toLowerCase().trim();
+  const isAdmin = userRole === 'admin' || userRole === 'super_admin';
   if (isMaintenanceMode && !isAdmin) {
     const handleCheckStatus = async () => {
       setIsChecking(true);

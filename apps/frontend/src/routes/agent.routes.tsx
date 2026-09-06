@@ -34,6 +34,10 @@ export const agentRoutes: RouteObject[] = [
     ),
     children: [
       {
+        index: true,
+        element: <Navigate to="/agent/dashboard" replace />,
+      },
+      {
         path: '',
         element: <Navigate to="/agent/dashboard" replace />,
       },
