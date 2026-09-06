@@ -282,7 +282,6 @@ export class BeneficiaryService {
           WHERE phone_number = ANY($1)
             AND network = 'MTN'
             AND validation_status IN ('VALID', 'APPROVED')
-            AND (provider_reference IS NULL OR provider_reference != 'DH-PRECHECK')
             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
           UNION
           SELECT phone_number as "phoneNumber"
@@ -514,11 +513,11 @@ export class BeneficiaryService {
     const knownPhonesSet = new Set<string>();
     let providerPrecheckSucceeded = false;
 
-    // 1. Live Authoritative Check: When telecom provider is configured, query live Up2U provider directly
+    const provider = this.telecomProvider;
     if (
       validNormalizedPhones.length > 0 &&
-      this.telecomProvider &&
-      (this.telecomProvider.precheckBeneficiaries || this.telecomProvider.precheckPublicBeneficiaries)
+      provider &&
+      (provider.precheckBeneficiaries || provider.precheckPublicBeneficiaries)
     ) {
       try {
         const newlyApprovedPhones: string[] = [];
@@ -530,18 +529,53 @@ export class BeneficiaryService {
         }
 
         for (const chunk of phoneChunks) {
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 25000));
-          const providerMethod = this.telecomProvider.precheckBeneficiaries
-            ? this.telecomProvider.precheckBeneficiaries.bind(this.telecomProvider)
-            : this.telecomProvider.precheckPublicBeneficiaries!.bind(this.telecomProvider);
+          let providerRes: any = null;
+          if (provider.precheckBeneficiaries) {
+            try {
+              const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000));
+              const call = provider.precheckBeneficiaries({
+                network: net,
+                phoneNumbers: chunk,
+                record,
+              }).catch(() => null);
+              providerRes = await Promise.race([call, timeoutPromise]);
+            } catch {
+              providerRes = null;
+            }
+          }
 
-          const providerCall = providerMethod({
-            network: net,
-            phoneNumbers: chunk,
-            record,
-          }).catch(() => null);
-
-          const providerRes: any = await Promise.race([providerCall, timeoutPromise]);
+          if ((!providerRes || !Array.isArray(providerRes.results) || providerRes.results.length === 0) && provider.precheckPublicBeneficiaries) {
+            try {
+              const subChunks: string[][] = [];
+              for (let s = 0; s < chunk.length; s += 10) {
+                subChunks.push(chunk.slice(s, s + 10));
+              }
+              const subResults = await Promise.all(
+                subChunks.map(async (sc) => {
+                  try {
+                    const timeoutSub = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000));
+                    const callSub = provider.precheckPublicBeneficiaries!({
+                      network: net,
+                      phoneNumbers: sc,
+                    }).catch(() => null);
+                    return await Promise.race([callSub, timeoutSub]);
+                  } catch {
+                    return null;
+                  }
+                }),
+              );
+              const validSubs = subResults.filter(Boolean) as any[];
+              if (validSubs.length > 0) {
+                providerRes = {
+                  network: net,
+                  results: validSubs.flatMap((vs: any) => vs.results || []),
+                  unknown: validSubs.flatMap((vs: any) => vs.unknown || []),
+                };
+              }
+            } catch {
+              providerRes = null;
+            }
+          }
           if (providerRes && Array.isArray(providerRes.results)) {
             providerPrecheckSucceeded = true;
             providerRes.results.forEach((r: any) => {
@@ -664,7 +698,6 @@ export class BeneficiaryService {
           WHERE phone_number = ANY($1)
             AND network = 'MTN'
             AND validation_status IN ('VALID', 'APPROVED')
-            AND (provider_reference IS NULL OR provider_reference != 'DH-PRECHECK')
             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
           UNION
           SELECT phone_number as "phoneNumber"

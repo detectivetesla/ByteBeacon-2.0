@@ -160,8 +160,60 @@ export class DataHouseAdapter implements ITelecomProvider {
 
   public async precheckBeneficiaries(input: DataHousePrecheckInput): Promise<DataHousePrecheckResult> {
     const correlationId = `dh_precheck_${Date.now()}`;
-    const dhResp = await this.client.precheckBeneficiaries(input, correlationId);
-    return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
+    try {
+      const dhResp = await this.client.precheckBeneficiaries(input, correlationId);
+      return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
+    } catch (err) {
+      // If agent precheck fails (e.g. invalid API key, 401, endpoint unavailable),
+      // gracefully fall back to chunked public precheck in batches of up to 10
+      const chunkSize = 10;
+      const chunks: string[][] = [];
+      for (let i = 0; i < input.phoneNumbers.length; i += chunkSize) {
+        chunks.push(input.phoneNumbers.slice(i, i + chunkSize));
+      }
+
+      const chunkResults = await Promise.all(
+        chunks.map(async (chunk, idx) => {
+          try {
+            const subCorr = `${correlationId}_chunk_${idx}`;
+            const subResp = await this.client.precheckPublicBeneficiaries(
+              { network: input.network, phoneNumbers: chunk },
+              subCorr,
+            );
+            return DataHouseMapper.toDataHousePrecheckResult(subResp, input.network);
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      const validChunkResults = chunkResults.filter(Boolean) as DataHousePrecheckResult[];
+      if (validChunkResults.length > 0) {
+        const combinedResults = validChunkResults.flatMap((c) => c.results || []);
+        const combinedUnknown = validChunkResults.flatMap((c) => c.unknown || []);
+        const totalCount = combinedResults.length;
+        const knownCount = combinedResults.filter((r) => r.isKnown).length;
+        const unknownCount = totalCount - knownCount;
+
+        return {
+          network: input.network,
+          enforced: true,
+          sandbox: false,
+          recorded: Boolean(input.record),
+          summary: {
+            total: totalCount,
+            known: knownCount,
+            unknown: unknownCount,
+            valid: combinedResults.filter((r) => r.isValid).length,
+            invalid: combinedResults.filter((r) => !r.isValid).length,
+          },
+          unknown: combinedUnknown,
+          results: combinedResults,
+        };
+      }
+
+      throw err;
+    }
   }
 
   public async precheckPublicBeneficiaries(input: DataHousePublicPrecheckInput): Promise<DataHousePrecheckResult> {

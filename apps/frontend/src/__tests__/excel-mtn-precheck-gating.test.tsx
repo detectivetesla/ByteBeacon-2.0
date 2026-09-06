@@ -215,4 +215,78 @@ describe('Excel MTN Precheck and Beneficiary Approval Gating', () => {
       expect(screen.getByText('Continue to Payment (2 Approved) →')).toBeTruthy();
     });
   });
+
+  it('verifies all numbers in batches > 10 without truncation when precheck falls back to precheckPublic', async () => {
+    // 15 numbers: first 5 approved, next 10 unapproved
+    const testPhones = Array.from({ length: 15 }, (_, i) => `024${String(1000000 + i).padStart(7, '0')}`);
+    
+    // Simulate beneficiaryApi.precheck failing so fallback to precheckPublic is engaged
+    (beneficiaryApi.precheck as any).mockRejectedValueOnce(new Error('Precheck endpoint unavailable'));
+
+    // beneficiaryApi.precheckPublic will receive chunk 1 (10 numbers) and chunk 2 (5 numbers)
+    (beneficiaryApi.precheckPublic as any).mockImplementation(async ({ phoneNumbers }: { phoneNumbers: string[] }) => {
+      return {
+        network: 'MTN',
+        results: phoneNumbers.map((phone) => ({
+          phone,
+          normalized: phone,
+          valid: true,
+          // First 5 numbers (0, 1, 2, 3, 4) are known/approved, rest unapproved
+          known: Number(phone.slice(-2)) < 5,
+        })),
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['Beneficiary Msisdn', 'Data (GB)'],
+      ...testPhones.map((p) => [p, '5GB']),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+    const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const file = new File([arrayBuffer], 'fifteen_batch.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    file.arrayBuffer = () => Promise.resolve(arrayBuffer);
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/agent/buy-data']}>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(catalogApi.getBundles).toHaveBeenCalled();
+    });
+
+    // Switch to Excel
+    fireEvent.click(screen.getByRole('button', { name: /Excel/i }));
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      configurable: true,
+    });
+    fireEvent.change(fileInput);
+
+    // Verify precheckPublic was called with both chunks (chunk of 10 and chunk of 5), not truncated to 10
+    await waitFor(() => {
+      expect(beneficiaryApi.precheckPublic).toHaveBeenCalled();
+      const calls = (beneficiaryApi.precheckPublic as any).mock.calls;
+      const allPhonesChecked = calls.flatMap((c: any) => c[0].phoneNumbers);
+      expect(allPhonesChecked).toHaveLength(15);
+      expect(allPhonesChecked).toEqual(testPhones);
+    });
+
+    // Verify UI reflects exactly 5 approved recipients and 10 unapproved
+    await waitFor(() => {
+      expect(screen.getByText('Continue to Payment (5 Approved) →')).toBeTruthy();
+      expect(screen.getByText(/10 Unapproved \/ First-Time MTN/i)).toBeTruthy();
+    });
+  });
 });

@@ -558,9 +558,9 @@ export const BuyDataPage: React.FC = () => {
 
     await Promise.all(
       batches.map(async (batch) => {
-        let batchSuccess = false;
+        let hasResults = false;
 
-        // 1. Try precheck with opt-in recording
+        // 1. Try bulk precheck with opt-in recording
         try {
           const res: any = await beneficiaryApi.precheck({
             network: NetworkProvider.MTN,
@@ -569,7 +569,8 @@ export const BuyDataPage: React.FC = () => {
           });
 
           const results = res?.results || res?.data?.results;
-          if (Array.isArray(results)) {
+          if (Array.isArray(results) && results.length > 0) {
+            hasResults = true;
             results.forEach((item: any) => {
               const isApproved = Boolean(
                 (item.known === true || item.isKnown === true) &&
@@ -588,42 +589,58 @@ export const BuyDataPage: React.FC = () => {
                 if (item.normalized) knownSet.add(item.normalized);
               }
             });
-            batchSuccess = true;
           }
         } catch {
-          batchSuccess = false;
+          hasResults = false;
         }
 
-        // 2. Fallback to public precheck if full precheck fails
-        if (!batchSuccess) {
-          try {
-            const pubRes = await beneficiaryApi.precheckPublic({
-              network: NetworkProvider.MTN,
-              phoneNumbers: batch.slice(0, 10),
-            });
-            const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
-            if (Array.isArray(pubResults)) {
-              pubResults.forEach((item: any) => {
-                const isApproved = Boolean(
-                  (item.known === true || (item as any).isKnown === true) &&
-                  item.status !== 'UNAPPROVED' &&
-                  item.status !== 'REJECTED'
-                );
-                if (isApproved) {
-                  const normP = normalizeGhanaPhoneNumber(item.phone || item.normalized);
-                  if (normP) {
-                    knownSet.add(normP);
-                    knownSet.add(`+233${normP.slice(1)}`);
-                    knownSet.add(`233${normP.slice(1)}`);
-                  }
-                  if (item.phone) knownSet.add(item.phone);
-                  if (item.normalized) knownSet.add(item.normalized);
-                }
-              });
-            }
-          } catch {
-            // Non-fatal fallback error
+        // 2. Fallback / verify any numbers not yet confirmed in knownSet using live public precheck in chunks of up to 10
+        const remainingToCheck = hasResults
+          ? batch.filter((phone) => {
+              const norm = normalizeGhanaPhoneNumber(phone);
+              return !knownSet.has(norm) && !knownSet.has(phone);
+            })
+          : batch;
+
+        if (remainingToCheck.length > 0) {
+          const CHUNK_SIZE = 10;
+          const subChunks: string[][] = [];
+          for (let j = 0; j < remainingToCheck.length; j += CHUNK_SIZE) {
+            subChunks.push(remainingToCheck.slice(j, j + CHUNK_SIZE));
           }
+
+          await Promise.all(
+            subChunks.map(async (subChunk) => {
+              try {
+                const pubRes = await beneficiaryApi.precheckPublic({
+                  network: NetworkProvider.MTN,
+                  phoneNumbers: subChunk,
+                });
+                const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
+                if (Array.isArray(pubResults)) {
+                  pubResults.forEach((item: any) => {
+                    const isApproved = Boolean(
+                      (item.known === true || (item as any).isKnown === true) &&
+                      item.status !== 'UNAPPROVED' &&
+                      item.status !== 'REJECTED'
+                    );
+                    if (isApproved) {
+                      const normP = normalizeGhanaPhoneNumber(item.phone || item.normalized);
+                      if (normP) {
+                        knownSet.add(normP);
+                        knownSet.add(`+233${normP.slice(1)}`);
+                        knownSet.add(`233${normP.slice(1)}`);
+                      }
+                      if (item.phone) knownSet.add(item.phone);
+                      if (item.normalized) knownSet.add(item.normalized);
+                    }
+                  });
+                }
+              } catch {
+                // Non-fatal per-subchunk error
+              }
+            }),
+          );
         }
       }),
     );
