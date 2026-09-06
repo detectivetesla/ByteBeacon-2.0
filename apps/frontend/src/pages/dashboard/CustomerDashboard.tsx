@@ -9,6 +9,7 @@ import { Avatar } from '../../components/ui/Avatar/Avatar.js';
 import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
 import { OrderDetailDrawer, OrderDetailData } from '../../components/commerce/OrderDetailDrawer.js';
 import { OrderHealthProgressBar } from '../../components/dashboard/OrderHealthProgressBar.js';
+import { DeliveryStatusHorizontalChain, LastOrderSummary } from '../../components/dashboard/DeliveryStatusHorizontalChain.js';
 import { NetworkProvider, PaymentStatus, OrderStatus } from '@bytebeacon/shared';
 import { useAuth } from '../../context/AuthContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
@@ -128,6 +129,25 @@ export const CustomerDashboard: React.FC = () => {
     setDrawerOpen(true);
   };
 
+  const latestOrder: LastOrderSummary | null = orders.length > 0 ? {
+    id: orders[0].id,
+    orderNumber: orders[0].orderNumber,
+    network: orders[0].network,
+    recipientPhone: orders[0].recipient,
+    dataDisplay: orders[0].dataDisplay,
+    amountDisplay: orders[0].amountDisplay,
+    paymentStatus: orders[0].paymentStatus,
+    orderStatus: orders[0].orderStatus,
+    dateDisplay: orders[0].dateDisplay,
+  } : null;
+
+  const handleViewLastOrder = (orderId: string) => {
+    const found = orders.find((o) => o.id === orderId) || orders[0];
+    if (found) {
+      handleRowClick(found);
+    }
+  };
+
   const displayName = user?.fullName || user?.email?.split('@')[0] || 'Customer';
 
   return (
@@ -233,6 +253,16 @@ export const CustomerDashboard: React.FC = () => {
           subtitle="Awaiting carrier"
           accent="orange"
           icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
+        />
+      </div>
+
+      {/* Delivery Status Linear Chain & Live System Health */}
+      <div style={{ marginBottom: 'var(--space-6)' }}>
+        <DeliveryStatusHorizontalChain
+          lastOrder={latestOrder}
+          onViewOrderDetails={handleViewLastOrder}
+          systemHealthStatus="OPERATIONAL"
+          role="customer"
         />
       </div>
 

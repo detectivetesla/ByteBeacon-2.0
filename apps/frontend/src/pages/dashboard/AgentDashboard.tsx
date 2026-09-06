@@ -9,6 +9,7 @@ import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
 import { OrderDetailDrawer, OrderDetailData } from '../../components/commerce/OrderDetailDrawer.js';
 import { RevenueTrendChart, ChartPeriod } from '../../components/dashboard/RevenueTrendChart.js';
 import { OrderHealthProgressBar } from '../../components/dashboard/OrderHealthProgressBar.js';
+import { DeliveryStatusHorizontalChain, LastOrderSummary } from '../../components/dashboard/DeliveryStatusHorizontalChain.js';
 import { NetworkProvider, OrderStatus } from '@bytebeacon/shared';
 import { useAuth } from '../../context/AuthContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
@@ -140,6 +141,25 @@ export const AgentDashboard: React.FC = () => {
       carrierLatency: '1.2s',
     });
     setDrawerOpen(true);
+  };
+
+  const latestOrder: LastOrderSummary | null = orders.length > 0 ? {
+    id: orders[0].id,
+    orderNumber: orders[0].orderReference,
+    network: orders[0].network,
+    recipientPhone: orders[0].recipient,
+    dataDisplay: orders[0].dataVolume,
+    amountDisplay: orders[0].amount,
+    paymentStatus: 'Paid',
+    orderStatus: orders[0].status,
+    dateDisplay: orders[0].timeAgo,
+  } : null;
+
+  const handleViewLastOrder = (orderId: string) => {
+    const found = orders.find((o) => o.id === orderId) || orders[0];
+    if (found) {
+      handleRowClick(found);
+    }
   };
 
   const displayName = user?.fullName || user?.email?.split('@')[0] || 'Reseller Agent';
@@ -353,7 +373,15 @@ export const AgentDashboard: React.FC = () => {
         />
       </div>
 
-      {/* 3. Performance & Order Health Section */}
+      {/* 3. Linear Horizontal Delivery Status Chain & System Health */}
+      <DeliveryStatusHorizontalChain
+        lastOrder={latestOrder}
+        onViewOrderDetails={handleViewLastOrder}
+        systemHealthStatus="OPERATIONAL"
+        role="agent"
+      />
+
+      {/* 4. Performance & Order Health Section */}
       <div className="agent-two-col-grid">
         {/* Left: Dominant Order Health Card */}
         <OrderHealthProgressBar
