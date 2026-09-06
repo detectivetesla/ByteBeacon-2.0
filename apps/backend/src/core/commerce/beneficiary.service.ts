@@ -195,67 +195,7 @@ export class BeneficiaryService {
       };
     }
 
-    // For MTN: check DB validated list first, then query provider for remaining unknown
-    const knownPhonesSet = new Set<string>();
-
-    // 1. Check local DB first for validated beneficiary records (ultra-fast < 2ms)
-    if (validNormalizedPhones.length > 0) {
-      try {
-        const queryPhones = Array.from(
-          new Set(
-            validNormalizedPhones.flatMap((p) => [
-              p,
-              `+233${p.startsWith('0') ? p.slice(1) : p}`,
-              `233${p.startsWith('0') ? p.slice(1) : p}`,
-            ]),
-          ),
-        );
-
-        const dbQuery = `
-          SELECT phone_number as "phoneNumber"
-          FROM beneficiary_validation
-          WHERE phone_number = ANY($1)
-            AND network = 'MTN'
-            AND validation_status IN ('VALID', 'APPROVED')
-            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-          UNION
-          SELECT phone_number as "phoneNumber"
-          FROM pending_beneficiary_approvals
-          WHERE phone_number = ANY($1)
-            AND network = 'MTN'
-            AND status = 'APPROVED'
-        `;
-        const dbRes = await this.db.query(dbQuery, [queryPhones]);
-        dbRes.rows.forEach((r: any) => {
-          if (r.phoneNumber) {
-            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(r.phoneNumber);
-          }
-        });
-
-        // Also check if any orders have been fulfilled/processing for this number
-        const orderQuery = `
-          SELECT DISTINCT recipient_phone as "recipientPhone"
-          FROM orders
-          WHERE recipient_phone = ANY($1)
-            AND network = 'MTN'
-            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
-        `;
-        const orderRes = await this.db.query(orderQuery, [queryPhones]);
-        orderRes.rows.forEach((r: any) => {
-          if (r.recipientPhone) {
-            const norm = this.normalizeGhanaPhone(r.recipientPhone).normalized;
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(r.recipientPhone);
-          }
-        });
-      } catch {
-        // Continue with memory set
-      }
-    }
-
-    // For bulk requests (>10 numbers) or if record is requested, delegate to precheckAgentBeneficiaries
+    // For bulk requests (>10 numbers) or if record is requested, delegate directly to precheckAgentBeneficiaries
     if (phoneNumbers.length > 10 || params.record) {
       const agentRes = await this.precheckAgentBeneficiaries({
         network: net,
@@ -274,35 +214,99 @@ export class BeneficiaryService {
       };
     }
 
-    // 2. Query upstream telecom provider only for remaining unknown numbers (timeout 10000ms)
-    const unknownForProvider = validNormalizedPhones.filter(
-      (p) => !knownPhonesSet.has(p) && !knownPhonesSet.has(this.normalizeGhanaPhone(p).normalized),
-    );
+    const knownPhonesSet = new Set<string>();
+    let providerPrecheckSucceeded = false;
 
-    if (unknownForProvider.length > 0 && this.telecomProvider) {
+    // 1. Live Authoritative Check for public precheck (<= 10 numbers)
+    if (validNormalizedPhones.length > 0 && this.telecomProvider) {
       try {
         const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
         const providerCall = (
           this.telecomProvider.precheckPublicBeneficiaries
-            ? this.telecomProvider.precheckPublicBeneficiaries({ network: net, phoneNumbers: unknownForProvider })
+            ? this.telecomProvider.precheckPublicBeneficiaries({ network: net, phoneNumbers: validNormalizedPhones })
             : this.telecomProvider.precheckBeneficiaries
-            ? this.telecomProvider.precheckBeneficiaries({ network: net, phoneNumbers: unknownForProvider, record: false })
+            ? this.telecomProvider.precheckBeneficiaries({ network: net, phoneNumbers: validNormalizedPhones, record: false })
             : Promise.resolve(null)
         ).catch(() => null);
 
         const providerRes: any = await Promise.race([providerCall, timeoutPromise]);
         if (providerRes && Array.isArray(providerRes.results)) {
+          providerPrecheckSucceeded = true;
           providerRes.results.forEach((r: any) => {
-            if (r.isKnown || r.known) {
-              const norm = this.normalizeGhanaPhone(r.phoneNumber || r.phone || r.normalized || '').normalized;
-              knownPhonesSet.add(norm);
+            const isApproved = Boolean(
+              (r.isKnown === true || (r as any).known === true) &&
+              r.status !== 'UNAPPROVED' &&
+              r.status !== 'REJECTED'
+            );
+            const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
+            if (isApproved) {
+              if (norm) {
+                knownPhonesSet.add(norm);
+                knownPhonesSet.add(`+233${norm.slice(1)}`);
+                knownPhonesSet.add(`233${norm.slice(1)}`);
+              }
               if (r.phoneNumber) knownPhonesSet.add(r.phoneNumber);
-              if (r.phone) knownPhonesSet.add(r.phone);
+              if ((r as any).phone) knownPhonesSet.add((r as any).phone);
+            } else {
+              if (norm) {
+                knownPhonesSet.delete(norm);
+                knownPhonesSet.delete(`+233${norm.slice(1)}`);
+                knownPhonesSet.delete(`233${norm.slice(1)}`);
+              }
+              if (r.phoneNumber) knownPhonesSet.delete(r.phoneNumber);
+              if ((r as any).phone) knownPhonesSet.delete((r as any).phone);
             }
           });
         }
       } catch {
-        // Fallback to local DB check
+        providerPrecheckSucceeded = false;
+      }
+    }
+
+    // 2. Safe Fallback: Only if live provider is not configured or failed/timed out, query validated local DB cache
+    if (!providerPrecheckSucceeded && validNormalizedPhones.length > 0) {
+      try {
+        const queryPhones = Array.from(
+          new Set(
+            validNormalizedPhones.flatMap((p) => [
+              p,
+              `+233${p.startsWith('0') ? p.slice(1) : p}`,
+              `233${p.startsWith('0') ? p.slice(1) : p}`,
+            ]),
+          ),
+        );
+
+        const dbQuery = `
+          SELECT phone_number as "phoneNumber"
+          FROM beneficiary_validation
+          WHERE phone_number = ANY($1)
+            AND network = 'MTN'
+            AND validation_status IN ('VALID', 'APPROVED')
+            AND (provider_reference IS NULL OR provider_reference != 'DH-PRECHECK')
+            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+          UNION
+          SELECT phone_number as "phoneNumber"
+          FROM pending_beneficiary_approvals
+          WHERE phone_number = ANY($1)
+            AND network = 'MTN'
+            AND status = 'APPROVED'
+          UNION
+          SELECT DISTINCT recipient_phone as "phoneNumber"
+          FROM orders
+          WHERE recipient_phone = ANY($1)
+            AND network = 'MTN'
+            AND order_status IN ('COMPLETED', 'DELIVERED')
+        `;
+        const dbRes = await this.db.query(dbQuery, [queryPhones]);
+        dbRes.rows.forEach((r: any) => {
+          if (r.phoneNumber) {
+            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+            knownPhonesSet.add(norm);
+            knownPhonesSet.add(r.phoneNumber);
+          }
+        });
+      } catch {
+        // Fallback non-fatal
       }
     }
 
@@ -508,80 +512,25 @@ export class BeneficiaryService {
     // 4. Live MTN Enforcement
     const validNormalizedPhones = uniqueItems.filter((item) => item.valid).map((item) => item.normalized);
     const knownPhonesSet = new Set<string>();
+    let providerPrecheckSucceeded = false;
 
-    // 1. Query DB for known/validated MTN beneficiaries first (ultra-fast < 2ms)
-    if (validNormalizedPhones.length > 0) {
-      try {
-        const queryPhones = Array.from(
-          new Set(
-            validNormalizedPhones.flatMap((p) => [
-              p,
-              `+233${p.startsWith('0') ? p.slice(1) : p}`,
-              `233${p.startsWith('0') ? p.slice(1) : p}`,
-            ]),
-          ),
-        );
-
-        const dbQuery = `
-          SELECT phone_number as "phoneNumber"
-          FROM beneficiary_validation
-          WHERE phone_number = ANY($1)
-            AND network = 'MTN'
-            AND validation_status IN ('VALID', 'APPROVED')
-            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-          UNION
-          SELECT phone_number as "phoneNumber"
-          FROM pending_beneficiary_approvals
-          WHERE phone_number = ANY($1)
-            AND network = 'MTN'
-            AND status = 'APPROVED'
-        `;
-        const dbRes = await this.db.query(dbQuery, [queryPhones]);
-        dbRes.rows.forEach((r: any) => {
-          if (r.phoneNumber) {
-            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(r.phoneNumber);
-          }
-        });
-
-        // Query historical successful orders
-        const orderQuery = `
-          SELECT DISTINCT recipient_phone as "recipientPhone"
-          FROM orders
-          WHERE recipient_phone = ANY($1)
-            AND network = 'MTN'
-            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
-        `;
-        const orderRes = await this.db.query(orderQuery, [queryPhones]);
-        orderRes.rows.forEach((r: any) => {
-          if (r.recipientPhone) {
-            const norm = this.normalizeGhanaPhone(r.recipientPhone).normalized;
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(r.recipientPhone);
-          }
-        });
-      } catch {
-        // Continue with available known set
-      }
-    }
-
-    // 2. Query upstream provider for remaining unknown numbers with safe batching & 20s timeout
-    const unknownForProvider = validNormalizedPhones.filter(
-      (p) => !knownPhonesSet.has(p) && !knownPhonesSet.has(this.normalizeGhanaPhone(p).normalized),
-    );
-
-    if (unknownForProvider.length > 0 && this.telecomProvider && (this.telecomProvider.precheckBeneficiaries || this.telecomProvider.precheckPublicBeneficiaries)) {
+    // 1. Live Authoritative Check: When telecom provider is configured, query live Up2U provider directly
+    if (
+      validNormalizedPhones.length > 0 &&
+      this.telecomProvider &&
+      (this.telecomProvider.precheckBeneficiaries || this.telecomProvider.precheckPublicBeneficiaries)
+    ) {
       try {
         const newlyApprovedPhones: string[] = [];
-        const chunkSize = 150;
-        const unknownChunks: string[][] = [];
-        for (let i = 0; i < unknownForProvider.length; i += chunkSize) {
-          unknownChunks.push(unknownForProvider.slice(i, i + chunkSize));
+        const newlyUnapprovedPhones: string[] = [];
+        const chunkSize = 500;
+        const phoneChunks: string[][] = [];
+        for (let i = 0; i < validNormalizedPhones.length; i += chunkSize) {
+          phoneChunks.push(validNormalizedPhones.slice(i, i + chunkSize));
         }
 
-        for (const chunk of unknownChunks) {
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000));
+        for (const chunk of phoneChunks) {
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 25000));
           const providerMethod = this.telecomProvider.precheckBeneficiaries
             ? this.telecomProvider.precheckBeneficiaries.bind(this.telecomProvider)
             : this.telecomProvider.precheckPublicBeneficiaries!.bind(this.telecomProvider);
@@ -594,6 +543,7 @@ export class BeneficiaryService {
 
           const providerRes: any = await Promise.race([providerCall, timeoutPromise]);
           if (providerRes && Array.isArray(providerRes.results)) {
+            providerPrecheckSucceeded = true;
             providerRes.results.forEach((r: any) => {
               const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
               const isApproved = Boolean(
@@ -611,14 +561,33 @@ export class BeneficiaryService {
                 if (r.phoneNumber) knownPhonesSet.add(r.phoneNumber);
                 if ((r as any).phone) knownPhonesSet.add((r as any).phone);
               } else {
-                // Explicitly unapproved or rejected by provider: remove from known set so local DB cache doesn't mask it
                 if (norm) {
                   knownPhonesSet.delete(norm);
                   knownPhonesSet.delete(`+233${norm.slice(1)}`);
                   knownPhonesSet.delete(`233${norm.slice(1)}`);
+                  newlyUnapprovedPhones.push(norm);
                 }
                 if (r.phoneNumber) knownPhonesSet.delete(r.phoneNumber);
                 if ((r as any).phone) knownPhonesSet.delete((r as any).phone);
+              }
+            });
+
+            // Also check unknown or blocked arrays in provider response
+            const explicitBlocked = [
+              ...(Array.isArray(providerRes.unknown) ? providerRes.unknown : []),
+              ...(Array.isArray(providerRes.blockedFirstTime) ? providerRes.blockedFirstTime : []),
+            ];
+            explicitBlocked.forEach((b: any) => {
+              const p = typeof b === 'string' ? b : b.phoneNumber || b.phone;
+              if (p) {
+                const norm = this.normalizeGhanaPhone(p).normalized;
+                if (norm) {
+                  knownPhonesSet.delete(norm);
+                  knownPhonesSet.delete(`+233${norm.slice(1)}`);
+                  knownPhonesSet.delete(`233${norm.slice(1)}`);
+                  newlyUnapprovedPhones.push(norm);
+                }
+                knownPhonesSet.delete(p);
               }
             });
           }
@@ -656,17 +625,93 @@ export class BeneficiaryService {
             }),
           );
         }
+
+        // Demote unapproved numbers in local DB so stale/corrupted VALID rows are fixed
+        if (newlyUnapprovedPhones.length > 0) {
+          const uniqueNewlyUnapproved = Array.from(new Set(newlyUnapprovedPhones));
+          await Promise.all(
+            uniqueNewlyUnapproved.map(async (p) => {
+              await this.db.query(
+                `UPDATE beneficiary_validation
+                 SET validation_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
+                 WHERE phone_number = $1 AND network = 'MTN'`,
+                [p],
+              ).catch(() => {});
+            }),
+          );
+        }
       } catch {
-        // Fallback to local DB check
+        providerPrecheckSucceeded = false;
       }
     }
 
-    const results = uniqueItems.map((item) => ({
-      phone: item.phone,
-      normalized: item.normalized,
-      valid: item.valid,
-      known: item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.phone)) : false,
-    }));
+    // 2. Safe Fallback: Only if live provider is not configured or failed/timed out, query validated local DB cache
+    if (!providerPrecheckSucceeded && validNormalizedPhones.length > 0) {
+      try {
+        const queryPhones = Array.from(
+          new Set(
+            validNormalizedPhones.flatMap((p) => [
+              p,
+              `+233${p.startsWith('0') ? p.slice(1) : p}`,
+              `233${p.startsWith('0') ? p.slice(1) : p}`,
+            ]),
+          ),
+        );
+
+        const dbQuery = `
+          SELECT phone_number as "phoneNumber"
+          FROM beneficiary_validation
+          WHERE phone_number = ANY($1)
+            AND network = 'MTN'
+            AND validation_status IN ('VALID', 'APPROVED')
+            AND (provider_reference IS NULL OR provider_reference != 'DH-PRECHECK')
+            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+          UNION
+          SELECT phone_number as "phoneNumber"
+          FROM pending_beneficiary_approvals
+          WHERE phone_number = ANY($1)
+            AND network = 'MTN'
+            AND status = 'APPROVED'
+          UNION
+          SELECT DISTINCT recipient_phone as "phoneNumber"
+          FROM orders
+          WHERE recipient_phone = ANY($1)
+            AND network = 'MTN'
+            AND order_status IN ('COMPLETED', 'DELIVERED')
+        `;
+        const dbRes = await this.db.query(dbQuery, [queryPhones]);
+        dbRes.rows.forEach((r: any) => {
+          if (r.phoneNumber) {
+            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+            knownPhonesSet.add(norm);
+            knownPhonesSet.add(r.phoneNumber);
+          }
+        });
+      } catch {
+        // Fallback non-fatal
+      }
+    }
+
+    const results = uniqueItems.map((item) => {
+      const isKnown = item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.phone)) : false;
+      const status = !item.valid ? 'REJECTED' : isKnown ? 'APPROVED' : 'UNAPPROVED';
+      const message = !item.valid
+        ? 'Invalid Ghanaian phone number format'
+        : isKnown
+        ? 'Validated MTN recipient'
+        : 'First-time MTN recipient - pending approval';
+      return {
+        phone: item.phone,
+        phoneNumber: item.phone,
+        normalized: item.normalized,
+        valid: item.valid,
+        isValid: item.valid,
+        known: isKnown,
+        isKnown,
+        status,
+        message,
+      };
+    });
 
     const unknownList = results
       .filter((r) => r.valid && !r.known)
@@ -702,7 +747,10 @@ export class BeneficiaryService {
             const insertPendingQuery = `
               INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
               VALUES ($1, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-              ON CONFLICT (phone_number, network) DO NOTHING
+              ON CONFLICT (phone_number, network) DO UPDATE
+              SET validation_status = 'PENDING',
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE beneficiary_validation.validation_status != 'APPROVED'
             `;
             await this.db.query(insertPendingQuery, [unkPhone, metadata, _userId || null]).catch(() => {});
           }),

@@ -228,7 +228,26 @@ describe('DataHouseAdapter and DataHouseClient', () => {
       expect(res.summary.unique).toBe(2);
       expect(res.unknown).toEqual(['0209990000']);
       expect(res.results[0].isKnown).toBe(true);
+      expect(res.results[0].status).toBe('APPROVED');
       expect(res.results[1].isKnown).toBe(false);
+      expect(res.results[1].status).toBe('UNAPPROVED');
+    });
+
+    it('should validate beneficiary using validateBeneficiary and report isValid: false when known is false', async () => {
+      vi.spyOn(mockClient, 'precheckBeneficiaries').mockResolvedValueOnce({
+        network: 'MTN',
+        results: [
+          { phone: '0209990000', normalized: '0209990000', valid: true, known: false, isKnown: false },
+        ],
+      });
+
+      const res = await adapter.validateBeneficiary({
+        network: NetworkProvider.MTN,
+        phoneNumber: '0209990000',
+      });
+
+      expect(res.isValid).toBe(false);
+      expect(res.network).toBe(NetworkProvider.MTN);
     });
 
     it('should perform public precheck without API key', async () => {
@@ -247,6 +266,9 @@ describe('DataHouseAdapter and DataHouseClient', () => {
 
       expect(res.results).toHaveLength(2);
       expect(res.results[0].isKnown).toBe(true);
+      expect(res.results[0].status).toBe('APPROVED');
+      expect(res.results[1].isKnown).toBe(false);
+      expect(res.results[1].status).toBe('UNAPPROVED');
     });
 
     it('should correctly parse real DataHouse batch response with rows, blockedFirstTime, and placeableCount', async () => {

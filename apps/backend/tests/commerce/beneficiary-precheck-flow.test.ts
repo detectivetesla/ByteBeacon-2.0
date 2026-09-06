@@ -314,18 +314,52 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       });
       expect(json.data.unknown).toEqual(['0249998877']);
       expect(json.data.results).toHaveLength(2);
-      expect(json.data.results[0]).toEqual({
+      expect(json.data.results[0]).toMatchObject({
         phone: '0241112233',
         normalized: '0241112233',
         valid: true,
         known: true,
+        status: 'APPROVED',
       });
-      expect(json.data.results[1]).toEqual({
+      expect(json.data.results[1]).toMatchObject({
         phone: '0249998877',
         normalized: '0249998877',
         valid: true,
         known: false,
+        status: 'UNAPPROVED',
       });
+    });
+
+    it('should query live telecom provider for full batch and accurately map known vs unknown statuses', async () => {
+      (mockTelecomProvider.precheckBeneficiaries as any).mockResolvedValueOnce({
+        network: NetworkProvider.MTN,
+        summary: { requested: 2, unique: 2, valid: 2, invalid: 0, known: 1, unknown: 1 },
+        unknown: ['0249998877'],
+        results: [
+          { phone: '0241112233', normalized: '0241112233', valid: true, known: true, isKnown: true, status: 'APPROVED' },
+          { phone: '0249998877', normalized: '0249998877', valid: true, known: false, isKnown: false, status: 'UNAPPROVED' },
+        ],
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/beneficiaries/precheck',
+        headers: { 'x-api-key': 'ak_live_8f3c12345678' },
+        payload: {
+          network: 'MTN',
+          phoneNumbers: ['0241112233', '0249998877'],
+          record: true,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.data.summary.known).toBe(1);
+      expect(json.data.summary.unknown).toBe(1);
+      expect(json.data.results[0].known).toBe(true);
+      expect(json.data.results[0].status).toBe('APPROVED');
+      expect(json.data.results[1].known).toBe(false);
+      expect(json.data.results[1].status).toBe('UNAPPROVED');
     });
 
     it('should short-circuit on sandbox keys: sandbox: true, enforced: false, recorded: false', async () => {

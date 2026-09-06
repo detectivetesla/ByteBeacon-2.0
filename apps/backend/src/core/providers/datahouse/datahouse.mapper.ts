@@ -284,7 +284,14 @@ export class DataHouseMapper {
     }
 
     const first = rawItems[0];
-    const isKnown = Boolean(first.isKnown || first.known || first.valid || first.isValid);
+    const isKnown =
+      first.isKnown !== undefined
+        ? Boolean(first.isKnown)
+        : first.known !== undefined
+        ? Boolean(first.known)
+        : network === NetworkProvider.MTN
+        ? false
+        : Boolean(first.valid || first.isValid);
 
     return {
       isValid: isKnown,
@@ -313,7 +320,11 @@ export class DataHouseMapper {
       payload.items ||
       (Array.isArray(payload) ? payload : []);
 
-    const blockedList: any[] = payload.blockedFirstTime || payload.blocked || [];
+    const blockedList: any[] = [
+      ...(Array.isArray(payload.blockedFirstTime) ? payload.blockedFirstTime : []),
+      ...(Array.isArray(payload.blocked) ? payload.blocked : []),
+      ...(Array.isArray(payload.unknown) ? payload.unknown : []),
+    ];
     const blockedSet = new Set<string>();
     blockedList.forEach((b: any) => {
       const p = typeof b === 'string' ? b : b.phoneNumber || b.phone || b.msisdn;
@@ -353,17 +364,22 @@ export class DataHouseMapper {
         portedMap.has(local) ||
         r.matchesSelected === false;
 
-      const isBlocked =
+      const isExplicitlyBlocked =
         blockedSet.has(phone) ||
         blockedSet.has(norm) ||
         blockedSet.has(local);
 
-      const isKnown =
+      const isExplicitlyKnown =
         r.isKnown !== undefined
           ? Boolean(r.isKnown)
           : r.known !== undefined
           ? Boolean(r.known)
-          : (!isBlocked && !isPorted && r.matchesSelected !== false);
+          : undefined;
+
+      const isKnown =
+        isExplicitlyKnown !== undefined
+          ? isExplicitlyKnown
+          : (!isExplicitlyBlocked && !isPorted && r.matchesSelected !== false);
 
       const isValid =
         r.isValid !== undefined
@@ -371,6 +387,8 @@ export class DataHouseMapper {
           : r.valid !== undefined
           ? Boolean(r.valid)
           : !isPorted;
+
+      const isBlocked = isExplicitlyBlocked || (!isKnown && isValid && !isPorted);
 
       const status = isPorted
         ? 'REJECTED'
@@ -388,7 +406,7 @@ export class DataHouseMapper {
         phoneNumber: phone || local,
         phone: local || phone,
         normalized: local,
-        isKnown,
+        isKnown: !isPorted && isKnown && !isBlocked,
         isValid,
         status,
         accountName: r.accountName,
@@ -397,13 +415,13 @@ export class DataHouseMapper {
       };
     });
 
-    const summary = payload.summary || {
-      requested: payload.count || rawRows.length,
-      unique: results.length,
-      valid: payload.matchingCount !== undefined ? payload.matchingCount : results.filter((r: any) => r.isValid).length,
-      invalid: payload.mismatchedCount !== undefined ? payload.mismatchedCount : results.filter((r: any) => !r.isValid).length,
-      known: payload.placeableCount !== undefined ? payload.placeableCount : results.filter((r: any) => r.isKnown).length,
-      unknown: payload.blockedCount !== undefined ? payload.blockedCount : results.filter((r: any) => !r.isKnown && r.isValid).length,
+    const summary = {
+      requested: payload.summary?.requested ?? payload.count ?? rawRows.length,
+      unique: payload.summary?.unique ?? results.length,
+      valid: payload.summary?.valid ?? (payload.matchingCount !== undefined ? payload.matchingCount : results.filter((r: any) => r.isValid).length),
+      invalid: payload.summary?.invalid ?? (payload.mismatchedCount !== undefined ? payload.mismatchedCount : results.filter((r: any) => !r.isValid).length),
+      known: payload.placeableCount !== undefined ? payload.placeableCount : (payload.summary?.known ?? results.filter((r: any) => r.isKnown).length),
+      unknown: payload.blockedCount !== undefined ? payload.blockedCount : (payload.summary?.unknown ?? results.filter((r: any) => !r.isKnown && r.isValid).length),
     };
 
     return {
@@ -417,8 +435,8 @@ export class DataHouseMapper {
         payload.unknown ||
         results.filter((r: any) => !r.isKnown).map((r: any) => r.phoneNumber || r.phone || r.normalized || ''),
       results,
-      blockedCount: payload.blockedCount,
-      placeableCount: payload.placeableCount,
+      blockedCount: payload.blockedCount !== undefined ? payload.blockedCount : results.filter((r: any) => !r.isKnown && r.isValid).length,
+      placeableCount: payload.placeableCount !== undefined ? payload.placeableCount : results.filter((r: any) => r.isKnown).length,
       blockedFirstTime: payload.blockedFirstTime,
       flaggedPorted: payload.flaggedPorted,
       rawResponse: resp,
