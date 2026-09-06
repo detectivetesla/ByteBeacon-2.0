@@ -40,6 +40,7 @@ export interface CustomerPendingApprovalItem {
   id: string;
   phoneNumber: string;
   network: NetworkProvider;
+  dataSize?: string;
   status: ApprovalStatus;
   providerReference?: string;
   detectedFrom: DetectedChannel;
@@ -153,9 +154,10 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
             id: item.id || `ben-${idx + 1}`,
             phoneNumber: item.phoneNumber || item.beneficiary || '',
             network: (item.network as NetworkProvider) || NetworkProvider.MTN,
+            dataSize: item.dataSize || (item.lastBundleSizeGb ? `${item.lastBundleSizeGb} GB` : '—'),
             status: mappedStatus,
             providerReference: item.providerReference || 'DH-AUTO',
-            detectedFrom: (item.detectedFrom as DetectedChannel) || 'Bulk Order',
+            detectedFrom: (item.detectedFrom as DetectedChannel) || 'Excel Upload',
             createdAt: item.createdAt || new Date().toISOString(),
             expiresAt: item.expiresAt,
             validatedAt: item.validatedAt,
@@ -176,6 +178,15 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
 
   useEffect(() => {
     fetchApprovals();
+    const handleUpdated = () => {
+      fetchApprovals();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pending-approvals-updated', handleUpdated);
+      return () => {
+        window.removeEventListener('pending-approvals-updated', handleUpdated);
+      };
+    }
   }, [fetchApprovals]);
 
   // Fetch associated orders for selected beneficiary
@@ -614,15 +625,16 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
             {/* Status Segmented Tabs */}
             <div style={{ display: 'flex', gap: '0.35rem', backgroundColor: 'var(--color-bg-base)', padding: '2px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
               {[
-                { label: 'All', value: 'ALL' },
-                { label: 'Pending', value: 'PENDING' },
-                { label: 'Processing', value: 'PROCESSING' },
-                { label: 'Approved', value: 'APPROVED' },
-                { label: 'Rejected', value: 'REJECTED' },
+                { label: 'All', value: 'ALL', aria: 'All' },
+                { label: 'Unapproved / Pending', value: 'PENDING', aria: 'Pending' },
+                { label: 'Processing', value: 'PROCESSING', aria: 'Processing' },
+                { label: 'Approved', value: 'APPROVED', aria: 'Approved' },
+                { label: 'Rejected', value: 'REJECTED', aria: 'Rejected' },
               ].map((tab) => (
                 <button
                   key={tab.value}
                   type="button"
+                  aria-label={tab.aria}
                   onClick={() => {
                     setStatusFilter(tab.value);
                     setCurrentPage(1);
@@ -769,6 +781,7 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
                   <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Beneficiary Number</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Network</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Data Size</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Detected Source</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Added Date</th>
@@ -808,6 +821,9 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                         <NetworkBadge network={item.network} size="sm" />
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                        {item.dataSize || '—'}
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                         <ApprovalStatusBadge status={item.status} size="sm" />

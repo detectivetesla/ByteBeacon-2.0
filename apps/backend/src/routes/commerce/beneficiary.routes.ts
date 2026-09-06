@@ -190,6 +190,62 @@ export async function beneficiaryRoutes(
     },
   );
 
+  // 1c. RECORD UNAPPROVED BENEFICIARIES (Saves scanned Excel unapproved items to Pending MTN Approvals)
+  app.post<{
+    Body: {
+      items: Array<{
+        phoneNumber: string;
+        network?: NetworkProvider | string;
+        dataSize?: string;
+        dataAmountMb?: number;
+        pricePesewas?: number;
+        detectedFrom?: string;
+      }>;
+    };
+  }>(
+    '/beneficiaries/record-unapproved',
+    async (req, reply) => {
+      const { items } = req.body || {};
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        throw new BadRequestError('items array is required and cannot be empty');
+      }
+
+      // Check optional authentication for agent / customer attribution
+      let authenticatedUserId: string | undefined;
+      const authHeader = req.headers.authorization;
+      const apiKeyHeader = req.headers['x-api-key'];
+
+      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
+        try {
+          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
+          authenticatedUserId = payload.sub;
+        } catch {
+          // unauthenticated fallback
+        }
+      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        try {
+          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
+          const key = await apiKeyService.validateApiKey(rawKey);
+          authenticatedUserId = key.agentId;
+        } catch {
+          // unauthenticated fallback
+        }
+      }
+
+      const result = await beneficiaryService.recordUnapprovedBeneficiaries({
+        items,
+        userId: authenticatedUserId,
+      });
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        message: 'Success',
+        data: { recorded: result.count },
+      });
+    },
+  );
+
   // 2. AGENT PRECHECK (Bulk-sized, opt-in recording): POST /agent/beneficiaries/precheck
   app.post<{
     Body: {

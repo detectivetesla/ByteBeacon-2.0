@@ -149,9 +149,9 @@ export const AgentPendingOrdersPage: React.FC = () => {
           id: item.id || String(idx + 1),
           beneficiary: item.phoneNumber || item.beneficiary || '—',
           network: NetworkProvider.MTN,
-          dataSize: '10 GB',
+          dataSize: item.dataSize || (item.lastBundleSizeGb ? `${item.lastBundleSizeGb} GB` : '5 GB'),
           status: item.status === 'VALID' || item.status === 'APPROVED' ? 'APPROVED' : item.status === 'INVALID' || item.status === 'REJECTED' ? 'REJECTED' : 'PENDING',
-          detectedFrom: 'Bulk Order',
+          detectedFrom: (item.detectedFrom as DetectedChannel) || 'Excel Upload',
           timestamp: item.createdAt ? new Date(item.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recently',
           rawDate: item.createdAt || new Date().toISOString(),
         }));
@@ -168,6 +168,15 @@ export const AgentPendingOrdersPage: React.FC = () => {
 
   useEffect(() => {
     fetchApprovals();
+    const handleUpdated = () => {
+      fetchApprovals();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pending-approvals-updated', handleUpdated);
+      return () => {
+        window.removeEventListener('pending-approvals-updated', handleUpdated);
+      };
+    }
   }, [statusFilter]);
 
   const handleRefresh = () => {
@@ -299,15 +308,16 @@ export const AgentPendingOrdersPage: React.FC = () => {
             {/* Status Segmented Tabs */}
             <div style={{ display: 'flex', gap: '0.35rem', backgroundColor: 'var(--color-bg-base)', padding: '2px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
               {[
-                { label: 'All', value: 'ALL' },
-                { label: 'Pending', value: 'PENDING' },
-                { label: 'Processing', value: 'PROCESSING' },
-                { label: 'Approved', value: 'APPROVED' },
-                { label: 'Rejected', value: 'REJECTED' },
+                { label: 'All', value: 'ALL', aria: 'All' },
+                { label: 'Unapproved / Pending', value: 'PENDING', aria: 'Pending' },
+                { label: 'Processing', value: 'PROCESSING', aria: 'Processing' },
+                { label: 'Approved', value: 'APPROVED', aria: 'Approved' },
+                { label: 'Rejected', value: 'REJECTED', aria: 'Rejected' },
               ].map((tab) => (
                 <button
                   key={tab.value}
                   type="button"
+                  aria-label={tab.aria}
                   onClick={() => {
                     setStatusFilter(tab.value);
                     setCurrentPage(1);

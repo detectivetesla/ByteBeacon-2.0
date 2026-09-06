@@ -8,6 +8,7 @@ export interface ParsedSpreadsheetRow {
   network?: string;
   bundleId: string;
   data: string;
+  dataAmountMb?: number;
   pricePesewas: number;
   isValid: boolean;
   status: RecipientRowStatus;
@@ -370,6 +371,7 @@ export async function parseSpreadsheetFile(
       network: rowNetwork,
       bundleId: matched?.id || '',
       data: matched?.dataDisplay || String(rawVol),
+      dataAmountMb: matched?.dataAmountMb,
       pricePesewas: price,
       isValid,
       status,

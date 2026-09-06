@@ -1822,7 +1822,10 @@ export async function agentRoutes(
 
         const itemsRes = await db.query(
           `SELECT ba.id, ba.phone_number as "phoneNumber", ba.network, ba.status,
-                  ba.created_at as "createdAt", ba.updated_at as "updatedAt"
+                  ba.created_at as "createdAt", ba.updated_at as "updatedAt",
+                  ba.last_bundle_size_gb as "lastBundleSizeGb",
+                  CASE WHEN ba.last_bundle_size_gb IS NOT NULL THEN CONCAT(ba.last_bundle_size_gb, ' GB') ELSE '5 GB' END as "dataSize",
+                  'Excel Upload' as "detectedFrom"
            FROM beneficiary_approvals ba
            ${whereClause}
            ORDER BY ba.created_at DESC

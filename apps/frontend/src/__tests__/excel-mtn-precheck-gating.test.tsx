@@ -36,6 +36,7 @@ vi.mock('../api/beneficiary.api.js', () => ({
   beneficiaryApi: {
     precheck: vi.fn(),
     precheckPublic: vi.fn(),
+    recordUnapproved: vi.fn().mockResolvedValue({ recorded: 1 }),
   },
 }));
 

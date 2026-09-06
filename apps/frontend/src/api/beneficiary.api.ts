@@ -81,6 +81,26 @@ export const beneficiaryApi = {
     return apiClient.post('/beneficiaries/precheck', params);
   },
 
+  /**
+   * Records scanned unapproved recipient rows (from Excel or bulk) with their bundle details to Pending MTN Approvals.
+   */
+  recordUnapproved: async (params: {
+    items: Array<{
+      phoneNumber: string;
+      network?: NetworkProvider | string;
+      dataSize?: string;
+      dataAmountMb?: number;
+      pricePesewas?: number;
+      detectedFrom?: string;
+    }>;
+  }): Promise<{ recorded: number }> => {
+    const res = await apiClient.post<{ recorded: number }>('/beneficiaries/record-unapproved', params);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+    }
+    return res;
+  },
+
   listBeneficiaries: async (network?: NetworkProvider): Promise<BeneficiaryItemDto[]> => {
     return apiClient.get<BeneficiaryItemDto[]>('/beneficiaries', {
       params: { network },

@@ -40,7 +40,6 @@ import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import {
   parseSpreadsheetFile,
   generateSpreadsheetTemplate,
-  generateSpreadsheetReport,
   normalizeGhanaPhoneNumber,
   ParsedSpreadsheetRow,
   RecipientRowStatus,
@@ -750,6 +749,23 @@ export const BuyDataPage: React.FC = () => {
         const unapprovedCount = enrichedRows.filter((r) => r.status === 'UNAPPROVED').length;
         const rejectedCount = enrichedRows.filter((r) => r.status === 'REJECTED').length;
 
+        // Record unapproved items to Pending MTN Approvals with bundle metadata
+        const unapprovedItems = enrichedRows.filter((r) => r.status === 'UNAPPROVED');
+        if (unapprovedItems.length > 0) {
+          beneficiaryApi
+            .recordUnapproved?.({
+              items: unapprovedItems.map((r) => ({
+                phoneNumber: r.phone,
+                network: r.network || NetworkProvider.MTN,
+                dataSize: r.data,
+                dataAmountMb: r.dataAmountMb,
+                pricePesewas: r.pricePesewas,
+                detectedFrom: 'Excel Upload',
+              })),
+            })
+            ?.catch?.(() => {});
+        }
+
         if (rejectedCount > 0 || unapprovedCount > 0) {
           toastInfo(
             'Verification Complete',
@@ -803,9 +819,27 @@ export const BuyDataPage: React.FC = () => {
 
   const handleDownloadReport = (filter: RecipientRowStatus | 'ALL' = 'ALL') => {
     if (excelParsedRows.length === 0) return;
-    const { blob, filename } = generateSpreadsheetReport(excelParsedRows, filter);
+    const targetRows =
+      filter === 'ALL'
+        ? excelParsedRows
+        : excelParsedRows.filter((r) => r.status === filter);
+
+    const headers = ['Beneficiary Msisdn', 'Network', 'Data Volume (GB)', 'Status', 'Verification Reason'];
+    const csvRows = [headers.join(',')];
+
+    targetRows.forEach((r) => {
+      const cleanPhone = r.phone.replace(/[\s+]/g, '');
+      const dataGb = r.data || '5GB';
+      const statusLabel = r.status;
+      const reason = (r.statusReason || '').replace(/"/g, '""');
+      csvRows.push(`"${cleanPhone}","${r.network || 'MTN'}","${dataGb}","${statusLabel}","${reason}"`);
+    });
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const filename = `order_verification_${filter.toLowerCase()}_${timestamp}.csv`;
     link.href = url;
     link.setAttribute('download', filename);
     document.body.appendChild(link);
@@ -825,6 +859,22 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
 
+    // Record all unapproved rows with their bundle sizes and 'Excel Upload' channel into Pending MTN Approvals
+    if (unapprovedExcelRows.length > 0) {
+      beneficiaryApi
+        .recordUnapproved?.({
+          items: unapprovedExcelRows.map((r) => ({
+            phoneNumber: r.phone,
+            network: r.network || NetworkProvider.MTN,
+            dataSize: r.data,
+            dataAmountMb: r.dataAmountMb,
+            pricePesewas: r.pricePesewas,
+            detectedFrom: 'Excel Upload',
+          })),
+        })
+        ?.catch?.(() => {});
+    }
+
     // Gating check: if 0 rows are approved, unapproved numbers must NOT be charged or submitted
     if (approvedExcelRows.length === 0) {
       if (unapprovedExcelRows.length > 0) {
@@ -834,7 +884,7 @@ export const BuyDataPage: React.FC = () => {
         setUnapprovedModalOpen(true);
         toastError(
           'MTN Approval Required',
-          `${unapprovedExcelRows.length} MTN recipient(s) must be approved before purchasing. They have been recorded for approval.`,
+          `${unapprovedExcelRows.length} MTN recipient(s) must be approved before purchasing. They have been recorded in the Pending MTN Approvals page.`,
         );
         return;
       }
@@ -853,7 +903,7 @@ export const BuyDataPage: React.FC = () => {
     if (unapprovedExcelRows.length > 0) {
       toastInfo(
         'Partial Batch',
-        `Proceeding with ${approvedExcelRows.length} approved recipient(s). ${unapprovedExcelRows.length} unapproved MTN recipient(s) were excluded and recorded for approval.`,
+        `Proceeding with ${approvedExcelRows.length} approved recipient(s). ${unapprovedExcelRows.length} unapproved MTN recipient(s) were excluded and recorded in the Pending MTN Approvals page.`,
       );
     }
 

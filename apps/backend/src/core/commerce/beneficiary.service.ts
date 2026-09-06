@@ -692,6 +692,97 @@ export class BeneficiaryService {
   }
 
   /**
+   * Records scanned unapproved beneficiary items with bundle metadata for Pending MTN Approvals tracking.
+   */
+  public async recordUnapprovedBeneficiaries(params: {
+    items: Array<{
+      phoneNumber: string;
+      network?: NetworkProvider | string;
+      dataSize?: string;
+      dataAmountMb?: number;
+      pricePesewas?: number;
+      detectedFrom?: string;
+    }>;
+    userId?: string;
+  }): Promise<{ count: number }> {
+    const { items, userId } = params;
+    if (!items || items.length === 0) {
+      return { count: 0 };
+    }
+
+    let recordedCount = 0;
+    await Promise.all(
+      items.map(async (item) => {
+        const norm = this.normalizeGhanaPhone(item.phoneNumber);
+        if (!norm.valid) return;
+
+        const phone = norm.normalized;
+        const net = (item.network ? String(item.network).toUpperCase() : 'MTN') as NetworkProvider;
+
+        // Parse numeric GB volume from dataSize or dataAmountMb
+        let sizeGb: number | null = null;
+        if (typeof item.dataAmountMb === 'number' && item.dataAmountMb > 0) {
+          sizeGb = parseFloat((item.dataAmountMb / 1024).toFixed(2));
+        } else if (item.dataSize) {
+          const m = String(item.dataSize).match(/([\d.]+)\s*(GB|MB)?/i);
+          if (m) {
+            const val = parseFloat(m[1]);
+            const unit = (m[2] || 'GB').toUpperCase();
+            sizeGb = unit === 'MB' ? parseFloat((val / 1024).toFixed(2)) : val;
+          }
+        }
+
+        const metadata = JSON.stringify({
+          detectedFrom: item.detectedFrom || 'Excel Upload',
+          channel: item.detectedFrom || 'Excel Upload',
+          dataSize: item.dataSize || (sizeGb ? `${sizeGb} GB` : null),
+          dataAmountMb: item.dataAmountMb || (sizeGb ? Math.round(sizeGb * 1024) : null),
+          pricePesewas: item.pricePesewas || null,
+          recordedAt: new Date().toISOString(),
+          agentId: userId || null,
+        });
+
+        try {
+          if (userId) {
+            await this.db.query(
+              `INSERT INTO pending_beneficiary_approvals (
+                phone_number, network, agent_id, status, attempt_count,
+                last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
+              ) VALUES ($1, $2, $3, 'PENDING', 1, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+              ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+              SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                  last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
+                  last_detected_at = CURRENT_TIMESTAMP,
+                  updated_at = CURRENT_TIMESTAMP`,
+              [phone, net, userId, sizeGb],
+            ).catch(() => {});
+          }
+
+          await this.db.query(
+            `INSERT INTO beneficiary_validation (
+              phone_number, network, validation_status, attempt_count,
+              last_bundle_size_gb, agent_id, provider_response_metadata, created_at, updated_at
+            ) VALUES ($1, $2, 'PENDING', 1, $3, $4, $5::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (phone_number, network) DO UPDATE
+            SET attempt_count = beneficiary_validation.attempt_count + 1,
+                last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+                agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
+                provider_response_metadata = $5::jsonb,
+                updated_at = CURRENT_TIMESTAMP`,
+            [phone, net, sizeGb, userId || null, metadata],
+          ).catch(() => {});
+
+          recordedCount++;
+        } catch {
+          // Non-fatal per-item error
+        }
+      }),
+    );
+
+    return { count: recordedCount };
+  }
+
+  /**
    * Lists pending or historical beneficiary validation/approval records.
    */
   public async listBeneficiaryApprovals(params: {
@@ -728,7 +819,9 @@ export class BeneficiaryService {
     const selectQuery = `
       SELECT id, phone_number as "phoneNumber", network, validation_status as "status",
              provider_reference as "providerReference", validated_at as "validatedAt",
-             expires_at as "expiresAt", created_at as "createdAt"
+             expires_at as "expiresAt", created_at as "createdAt",
+             last_bundle_size_gb as "lastBundleSizeGb",
+             provider_response_metadata as "metadata"
       FROM beneficiary_validation
       ${where}
       ORDER BY created_at DESC
@@ -739,16 +832,26 @@ export class BeneficiaryService {
     const itemsRes = await this.db.query(selectQuery, queryParams);
 
     return {
-      items: itemsRes.rows.map((r) => ({
-        id: r.id,
-        phoneNumber: r.phoneNumber,
-        network: r.network as NetworkProvider,
-        status: r.status as BeneficiaryValidationStatus,
-        providerReference: r.providerReference,
-        validatedAt: r.validatedAt ? new Date(r.validatedAt).toISOString() : null,
-        expiresAt: r.expiresAt ? new Date(r.expiresAt).toISOString() : null,
-        createdAt: new Date(r.createdAt).toISOString(),
-      })),
+      items: itemsRes.rows.map((r: any) => {
+        const meta = r.metadata || {};
+        let dataSize = meta.dataSize;
+        if (!dataSize && r.lastBundleSizeGb) {
+          dataSize = `${r.lastBundleSizeGb} GB`;
+        }
+
+        return {
+          id: r.id,
+          phoneNumber: r.phoneNumber,
+          network: r.network as NetworkProvider,
+          status: r.status as BeneficiaryValidationStatus,
+          providerReference: r.providerReference || 'DH-AUTO',
+          dataSize: dataSize || '5 GB',
+          detectedFrom: meta.detectedFrom || meta.channel || 'Excel Upload',
+          validatedAt: r.validatedAt ? new Date(r.validatedAt).toISOString() : null,
+          expiresAt: r.expiresAt ? new Date(r.expiresAt).toISOString() : null,
+          createdAt: new Date(r.createdAt).toISOString(),
+        };
+      }),
       total,
       page,
       limit,
