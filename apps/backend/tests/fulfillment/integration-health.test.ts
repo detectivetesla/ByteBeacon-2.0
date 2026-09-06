@@ -47,7 +47,8 @@ describe('Integration Health Reporting API', () => {
     const body = JSON.parse(response.body);
 
     expect(body.status).toBe('HEALTHY');
-    expect(body.integrations.gmpl.status).toBe('UP');
+    const telecom = body.integrations.telecom || body.integrations.gmpl || body.integrations.ByteBeacon;
+    expect(telecom.status).toBe('UP');
     expect(body.integrations.paystack.status).toBe('UP');
     expect(body.integrations.database.status).toBe('UP');
     expect(body.integrations.redis.status).toBe('UP');

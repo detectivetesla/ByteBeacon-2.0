@@ -82,23 +82,18 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
 
     mockTelecomProvider = {
       providerName: 'DATAHOUSE',
-      precheckBeneficiaries: vi.fn().mockResolvedValue({
-        network: NetworkProvider.MTN,
-        enforced: true,
-        results: [
-          {
-            phoneNumber: '0241112233',
-            isValid: true,
-            isKnown: true,
-            accountName: 'Kwame Mensah',
-          },
-          {
-            phoneNumber: '0249998877',
-            isValid: true,
-            isKnown: false,
-            accountName: undefined,
-          },
-        ],
+      precheckBeneficiaries: vi.fn().mockImplementation(async (input) => {
+        const phoneNumbers = input?.phoneNumbers || [];
+        return {
+          network: NetworkProvider.MTN,
+          enforced: true,
+          results: phoneNumbers.map((p: string) => ({
+            phoneNumber: p,
+            isValid: !p.includes('invalid'),
+            isKnown: p === '0241112233' || p.endsWith('1') || p.endsWith('2'),
+            accountName: p === '0241112233' ? 'Kwame Mensah' : undefined,
+          })),
+        };
       }),
       precheckPublicBeneficiaries: vi.fn().mockResolvedValue({
         network: NetworkProvider.MTN,
@@ -256,6 +251,32 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       });
 
       expect(resTooLong.statusCode).toBe(400);
+    });
+  });
+
+  describe('Bulk Commerce Endpoint: POST /beneficiaries/precheck', () => {
+    it('should handle bulk numbers (>10) without truncation and verify against telecom provider', async () => {
+      const fifteenNumbers = Array.from({ length: 15 }, (_, i) => `02410000${String(i).padStart(2, '0')}`);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/beneficiaries/precheck',
+        payload: {
+          network: 'MTN',
+          phoneNumbers: fifteenNumbers,
+          record: true,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.statusCode).toBe(200);
+      expect(json.data.network).toBe('MTN');
+      expect(json.data.recorded).toBe(true);
+      expect(json.data.results).toHaveLength(15);
+      expect(mockTelecomProvider.precheckBeneficiaries).toHaveBeenCalled();
+      const lastCall = (mockTelecomProvider.precheckBeneficiaries as any).mock.calls.slice(-1)[0][0];
+      expect(lastCall.phoneNumbers.length).toBeGreaterThan(10);
     });
   });
 

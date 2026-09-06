@@ -74,6 +74,7 @@ export async function integrationHealthRoutes(
     const report: IntegrationHealthReport = {
       status: overallStatus,
       integrations: {
+        telecom: telecomHealth,
         datahouse: telecomHealth,
         gmpl: telecomHealth, // Backward compatibility alias
         paystack: paystackHealth,

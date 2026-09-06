@@ -11,6 +11,8 @@ import {
   BeneficiaryValidationResult,
   DataHousePrecheckInput,
   DataHousePrecheckResult,
+  DataHousePublicPrecheckInput,
+  DataHouseBeneficiaryStatusListDto,
   DataHouseWalletBalanceDto,
   DataHouseBundleDto,
   ProviderBundleDto,
@@ -476,6 +478,22 @@ export class TelecomProviderRegistry implements ITelecomProvider {
         isValid: true,
       })),
     };
+  }
+
+  public async precheckPublicBeneficiaries(input: DataHousePublicPrecheckInput): Promise<DataHousePrecheckResult> {
+    const provider = this.getProviderForNetwork(input.network);
+    if (provider.precheckPublicBeneficiaries) {
+      return provider.precheckPublicBeneficiaries(input);
+    }
+    return this.precheckBeneficiaries(input);
+  }
+
+  public async listBeneficiaries(params: any = {}): Promise<DataHouseBeneficiaryStatusListDto> {
+    const active = this.getActiveProvider();
+    if (active.listBeneficiaries) {
+      return active.listBeneficiaries(params);
+    }
+    return { items: [], page: 1, limit: 30, total: 0 };
   }
 
   public async getWalletBalance(): Promise<DataHouseWalletBalanceDto> {

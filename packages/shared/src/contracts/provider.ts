@@ -83,8 +83,10 @@ export interface ProviderHealth {
 export interface IntegrationHealthReport {
   status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
   integrations: {
-    datahouse: ProviderHealth;
+    telecom?: ProviderHealth;
+    datahouse?: ProviderHealth;
     gmpl?: ProviderHealth;
+    ByteBeacon?: ProviderHealth;
     paystack: ProviderHealth;
     redis: { status: 'UP' | 'DOWN'; latencyMs: number };
     database: { status: 'UP' | 'DOWN'; latencyMs: number };
@@ -194,6 +196,7 @@ export interface SubmitBulkOrderResult {
 export interface DataHousePublicPrecheckInput {
   network: NetworkProvider;
   phoneNumbers: string[];
+  record?: boolean;
 }
 
 export interface DataHousePrecheckItemResult {

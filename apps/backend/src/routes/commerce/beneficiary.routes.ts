@@ -174,10 +174,15 @@ export async function beneficiaryRoutes(
         }
       }
 
-      const result = await beneficiaryService.precheckPublicBeneficiaries({
+      const isSandbox =
+        (apiKeyHeader as string)?.startsWith('ak_test_') ||
+        authHeader?.startsWith('Bearer ak_test_');
+
+      const result = await beneficiaryService.precheckAgentBeneficiaries({
         network: network as NetworkProvider,
         phoneNumbers,
         record: Boolean(record),
+        isSandbox: Boolean(isSandbox),
         userId: authenticatedUserId,
       });
 
