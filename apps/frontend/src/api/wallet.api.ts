@@ -41,21 +41,38 @@ export const walletApi = {
     search?: string;
     dateRange?: string;
   } = {}): Promise<WalletTransactionsResponse> => {
-    return apiClient.get<WalletTransactionsResponse>('/agents/wallet/transactions', {
+    const res: any = await apiClient.get('/agents/wallet/transactions', {
       params,
     });
+    const txList = Array.isArray(res?.transactions)
+      ? res.transactions
+      : Array.isArray(res?.items)
+      ? res.items
+      : [];
+    return {
+      transactions: txList,
+      total: res?.total ?? res?.pagination?.total ?? txList.length,
+      page: res?.page ?? res?.pagination?.page ?? 1,
+      limit: res?.limit ?? res?.pagination?.limit ?? 10,
+      totalPages: res?.totalPages ?? res?.pagination?.totalPages ?? 1,
+    };
   },
 
-  initializeTopup: async (amountGhs: number): Promise<{ authorizationUrl: string; reference: string }> => {
+  initializeTopup: async (amountGhs: number, callbackUrl?: string): Promise<{ authorizationUrl: string; reference: string }> => {
     return apiClient.post<{ authorizationUrl: string; reference: string }>('/agents/wallet/topup/initialize', {
       amountPesewas: Math.round(amountGhs * 100),
+      callbackUrl,
     });
   },
 
   verifyTopup: async (reference: string): Promise<{ success: boolean; newBalancePesewas: number }> => {
-    return apiClient.post<{ success: boolean; newBalancePesewas: number }>('/agents/wallet/topup/verify', {
+    const res = await apiClient.post<{ success: boolean; newBalancePesewas: number }>('/agents/wallet/topup/verify', {
       reference,
     });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('wallet-balance-updated', { detail: res }));
+    }
+    return res;
   },
 
   requestWithdrawal: async (payload: {

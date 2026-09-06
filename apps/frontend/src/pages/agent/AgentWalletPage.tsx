@@ -204,9 +204,11 @@ export const AgentWalletPage: React.FC = () => {
           } else {
             toastSuccess('Deposit Received', 'Your wallet balance has been updated.');
           }
+          refreshBalance();
           fetchTransactions();
         })
         .catch(() => {
+          refreshBalance();
           fetchTransactions();
         })
         .finally(() => {
@@ -261,7 +263,8 @@ export const AgentWalletPage: React.FC = () => {
     setIsProcessingCheckout(true);
 
     try {
-      const data = await walletApi.initializeTopup(parsedTopUpAmount);
+      const returnUrl = `${window.location.origin}/agent/wallet?paystack_verify=true`;
+      const data = await walletApi.initializeTopup(parsedTopUpAmount, returnUrl);
 
       if (data?.authorizationUrl) {
         toastInfo('Redirecting to Paystack', 'Opening secure checkout...');

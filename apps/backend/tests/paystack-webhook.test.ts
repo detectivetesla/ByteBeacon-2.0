@@ -116,4 +116,74 @@ describe('Paystack Webhook Security & Durable Deduplication', () => {
     expect(res2.status).toBe('DUPLICATE');
     expect(processSuccessfulPaymentMock).toHaveBeenCalledTimes(1); // Not called again!
   });
+
+  it('should route WALLET_TOPUP charge.success events to processSuccessfulWalletTopup', async () => {
+    const processSuccessfulWalletTopupMock = vi.fn().mockResolvedValue({ alreadyProcessed: false, newBalancePesewas: 10000 });
+    const processSuccessfulPaymentMock = vi.fn();
+
+    const mockDb = {
+      connect: vi.fn().mockResolvedValue({
+        query: vi.fn().mockImplementation((q: string) => {
+          if (q.includes('FROM payments')) {
+            return Promise.resolve({
+              rows: [{
+                id: 'pay_topup_1',
+                order_id: null,
+                user_id: 'usr_topup_1',
+                amount_pesewas: 5000,
+                status: 'PENDING',
+                metadata: { type: 'WALLET_TOPUP', userId: 'usr_topup_1' },
+              }],
+            });
+          }
+          if (q.includes('SELECT id FROM payment_events')) {
+            return Promise.resolve({ rows: [] });
+          }
+          if (q.includes('INSERT INTO payment_events')) {
+            return Promise.resolve({ rows: [] });
+          }
+          return Promise.resolve({ rows: [] });
+        }),
+        release: vi.fn(),
+      }),
+    } as unknown as pg.Pool;
+
+    const mockRedis = {
+      set: vi.fn().mockResolvedValue('OK'),
+    } as unknown as Redis;
+
+    const mockPaymentService = {
+      processSuccessfulPayment: processSuccessfulPaymentMock,
+      processSuccessfulWalletTopup: processSuccessfulWalletTopupMock,
+    } as unknown as PaymentService;
+
+    const webhookService = new PaymentWebhookService(
+      mockDb,
+      mockRedis,
+      adapter,
+      mockPaymentService,
+    );
+
+    const payload = JSON.stringify({
+      event: 'charge.success',
+      data: {
+        id: 88888,
+        reference: 'pst_topup_webhook_ref',
+        amount: 5000,
+        currency: 'GHS',
+        status: 'success',
+        metadata: {
+          type: 'WALLET_TOPUP',
+          userId: 'usr_topup_1',
+        },
+      },
+    });
+
+    const validSig = crypto.createHmac('sha512', secretKey).update(payload).digest('hex');
+    const res = await webhookService.handlePaystackWebhook(payload, validSig, 'req_topup_1');
+
+    expect(res.status).toBe('PROCESSED');
+    expect(processSuccessfulWalletTopupMock).toHaveBeenCalledTimes(1);
+    expect(processSuccessfulPaymentMock).not.toHaveBeenCalled();
+  });
 });

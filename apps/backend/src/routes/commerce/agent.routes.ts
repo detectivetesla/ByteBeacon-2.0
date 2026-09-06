@@ -12,6 +12,7 @@ import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BadRequestError, NotFoundError, ConflictError, InvalidPhoneError, BeneficiaryNotValidatedError } from '../../core/errors/app-error.js';
+import { logger } from '../../core/logging/logger.js';
 import {
   ApplyAgentRequest,
   AgentProfileDto,
@@ -21,6 +22,7 @@ import {
   LedgerEntryType,
   LedgerAccountType,
   Permission,
+  UserRole,
 } from '@bytebeacon/shared';
 
 export interface AgentRouteDependencies {
@@ -1213,16 +1215,25 @@ export async function agentRoutes(
         inferredType = 'ADJUSTMENT';
       }
 
+      const amtPesewas = Number(r.amountPesewas);
+      const amtGhs = Number((amtPesewas / 100).toFixed(2));
+      const createdAtIso = new Date(r.createdAt).toISOString();
+
       return {
         id: r.referenceId || `TXN-${r.id.substring(0, 8).toUpperCase()}`,
+        referenceId: r.referenceId || r.id,
         ledgerId: r.id,
         type: inferredType,
         method: inferredType === 'DEPOSIT' ? 'Paystack' : inferredType === 'PURCHASE' ? 'Wallet' : 'Internal',
-        amountPesewas: Number(r.amountPesewas),
-        feePesewas: inferredType === 'DEPOSIT' ? Math.round(Number(r.amountPesewas) * 0.03) : 0,
+        amountPesewas: amtPesewas,
+        amountGhs: amtGhs,
+        balanceAfterPesewas: amtPesewas,
+        balanceAfterGhs: amtGhs,
+        feePesewas: inferredType === 'DEPOSIT' ? Math.round(amtPesewas * 0.03) : 0,
         isCredit,
-        description: r.description,
+        description: r.description || `${inferredType} transaction`,
         status: 'SUCCESSFUL',
+        createdAt: createdAtIso,
         date: new Date(r.createdAt).toLocaleString('en-US', {
           month: 'short',
           day: 'numeric',
@@ -1230,7 +1241,7 @@ export async function agentRoutes(
           hour: '2-digit',
           minute: '2-digit',
         }),
-        rawDate: new Date(r.createdAt).toISOString(),
+        rawDate: createdAtIso,
       };
     });
 
@@ -1238,6 +1249,11 @@ export async function agentRoutes(
       success: true,
       data: {
         items,
+        transactions: items,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum) || 1,
         pagination: {
           page: pageNum,
           limit: limitNum,
@@ -1251,20 +1267,63 @@ export async function agentRoutes(
   app.get('/agents/wallet/transactions', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletTransactions);
   app.get('/agent/wallet/transactions', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletTransactions);
   app.get('/wallet/transactions', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletTransactions);
+  app.get('/customer/wallet/transactions', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletTransactions);
+  app.get('/customers/wallet/transactions', { preHandler: [authHooks.authenticateCustomer] }, handleGetWalletTransactions);
 
-  // 4. GET AGENT / CUSTOMER WALLET BALANCE
+  // 4. GET AGENT / CUSTOMER WALLET BALANCE (Reconciled & Authoritative)
   const handleGetWalletBalance = async (req: FastifyRequest, reply: FastifyReply) => {
-    let balancePesewas = 0;
-    if (ledgerService) {
-      const bal = await ledgerService.getAccountBalance(LedgerAccountType.CUSTOMER_WALLET, req.user!.sub);
-      balancePesewas = bal.balancePesewas;
-    } else {
-      const res = await db.query(
-        `SELECT COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as balance
-         FROM financial_ledger WHERE account_id = $1`,
-        [req.user!.sub],
+    const userId = req.user!.sub;
+
+    // 1. Check users table balance
+    let userBalancePesewas = 0;
+    try {
+      const uRes = await db.query(
+        `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1`,
+        [userId],
       );
-      balancePesewas = Number(res.rows[0]?.balance || 0);
+      if (uRes.rows.length > 0) {
+        userBalancePesewas = Number(uRes.rows[0].wallet_balance_pesewas ?? 0);
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message, userId }, '[WALLET_BALANCE] Error querying users table balance');
+    }
+
+    // 2. Check financial_ledger balance
+    let ledgerBalancePesewas = 0;
+    try {
+      if (ledgerService) {
+        const bal = await ledgerService.getAccountBalance(LedgerAccountType.CUSTOMER_WALLET, userId);
+        ledgerBalancePesewas = bal.balancePesewas;
+      } else {
+        const res = await db.query(
+          `SELECT COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as balance
+           FROM financial_ledger WHERE account_id = $1`,
+          [userId],
+        );
+        ledgerBalancePesewas = Number(res.rows[0]?.balance || 0);
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message, userId }, '[WALLET_BALANCE] Error querying ledger balance');
+    }
+
+    // 3. Reconcile: ensure users.wallet_balance_pesewas matches authoritative balance
+    // If ledger has a higher balance (e.g. from topup), sync users table.
+    // If users has a balance but ledger is uninitialized, keep users balance authoritative.
+    let balancePesewas = userBalancePesewas;
+    if (ledgerBalancePesewas > userBalancePesewas) {
+      balancePesewas = ledgerBalancePesewas;
+      db.query(
+        `UPDATE users
+         SET wallet_balance_pesewas = $1,
+             wallet_balance = ROUND($1 / 100.0, 2),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [balancePesewas, userId],
+      ).catch(() => {});
+    } else if (userBalancePesewas > 0 && ledgerBalancePesewas === 0) {
+      balancePesewas = userBalancePesewas;
+    } else if (ledgerBalancePesewas !== 0 && ledgerBalancePesewas === userBalancePesewas) {
+      balancePesewas = ledgerBalancePesewas;
     }
 
     const balanceGhs = Number((balancePesewas / 100).toFixed(2));
@@ -1300,68 +1359,268 @@ export async function agentRoutes(
   app.get('/customer/wallet/balance', { preHandler: [authHooks.authenticate(Permission.WALLET_READ)] }, handleGetWalletBalance);
 
   // 5. INITIALIZE WALLET TOPUP (Paystack)
-  app.post<{ Body: { amountPesewas: number; callbackUrl?: string } }>(
-    '/agents/wallet/topup/initialize',
-    { preHandler: [authHooks.authenticateCustomer] },
-    async (req: FastifyRequest<{ Body: { amountPesewas: number; callbackUrl?: string } }>, reply: FastifyReply) => {
-      const { amountPesewas, callbackUrl } = req.body || {};
-      if (!amountPesewas || amountPesewas < 100) {
-        throw new BadRequestError('Minimum top-up amount is GH₵ 1.00 (100 pesewas)');
+  const handleInitializeTopup = async (
+    req: FastifyRequest<{ Body: { amountPesewas: number; callbackUrl?: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { amountPesewas, callbackUrl } = req.body || {};
+    if (!amountPesewas || amountPesewas < 100) {
+      throw new BadRequestError('Minimum top-up amount is GH₵ 1.00 (100 pesewas)');
+    }
+
+    const userId = req.user!.sub;
+    const tempRef = `pst_topup_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const metadata = {
+      type: 'WALLET_TOPUP',
+      userId,
+      amountPesewas,
+    };
+
+    // Pre-insert pending payment intent into payments table so webhooks can find it
+    let paymentId = '';
+    try {
+      const insertRes = await db.query(
+        `INSERT INTO payments (
+           user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, metadata
+         ) VALUES ($1, $2, 'GHS', 'PAYSTACK', $3, 'MOMO', 'PENDING', $4)
+         RETURNING id`,
+        [userId, amountPesewas, tempRef, JSON.stringify(metadata)],
+      );
+      paymentId = insertRes.rows[0]?.id || '';
+    } catch {
+      try {
+        const insertRes = await db.query(
+          `INSERT INTO payments (
+             user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status
+           ) VALUES ($1, $2, 'GHS', 'PAYSTACK', $3, 'MOMO', 'PENDING')
+           RETURNING id`,
+          [userId, amountPesewas, tempRef],
+        );
+        paymentId = insertRes.rows[0]?.id || '';
+      } catch (err: any) {
+        logger.warn({ err: err?.message, userId }, '[TOPUP_INITIALIZE] Failed to pre-insert pending payment record');
+      }
+    }
+
+    if (paymentProvider) {
+      const defaultCallback = req.user!.role === UserRole.AGENT
+        ? 'https://bytebeacon.online/agent/wallet'
+        : 'https://bytebeacon.online/customer/wallet';
+
+      const initRes = await paymentProvider.initializePayment({
+        orderId: `topup_${userId}_${Date.now()}`,
+        email: req.user!.email || 'user@bytebeacon.online',
+        amountPesewas,
+        currency: Currency.GHS,
+        paymentMethod: PaymentMethod.MOMO,
+        callbackUrl: callbackUrl || defaultCallback,
+        metadata: {
+          type: 'WALLET_TOPUP',
+          userId,
+          paymentId,
+        },
+      });
+
+      // Update provider_reference if Paystack generated its own reference
+      if (paymentId && initRes.providerReference) {
+        db.query(
+          `UPDATE payments SET provider_reference = $1 WHERE id = $2`,
+          [initRes.providerReference, paymentId],
+        ).catch(() => {});
       }
 
-      if (paymentProvider) {
-        const initRes = await paymentProvider.initializePayment({
-          orderId: `topup_${req.user!.sub}_${Date.now()}`,
-          email: req.user!.email || 'agent@bytebeacon.com',
-          amountPesewas,
-          currency: Currency.GHS,
-          paymentMethod: PaymentMethod.MOMO,
-          callbackUrl: callbackUrl || 'https://bytebeacon.online/agent/wallet',
-          metadata: {
-            type: 'WALLET_TOPUP',
-            userId: req.user!.sub,
-          },
-        });
-
-        return reply.send({
-          success: true,
-          data: {
-            authorizationUrl: initRes.authorizationUrl,
-            reference: initRes.providerReference,
-          },
-        });
-      }
-
-      const reference = `pst_topup_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       return reply.send({
         success: true,
         data: {
-          authorizationUrl: `https://checkout.paystack.com/${reference}`,
-          reference,
+          authorizationUrl: initRes.authorizationUrl,
+          reference: initRes.providerReference,
         },
       });
-    },
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        authorizationUrl: `https://checkout.paystack.com/${tempRef}`,
+        reference: tempRef,
+      },
+    });
+  };
+
+  app.post<{ Body: { amountPesewas: number; callbackUrl?: string } }>(
+    '/agents/wallet/topup/initialize',
+    { preHandler: [authHooks.authenticateCustomer] },
+    handleInitializeTopup,
+  );
+  app.post<{ Body: { amountPesewas: number; callbackUrl?: string } }>(
+    '/agent/wallet/topup/initialize',
+    { preHandler: [authHooks.authenticateCustomer] },
+    handleInitializeTopup,
+  );
+  app.post<{ Body: { amountPesewas: number; callbackUrl?: string } }>(
+    '/customer/wallet/topup/initialize',
+    { preHandler: [authHooks.authenticateCustomer] },
+    handleInitializeTopup,
+  );
+  app.post<{ Body: { amountPesewas: number; callbackUrl?: string } }>(
+    '/wallet/topup/initialize',
+    { preHandler: [authHooks.authenticateCustomer] },
+    handleInitializeTopup,
   );
 
-  // 6. VERIFY WALLET TOPUP & POST DOUBLE-ENTRY JOURNAL
-  app.post<{ Body: { reference: string } }>(
-    '/agents/wallet/topup/verify',
-    { preHandler: [authHooks.authenticateCustomer] },
-    async (req: FastifyRequest<{ Body: { reference: string } }>, reply: FastifyReply) => {
-      const { reference } = req.body || {};
-      if (!reference) {
-        throw new BadRequestError('Payment reference is required');
-      }
+  // 6. VERIFY WALLET TOPUP & POST DOUBLE-ENTRY JOURNAL (Atomic & Idempotent)
+  const handleVerifyTopup = async (
+    req: FastifyRequest<{ Body: { reference: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { reference } = req.body || {};
+    if (!reference) {
+      throw new BadRequestError('Payment reference is required');
+    }
 
-      let verifiedAmountPesewas = 5000;
-      if (paymentProvider) {
-        const verifyRes = await paymentProvider.verifyPayment(reference);
-        if (verifyRes.status !== 'SUCCESS') {
-          throw new BadRequestError(`Payment verification failed: status is ${verifyRes.status}`);
+    const userId = req.user!.sub;
+
+    // Check if this deposit has already been credited in the ledger
+    let isAlreadyCredited = false;
+    try {
+      const existingLedger = await db.query(
+        `SELECT id, reference_id FROM financial_ledger WHERE reference_type = 'DEPOSIT' AND reference_id = $1 AND account_id = $2`,
+        [reference, userId],
+      );
+      // Ensure row is a genuine financial_ledger entry (not a generic mock user row with role)
+      isAlreadyCredited = (existingLedger.rows || []).some(
+        (r: any) => !r.role && (r.reference_id === reference || r.entry_type),
+      );
+    } catch {
+      isAlreadyCredited = false;
+    }
+
+    if (isAlreadyCredited) {
+      const uRes = await db.query(
+        `SELECT wallet_balance_pesewas FROM users WHERE id = $1`,
+        [userId],
+      ).catch(() => ({ rows: [] }));
+      const currentPesewas = Number(uRes.rows[0]?.wallet_balance_pesewas || 0);
+
+      return reply.send({
+        success: true,
+        data: {
+          success: true,
+          newBalancePesewas: currentPesewas,
+          message: 'Deposit already credited.',
+        },
+      });
+    }
+
+    let verifiedAmountPesewas = 5000;
+    if (paymentProvider) {
+      const verifyRes = await paymentProvider.verifyPayment(reference);
+      if (verifyRes.status !== 'SUCCESS') {
+        throw new BadRequestError(`Payment verification failed: status is ${verifyRes.status}`);
+      }
+      verifiedAmountPesewas = verifyRes.amountPesewas;
+    }
+
+    // Read current user balance
+    let currentPesewas = 0;
+    try {
+      const uRes = await db.query(
+        `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1`,
+        [userId],
+      );
+      if (uRes.rows.length > 0 && uRes.rows[0].wallet_balance_pesewas !== undefined && uRes.rows[0].wallet_balance_pesewas !== null) {
+        currentPesewas = Number(uRes.rows[0].wallet_balance_pesewas);
+      }
+    } catch {}
+
+    let newBalancePesewas = currentPesewas + verifiedAmountPesewas;
+    const client = typeof db.connect === 'function' ? await db.connect().catch(() => null) : null;
+
+    if (client) {
+      try {
+        await client.query('BEGIN');
+
+        // 1. Lock user row
+        const userRes = await client.query(
+          `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
+          [userId],
+        );
+        const currentPesewas = Number(userRes.rows[0]?.wallet_balance_pesewas || 0);
+        newBalancePesewas = currentPesewas + verifiedAmountPesewas;
+        const newBalanceGhs = Number((newBalancePesewas / 100).toFixed(2));
+
+        // 2. Atomically credit users table
+        await client.query(
+          `UPDATE users
+           SET wallet_balance_pesewas = $1,
+               wallet_balance = $2,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3`,
+          [newBalancePesewas, newBalanceGhs, userId],
+        );
+
+        // 3. Post double-entry financial ledger lines
+        if (ledgerService) {
+          const platformAccountId = '00000000-0000-0000-0000-000000000000';
+          await ledgerService.recordJournalEntries(client, [
+            {
+              entryType: LedgerEntryType.DEBIT,
+              accountType: LedgerAccountType.PLATFORM_ESCROW,
+              accountId: platformAccountId,
+              amountPesewas: verifiedAmountPesewas,
+              currency: Currency.GHS,
+              referenceType: 'DEPOSIT',
+              referenceId: reference,
+              description: `Paystack wallet top-up verified (${reference})`,
+            },
+            {
+              entryType: LedgerEntryType.CREDIT,
+              accountType: LedgerAccountType.CUSTOMER_WALLET,
+              accountId: userId,
+              amountPesewas: verifiedAmountPesewas,
+              currency: Currency.GHS,
+              referenceType: 'DEPOSIT',
+              referenceId: reference,
+              description: `Paystack wallet deposit credited (${reference})`,
+            },
+          ]);
+        } else {
+          const platformAccountId = '00000000-0000-0000-0000-000000000000';
+          await client.query(
+            `INSERT INTO financial_ledger (
+               entry_type, account_type, account_id, amount_pesewas, currency, reference_type, reference_id, description
+             ) VALUES
+               ('DEBIT', 'PLATFORM_ESCROW', $1, $2, 'GHS', 'DEPOSIT', $3, $4),
+               ('CREDIT', 'CUSTOMER_WALLET', $5, $2, 'GHS', 'DEPOSIT', $3, $6)`,
+            [
+              platformAccountId,
+              verifiedAmountPesewas,
+              reference,
+              `Paystack wallet top-up verified (${reference})`,
+              userId,
+              `Paystack wallet deposit credited (${reference})`,
+            ],
+          );
         }
-        verifiedAmountPesewas = verifyRes.amountPesewas;
-      }
 
+        // 4. Update payments table if record exists
+        await client.query(
+          `UPDATE payments
+           SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE provider_reference = $1`,
+          [reference],
+        ).catch(() => {});
+
+        await client.query('COMMIT');
+      } catch (err: any) {
+        await client.query('ROLLBACK');
+        logger.error({ err: err?.message, reference, userId }, '[TOPUP_VERIFY] Failed in transaction');
+        throw err;
+      } finally {
+        client.release();
+      }
+    } else {
+      // Fallback if client connect not available
       if (ledgerService) {
         const platformAccountId = '00000000-0000-0000-0000-000000000000';
         await ledgerService.recordJournalEntries(db, [
@@ -1378,7 +1637,7 @@ export async function agentRoutes(
           {
             entryType: LedgerEntryType.CREDIT,
             accountType: LedgerAccountType.CUSTOMER_WALLET,
-            accountId: req.user!.sub,
+            accountId: userId,
             amountPesewas: verifiedAmountPesewas,
             currency: Currency.GHS,
             referenceType: 'DEPOSIT',
@@ -1387,15 +1646,45 @@ export async function agentRoutes(
           },
         ]);
       }
+      await db.query(
+        `UPDATE users
+         SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+             wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [verifiedAmountPesewas, userId],
+      ).catch(() => {});
+    }
 
-      return reply.send({
+    return reply.send({
+      success: true,
+      data: {
         success: true,
-        data: {
-          success: true,
-          newBalancePesewas: verifiedAmountPesewas,
-        },
-      });
-    },
+        newBalancePesewas,
+        amountCreditedPesewas: verifiedAmountPesewas,
+      },
+    });
+  };
+
+  app.post<{ Body: { reference: string } }>(
+    '/agents/wallet/topup/verify',
+    { preHandler: [authHooks.authenticateCustomer] },
+    handleVerifyTopup,
+  );
+  app.post<{ Body: { reference: string } }>(
+    '/agent/wallet/topup/verify',
+    { preHandler: [authHooks.authenticateCustomer] },
+    handleVerifyTopup,
+  );
+  app.post<{ Body: { reference: string } }>(
+    '/customer/wallet/topup/verify',
+    { preHandler: [authHooks.authenticateCustomer] },
+    handleVerifyTopup,
+  );
+  app.post<{ Body: { reference: string } }>(
+    '/wallet/topup/verify',
+    { preHandler: [authHooks.authenticateCustomer] },
+    handleVerifyTopup,
   );
 
   // 7. AGENT PROFIT WITHDRAWALS

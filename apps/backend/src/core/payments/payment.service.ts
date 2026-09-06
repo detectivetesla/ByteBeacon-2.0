@@ -622,6 +622,155 @@ export class PaymentService {
   }
 
   /**
+   * Authoritative processing of successful wallet deposit/top-up.
+   * Atomically credits users.wallet_balance_pesewas and users.wallet_balance,
+   * updates payments status to PAID, and posts double-entry financial ledger lines.
+   */
+  public async processSuccessfulWalletTopup(
+    paymentId: string,
+    providerReference: string,
+    gatewayData: {
+      channel?: string;
+      authorizationCode?: string;
+      paidAt?: Date;
+      amountPesewas: number;
+    },
+    correlationId: string,
+  ): Promise<{ alreadyProcessed: boolean; newBalancePesewas: number }> {
+    const client = await this.db.connect();
+    try {
+      await client.query('BEGIN');
+
+      const payRes = await client.query(
+        `SELECT id, order_id, user_id, amount_pesewas, currency, status, provider_reference
+         FROM payments
+         WHERE id = $1
+         FOR UPDATE`,
+        [paymentId],
+      );
+
+      if (payRes.rows.length === 0) {
+        throw new NotFoundError(`Payment with ID [${paymentId}] not found.`);
+      }
+
+      const payment = payRes.rows[0];
+
+      if (payment.status === PaymentStatus.PAID) {
+        logger.info({ paymentId }, 'Wallet top-up already in PAID status; idempotent no-op.');
+        const uRes = await client.query(
+          `SELECT wallet_balance_pesewas FROM users WHERE id = $1`,
+          [payment.user_id],
+        );
+        await client.query('COMMIT');
+        return {
+          alreadyProcessed: true,
+          newBalancePesewas: Number(uRes.rows[0]?.wallet_balance_pesewas || 0),
+        };
+      }
+
+      const amountPesewas = Number(gatewayData.amountPesewas || payment.amount_pesewas);
+      const paidAt = gatewayData.paidAt || new Date();
+
+      // 1. Lock user row and compute new balance
+      const userRes = await client.query(
+        `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
+        [payment.user_id],
+      );
+
+      const currentPesewas = Number(userRes.rows[0]?.wallet_balance_pesewas || 0);
+      const newBalancePesewas = currentPesewas + amountPesewas;
+      const newBalanceGhs = Number((newBalancePesewas / 100).toFixed(2));
+
+      // 2. Atomically credit user balance
+      await client.query(
+        `UPDATE users
+         SET wallet_balance_pesewas = $1,
+             wallet_balance = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [newBalancePesewas, newBalanceGhs, payment.user_id],
+      );
+
+      // 3. Update Payment Status to PAID
+      await client.query(
+        `UPDATE payments
+         SET status = $1, provider_reference = $2, authorization_code = $3,
+             paid_at = $4, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $5`,
+        [
+          PaymentStatus.PAID,
+          providerReference,
+          gatewayData.authorizationCode || null,
+          paidAt,
+          paymentId,
+        ],
+      );
+
+      // 4. Record Payment Event
+      await client.query(
+        `INSERT INTO payment_events (
+            payment_id, provider, event_type, correlation_id, source,
+            previous_status, new_status, metadata
+         ) VALUES ($1, 'PAYSTACK', $2, $3, 'WEBHOOK', $4, $5, $6)`,
+        [
+          paymentId,
+          PaymentEventType.PAYMENT_CAPTURED,
+          correlationId,
+          payment.status,
+          PaymentStatus.PAID,
+          JSON.stringify({
+            type: 'WALLET_TOPUP',
+            providerReference,
+            channel: gatewayData.channel,
+            amountPesewas,
+            newBalancePesewas,
+          }),
+        ],
+      );
+
+      // 5. Post Balanced Double-Entry Financial Ledger Lines (Total Debits = Total Credits)
+      // Liability/Escrow perspective: Debit Platform Escrow, Credit Customer/Agent Wallet
+      const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+      await this.ledgerService.recordJournalEntries(client, [
+        {
+          entryType: LedgerEntryType.DEBIT,
+          accountType: LedgerAccountType.PLATFORM_ESCROW,
+          accountId: platformSystemAccountId,
+          amountPesewas,
+          currency: (payment.currency || Currency.GHS) as Currency,
+          referenceType: 'DEPOSIT',
+          referenceId: providerReference || paymentId,
+          description: `Paystack wallet top-up verified (${providerReference || paymentId})`,
+        },
+        {
+          entryType: LedgerEntryType.CREDIT,
+          accountType: LedgerAccountType.CUSTOMER_WALLET,
+          accountId: payment.user_id,
+          amountPesewas,
+          currency: (payment.currency || Currency.GHS) as Currency,
+          referenceType: 'DEPOSIT',
+          referenceId: providerReference || paymentId,
+          description: `Paystack wallet deposit credited (${providerReference || paymentId})`,
+        },
+      ]);
+
+      await client.query('COMMIT');
+      logger.info(
+        { paymentId, userId: payment.user_id, amountPesewas, newBalancePesewas },
+        'Wallet top-up successfully credited to user and financial ledger',
+      );
+
+      return { alreadyProcessed: false, newBalancePesewas };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      logger.error({ err, paymentId, providerReference }, 'Failed to process successful wallet topup');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Retrieves payment details by ID or Public ID with tenant isolation.
    */
   public async getPaymentDetails(

@@ -4,9 +4,9 @@ import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { AmountInput } from '../../components/ui/index.js';
-import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
+import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { walletApi, WalletTransactionDto } from '../../api/wallet.api.js';
 import {
   Wallet,
@@ -22,12 +22,11 @@ import {
 } from 'lucide-react';
 
 export const WalletPage: React.FC = () => {
-  const { user } = useAuth();
+  const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [balanceGhs, setBalanceGhs] = useState<number>((user?.walletBalancePesewas || 0) / 100);
   const [transactions, setTransactions] = useState<WalletTransactionDto[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
@@ -54,10 +53,7 @@ export const WalletPage: React.FC = () => {
   const fetchWalletData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const balRes = await walletApi.getBalance();
-      if (balRes && typeof balRes.balanceGhs === 'number') {
-        setBalanceGhs(balRes.balanceGhs);
-      }
+      refreshBalance();
 
       const txRes = await walletApi.getTransactions({ limit: 10 });
       if (txRes && Array.isArray(txRes.transactions)) {
@@ -68,7 +64,7 @@ export const WalletPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [refreshBalance]);
 
   // Handle Paystack callback verification
   useEffect(() => {
@@ -85,6 +81,7 @@ export const WalletPage: React.FC = () => {
           } else {
             toastSuccess('Deposit Received', 'Your wallet balance has been updated.');
           }
+          refreshBalance();
           fetchWalletData();
         })
         .catch(() => {
@@ -96,7 +93,7 @@ export const WalletPage: React.FC = () => {
     } else {
       fetchWalletData();
     }
-  }, [searchParams, setSearchParams, toastInfo, toastSuccess, fetchWalletData]);
+  }, [searchParams, setSearchParams, toastInfo, toastSuccess, fetchWalletData, refreshBalance]);
 
   const handleProceedToPayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,7 +109,8 @@ export const WalletPage: React.FC = () => {
 
     setIsSubmittingTopUp(true);
     try {
-      const res = await walletApi.initializeTopup(amount);
+      const returnUrl = `${window.location.origin}/customer/wallet?paystack_verify=true`;
+      const res = await walletApi.initializeTopup(amount, returnUrl);
       if (res?.authorizationUrl) {
         toastInfo('Redirecting to Paystack', 'Opening secure payment gateway...');
         window.location.href = res.authorizationUrl;

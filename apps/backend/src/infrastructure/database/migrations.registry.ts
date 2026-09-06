@@ -19,6 +19,7 @@ import { migration00000000000016 } from './migrations/00000000000016_create_user
 import { migration00000000000017 } from './migrations/00000000000017_enhance_custom_telecom_provider_endpoints.js';
 import { migration00000000000018 } from './migrations/00000000000018_enhance_provider_registry_and_operations.js';
 import { migration00000000000019 } from './migrations/00000000000019_enhance_agent_telecom_and_beneficiary_approvals_schema.js';
+import { migration00000000000020 } from './migrations/00000000000020_enhance_wallet_deposits_and_topup_schema.js';
 
 export const allMigrations: MigrationFile[] = [
   migration00000000000000,
@@ -41,5 +42,6 @@ export const allMigrations: MigrationFile[] = [
   migration00000000000017,
   migration00000000000018,
   migration00000000000019,
+  migration00000000000020,
 ];
 

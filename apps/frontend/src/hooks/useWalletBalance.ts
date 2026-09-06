@@ -36,19 +36,17 @@ export const useWalletBalance = (): UseWalletBalanceResult => {
     setError(null);
 
     try {
-      if (user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') {
-        // Agent or Admin authoritative balance endpoint
-        const data = await walletApi.getBalance();
-        if (data && typeof data.balancePesewas === 'number') {
-          setBalancePesewas(data.balancePesewas);
-          if (user.walletBalancePesewas !== data.balancePesewas) {
-            updateUser({ walletBalancePesewas: data.balancePesewas });
-          }
-          return;
+      // Authoritative wallet balance endpoint for ALL roles (customer, agent, admin)
+      const data = await walletApi.getBalance();
+      if (data && typeof data.balancePesewas === 'number') {
+        setBalancePesewas(data.balancePesewas);
+        if (user && user.walletBalancePesewas !== data.balancePesewas) {
+          updateUser({ walletBalancePesewas: data.balancePesewas });
         }
+        return;
       }
 
-      // Customer or general user profile endpoint
+      // Profile endpoint fallback
       const profileRes = await apiClient.get<UserSummaryDto>('/auth/me');
       if (profileRes && typeof profileRes.walletBalancePesewas === 'number') {
         setBalancePesewas(profileRes.walletBalancePesewas);
@@ -75,10 +73,21 @@ export const useWalletBalance = (): UseWalletBalanceResult => {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.role, user?.walletBalancePesewas, updateUser]);
+  }, [user?.walletBalancePesewas, updateUser]);
 
   useEffect(() => {
     fetchBalance();
+  }, [fetchBalance]);
+
+  // Synchronize across multiple components on deposit/purchase events
+  useEffect(() => {
+    const handleBalanceEvent = () => {
+      fetchBalance();
+    };
+    window.addEventListener('wallet-balance-updated', handleBalanceEvent);
+    return () => {
+      window.removeEventListener('wallet-balance-updated', handleBalanceEvent);
+    };
   }, [fetchBalance]);
 
   return {

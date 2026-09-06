@@ -86,16 +86,53 @@ export class PaymentWebhookService {
       const reference = payload.data?.reference;
       const metadataPaymentId = payload.data?.metadata?.paymentId;
 
-      const payRes = await client.query(
-        `SELECT id, order_id, user_id, amount_pesewas, status
+      let payRes = await client.query(
+        `SELECT id, order_id, user_id, amount_pesewas, status,
+                CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'metadata')
+                     THEN metadata ELSE '{}'::jsonb END as metadata
          FROM payments
          WHERE provider_reference = $1 OR id = $2`,
         [reference, metadataPaymentId || '00000000-0000-0000-0000-000000000000'],
       );
 
       if (payRes.rows.length === 0) {
-        logger.warn({ reference, metadataPaymentId }, 'Webhook received for unknown internal payment');
-        return { status: 'IGNORED', message: 'Payment record not found' };
+        // Fallback safety net for wallet top-ups: check webhook payload metadata
+        const metadataObj = (payload.data?.metadata || {}) as Record<string, any>;
+        const metaType = metadataObj.type;
+        const metaUserId = metadataObj.userId;
+        if (metaType === 'WALLET_TOPUP' && metaUserId) {
+          logger.info({ reference, metaUserId }, 'Auto-registering pending wallet top-up payment from webhook payload metadata');
+          try {
+            payRes = await client.query(
+              `INSERT INTO payments (
+                 user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, metadata
+               ) VALUES ($1, $2, 'GHS', 'PAYSTACK', $3, 'MOMO', 'PENDING', $4)
+               RETURNING id, order_id, user_id, amount_pesewas, status, metadata`,
+              [
+                metaUserId,
+                Number(payload.data.amount || 100),
+                reference,
+                JSON.stringify(payload.data.metadata),
+              ],
+            );
+          } catch {
+            // Fallback if metadata column is not present
+            payRes = await client.query(
+              `INSERT INTO payments (
+                 user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status
+               ) VALUES ($1, $2, 'GHS', 'PAYSTACK', $3, 'MOMO', 'PENDING')
+               RETURNING id, order_id, user_id, amount_pesewas, status`,
+              [
+                metaUserId,
+                Number(payload.data.amount || 100),
+                reference,
+              ],
+            );
+          }
+        } else {
+          logger.warn({ reference, metadataPaymentId }, 'Webhook received for unknown internal payment');
+          return { status: 'IGNORED', message: 'Payment record not found' };
+        }
       }
 
       const payment = payRes.rows[0];
@@ -132,17 +169,37 @@ export class PaymentWebhookService {
 
       // Process payment status transition asynchronously/in-line if charge.success
       if (eventName === 'charge.success') {
-        await this.paymentService.processSuccessfulPayment(
-          payment.id,
-          reference,
-          {
-            amountPesewas: payload.data.amount,
-            channel: payload.data.channel,
-            authorizationCode: payload.data.authorization?.authorization_code,
-            paidAt: payload.data.paid_at ? new Date(payload.data.paid_at) : new Date(),
-          },
-          correlationId,
-        );
+        const isWalletTopup =
+          !payment.order_id ||
+          String(payment.order_id).startsWith('topup_') ||
+          payment.metadata?.type === 'WALLET_TOPUP' ||
+          (payload.data?.metadata as any)?.type === 'WALLET_TOPUP';
+
+        if (isWalletTopup) {
+          await this.paymentService.processSuccessfulWalletTopup(
+            payment.id,
+            reference,
+            {
+              amountPesewas: payload.data.amount,
+              channel: payload.data.channel,
+              authorizationCode: payload.data.authorization?.authorization_code,
+              paidAt: payload.data.paid_at ? new Date(payload.data.paid_at) : new Date(),
+            },
+            correlationId,
+          );
+        } else {
+          await this.paymentService.processSuccessfulPayment(
+            payment.id,
+            reference,
+            {
+              amountPesewas: payload.data.amount,
+              channel: payload.data.channel,
+              authorizationCode: payload.data.authorization?.authorization_code,
+              paidAt: payload.data.paid_at ? new Date(payload.data.paid_at) : new Date(),
+            },
+            correlationId,
+          );
+        }
       }
 
       return { status: 'PROCESSED', message: 'Webhook successfully processed' };
