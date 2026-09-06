@@ -476,6 +476,7 @@ export class BulkOrderService {
     const acceptedRecipients: Array<{
       phoneNumber: string;
       dataSizeGb: number;
+      isPorted?: boolean;
     }> = [];
 
     if (netUpper === 'MTN') {
@@ -533,6 +534,7 @@ export class BulkOrderService {
           acceptedRecipients.push({
             phoneNumber: r.normalizedPhone,
             dataSizeGb: r.dataSizeGb,
+            isPorted: r.isPorted,
           });
         } else {
           unvalidatedPhones.push(r.normalizedPhone);
@@ -592,6 +594,7 @@ export class BulkOrderService {
         acceptedRecipients.push({
           phoneNumber: r.normalizedPhone,
           dataSizeGb: r.dataSizeGb,
+          isPorted: r.isPorted,
         });
       }
     }
@@ -613,7 +616,7 @@ export class BulkOrderService {
     }
 
     // 6. Group accepted recipients by distinct bundle size for summary
-    const sizeMap = new Map<number, Array<{ phoneNumber: string; dataSizeGb: number }>>();
+    const sizeMap = new Map<number, Array<{ phoneNumber: string; dataSizeGb: number; isPorted?: boolean }>>();
     for (const r of acceptedRecipients) {
       const list = sizeMap.get(r.dataSizeGb) || [];
       list.push(r);
@@ -701,9 +704,11 @@ export class BulkOrderService {
       const subDbId = subRes.rows[0].id;
       const createdChildOrderIds: string[] = [];
 
-      // Create individual orders for EACH recipient to guarantee full fulfillment
-      for (const r of acceptedRecipients) {
-        let unitPricePesewas = Math.round(r.dataSizeGb * 420);
+      // Create one child order per distinct bundle size (ascending)
+      for (const sizeGb of sortedSizes) {
+        const recipientsForSize = sizeMap.get(sizeGb)!;
+        const count = recipientsForSize.length;
+        let unitPricePesewas = Math.round(sizeGb * 420);
         let matchedProductId: string | null = null;
 
         try {
@@ -712,7 +717,7 @@ export class BulkOrderService {
              FROM catalog_products
              WHERE network = $1 AND data_amount_mb = $2 AND is_active = TRUE
              LIMIT 1`,
-            [netUpper, Math.round(r.dataSizeGb * 1024)],
+            [netUpper, Math.round(sizeGb * 1024)],
           );
           if (productRes.rows.length > 0) {
             matchedProductId = productRes.rows[0].id;
@@ -720,6 +725,7 @@ export class BulkOrderService {
           }
         } catch {}
 
+        const groupAmountPesewas = count * unitPricePesewas;
         const childPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
         const childRef = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
@@ -737,12 +743,26 @@ export class BulkOrderService {
             userId,
             agentId,
             matchedProductId,
-            r.phoneNumber,
+            recipientsForSize[0].phoneNumber,
             netUpper,
-            Math.round(r.dataSizeGb * 1024),
-            unitPricePesewas,
-            JSON.stringify({ sizeGb: r.dataSizeGb, unitPricePesewas }),
-            `${params.idempotencyKey}_${r.phoneNumber}_${Date.now()}`,
+            Math.round(sizeGb * 1024),
+            groupAmountPesewas,
+            JSON.stringify({
+              sizeGb,
+              groupSizeGb: sizeGb,
+              unitPricePesewas,
+              beneficiaryCount: count,
+              beneficiaries: recipientsForSize.map((r) => ({
+                id: `ben_${crypto.randomBytes(6).toString('hex')}`,
+                phoneNumber: r.phoneNumber,
+                dataVolumeGb: Number(sizeGb).toFixed(2),
+                amount: (unitPricePesewas / 100).toFixed(2),
+                network: netUpper,
+                status: 'received',
+                isPorted: r.isPorted,
+              })),
+            }),
+            `${params.idempotencyKey}_${sizeGb}gb_${Date.now()}`,
           ],
         );
 
@@ -752,8 +772,8 @@ export class BulkOrderService {
         if (matchedProductId) {
           await client.query(
             `INSERT INTO order_items (order_id, product_id, quantity, unit_price_pesewas, total_pesewas)
-             VALUES ($1, $2, 1, $3, $3)`,
-            [childOrderId, matchedProductId, unitPricePesewas],
+             VALUES ($1, $2, $3, $4, $5)`,
+            [childOrderId, matchedProductId, count, unitPricePesewas, groupAmountPesewas],
           ).catch(() => {});
         }
 
@@ -772,25 +792,21 @@ export class BulkOrderService {
           [childOrderId, childRef],
         ).catch(() => {});
 
-        await client.query(
-          `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)
-           VALUES ($1, $2, $3, $4, $5, 'READY_FOR_FULFILLMENT')`,
-          [subDbId, childOrderId, r.phoneNumber, matchedProductId, unitPricePesewas],
-        ).catch(() => {});
-      }
+        for (const r of recipientsForSize) {
+          await client.query(
+            `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)
+             VALUES ($1, $2, $3, $4, $5, 'READY_FOR_FULFILLMENT')`,
+            [subDbId, childOrderId, r.phoneNumber, matchedProductId, unitPricePesewas],
+          ).catch(() => {});
+        }
 
-      // Group display for UI response
-      for (const sizeGb of sortedSizes) {
-        const recipientsForSize = sizeMap.get(sizeGb)!;
-        const count = recipientsForSize.length;
-        const groupAmount = (count * Math.round(sizeGb * 420)) / 100;
         childOrders.push({
-          id: `grp_${sizeGb}gb`,
-          publicId: `grp_${sizeGb}gb`,
-          referenceCode: `${sizeGb}GB Group (${count})`,
+          id: childPublicId,
+          publicId: childPublicId,
+          referenceCode: childRef,
           sizeGb,
           beneficiaryCount: count,
-          amount: groupAmount.toFixed(2),
+          amount: (groupAmountPesewas / 100).toFixed(2),
           status: 'received',
         });
       }

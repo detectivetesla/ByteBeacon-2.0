@@ -199,11 +199,17 @@ describe('Agent Bulk Orders Suite (POST /agent/orders/bulk & POST /me/agent/orde
       expect(data.amount).toBe('29.40'); // 8.40 (2GB) + 21.00 (5GB)
 
       expect(data.orders).toHaveLength(2);
+      expect(data.orders[0].id).toMatch(/^ord_/);
+      expect(data.orders[0].publicId).toMatch(/^ord_/);
+      expect(data.orders[0].referenceCode).toMatch(/^TXN-/);
       expect(data.orders[0].sizeGb).toBe(2);
       expect(data.orders[0].beneficiaryCount).toBe(1);
       expect(data.orders[0].amount).toBe('8.40');
       expect(data.orders[0].status).toBe('received');
 
+      expect(data.orders[1].id).toMatch(/^ord_/);
+      expect(data.orders[1].publicId).toMatch(/^ord_/);
+      expect(data.orders[1].referenceCode).toMatch(/^TXN-/);
       expect(data.orders[1].sizeGb).toBe(5);
       expect(data.orders[1].beneficiaryCount).toBe(1);
       expect(data.orders[1].amount).toBe('21.00');

@@ -1177,8 +1177,37 @@ export class OrderService {
     const isPending = !isApproved && !isFailed;
 
     const mappedStatus = isApproved ? 'approved' : isFailed ? 'rejected' : r.orderStatus === 'PROCESSING' ? 'processing' : 'received';
-    const sizeGb = Math.round((r.dataAmountMb || 0) / 1024) || Math.max(1, Number(((r.dataAmountMb || 0) / 1024).toFixed(1)));
+    const rawSizeGb = r.pricingSnapshot?.groupSizeGb || r.pricingSnapshot?.sizeGb || Math.round((r.dataAmountMb || 0) / 1024) || Math.max(1, Number(((r.dataAmountMb || 0) / 1024).toFixed(1)));
+    const sizeGb = Number(rawSizeGb);
     const amountGhs = (parseInt(r.amountPesewas || '0', 10) / 100).toFixed(2);
+
+    let beneficiaries: any[] = [];
+    if (Array.isArray(r.pricingSnapshot?.beneficiaries) && r.pricingSnapshot.beneficiaries.length > 0) {
+      beneficiaries = r.pricingSnapshot.beneficiaries.map((b: any) => ({
+        id: b.id || `ben_${crypto.randomBytes(6).toString('hex')}`,
+        phoneNumber: b.phoneNumber || b.phone || r.recipientPhone,
+        dataVolumeGb: Number(b.dataVolumeGb || sizeGb).toFixed(2),
+        amount: b.amount || (parseInt(r.amountPesewas || '0', 10) / (100 * r.pricingSnapshot.beneficiaries.length)).toFixed(2),
+        network: b.network || r.network,
+        status: mappedStatus,
+        isPorted: Boolean(b.isPorted),
+      }));
+    } else {
+      beneficiaries = [
+        {
+          id: `ben_${r.publicId.slice(4)}`,
+          phoneNumber: r.recipientPhone,
+          dataVolumeGb: Number(sizeGb).toFixed(2),
+          amount: amountGhs,
+          network: r.network,
+          status: mappedStatus,
+          isPorted: false,
+        },
+      ];
+    }
+
+    const beneficiaryCount = r.pricingSnapshot?.beneficiaryCount || beneficiaries.length;
+    const totalDataGb = Number((sizeGb * beneficiaryCount).toFixed(2));
 
     return {
       id: r.publicId,
@@ -1198,25 +1227,15 @@ export class OrderService {
             fromOverdraft: Number(r.pricingSnapshot.paymentSplit.fromOverdraft ?? 0),
           }
         : null,
-      beneficiaryCount: 1,
-      totalDataGb: sizeGb,
+      beneficiaryCount,
+      totalDataGb,
       delivery: {
-        approved: isApproved ? 1 : 0,
-        pending: isPending ? 1 : 0,
-        failed: isFailed ? 1 : 0,
-        total: 1,
+        approved: isApproved ? beneficiaryCount : 0,
+        pending: isPending ? beneficiaryCount : 0,
+        failed: isFailed ? beneficiaryCount : 0,
+        total: beneficiaryCount,
       },
-      beneficiaries: [
-        {
-          id: `ben_${r.publicId.slice(4)}`,
-          phoneNumber: r.recipientPhone,
-          dataVolumeGb: Number(sizeGb).toFixed(2),
-          amount: amountGhs,
-          network: r.network,
-          status: mappedStatus,
-          isPorted: false,
-        },
-      ],
+      beneficiaries,
     };
   }
 }
