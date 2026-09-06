@@ -685,9 +685,14 @@ export interface AdminOrderDetail {
 export interface AdminPendingApprovalStats {
   awaitingApproval: number;
   approvedToday: number;
+  approvedValid?: number;
   rejected: number;
+  rejectedInvalid?: number;
   processing: number;
+  inFlightSync?: number;
   syncFailed: number;
+  totalRegistered?: number;
+  excelPrechecks?: number;
   affectedOrders: number;
 }
 
@@ -701,6 +706,11 @@ export interface AdminPendingApprovalItem {
   expiresAt?: string;
   createdAt: string;
   occurrences: number;
+  dataSize?: string;
+  detectedFrom?: string;
+  sourceRole?: string;
+  sourceLabel?: string;
+  agentId?: string | null;
 }
 
 export interface AdminPendingApprovalDetail {

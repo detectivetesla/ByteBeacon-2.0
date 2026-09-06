@@ -18,7 +18,6 @@ import {
   ShieldCheck,
   ExternalLink,
   ChevronRight,
-  Server,
   Zap,
 } from 'lucide-react';
 import { adminApi, AdminPendingApprovalItem, AdminPendingApprovalStats, AdminPendingApprovalDetail } from '../../api/admin.api.js';
@@ -40,9 +39,14 @@ export const AdminPendingApprovalsPage: React.FC = () => {
   const [stats, setStats] = useState<AdminPendingApprovalStats>({
     awaitingApproval: 0,
     approvedToday: 0,
+    approvedValid: 0,
     rejected: 0,
+    rejectedInvalid: 0,
     processing: 0,
+    inFlightSync: 0,
     syncFailed: 0,
+    totalRegistered: 0,
+    excelPrechecks: 0,
     affectedOrders: 0,
   });
   const [totalPages, setTotalPages] = useState(1);
@@ -108,6 +112,20 @@ export const AdminPendingApprovalsPage: React.FC = () => {
   useEffect(() => {
     fetchApprovals();
   }, [fetchApprovals]);
+
+  // Subscribe to real-time event when Excel uploads or new beneficiaries are recorded
+  useEffect(() => {
+    const handleUpdate = () => {
+      fetchStats();
+      fetchApprovals();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pending-approvals-updated', handleUpdate);
+      return () => {
+        window.removeEventListener('pending-approvals-updated', handleUpdate);
+      };
+    }
+  }, [fetchStats, fetchApprovals]);
 
   // Fetch individual detail
   const fetchDetail = useCallback(async (id: string) => {
@@ -273,45 +291,45 @@ export const AdminPendingApprovalsPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Awaiting Approval"
-          value={stats.awaitingApproval.toLocaleString()}
-          subvalue="Current unresolved"
+          value={(stats.awaitingApproval || 0).toLocaleString()}
+          subvalue="Pending MTN validation"
           accent="orange"
           icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
         />
         <MetricCard
-          title="Approved Today"
-          value={stats.approvedToday.toLocaleString()}
-          subvalue="Validated beneficiaries"
+          title="Approved / Valid"
+          value={(stats.approvedValid ?? stats.approvedToday ?? 0).toLocaleString()}
+          subvalue="Whitelisted beneficiaries"
           accent="green"
           icon={<TactileIcon icon={CheckCircle2} color="security" size="sm" />}
         />
         <MetricCard
-          title="Rejected"
-          value={stats.rejected.toLocaleString()}
-          subvalue="Invalidated numbers"
+          title="Rejected / Invalid"
+          value={(stats.rejectedInvalid ?? stats.rejected ?? 0).toLocaleString()}
+          subvalue="Blocked numbers"
           accent="red"
           icon={<TactileIcon icon={AlertOctagon} color="red" size="sm" />}
         />
         <MetricCard
           title="In-Flight Sync"
-          value={stats.processing.toLocaleString()}
-          subvalue="Background BullMQ"
+          value={(stats.inFlightSync ?? stats.processing ?? 0).toLocaleString()}
+          subvalue="Carrier background check"
           accent="cyan"
           icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
         />
         <MetricCard
-          title="Sync Failed"
-          value={stats.syncFailed.toLocaleString()}
-          subvalue="Carrier timeout"
-          accent="red"
-          icon={<TactileIcon icon={Server} color="red" size="sm" />}
+          title="Total Registered"
+          value={(stats.totalRegistered ?? 0).toLocaleString()}
+          subvalue="Known customer recipients"
+          accent="purple"
+          icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
         />
         <MetricCard
-          title="Affected Orders"
-          value={stats.affectedOrders.toLocaleString()}
-          subvalue="Blocked orders in queue"
-          accent={stats.affectedOrders > 0 ? 'red' : 'green'}
-          icon={<TactileIcon icon={ShieldCheck} color={stats.affectedOrders > 0 ? 'red' : 'security'} size="sm" />}
+          title="Excel Prechecks"
+          value={(stats.excelPrechecks ?? 0).toLocaleString()}
+          subvalue="Customer & Agent batches"
+          accent="orange"
+          icon={<TactileIcon icon={Zap} color="speed" size="sm" />}
         />
       </div>
 
@@ -368,11 +386,12 @@ export const AdminPendingApprovalsPage: React.FC = () => {
           headers={[
             'Beneficiary Number',
             'Network',
-            'Occurrences / Orders',
-            'DataHouse Ref',
+            'Data Size',
+            'Detected Channel',
+            'Source System',
             'Approval Status',
-            'First Detected',
-            'Expires At',
+            'Occurrences / Orders',
+            'Timestamp',
             'Actions',
           ]}
         >
@@ -397,22 +416,37 @@ export const AdminPendingApprovalsPage: React.FC = () => {
               <td>
                 <NetworkBadge network={item.network as any} />
               </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                {item.dataSize || '5 GB'}
+              </td>
+              <td>
+                <Badge variant={item.detectedFrom?.toLowerCase().includes('excel') ? 'brand' : 'neutral'} size="sm">
+                  {item.detectedFrom || 'Excel Precheck'}
+                </Badge>
+              </td>
+              <td style={{ fontSize: 'var(--font-size-2xs)' }}>
+                {item.sourceRole === 'agent' ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Badge variant="warning" size="sm">Agent</Badge>
+                    <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.sourceLabel}</span>
+                  </span>
+                ) : (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Badge variant="neutral" size="sm">Customer</Badge>
+                    <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.sourceLabel || 'Customer Portal'}</span>
+                  </span>
+                )}
+              </td>
+              <td>
+                {renderStatusBadge(item.status)}
+              </td>
               <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
                 <span style={{ padding: '0.15rem 0.5rem', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border-subtle)' }}>
                   {item.occurrences || 0} Orders
                 </span>
               </td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                {item.providerReference || 'Pending Sync'}
-              </td>
-              <td>
-                {renderStatusBadge(item.status)}
-              </td>
               <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
                 {new Date(item.createdAt).toLocaleString()}
-              </td>
-              <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                {item.expiresAt ? new Date(item.expiresAt).toLocaleDateString() : '—'}
               </td>
               <td>
                 <div style={{ display: 'flex', gap: '0.25rem' }}>
@@ -424,7 +458,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   >
                     <Zap size={12} />
                   </Button>
-                  {item.status !== 'VALID' && (
+                  {item.status !== 'VALID' && item.status !== 'APPROVED' && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -483,10 +517,21 @@ export const AdminPendingApprovalsPage: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
               {/* Quick Bar */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'space-between', alignItems: 'center', background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{detail.record.phoneNumber}</span>
                   <NetworkBadge network={detail.record.network as any} />
                   {renderStatusBadge(detail.record.status)}
+                  {detail.record.dataSize && (
+                    <Badge variant="neutral" size="sm">{detail.record.dataSize}</Badge>
+                  )}
+                  {detail.record.detectedFrom && (
+                    <Badge variant="brand" size="sm">{detail.record.detectedFrom}</Badge>
+                  )}
+                  {detail.record.sourceLabel && (
+                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                      Source: {detail.record.sourceLabel}
+                    </span>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.5rem' }}>

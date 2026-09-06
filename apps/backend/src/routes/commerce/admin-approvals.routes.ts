@@ -52,14 +52,17 @@ export async function adminApprovalsRoutes(
     async (_req: FastifyRequest, reply: FastifyReply) => {
       const statsRes = await db.query(`
         SELECT 
-          COUNT(CASE WHEN validation_status IN ('PENDING', 'VALIDATING') THEN 1 END) as "awaitingApproval",
-          COUNT(CASE WHEN validation_status = 'VALID' AND validated_at >= CURRENT_DATE THEN 1 END) as "approvedToday",
-          COUNT(CASE WHEN validation_status = 'INVALID' THEN 1 END) as "rejected",
+          COUNT(CASE WHEN validation_status IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL') THEN 1 END) as "awaitingApproval",
+          COUNT(CASE WHEN validation_status IN ('VALID', 'APPROVED') THEN 1 END) as "approvedValid",
+          COUNT(CASE WHEN validation_status IN ('VALID', 'APPROVED') AND validated_at >= CURRENT_DATE THEN 1 END) as "approvedToday",
+          COUNT(CASE WHEN validation_status IN ('INVALID', 'REJECTED') THEN 1 END) as "rejected",
           COUNT(CASE WHEN validation_status = 'PROCESSING' THEN 1 END) as "processing",
-          COUNT(CASE WHEN validation_status = 'SYNC_FAILED' THEN 1 END) as "syncFailed"
+          COUNT(CASE WHEN validation_status = 'SYNC_FAILED' THEN 1 END) as "syncFailed",
+          COUNT(*) as "totalRegistered",
+          COUNT(CASE WHEN (provider_response_metadata->>'channel' ILIKE '%excel%' OR provider_response_metadata->>'detectedFrom' ILIKE '%excel%' OR provider_response_metadata->>'recordedVia' ILIKE '%excel%') THEN 1 END) as "excelPrechecks"
         FROM beneficiary_validation
       `).catch(() => ({
-        rows: [{ awaitingApproval: 0, approvedToday: 0, rejected: 0, processing: 0, syncFailed: 0 }],
+        rows: [{ awaitingApproval: 0, approvedValid: 0, approvedToday: 0, rejected: 0, processing: 0, syncFailed: 0, totalRegistered: 0, excelPrechecks: 0 }],
       }));
 
       const affectedRes = await db.query(`
@@ -69,15 +72,30 @@ export async function adminApprovalsRoutes(
       const r = statsRes.rows[0] || {};
       const aff = affectedRes.rows[0] || {};
 
+      const awaiting = Number(r.awaitingApproval || 0);
+      const appToday = Number(r.approvedToday || 0);
+      const appValid = Number(r.approvedValid || appToday);
+      const rej = Number(r.rejected || 0);
+      const proc = Number(r.processing || 0);
+      const syncFail = Number(r.syncFailed || 0);
+      const totalReg = Number(r.totalRegistered || (awaiting + appValid + rej + proc));
+      const excelChecks = Number(r.excelPrechecks || 0);
+      const affOrders = Number(aff.affectedOrders || 0);
+
       return reply.send({
         success: true,
         data: {
-          awaitingApproval: Number(r.awaitingApproval || 0),
-          approvedToday: Number(r.approvedToday || 0),
-          rejected: Number(r.rejected || 0),
-          processing: Number(r.processing || 0),
-          syncFailed: Number(r.syncFailed || 0),
-          affectedOrders: Number(aff.affectedOrders || 0),
+          awaitingApproval: awaiting,
+          approvedToday: appToday,
+          approvedValid: appValid,
+          rejected: rej,
+          rejectedInvalid: rej,
+          processing: proc,
+          inFlightSync: proc,
+          syncFailed: syncFail,
+          totalRegistered: totalReg,
+          excelPrechecks: excelChecks,
+          affectedOrders: affOrders,
         },
       });
     },
@@ -140,8 +158,15 @@ export async function adminApprovalsRoutes(
                b.validation_status as "status", b.provider_reference as "providerReference",
                b.validated_at as "validatedAt", b.expires_at as "expiresAt",
                b.created_at as "createdAt",
+               b.last_bundle_size_gb as "lastBundleSizeGb",
+               b.provider_response_metadata as "metadata",
+               b.agent_id as "agentId",
+               u.full_name as "agentName",
+               u.email as "agentEmail",
+               u.role as "agentRole",
                (SELECT COUNT(*) FROM orders o WHERE o.recipient_phone = b.phone_number) as "occurrences"
         FROM beneficiary_validation b
+        LEFT JOIN users u ON b.agent_id = u.id
         ${whereSql}
         ORDER BY b.created_at DESC
         LIMIT $${idx} OFFSET $${idx + 1}
@@ -149,10 +174,42 @@ export async function adminApprovalsRoutes(
 
       const listRes = await db.query(listSql, [...params, limitNum, offset]).catch(() => ({ rows: [] }));
 
+      const items = listRes.rows.map((r: any) => {
+        const meta = (typeof r.metadata === 'object' && r.metadata) || {};
+        let dataSize = meta.dataSize;
+        if (!dataSize && r.lastBundleSizeGb) {
+          dataSize = `${r.lastBundleSizeGb} GB`;
+        }
+        if (!dataSize) {
+          dataSize = '5 GB';
+        }
+
+        const detectedFrom = meta.detectedFrom || meta.channel || (r.agentId ? 'Excel Upload' : 'Excel Precheck');
+        const sourceRole = r.agentRole || (r.agentId ? 'agent' : 'customer');
+        const sourceLabel = r.agentName ? `${r.agentName} (${sourceRole})` : r.agentEmail ? `${r.agentEmail} (${sourceRole})` : (sourceRole === 'agent' ? 'Agent System' : 'Customer Portal');
+
+        return {
+          id: r.id,
+          phoneNumber: r.phoneNumber,
+          network: r.network,
+          status: r.status,
+          providerReference: r.providerReference,
+          validatedAt: r.validatedAt,
+          expiresAt: r.expiresAt,
+          createdAt: r.createdAt,
+          occurrences: Number(r.occurrences || 0),
+          dataSize,
+          detectedFrom,
+          sourceRole,
+          sourceLabel,
+          agentId: r.agentId || meta.agentId || null,
+        };
+      });
+
       return reply.send({
         success: true,
         data: {
-          items: listRes.rows,
+          items,
           pagination: {
             page: pageNum,
             limit: limitNum,
@@ -172,10 +229,18 @@ export async function adminApprovalsRoutes(
       const id = req.params.id;
 
       const recordRes = await db.query(
-        `SELECT id, phone_number as "phoneNumber", network, validation_status as "status",
-                provider_reference as "providerReference", validated_at as "validatedAt",
-                expires_at as "expiresAt", created_at as "createdAt"
-         FROM beneficiary_validation WHERE id = $1`,
+        `SELECT b.id, b.phone_number as "phoneNumber", b.network, b.validation_status as "status",
+                b.provider_reference as "providerReference", b.validated_at as "validatedAt",
+                b.expires_at as "expiresAt", b.created_at as "createdAt",
+                b.last_bundle_size_gb as "lastBundleSizeGb",
+                b.provider_response_metadata as "metadata",
+                b.agent_id as "agentId",
+                u.full_name as "agentName",
+                u.email as "agentEmail",
+                u.role as "agentRole"
+         FROM beneficiary_validation b
+         LEFT JOIN users u ON b.agent_id = u.id
+         WHERE b.id = $1`,
         [id],
       );
 
@@ -183,7 +248,20 @@ export async function adminApprovalsRoutes(
         throw new NotFoundError(`Beneficiary record [${id}] not found.`);
       }
 
-      const record = recordRes.rows[0];
+      const rawRecord = recordRes.rows[0];
+      const meta = (typeof rawRecord.metadata === 'object' && rawRecord.metadata) || {};
+      const dataSize = meta.dataSize || (rawRecord.lastBundleSizeGb ? `${rawRecord.lastBundleSizeGb} GB` : '5 GB');
+      const detectedFrom = meta.detectedFrom || meta.channel || (rawRecord.agentId ? 'Excel Upload' : 'Excel Precheck');
+      const sourceRole = rawRecord.agentRole || (rawRecord.agentId ? 'agent' : 'customer');
+      const sourceLabel = rawRecord.agentName ? `${rawRecord.agentName} (${sourceRole})` : rawRecord.agentEmail ? `${rawRecord.agentEmail} (${sourceRole})` : (sourceRole === 'agent' ? 'Agent System' : 'Customer Portal');
+
+      const record = {
+        ...rawRecord,
+        dataSize,
+        detectedFrom,
+        sourceRole,
+        sourceLabel,
+      };
 
       // Affected Orders
       const affectedOrdersRes = await db.query(
@@ -387,11 +465,14 @@ export async function adminApprovalsRoutes(
     { preHandler: [authHooks.authenticateAdmin] },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const listRes = await db.query(`
-        SELECT phone_number as "phoneNumber", network, validation_status as "status",
-               provider_reference as "providerReference", validated_at as "validatedAt",
-               created_at as "createdAt"
-        FROM beneficiary_validation
-        ORDER BY created_at DESC
+        SELECT b.phone_number as "phoneNumber", b.network, b.validation_status as "status",
+               b.provider_reference as "providerReference", b.validated_at as "validatedAt",
+               b.created_at as "createdAt", b.last_bundle_size_gb as "lastBundleSizeGb",
+               b.provider_response_metadata as "metadata", b.agent_id as "agentId",
+               u.full_name as "agentName", u.role as "agentRole"
+        FROM beneficiary_validation b
+        LEFT JOIN users u ON b.agent_id = u.id
+        ORDER BY b.created_at DESC
         LIMIT 1000
       `);
 
@@ -408,15 +489,24 @@ export async function adminApprovalsRoutes(
       }
 
       const csvRows = [
-        ['Phone Number', 'Network', 'Status', 'Provider Reference', 'Validated At', 'Created At'].join(','),
-        ...listRes.rows.map((r) => [
-          r.phoneNumber,
-          r.network,
-          r.status,
-          r.providerReference || 'N/A',
-          r.validatedAt || 'N/A',
-          r.createdAt,
-        ].join(',')),
+        ['Phone Number', 'Network', 'Data Size', 'Status', 'Detected Channel', 'Source System', 'Provider Reference', 'Validated At', 'Created At'].join(','),
+        ...listRes.rows.map((r: any) => {
+          const meta = (typeof r.metadata === 'object' && r.metadata) || {};
+          const dataSize = meta.dataSize || (r.lastBundleSizeGb ? `${r.lastBundleSizeGb} GB` : '5 GB');
+          const detectedFrom = meta.detectedFrom || meta.channel || (r.agentId ? 'Excel Upload' : 'Excel Precheck');
+          const source = r.agentName ? `${r.agentName} (${r.agentRole || 'agent'})` : (r.agentId ? 'Agent System' : 'Customer Portal');
+          return [
+            r.phoneNumber,
+            r.network,
+            `"${dataSize}"`,
+            r.status,
+            `"${detectedFrom}"`,
+            `"${source}"`,
+            `"${r.providerReference || 'N/A'}"`,
+            r.validatedAt || 'N/A',
+            r.createdAt,
+          ].join(',');
+        }),
       ].join('\n');
 
       return reply
