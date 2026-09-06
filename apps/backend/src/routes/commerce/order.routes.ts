@@ -100,9 +100,12 @@ export async function orderRoutes(
 
       // Beneficiary validation enforcement for MTN individual orders (Up2U first-time rule)
       const prodRes = await Promise.resolve(
-        db.query(`SELECT network FROM products WHERE id = $1 LIMIT 1`, [productId]),
+        db.query(`SELECT network, data_amount_mb FROM products WHERE id = $1 LIMIT 1`, [productId]),
       ).catch(() => ({ rows: [] }));
-      const prodNetwork = prodRes.rows?.[0]?.network;
+      const prodRow = prodRes.rows?.[0];
+      const prodNetwork = prodRow?.network;
+      const bundleSizeGb = prodRow?.data_amount_mb ? Math.round((prodRow.data_amount_mb / 1024) * 100) / 100 : null;
+
       if (prodNetwork === 'MTN' || prodNetwork === NetworkProvider.MTN) {
         const cleanPhone = recipientPhone.trim().replace(/\s+/g, '');
         const normalizedLocal = cleanPhone.startsWith('+233')
@@ -137,10 +140,29 @@ export async function orderRoutes(
           await Promise.resolve(
             db.query(
               `INSERT INTO pending_beneficiary_approvals (
-                  phone_number, network, agent_id, status, created_at, updated_at
-               ) VALUES ($1, 'MTN', $2, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-               ON CONFLICT DO NOTHING`,
-              [normalizedLocal, req.user!.sub],
+                  phone_number, network, agent_id, status, attempt_count,
+                  last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
+               ) VALUES ($1, 'MTN', $2, 'PENDING', 1, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+               SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                   last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
+                   last_detected_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP`,
+              [normalizedLocal, req.user!.sub, bundleSizeGb],
+            ),
+          ).catch(() => {});
+
+          await Promise.resolve(
+            db.query(
+              `INSERT INTO beneficiary_validation (
+                  phone_number, network, validation_status, attempt_count,
+                  last_bundle_size_gb, agent_id, created_at, updated_at
+               ) VALUES ($1, 'MTN', 'PENDING', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT (phone_number, network) DO UPDATE
+               SET attempt_count = beneficiary_validation.attempt_count + 1,
+                   last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+                   updated_at = CURRENT_TIMESTAMP`,
+              [normalizedLocal, bundleSizeGb, req.user!.sub],
             ),
           ).catch(() => {});
 

@@ -13,6 +13,8 @@ import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BadRequestError, NotFoundError, ConflictError, InvalidPhoneError, BeneficiaryNotValidatedError } from '../../core/errors/app-error.js';
 import { logger } from '../../core/logging/logger.js';
+import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
+import { ITelecomProvider } from '../../core/providers/telecom/telecom-provider.interface.js';
 import {
   ApplyAgentRequest,
   AgentProfileDto,
@@ -34,6 +36,8 @@ export interface AgentRouteDependencies {
   paymentProvider?: IPaymentProvider;
   featureFlagService?: FeatureFlagService;
   orderService?: OrderService;
+  beneficiaryService?: BeneficiaryService;
+  telecomProvider?: ITelecomProvider;
 }
 
 export async function agentRoutes(
@@ -41,6 +45,7 @@ export async function agentRoutes(
   deps: AgentRouteDependencies,
 ) {
   const { db, tokenService, apiKeyService, rbacService, ledgerService, paymentProvider } = deps;
+  const beneficiaryService = deps.beneficiaryService ?? (app as any).beneficiaryService;
   const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(db);
   const orderService = deps.orderService ?? (app as any).orderService;
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
@@ -222,12 +227,40 @@ export async function agentRoutes(
         );
 
         if (validatedCheck.rows.length === 0) {
+          let bundleSizeGb: number | null = null;
+          try {
+            const bundleRes = await db.query(
+              `SELECT data_amount_mb FROM catalog_products WHERE id = $1 LIMIT 1`,
+              [bundleId],
+            );
+            if (bundleRes.rows[0]?.data_amount_mb) {
+              bundleSizeGb = Math.round((bundleRes.rows[0].data_amount_mb / 1024) * 100) / 100;
+            }
+          } catch {}
+
           await db.query(
             `INSERT INTO pending_beneficiary_approvals (
-                phone_number, network, agent_id, status, created_at, updated_at
-             ) VALUES ($1, 'MTN', $2, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-             ON CONFLICT DO NOTHING`,
-            [normalizedLocal, req.user!.sub],
+                phone_number, network, agent_id, status, attempt_count,
+                last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
+             ) VALUES ($1, 'MTN', $2, 'PENDING', 1, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+             SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                 last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
+                 last_detected_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP`,
+            [normalizedLocal, req.user!.sub, bundleSizeGb],
+          ).catch(() => {});
+
+          await db.query(
+            `INSERT INTO beneficiary_validation (
+                phone_number, network, validation_status, attempt_count,
+                last_bundle_size_gb, agent_id, created_at, updated_at
+             ) VALUES ($1, 'MTN', 'PENDING', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (phone_number, network) DO UPDATE
+             SET attempt_count = beneficiary_validation.attempt_count + 1,
+                 last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+                 updated_at = CURRENT_TIMESTAMP`,
+            [normalizedLocal, bundleSizeGb, req.user!.sub],
           ).catch(() => {});
 
           throw new BeneficiaryNotValidatedError(
@@ -651,6 +684,17 @@ export async function agentRoutes(
 
       try {
         const agentId = req.user!.sub;
+
+        // 1. Sync from upstream provider if available so latest DataHouse statuses are updated locally
+        if (beneficiaryService) {
+          await beneficiaryService.syncBeneficiariesFromProvider({
+            network,
+            status,
+            search,
+            limit: limitNum,
+          }).catch(() => {});
+        }
+
         const approvalConditions: string[] = [`(agent_id = $1 OR agent_id IS NULL)`];
         const approvalParams: any[] = [agentId];
         let aIdx = 2;
@@ -667,9 +711,15 @@ export async function agentRoutes(
         }
 
         if (search && search.trim().length > 0) {
-          const digits = search.replace(/\D/g, '');
+          let searchPattern = search.trim();
+          const digitsOnly = search.replace(/\D/g, '');
+          if (digitsOnly.startsWith('233') && digitsOnly.length > 3) {
+            searchPattern = '0' + digitsOnly.slice(3);
+          } else if (digitsOnly) {
+            searchPattern = digitsOnly;
+          }
           approvalConditions.push(`phone_number ILIKE $${aIdx++}`);
-          approvalParams.push(`%${digits || search.trim()}%`);
+          approvalParams.push(`%${searchPattern}%`);
         }
 
         const approvalWhere = `WHERE ${approvalConditions.join(' AND ')}`;
@@ -679,38 +729,47 @@ export async function agentRoutes(
           approvalParams,
         ).catch(() => null);
 
-        if (countRes && parseInt(countRes.rows[0]?.total || '0', 10) > 0) {
+        if (countRes !== null) {
           total = parseInt(countRes.rows[0]?.total || '0', 10);
-          const listRes = await db.query(
-            `SELECT id, phone_number, network, status, attempt_count, last_bundle_size_gb,
-                    first_detected_at, last_detected_at, submitted_at, resolved_at, created_at, updated_at
-             FROM pending_beneficiary_approvals
-             ${approvalWhere}
-             ORDER BY created_at DESC
-             LIMIT $${aIdx++} OFFSET $${aIdx++}`,
-            [...approvalParams, limitNum, offset],
-          );
-          beneficiaries = listRes.rows.map((r: any) => {
-            let mappedStatus = 'pending';
-            if (r.status) {
-              mappedStatus = String(r.status).toLowerCase();
-            } else if (r.validation_status === 'VALID') {
-              mappedStatus = 'approved';
-            } else if (r.validation_status === 'INVALID') {
-              mappedStatus = 'rejected';
-            }
-            return {
-              msisdn: r.phone_number,
-              network: r.network,
-              status: mappedStatus,
-              attemptCount: Number(r.attempt_count || 1),
-              lastBundleSizeGb: r.last_bundle_size_gb ? String(r.last_bundle_size_gb) : null,
-              firstDetectedAt: new Date(r.first_detected_at || r.created_at).toISOString(),
-              lastDetectedAt: new Date(r.last_detected_at || r.updated_at || r.created_at).toISOString(),
-              submittedAt: r.submitted_at ? new Date(r.submitted_at).toISOString() : null,
-              resolvedAt: r.resolved_at ? new Date(r.resolved_at).toISOString() : null,
-            };
-          });
+          if (total > 0) {
+            const listRes = await db.query(
+              `SELECT id, phone_number, network, status, attempt_count, last_bundle_size_gb,
+                      first_detected_at, last_detected_at, submitted_at, resolved_at, created_at, updated_at
+               FROM pending_beneficiary_approvals
+               ${approvalWhere}
+               ORDER BY created_at DESC
+               LIMIT $${aIdx++} OFFSET $${aIdx++}`,
+              [...approvalParams, limitNum, offset],
+            );
+            beneficiaries = listRes.rows.map((r: any) => {
+              let mappedStatus = 'pending';
+              if (r.status) {
+                mappedStatus = String(r.status).toLowerCase();
+              } else if (r.validation_status === 'VALID') {
+                mappedStatus = 'approved';
+              } else if (r.validation_status === 'INVALID') {
+                mappedStatus = 'rejected';
+              }
+              return {
+                msisdn: r.phone_number,
+                network: r.network,
+                status: mappedStatus,
+                attemptCount: Number(r.attempt_count || 1),
+                lastBundleSizeGb: r.last_bundle_size_gb ? String(r.last_bundle_size_gb) : null,
+                firstDetectedAt: new Date(r.first_detected_at || r.created_at).toISOString(),
+                lastDetectedAt: new Date(r.last_detected_at || r.updated_at || r.created_at).toISOString(),
+                submittedAt: r.submitted_at ? new Date(r.submitted_at).toISOString() : null,
+                resolvedAt:
+                  r.resolved_at
+                    ? new Date(r.resolved_at).toISOString()
+                    : (mappedStatus === 'approved' || mappedStatus === 'rejected') && r.validated_at
+                    ? new Date(r.validated_at).toISOString()
+                    : null,
+              };
+            });
+          } else {
+            beneficiaries = [];
+          }
         } else {
           // Fallback to beneficiary_validation for legacy/mock compatibility
           const fbCount = await db.query(

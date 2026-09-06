@@ -552,25 +552,34 @@ export class BulkOrderService {
         // Record unvalidated numbers into pending_beneficiary_approvals and beneficiary_validation for MTN approval
         try {
           for (const phone of unvalidatedPhones) {
+            const matchRecip = normalizedRecipients.find((r) => r.normalizedPhone === phone);
+            const sizeGb = matchRecip?.dataSizeGb ?? null;
+
             if (agentId || userId) {
               await this.db.query(
                 `INSERT INTO pending_beneficiary_approvals (
                   phone_number, network, agent_id, status, attempt_count,
-                  first_detected_at, last_detected_at, created_at, updated_at
-                ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                  last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
+                ) VALUES ($1, 'MTN', $2, 'PENDING', 1, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ON CONFLICT (agent_id, phone_number, network) DO UPDATE
                 SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                    last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
                     last_detected_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP`,
-                [phone, agentId || userId],
+                [phone, agentId || userId, sizeGb],
               ).catch(() => {});
             }
 
             await this.db.query(
-              `INSERT INTO beneficiary_validation (phone_number, network, validation_status, created_at, updated_at)
-               VALUES ($1, 'MTN', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-               ON CONFLICT (phone_number, network) DO NOTHING`,
-              [phone],
+              `INSERT INTO beneficiary_validation (
+                phone_number, network, validation_status, attempt_count,
+                last_bundle_size_gb, agent_id, created_at, updated_at
+              ) VALUES ($1, 'MTN', 'PENDING', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+              ON CONFLICT (phone_number, network) DO UPDATE
+              SET attempt_count = beneficiary_validation.attempt_count + 1,
+                  last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+                  updated_at = CURRENT_TIMESTAMP`,
+              [phone, sizeGb, agentId || userId],
             ).catch(() => {});
           }
         } catch {

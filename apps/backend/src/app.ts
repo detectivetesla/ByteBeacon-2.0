@@ -600,6 +600,8 @@ export function createApp(options: AppOptions = {}) {
         paymentProvider,
         featureFlagService,
         orderService,
+        beneficiaryService,
+        telecomProvider,
       });
       await storeRoutes(commerceSubApp, {
         db: dbPool!,

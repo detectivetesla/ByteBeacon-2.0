@@ -1020,29 +1020,51 @@ export class BeneficiaryService {
   }
 
   /**
-   * Synchronizes approved MTN beneficiaries from upstream telecom provider (DataHouse/GMPL)
+   * Synchronizes MTN beneficiaries approval statuses from upstream telecom provider (DataHouse/GMPL)
    * into local beneficiary_validation and pending_beneficiary_approvals tables.
    */
   public async syncBeneficiariesFromProvider(params: {
     network?: string;
+    status?: string;
+    search?: string;
+    page?: number;
     limit?: number;
-  } = {}): Promise<{ synced: number; approved: number }> {
-    const net = (params.network || 'MTN').toUpperCase();
-    const limit = params.limit || 100;
+    agentId?: string;
+  } = {}): Promise<{
+    synced: number;
+    approved: number;
+    rejected: number;
+    submitted: number;
+    pending: number;
+  }> {
+    const limit = Math.min(100, Math.max(1, params.limit || 100));
 
     if (!this.telecomProvider || !this.telecomProvider.listBeneficiaries) {
-      return { synced: 0, approved: 0 };
+      return { synced: 0, approved: 0, rejected: 0, submitted: 0, pending: 0 };
     }
 
     try {
-      const res = await this.telecomProvider.listBeneficiaries({
-        network: net,
-        status: 'approved',
-        limit,
-      });
+      const queryParams: any = { limit };
+      if (params.network && params.network.toUpperCase() !== 'ALL') {
+        queryParams.network = params.network.toUpperCase();
+      }
+      if (params.status && params.status.toLowerCase() !== 'all') {
+        queryParams.status = params.status.toLowerCase();
+      }
+      if (params.search && params.search.trim().length > 0) {
+        queryParams.search = params.search.trim();
+      }
+      if (params.page) {
+        queryParams.page = params.page;
+      }
+
+      const res = await this.telecomProvider.listBeneficiaries(queryParams);
 
       const items = res?.items || [];
       let approvedCount = 0;
+      let rejectedCount = 0;
+      let submittedCount = 0;
+      let pendingCount = 0;
 
       for (const item of items) {
         const rawPhone = item.msisdn || (item as any).phoneNumber || (item as any).phone;
@@ -1051,39 +1073,126 @@ export class BeneficiaryService {
         const norm = this.normalizeGhanaPhone(rawPhone);
         if (!norm.valid) continue;
 
+        const phone = norm.normalized;
+        const phoneAlt = `+233${phone.slice(1)}`;
+        const status = String(item.status || 'pending').toLowerCase();
+        const itemNet = (item.network || 'MTN').toUpperCase();
+        const attemptCount = Number(item.attemptCount || 1);
+        const lastBundleSizeGb = item.lastBundleSizeGb ? String(item.lastBundleSizeGb) : null;
+        const submittedAt = item.submittedAt ? new Date(item.submittedAt) : null;
+        const resolvedAt = item.resolvedAt ? new Date(item.resolvedAt) : null;
+
         const meta = JSON.stringify({
           source: 'telecom_provider_sync',
           providerStatus: item.status,
           syncedAt: new Date().toISOString(),
+          lastBundleSizeGb,
+          attemptCount,
         });
 
-        await this.db.query(
-          `INSERT INTO beneficiary_validation (
-            phone_number, network, validation_status, validated_at, expires_at,
-            provider_reference, provider_response_metadata, created_at, updated_at
-          ) VALUES ($1, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-SYNC', $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          ON CONFLICT (phone_number, network) DO UPDATE
-          SET validation_status = 'VALID',
-              validated_at = CURRENT_TIMESTAMP,
-              expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
-              provider_reference = 'DH-SYNC',
-              updated_at = CURRENT_TIMESTAMP`,
-          [norm.normalized, meta],
-        ).catch(() => {});
+        if (status === 'approved' || status === 'valid') {
+          approvedCount++;
 
-        await this.db.query(
-          `UPDATE pending_beneficiary_approvals
-           SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-           WHERE phone_number = $1 AND network = 'MTN'`,
-          [norm.normalized],
-        ).catch(() => {});
+          // 1. Update beneficiary_validation as VALID for 30 days
+          await this.db.query(
+            `INSERT INTO beneficiary_validation (
+              phone_number, network, validation_status, validated_at, expires_at,
+              provider_reference, provider_response_metadata, attempt_count, last_bundle_size_gb,
+              created_at, updated_at
+            ) VALUES ($1, $2, 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-SYNC', $3::jsonb, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (phone_number, network) DO UPDATE
+            SET validation_status = 'VALID',
+                validated_at = CURRENT_TIMESTAMP,
+                expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
+                provider_reference = 'DH-SYNC',
+                provider_response_metadata = $3::jsonb,
+                attempt_count = GREATEST(beneficiary_validation.attempt_count, EXCLUDED.attempt_count),
+                last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+                updated_at = CURRENT_TIMESTAMP`,
+            [phone, itemNet, meta, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null],
+          ).catch(() => {});
 
-        approvedCount++;
+          // 2. Mark pending approval as APPROVED
+          await this.db.query(
+            `UPDATE pending_beneficiary_approvals
+             SET status = 'APPROVED',
+                 resolved_at = COALESCE($1, CURRENT_TIMESTAMP),
+                 attempt_count = GREATEST(attempt_count, $2),
+                 last_bundle_size_gb = COALESCE($3, last_bundle_size_gb),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE (phone_number = $4 OR phone_number = $5) AND network = $6`,
+            [resolvedAt, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null, phone, phoneAlt, itemNet],
+          ).catch(() => {});
+        } else if (status === 'rejected' || status === 'invalid') {
+          rejectedCount++;
+
+          // 1. Mark in beneficiary_validation as INVALID
+          await this.db.query(
+            `INSERT INTO beneficiary_validation (
+              phone_number, network, validation_status, validated_at, expires_at,
+              provider_reference, provider_response_metadata, attempt_count, last_bundle_size_gb,
+              created_at, updated_at
+            ) VALUES ($1, $2, 'INVALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-SYNC', $3::jsonb, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (phone_number, network) DO UPDATE
+            SET validation_status = 'INVALID',
+                validated_at = CURRENT_TIMESTAMP,
+                provider_reference = 'DH-SYNC',
+                provider_response_metadata = $3::jsonb,
+                attempt_count = GREATEST(beneficiary_validation.attempt_count, EXCLUDED.attempt_count),
+                last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+                updated_at = CURRENT_TIMESTAMP`,
+            [phone, itemNet, meta, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null],
+          ).catch(() => {});
+
+          // 2. Mark pending approval as REJECTED
+          await this.db.query(
+            `UPDATE pending_beneficiary_approvals
+             SET status = 'REJECTED',
+                 resolved_at = COALESCE($1, CURRENT_TIMESTAMP),
+                 attempt_count = GREATEST(attempt_count, $2),
+                 last_bundle_size_gb = COALESCE($3, last_bundle_size_gb),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE (phone_number = $4 OR phone_number = $5) AND network = $6`,
+            [resolvedAt, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null, phone, phoneAlt, itemNet],
+          ).catch(() => {});
+        } else if (status === 'submitted') {
+          submittedCount++;
+
+          // Update pending approval status to SUBMITTED
+          await this.db.query(
+            `UPDATE pending_beneficiary_approvals
+             SET status = 'SUBMITTED',
+                 submitted_at = COALESCE($1, CURRENT_TIMESTAMP),
+                 attempt_count = GREATEST(attempt_count, $2),
+                 last_bundle_size_gb = COALESCE($3, last_bundle_size_gb),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE (phone_number = $4 OR phone_number = $5) AND network = $6 AND status = 'PENDING'`,
+            [submittedAt, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null, phone, phoneAlt, itemNet],
+          ).catch(() => {});
+        } else {
+          pendingCount++;
+
+          // Update attempt count and last bundle size
+          await this.db.query(
+            `UPDATE pending_beneficiary_approvals
+             SET attempt_count = GREATEST(attempt_count, $1),
+                 last_bundle_size_gb = COALESCE($2, last_bundle_size_gb),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE (phone_number = $3 OR phone_number = $4) AND network = $5`,
+            [attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null, phone, phoneAlt, itemNet],
+          ).catch(() => {});
+        }
       }
 
-      return { synced: items.length, approved: approvedCount };
+      return {
+        synced: items.length,
+        approved: approvedCount,
+        rejected: rejectedCount,
+        submitted: submittedCount,
+        pending: pendingCount,
+      };
     } catch {
-      return { synced: 0, approved: 0 };
+      return { synced: 0, approved: 0, rejected: 0, submitted: 0, pending: 0 };
     }
   }
 }

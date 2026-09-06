@@ -449,30 +449,50 @@ export class DataHouseMapper {
   public static toBeneficiaryStatusListDto(
     resp: DataHouseBeneficiariesListResponse,
   ): DataHouseBeneficiaryStatusListDto {
-    const payload = resp.data && typeof resp.data === 'object' && !Array.isArray(resp.data) && 'data' in resp.data
-      ? (resp.data as any)
-      : resp;
+    const payload =
+      resp && typeof resp === 'object' && 'data' in resp && resp.data && typeof resp.data === 'object' && !Array.isArray(resp.data) && 'data' in (resp.data as any)
+        ? (resp.data as any)
+        : resp && typeof resp === 'object' && 'data' in resp && Array.isArray(resp.data)
+        ? resp
+        : resp;
 
-    const items = payload.data || payload.items || payload.results || (Array.isArray(resp) ? resp : []);
-    const meta = payload.meta || resp.meta || {};
+    const items =
+      payload.data && Array.isArray(payload.data)
+        ? payload.data
+        : payload.items && Array.isArray(payload.items)
+        ? payload.items
+        : payload.results && Array.isArray(payload.results)
+        ? payload.results
+        : Array.isArray(resp)
+        ? resp
+        : Array.isArray((resp as any)?.data)
+        ? (resp as any).data
+        : [];
+
+    const meta = payload.meta || (resp as any)?.meta || {};
 
     const formattedItems = (items as any[]).map((b) => ({
-      msisdn: b.msisdn || b.phoneNumber || b.phone || '',
-      network: b.network || 'MTN',
-      status: b.status || 'pending',
-      attemptCount: b.attemptCount ?? 1,
-      lastBundleSizeGb: b.lastBundleSizeGb ? String(b.lastBundleSizeGb) : undefined,
-      firstDetectedAt: b.firstDetectedAt || b.first_detected_at || new Date().toISOString(),
-      lastDetectedAt: b.lastDetectedAt || b.last_detected_at || new Date().toISOString(),
+      msisdn: b.msisdn || b.phoneNumber || b.phone_number || b.phone || '',
+      network: (b.network || 'MTN').toUpperCase(),
+      status: String(b.status || 'pending').toLowerCase(),
+      attemptCount: Number(b.attemptCount ?? b.attempt_count ?? 1),
+      lastBundleSizeGb:
+        b.lastBundleSizeGb != null
+          ? String(b.lastBundleSizeGb)
+          : b.last_bundle_size_gb != null
+          ? String(b.last_bundle_size_gb)
+          : undefined,
+      firstDetectedAt: b.firstDetectedAt || b.first_detected_at || b.created_at || new Date().toISOString(),
+      lastDetectedAt: b.lastDetectedAt || b.last_detected_at || b.updated_at || new Date().toISOString(),
       submittedAt: b.submittedAt || b.submitted_at || null,
       resolvedAt: b.resolvedAt || b.resolved_at || null,
     }));
 
     return {
       items: formattedItems,
-      page: meta.page || 1,
-      limit: meta.limit || 30,
-      total: meta.total || formattedItems.length,
+      page: Number(meta.page || 1),
+      limit: Number(meta.limit || 30),
+      total: Number(meta.total ?? formattedItems.length),
     };
   }
 

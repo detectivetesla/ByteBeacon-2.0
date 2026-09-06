@@ -533,10 +533,10 @@ describe('DataHouse Agent API Specification Full Compliance Suite', () => {
       expect(json.data.meta).toHaveProperty('total');
     });
 
-    it('returns filtered results by search query parameter', async () => {
+    it('returns filtered results by search query parameter with Ghana country code normalization', async () => {
       const res = await app.inject({
         method: 'GET',
-        url: '/agent/beneficiaries?search=0244123456',
+        url: '/agent/beneficiaries?search=+233244123456',
         headers: {
           'x-api-key': liveBeneficiariesKey,
         },
@@ -546,6 +546,8 @@ describe('DataHouse Agent API Specification Full Compliance Suite', () => {
       const json = JSON.parse(res.body);
       expect(json.success).toBe(true);
       expect(json.data.data).toBeInstanceOf(Array);
+      expect(json.data.meta.page).toBe(1);
+      expect(json.data.meta.limit).toBe(30);
     });
 
     it('blocks callers lacking beneficiaries:read scope with 403', async () => {
