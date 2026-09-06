@@ -236,6 +236,7 @@ export const BuyDataPage: React.FC = () => {
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [excelParsedRows, setExcelParsedRows] = useState<ParsedSpreadsheetRow[]>([]);
   const [excelLoading, setExcelLoading] = useState(false);
+  const [isVerifyingApprovals, setIsVerifyingApprovals] = useState(false);
   const [excelFilter, setExcelFilter] = useState<RecipientRowStatus | 'ALL'>('ALL');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -550,52 +551,56 @@ export const BuyDataPage: React.FC = () => {
     );
     const knownSet = new Set<string>();
 
-    const batchSize = isAgentPortal ? 100 : 50;
+    const batchSize = 250;
+    const batches: string[][] = [];
     for (let i = 0; i < uniqueMtnPhones.length; i += batchSize) {
-      const batch = uniqueMtnPhones.slice(i, i + batchSize);
-      let batchSuccess = false;
+      batches.push(uniqueMtnPhones.slice(i, i + batchSize));
+    }
 
-      // 1. Try precheck with opt-in recording
-      try {
-        const res: any = await beneficiaryApi.precheck({
-          network: NetworkProvider.MTN,
-          phoneNumbers: batch,
-          record: true,
-        });
+    await Promise.all(
+      batches.map(async (batch) => {
+        let batchSuccess = false;
 
-        const results = res?.results || res?.data?.results;
-        if (Array.isArray(results)) {
-          results.forEach((item: any) => {
-            const isApproved = Boolean(item.known || item.isKnown);
-            if (isApproved) {
-              const rawP = item.phone || item.phoneNumber || item.normalized;
-              const normP = normalizeGhanaPhoneNumber(rawP);
-              if (normP) {
-                knownSet.add(normP);
-                knownSet.add(`+233${normP.slice(1)}`);
-                knownSet.add(`233${normP.slice(1)}`);
-              }
-              if (item.phone) knownSet.add(item.phone);
-              if (item.normalized) knownSet.add(item.normalized);
-            }
+        // 1. Try precheck with opt-in recording
+        try {
+          const res: any = await beneficiaryApi.precheck({
+            network: NetworkProvider.MTN,
+            phoneNumbers: batch,
+            record: true,
           });
-          batchSuccess = true;
-        }
-      } catch {
-        batchSuccess = false;
-      }
 
-      // 2. Fallback to public precheck in chunks of 10 if full precheck fails
-      if (!batchSuccess) {
-        for (let j = 0; j < batch.length; j += 10) {
-          const subChunk = batch.slice(j, j + 10);
+          const results = res?.results || res?.data?.results;
+          if (Array.isArray(results)) {
+            results.forEach((item: any) => {
+              const isApproved = Boolean(item.known || item.isKnown);
+              if (isApproved) {
+                const rawP = item.phone || item.phoneNumber || item.normalized;
+                const normP = normalizeGhanaPhoneNumber(rawP);
+                if (normP) {
+                  knownSet.add(normP);
+                  knownSet.add(`+233${normP.slice(1)}`);
+                  knownSet.add(`233${normP.slice(1)}`);
+                }
+                if (item.phone) knownSet.add(item.phone);
+                if (item.normalized) knownSet.add(item.normalized);
+              }
+            });
+            batchSuccess = true;
+          }
+        } catch {
+          batchSuccess = false;
+        }
+
+        // 2. Fallback to public precheck if full precheck fails
+        if (!batchSuccess) {
           try {
             const pubRes = await beneficiaryApi.precheckPublic({
               network: NetworkProvider.MTN,
-              phoneNumbers: subChunk,
+              phoneNumbers: batch.slice(0, 10),
             });
-            if (pubRes && Array.isArray(pubRes.results)) {
-              pubRes.results.forEach((item: any) => {
+            const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
+            if (Array.isArray(pubResults)) {
+              pubResults.forEach((item: any) => {
                 const isApproved = Boolean(item.known || (item as any).isKnown);
                 if (isApproved) {
                   const normP = normalizeGhanaPhoneNumber(item.phone || item.normalized);
@@ -610,11 +615,11 @@ export const BuyDataPage: React.FC = () => {
               });
             }
           } catch {
-            // Non-fatal per-chunk fallback error
+            // Non-fatal fallback error
           }
         }
-      }
-    }
+      }),
+    );
 
     return rows.map((row) => {
       if (!row.isValid) {
@@ -666,7 +671,7 @@ export const BuyDataPage: React.FC = () => {
   // Re-verify current spreadsheet rows against updated database approvals
   const handleRecheckApprovals = async () => {
     if (excelParsedRows.length === 0) return;
-    setExcelLoading(true);
+    setIsVerifyingApprovals(true);
     try {
       const rechecked = await verifySpreadsheetRows(excelParsedRows);
       setExcelParsedRows(rechecked);
@@ -676,7 +681,7 @@ export const BuyDataPage: React.FC = () => {
     } catch (err: any) {
       toastError('Refresh Failed', err?.message || 'Could not refresh approvals.');
     } finally {
-      setExcelLoading(false);
+      setIsVerifyingApprovals(false);
     }
   };
 
@@ -703,24 +708,64 @@ export const BuyDataPage: React.FC = () => {
         return;
       }
 
-      const enrichedRows = await verifySpreadsheetRows(result.rows);
-      setExcelParsedRows(enrichedRows);
+      // Render parsed rows immediately (<20ms) so user never gets stuck at "Checking your file..."
+      const initialRows: ParsedSpreadsheetRow[] = result.rows.map((row) => {
+        if (!row.isValid) {
+          return {
+            ...row,
+            status: 'REJECTED' as const,
+            statusReason: row.error || 'Invalid Ghanaian phone number format',
+          };
+        }
+        const isMtn =
+          row.network === 'MTN' ||
+          (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO' && selectedNetwork === NetworkProvider.MTN);
+
+        if (!isMtn) {
+          return {
+            ...row,
+            status: 'APPROVED' as const,
+            statusReason: 'Direct carrier fulfillment',
+            isKnown: true,
+          };
+        }
+        return {
+          ...row,
+          status: 'UNAPPROVED' as const,
+          statusReason: 'Verifying MTN approval...',
+          isKnown: false,
+        };
+      });
+
+      setExcelParsedRows(initialRows);
       setExcelLoading(false);
 
-      const approvedCount = enrichedRows.filter((r) => r.status === 'APPROVED').length;
-      const unapprovedCount = enrichedRows.filter((r) => r.status === 'UNAPPROVED').length;
-      const rejectedCount = enrichedRows.filter((r) => r.status === 'REJECTED').length;
+      // Verify approvals in background
+      setIsVerifyingApprovals(true);
+      try {
+        const enrichedRows = await verifySpreadsheetRows(result.rows);
+        setExcelParsedRows(enrichedRows);
 
-      if (rejectedCount > 0 || unapprovedCount > 0) {
-        toastInfo(
-          'Verification Complete',
-          `${approvedCount} approved, ${unapprovedCount} unapproved/new, and ${rejectedCount} rejected rows detected.`,
-        );
-      } else {
-        toastSuccess('File Parsed', `Parsed ${file.name} successfully (${approvedCount} valid recipients detected).`);
+        const approvedCount = enrichedRows.filter((r) => r.status === 'APPROVED').length;
+        const unapprovedCount = enrichedRows.filter((r) => r.status === 'UNAPPROVED').length;
+        const rejectedCount = enrichedRows.filter((r) => r.status === 'REJECTED').length;
+
+        if (rejectedCount > 0 || unapprovedCount > 0) {
+          toastInfo(
+            'Verification Complete',
+            `${approvedCount} approved, ${unapprovedCount} unapproved/new, and ${rejectedCount} rejected rows detected.`,
+          );
+        } else {
+          toastSuccess('File Parsed', `Parsed ${file.name} successfully (${approvedCount} valid recipients detected).`);
+        }
+      } catch (verifyErr: any) {
+        console.warn('Background verification note:', verifyErr);
+      } finally {
+        setIsVerifyingApprovals(false);
       }
     } catch (err: any) {
       setExcelLoading(false);
+      setIsVerifyingApprovals(false);
       toastError('Read Error', `Failed to read the uploaded file: ${err?.message || 'Unknown error'}`);
     }
   };
@@ -1838,15 +1883,21 @@ export const BuyDataPage: React.FC = () => {
                       </button>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {isVerifyingApprovals && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)' }}>
+                          <Loader2 size={13} className="animate-spin" />
+                          <span>Verifying MTN approvals...</span>
+                        </div>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={handleRecheckApprovals}
-                        disabled={excelLoading || excelParsedRows.length === 0}
-                        leftIcon={<RefreshCw size={12} className={excelLoading ? 'spin' : ''} />}
+                        disabled={excelLoading || isVerifyingApprovals || excelParsedRows.length === 0}
+                        leftIcon={<RefreshCw size={12} className={(excelLoading || isVerifyingApprovals) ? 'animate-spin' : ''} />}
                       >
-                        Re-check Approvals
+                        {isVerifyingApprovals ? 'Checking Approvals...' : 'Re-check Approvals'}
                       </Button>
                       <Button
                         variant="ghost"

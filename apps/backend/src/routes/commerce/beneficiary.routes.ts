@@ -164,7 +164,7 @@ export async function beneficiaryRoutes(
         }
       }
 
-      const maxLimit = authenticatedUserId ? 1000 : 10;
+      const maxLimit = 1000;
       if (phoneNumbers.length > maxLimit) {
         throw new BadRequestError(`Up to ${maxLimit} phone numbers allowed per precheck call`);
       }

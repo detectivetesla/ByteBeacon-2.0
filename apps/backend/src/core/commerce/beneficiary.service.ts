@@ -195,30 +195,10 @@ export class BeneficiaryService {
       };
     }
 
-    // For MTN: check provider and DB validated list
+    // For MTN: check DB validated list first, then query provider for remaining unknown
     const knownPhonesSet = new Set<string>();
 
-    if (this.telecomProvider && this.telecomProvider.precheckPublicBeneficiaries) {
-      try {
-        const providerRes = await this.telecomProvider.precheckPublicBeneficiaries({
-          network: net,
-          phoneNumbers: validNormalizedPhones,
-        });
-        if (providerRes && Array.isArray(providerRes.results)) {
-          providerRes.results.forEach((r) => {
-            if (r.isKnown || (r as any).known) {
-              const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
-              knownPhonesSet.add(norm);
-              if (r.phoneNumber) knownPhonesSet.add(r.phoneNumber);
-            }
-          });
-        }
-      } catch {
-        // Fallback to local DB check
-      }
-    }
-
-    // Check DB for validated beneficiary records
+    // 1. Check local DB first for validated beneficiary records (ultra-fast < 2ms)
     if (validNormalizedPhones.length > 0) {
       try {
         const queryPhones = Array.from(
@@ -275,6 +255,34 @@ export class BeneficiaryService {
       }
     }
 
+    // 2. Query upstream telecom provider only for remaining unknown numbers (max 10, raced against 2500ms timeout)
+    const unknownForProvider = validNormalizedPhones.filter(
+      (p) => !knownPhonesSet.has(p) && !knownPhonesSet.has(this.normalizeGhanaPhone(p).normalized),
+    );
+
+    if (unknownForProvider.length > 0 && this.telecomProvider && this.telecomProvider.precheckPublicBeneficiaries) {
+      try {
+        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+        const providerCall = this.telecomProvider.precheckPublicBeneficiaries({
+          network: net,
+          phoneNumbers: unknownForProvider.slice(0, 10),
+        }).catch(() => null);
+
+        const providerRes: any = await Promise.race([providerCall, timeoutPromise]);
+        if (providerRes && Array.isArray(providerRes.results)) {
+          providerRes.results.forEach((r: any) => {
+            if (r.isKnown || r.known) {
+              const norm = this.normalizeGhanaPhone(r.phoneNumber || r.phone || r.normalized || '').normalized;
+              knownPhonesSet.add(norm);
+              if (r.phoneNumber) knownPhonesSet.add(r.phoneNumber);
+            }
+          });
+        }
+      } catch {
+        // Fallback to local DB check
+      }
+    }
+
     const results = parsedItems.map((item) => ({
       phone: item.raw,
       normalized: item.normalized,
@@ -282,42 +290,44 @@ export class BeneficiaryService {
       known: item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.raw)) : false,
     }));
 
-    // If record is requested, persist any unknown valid MTN numbers for approval
+    // If record is requested, persist any unknown valid MTN numbers for approval concurrently
     if (params.record) {
       const unknownList = results.filter((r) => r.valid && !r.known).map((r) => r.normalized);
       if (unknownList.length > 0) {
         try {
-          for (const unkPhone of unknownList) {
-            if (params.userId) {
+          await Promise.all(
+            unknownList.map(async (unkPhone) => {
+              if (params.userId) {
+                await this.db.query(
+                  `INSERT INTO pending_beneficiary_approvals (
+                    phone_number, network, agent_id, status, attempt_count,
+                    first_detected_at, last_detected_at, created_at, updated_at
+                  ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                  ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+                  SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                      last_detected_at = CURRENT_TIMESTAMP,
+                      updated_at = CURRENT_TIMESTAMP`,
+                  [unkPhone, params.userId],
+                ).catch(() => {});
+              } else {
+                await this.db.query(
+                  `INSERT INTO pending_beneficiary_approvals (
+                    phone_number, network, status, attempt_count,
+                    first_detected_at, last_detected_at, created_at, updated_at
+                  ) VALUES ($1, 'MTN', 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                  ON CONFLICT DO NOTHING`,
+                  [unkPhone],
+                ).catch(() => {});
+              }
+
               await this.db.query(
-                `INSERT INTO pending_beneficiary_approvals (
-                  phone_number, network, agent_id, status, attempt_count,
-                  first_detected_at, last_detected_at, created_at, updated_at
-                ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT (agent_id, phone_number, network) DO UPDATE
-                SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
-                    last_detected_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP`,
-                [unkPhone, params.userId],
-              ).catch(() => {});
-            } else {
-              await this.db.query(
-                `INSERT INTO pending_beneficiary_approvals (
-                  phone_number, network, status, attempt_count,
-                  first_detected_at, last_detected_at, created_at, updated_at
-                ) VALUES ($1, 'MTN', 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT DO NOTHING`,
+                `INSERT INTO beneficiary_validation (phone_number, network, validation_status, created_at, updated_at)
+                 VALUES ($1, 'MTN', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                 ON CONFLICT (phone_number, network) DO NOTHING`,
                 [unkPhone],
               ).catch(() => {});
-            }
-
-            await this.db.query(
-              `INSERT INTO beneficiary_validation (phone_number, network, validation_status, created_at, updated_at)
-               VALUES ($1, 'MTN', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-               ON CONFLICT (phone_number, network) DO NOTHING`,
-              [unkPhone],
-            ).catch(() => {});
-          }
+            }),
+          );
         } catch {
           // Non-fatal recording failure
         }
@@ -476,27 +486,7 @@ export class BeneficiaryService {
     const validNormalizedPhones = uniqueItems.filter((item) => item.valid).map((item) => item.normalized);
     const knownPhonesSet = new Set<string>();
 
-    if (this.telecomProvider && this.telecomProvider.precheckBeneficiaries) {
-      try {
-        const providerRes = await this.telecomProvider.precheckBeneficiaries({
-          network: net,
-          phoneNumbers: validNormalizedPhones,
-          record,
-        });
-        if (providerRes && Array.isArray(providerRes.results)) {
-          providerRes.results.forEach((r) => {
-            if (r.isKnown || (r as any).known) {
-              const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
-              knownPhonesSet.add(norm);
-            }
-          });
-        }
-      } catch {
-        // Fallback to local DB check
-      }
-    }
-
-    // Query DB for known/validated MTN beneficiaries
+    // 1. Query DB for known/validated MTN beneficiaries first (ultra-fast < 2ms)
     if (validNormalizedPhones.length > 0) {
       try {
         const queryPhones = Array.from(
@@ -553,6 +543,34 @@ export class BeneficiaryService {
       }
     }
 
+    // 2. Query upstream provider only for remaining unknown numbers (raced against 2500ms timeout)
+    const unknownForProvider = validNormalizedPhones.filter(
+      (p) => !knownPhonesSet.has(p) && !knownPhonesSet.has(this.normalizeGhanaPhone(p).normalized),
+    );
+
+    if (unknownForProvider.length > 0 && this.telecomProvider && this.telecomProvider.precheckBeneficiaries) {
+      try {
+        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+        const providerCall = this.telecomProvider.precheckBeneficiaries({
+          network: net,
+          phoneNumbers: unknownForProvider,
+          record,
+        }).catch(() => null);
+
+        const providerRes: any = await Promise.race([providerCall, timeoutPromise]);
+        if (providerRes && Array.isArray(providerRes.results)) {
+          providerRes.results.forEach((r: any) => {
+            if (r.isKnown || (r as any).known) {
+              const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
+              knownPhonesSet.add(norm);
+            }
+          });
+        }
+      } catch {
+        // Fallback to local DB check
+      }
+    }
+
     const results = uniqueItems.map((item) => ({
       phone: item.phone,
       normalized: item.normalized,
@@ -568,35 +586,37 @@ export class BeneficiaryService {
     if (record && unknownList.length > 0) {
       recorded = true;
       try {
-        for (const unkPhone of unknownList) {
-          // 1. Record into pending_beneficiary_approvals attributed to this agent
-          if (_userId) {
-            await this.db.query(
-              `INSERT INTO pending_beneficiary_approvals (
-                phone_number, network, agent_id, status, attempt_count,
-                first_detected_at, last_detected_at, created_at, updated_at
-              ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-              ON CONFLICT (agent_id, phone_number, network) DO UPDATE
-              SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
-                  last_detected_at = CURRENT_TIMESTAMP,
-                  updated_at = CURRENT_TIMESTAMP`,
-              [unkPhone, _userId],
-            ).catch(() => {});
-          }
+        await Promise.all(
+          unknownList.map(async (unkPhone) => {
+            // 1. Record into pending_beneficiary_approvals attributed to this agent
+            if (_userId) {
+              await this.db.query(
+                `INSERT INTO pending_beneficiary_approvals (
+                  phone_number, network, agent_id, status, attempt_count,
+                  first_detected_at, last_detected_at, created_at, updated_at
+                ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+                SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                    last_detected_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP`,
+                [unkPhone, _userId],
+              ).catch(() => {});
+            }
 
-          // 2. Also record in beneficiary_validation for system-wide validation tracking
-          const metadata = JSON.stringify({
-            agentId: _userId || null,
-            recordedVia: 'agent_precheck',
-            recordedAt: new Date().toISOString(),
-          });
-          const insertPendingQuery = `
-            INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
-            VALUES ($1, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (phone_number, network) DO NOTHING
-          `;
-          await this.db.query(insertPendingQuery, [unkPhone, metadata, _userId || null]).catch(() => {});
-        }
+            // 2. Also record in beneficiary_validation for system-wide validation tracking
+            const metadata = JSON.stringify({
+              agentId: _userId || null,
+              recordedVia: 'agent_precheck',
+              recordedAt: new Date().toISOString(),
+            });
+            const insertPendingQuery = `
+              INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
+              VALUES ($1, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+              ON CONFLICT (phone_number, network) DO NOTHING
+            `;
+            await this.db.query(insertPendingQuery, [unkPhone, metadata, _userId || null]).catch(() => {});
+          }),
+        );
       } catch {
         // Non-fatal recording error
       }
