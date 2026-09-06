@@ -113,7 +113,15 @@ export async function beneficiaryRoutes(
       success: true,
       statusCode: 200,
       message: 'Success',
-      data: result,
+      data: {
+        network: result.network,
+        results: result.results.map((r) => ({
+          phone: r.phone,
+          normalized: r.normalized,
+          valid: r.valid,
+          known: r.known,
+        })),
+      },
     });
   };
 
@@ -174,15 +182,10 @@ export async function beneficiaryRoutes(
         }
       }
 
-      const isSandbox =
-        (apiKeyHeader as string)?.startsWith('ak_test_') ||
-        authHeader?.startsWith('Bearer ak_test_');
-
-      const result = await beneficiaryService.precheckAgentBeneficiaries({
+      const result = await beneficiaryService.precheckPublicBeneficiaries({
         network: network as NetworkProvider,
         phoneNumbers,
         record: Boolean(record),
-        isSandbox: Boolean(isSandbox),
         userId: authenticatedUserId,
       });
 

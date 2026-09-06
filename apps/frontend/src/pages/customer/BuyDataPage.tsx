@@ -594,19 +594,12 @@ export const BuyDataPage: React.FC = () => {
           hasResults = false;
         }
 
-        // 2. Fallback / verify any numbers not yet confirmed in knownSet using live public precheck in chunks of up to 10
-        const remainingToCheck = hasResults
-          ? batch.filter((phone) => {
-              const norm = normalizeGhanaPhoneNumber(phone);
-              return !knownSet.has(norm) && !knownSet.has(phone);
-            })
-          : batch;
-
-        if (remainingToCheck.length > 0) {
+        // 2. Fallback to public precheck in chunks of up to 10 ONLY if bulk precheck failed
+        if (!hasResults) {
           const CHUNK_SIZE = 10;
           const subChunks: string[][] = [];
-          for (let j = 0; j < remainingToCheck.length; j += CHUNK_SIZE) {
-            subChunks.push(remainingToCheck.slice(j, j + CHUNK_SIZE));
+          for (let j = 0; j < batch.length; j += CHUNK_SIZE) {
+            subChunks.push(batch.slice(j, j + CHUNK_SIZE));
           }
 
           await Promise.all(
