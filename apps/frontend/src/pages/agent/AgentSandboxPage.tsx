@@ -705,8 +705,8 @@ export const AgentSandboxPage: React.FC = () => {
           alignItems: 'center',
           gap: 'var(--space-2)',
           padding: '4px',
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-          border: '1px solid rgba(16, 185, 129, 0.2)',
+          backgroundColor: 'var(--color-bg-surface-elevated)',
+          border: '1px solid var(--color-border-default)',
           borderRadius: 'var(--radius-xl)',
           width: 'fit-content',
           boxShadow: 'var(--shadow-tactile-sm)',
@@ -721,17 +721,17 @@ export const AgentSandboxPage: React.FC = () => {
             gap: '8px',
             padding: '8px 18px',
             borderRadius: 'var(--radius-lg)',
-            border: activeTab === 'blueprints' ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent',
-            backgroundColor: activeTab === 'blueprints' ? '#FFFFFF' : 'transparent',
-            color: activeTab === 'blueprints' ? '#065F46' : 'var(--color-text-secondary)',
+            border: activeTab === 'blueprints' ? '1px solid var(--color-brand)' : '1px solid transparent',
+            backgroundColor: activeTab === 'blueprints' ? 'var(--color-bg-surface)' : 'transparent',
+            color: activeTab === 'blueprints' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
             fontWeight: activeTab === 'blueprints' ? 800 : 600,
             fontSize: 'var(--font-size-xs)',
             cursor: 'pointer',
-            boxShadow: activeTab === 'blueprints' ? '0 2px 6px rgba(0, 0, 0, 0.06)' : 'none',
+            boxShadow: activeTab === 'blueprints' ? 'var(--shadow-sm)' : 'none',
             transition: 'all var(--transition-normal)',
           }}
         >
-          <Code size={15} color={activeTab === 'blueprints' ? '#059669' : 'currentColor'} />
+          <Code size={15} color={activeTab === 'blueprints' ? 'var(--color-brand)' : 'currentColor'} />
           API Blueprints & Runner
           <span
             style={{
@@ -739,8 +739,8 @@ export const AgentSandboxPage: React.FC = () => {
               borderRadius: 'var(--radius-full)',
               fontSize: '10px',
               fontWeight: 800,
-              backgroundColor: activeTab === 'blueprints' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(0,0,0,0.05)',
-              color: activeTab === 'blueprints' ? '#059669' : 'var(--color-text-tertiary)',
+              backgroundColor: activeTab === 'blueprints' ? 'var(--color-brand-surface)' : 'var(--color-bg-surface-hover)',
+              color: activeTab === 'blueprints' ? 'var(--color-brand)' : 'var(--color-text-muted)',
             }}
           >
             11
@@ -756,17 +756,17 @@ export const AgentSandboxPage: React.FC = () => {
             gap: '8px',
             padding: '8px 18px',
             borderRadius: 'var(--radius-lg)',
-            border: activeTab === 'carrier' ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent',
-            backgroundColor: activeTab === 'carrier' ? '#FFFFFF' : 'transparent',
-            color: activeTab === 'carrier' ? '#065F46' : 'var(--color-text-secondary)',
+            border: activeTab === 'carrier' ? '1px solid var(--color-brand)' : '1px solid transparent',
+            backgroundColor: activeTab === 'carrier' ? 'var(--color-bg-surface)' : 'transparent',
+            color: activeTab === 'carrier' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
             fontWeight: activeTab === 'carrier' ? 800 : 600,
             fontSize: 'var(--font-size-xs)',
             cursor: 'pointer',
-            boxShadow: activeTab === 'carrier' ? '0 2px 6px rgba(0, 0, 0, 0.06)' : 'none',
+            boxShadow: activeTab === 'carrier' ? 'var(--shadow-sm)' : 'none',
             transition: 'all var(--transition-normal)',
           }}
         >
-          <Radio size={15} color={activeTab === 'carrier' ? '#059669' : 'currentColor'} />
+          <Radio size={15} color={activeTab === 'carrier' ? 'var(--color-brand)' : 'currentColor'} />
           Carrier Dispatch Simulator (MTN • Telecel • AT)
           <span
             style={{
@@ -774,8 +774,8 @@ export const AgentSandboxPage: React.FC = () => {
               borderRadius: 'var(--radius-full)',
               fontSize: '10px',
               fontWeight: 800,
-              backgroundColor: 'rgba(245, 158, 11, 0.15)',
-              color: '#D97706',
+              backgroundColor: 'var(--color-warning-surface)',
+              color: 'var(--color-warning)',
             }}
           >
             Live Telecom
@@ -799,7 +799,7 @@ export const AgentSandboxPage: React.FC = () => {
             style={{
               padding: 0,
               overflow: 'hidden',
-              backgroundColor: '#FFFFFF',
+              backgroundColor: 'var(--color-bg-surface)',
               border: '1px solid var(--color-border-default)',
               borderRadius: 'var(--radius-lg)',
               boxShadow: 'var(--shadow-tactile-sm)',
@@ -809,7 +809,7 @@ export const AgentSandboxPage: React.FC = () => {
               style={{
                 padding: 'var(--space-4)',
                 borderBottom: '1px solid var(--color-border-default)',
-                backgroundColor: 'rgba(240, 253, 244, 0.5)',
+                backgroundColor: 'var(--color-bg-surface-elevated)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -828,7 +828,7 @@ export const AgentSandboxPage: React.FC = () => {
                   >
                     API Blueprints
                   </span>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary)', fontWeight: 600 }}>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
                     Recipes
                   </span>
                 </div>
@@ -863,8 +863,8 @@ export const AgentSandboxPage: React.FC = () => {
                       width: '100%',
                       padding: '10px 12px',
                       borderRadius: 'var(--radius-md)',
-                      border: isSelected ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid transparent',
-                      backgroundColor: isSelected ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                      border: isSelected ? '1px solid var(--color-brand-border)' : '1px solid transparent',
+                      backgroundColor: isSelected ? 'var(--color-brand-surface)' : 'transparent',
                       textAlign: 'left',
                       cursor: 'pointer',
                       transition: 'all var(--transition-fast)',
@@ -872,7 +872,7 @@ export const AgentSandboxPage: React.FC = () => {
                     }}
                     onMouseEnter={(e) => {
                       if (!isSelected) {
-                        e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.04)';
+                        e.currentTarget.style.backgroundColor = 'var(--color-bg-surface-hover)';
                         e.currentTarget.style.transform = 'translateX(2px)';
                       }
                     }}
@@ -897,7 +897,7 @@ export const AgentSandboxPage: React.FC = () => {
                           fontFamily: 'var(--font-mono)',
                           fontSize: '12px',
                           fontWeight: 700,
-                          color: isSelected ? '#059669' : 'var(--color-text-primary)',
+                          color: isSelected ? 'var(--color-brand)' : 'var(--color-text-primary)',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -909,7 +909,7 @@ export const AgentSandboxPage: React.FC = () => {
                     <span
                       style={{
                         fontSize: '12px',
-                        color: isSelected ? '#065F46' : 'var(--color-text-secondary)',
+                        color: isSelected ? 'var(--color-brand)' : 'var(--color-text-secondary)',
                         fontWeight: isSelected ? 700 : 500,
                         paddingLeft: '2px',
                       }}
@@ -928,7 +928,7 @@ export const AgentSandboxPage: React.FC = () => {
               elevated
               style={{
                 padding: 'var(--space-6)',
-                backgroundColor: '#FFFFFF',
+                backgroundColor: 'var(--color-bg-surface)',
                 border: '1px solid var(--color-border-default)',
                 borderRadius: 'var(--radius-lg)',
                 boxShadow: 'var(--shadow-tactile-sm)',
@@ -982,13 +982,13 @@ export const AgentSandboxPage: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                    backgroundColor: 'var(--color-bg-surface-elevated)',
                     padding: '4px 8px',
                     borderRadius: 'var(--radius-md)',
                     border: '1px solid var(--color-border-default)',
                   }}
                 >
-                  <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: 600 }}>Host:</span>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Host:</span>
                   <select
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
@@ -1029,17 +1029,17 @@ export const AgentSandboxPage: React.FC = () => {
                       border: '1px solid var(--color-border-default)',
                       borderRadius: 'var(--radius-md)',
                       overflow: 'hidden',
-                      backgroundColor: '#FAFAFA',
+                      backgroundColor: 'var(--color-bg-base)',
                     }}
                   >
                     <span
                       style={{
                         padding: '8px 12px',
-                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                        backgroundColor: 'var(--color-bg-surface-elevated)',
                         borderRight: '1px solid var(--color-border-default)',
                         fontFamily: 'var(--font-mono)',
                         fontSize: '12px',
-                        color: 'var(--color-text-tertiary)',
+                        color: 'var(--color-text-secondary)',
                         fontWeight: 600,
                         userSelect: 'none',
                       }}
@@ -1108,7 +1108,7 @@ export const AgentSandboxPage: React.FC = () => {
                     alignItems: 'center',
                     border: '1px solid var(--color-border-default)',
                     borderRadius: 'var(--radius-md)',
-                    backgroundColor: '#FFFFFF',
+                    backgroundColor: 'var(--color-bg-base)',
                     paddingRight: '8px',
                   }}
                 >
@@ -1122,6 +1122,7 @@ export const AgentSandboxPage: React.FC = () => {
                       padding: '8px 12px',
                       border: 'none',
                       outline: 'none',
+                      backgroundColor: 'transparent',
                       fontFamily: 'var(--font-mono)',
                       fontSize: '13px',
                       color: 'var(--color-text-primary)',
@@ -1144,14 +1145,14 @@ export const AgentSandboxPage: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
                     Stored safely in local session for testing. Never charges live GHS floats.
                   </span>
                   <a
                     href="/agent/api"
                     style={{
                       fontSize: '11px',
-                      color: '#059669',
+                      color: 'var(--color-brand)',
                       fontWeight: 700,
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1225,8 +1226,8 @@ export const AgentSandboxPage: React.FC = () => {
                       fontFamily: 'var(--font-mono)',
                       fontSize: '12px',
                       lineHeight: 1.5,
-                      backgroundColor: '#FAFAFA',
-                      color: '#0F172A',
+                      backgroundColor: 'var(--color-bg-base)',
+                      color: 'var(--color-text-primary)',
                       resize: 'vertical',
                       outline: 'none',
                     }}
@@ -1412,7 +1413,7 @@ export const AgentSandboxPage: React.FC = () => {
             elevated
             style={{
               padding: 'var(--space-6)',
-              backgroundColor: '#FFFFFF',
+              backgroundColor: 'var(--color-bg-surface)',
               border: '1px solid var(--color-border-default)',
               borderRadius: 'var(--radius-lg)',
               boxShadow: 'var(--shadow-tactile-sm)',
@@ -1462,7 +1463,7 @@ export const AgentSandboxPage: React.FC = () => {
                           padding: '10px 8px',
                           borderRadius: 'var(--radius-md)',
                           border: isSelected ? `2px solid ${net.color}` : '1px solid var(--color-border-default)',
-                          backgroundColor: isSelected ? net.bg : '#FAFAFA',
+                          backgroundColor: isSelected ? net.bg : 'var(--color-bg-base)',
                           color: isSelected ? net.color : 'var(--color-text-secondary)',
                           fontWeight: isSelected ? 800 : 600,
                           fontSize: '12px',
@@ -1526,13 +1527,13 @@ export const AgentSandboxPage: React.FC = () => {
                   style={{
                     padding: '8px 12px',
                     borderRadius: 'var(--radius-md)',
-                    backgroundColor: simPrecheckResult.known ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                    border: `1px solid ${simPrecheckResult.known ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                    backgroundColor: simPrecheckResult.known ? 'var(--color-success-surface)' : 'var(--color-danger-surface)',
+                    border: `1px solid ${simPrecheckResult.known ? 'var(--color-success-border)' : 'var(--color-danger-border)'}`,
                     fontSize: '11px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    color: simPrecheckResult.known ? '#065F46' : '#991B1B',
+                    color: simPrecheckResult.known ? 'var(--color-success)' : 'var(--color-danger)',
                   }}
                 >
                   {simPrecheckResult.known ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
@@ -1563,9 +1564,9 @@ export const AgentSandboxPage: React.FC = () => {
                       fontSize: '10px',
                       padding: '2px 8px',
                       borderRadius: 'var(--radius-full)',
-                      border: '1px solid rgba(16, 185, 129, 0.3)',
-                      backgroundColor: 'rgba(16, 185, 129, 0.08)',
-                      color: '#065F46',
+                      border: '1px solid var(--color-brand-border)',
+                      backgroundColor: 'var(--color-brand-surface)',
+                      color: 'var(--color-brand)',
                       fontWeight: 600,
                       cursor: 'pointer',
                     }}
@@ -1579,9 +1580,9 @@ export const AgentSandboxPage: React.FC = () => {
                       fontSize: '10px',
                       padding: '2px 8px',
                       borderRadius: 'var(--radius-full)',
-                      border: '1px solid rgba(239, 68, 68, 0.3)',
-                      backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                      color: '#991B1B',
+                      border: '1px solid var(--color-danger-border)',
+                      backgroundColor: 'var(--color-danger-surface)',
+                      color: 'var(--color-danger)',
                       fontWeight: 600,
                       cursor: 'pointer',
                     }}
@@ -1595,9 +1596,9 @@ export const AgentSandboxPage: React.FC = () => {
                       fontSize: '10px',
                       padding: '2px 8px',
                       borderRadius: 'var(--radius-full)',
-                      border: '1px solid rgba(37, 99, 235, 0.3)',
-                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                      color: '#1E40AF',
+                      border: '1px solid var(--color-info-border)',
+                      backgroundColor: 'var(--color-info-surface)',
+                      color: 'var(--color-info)',
                       fontWeight: 600,
                       cursor: 'pointer',
                     }}
@@ -1626,8 +1627,8 @@ export const AgentSandboxPage: React.FC = () => {
                         fontSize: '11px',
                         borderRadius: 'var(--radius-sm)',
                         border: simCapacity === cap ? '1px solid var(--color-brand)' : '1px solid var(--color-border-default)',
-                        backgroundColor: simCapacity === cap ? 'rgba(16, 185, 129, 0.1)' : '#FAFAFA',
-                        color: simCapacity === cap ? '#059669' : 'var(--color-text-secondary)',
+                        backgroundColor: simCapacity === cap ? 'var(--color-brand-surface)' : 'var(--color-bg-base)',
+                        color: simCapacity === cap ? 'var(--color-brand)' : 'var(--color-text-secondary)',
                         fontWeight: simCapacity === cap ? 700 : 500,
                         cursor: 'pointer',
                       }}
@@ -1674,7 +1675,7 @@ export const AgentSandboxPage: React.FC = () => {
             elevated
             style={{
               padding: 'var(--space-6)',
-              backgroundColor: '#FFFFFF',
+              backgroundColor: 'var(--color-bg-surface)',
               border: '1px solid var(--color-border-default)',
               borderRadius: 'var(--radius-lg)',
               boxShadow: 'var(--shadow-tactile-sm)',
