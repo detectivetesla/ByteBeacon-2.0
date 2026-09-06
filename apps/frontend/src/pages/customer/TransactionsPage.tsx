@@ -27,11 +27,15 @@ interface TransactionRow {
   balanceAfter: string;
   status: string;
   dateDisplay: string;
+  createdAtMs: number;
+  createdAtIso: string;
 }
 
 export const TransactionsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const [dateRange, setDateRange] = useState<string>('30d');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest');
   const [page, setPage] = useState(1);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -42,27 +46,32 @@ export const TransactionsPage: React.FC = () => {
   const fetchTransactions = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await walletApi.getTransactions({ limit: 100 });
+      const res = await walletApi.getTransactions({ limit: 100, dateRange, sortBy });
       if (res && Array.isArray(res.transactions)) {
-        const mapped: TransactionRow[] = res.transactions.map((t: WalletTransactionDto) => ({
-          id: t.id,
-          reference: t.referenceId || t.id.slice(0, 10).toUpperCase(),
-          type: t.type,
-          channel: t.description || 'Wallet',
-          amountPesewas: t.amountPesewas,
-          amountDisplay: `${t.type === 'DEPOSIT' || t.type === 'REFUND' ? '+' : '-'}GH₵ ${(t.amountPesewas / 100).toFixed(2)}`,
-          balanceAfter: `GH₵ ${(t.balanceAfterPesewas / 100).toFixed(2)}`,
-          status: t.status,
-          dateDisplay: t.createdAt
-            ? new Date(t.createdAt).toLocaleDateString([], {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : '—',
-        }));
+        const mapped: TransactionRow[] = res.transactions.map((t: WalletTransactionDto) => {
+          const rawDate = t.createdAt ? new Date(t.createdAt) : new Date();
+          return {
+            id: t.id,
+            reference: t.referenceId || t.id.slice(0, 10).toUpperCase(),
+            type: t.type,
+            channel: t.description || 'Wallet',
+            amountPesewas: t.amountPesewas,
+            amountDisplay: `${t.type === 'DEPOSIT' || t.type === 'REFUND' ? '+' : '-'}GH₵ ${(t.amountPesewas / 100).toFixed(2)}`,
+            balanceAfter: `GH₵ ${(t.balanceAfterPesewas / 100).toFixed(2)}`,
+            status: t.status,
+            createdAtMs: rawDate.getTime(),
+            createdAtIso: rawDate.toISOString(),
+            dateDisplay: t.createdAt
+              ? rawDate.toLocaleDateString([], {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—',
+          };
+        });
         setTransactions(mapped);
       } else {
         setTransactions([]);
@@ -72,7 +81,7 @@ export const TransactionsPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [dateRange, sortBy]);
 
   useEffect(() => {
     fetchTransactions();
@@ -87,40 +96,69 @@ export const TransactionsPage: React.FC = () => {
   };
 
   const filtered = useMemo(() => {
-    return transactions.filter((t) => {
+    const list = transactions.filter((t) => {
       const matchesSearch =
+        !searchQuery.trim() ||
         t.reference.toLowerCase().includes(searchQuery.toLowerCase()) ||
         t.channel.toLowerCase().includes(searchQuery.toLowerCase()) ||
         t.type.toLowerCase().includes(searchQuery.toLowerCase());
+
       const matchesType = typeFilter === 'ALL' || t.type === typeFilter;
-      return matchesSearch && matchesType;
+
+      let matchesDate = true;
+      if (dateRange !== 'all') {
+        const now = Date.now();
+        if (dateRange === 'today') {
+          const startOfToday = new Date().setHours(0, 0, 0, 0);
+          matchesDate = t.createdAtMs >= startOfToday;
+        } else if (dateRange === '7d') {
+          matchesDate = t.createdAtMs >= now - 7 * 24 * 60 * 60 * 1000;
+        } else if (dateRange === '30d') {
+          matchesDate = t.createdAtMs >= now - 30 * 24 * 60 * 60 * 1000;
+        } else if (dateRange === '90d') {
+          matchesDate = t.createdAtMs >= now - 90 * 24 * 60 * 60 * 1000;
+        }
+      }
+
+      return matchesSearch && matchesType && matchesDate;
     });
-  }, [transactions, searchQuery, typeFilter]);
+
+    // Sort order
+    list.sort((a, b) => {
+      if (sortBy === 'newest') return b.createdAtMs - a.createdAtMs;
+      if (sortBy === 'oldest') return a.createdAtMs - b.createdAtMs;
+      if (sortBy === 'highest') return b.amountPesewas - a.amountPesewas;
+      if (sortBy === 'lowest') return a.amountPesewas - b.amountPesewas;
+      return 0;
+    });
+
+    return list;
+  }, [transactions, searchQuery, typeFilter, dateRange, sortBy]);
 
   // Reset to page 1 whenever filters change
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, typeFilter]);
+  }, [searchQuery, typeFilter, dateRange, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginatedTransactions = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // Stats calculation
+  // Stats calculation based on filtered subset
   const totalInflowGhs = useMemo(() => {
     return (
-      transactions
+      filtered
         .filter((t) => t.type === 'DEPOSIT' || t.type === 'REFUND')
         .reduce((sum, t) => sum + (t.amountPesewas || 0), 0) / 100
     );
-  }, [transactions]);
+  }, [filtered]);
 
   const totalOutflowGhs = useMemo(() => {
     return (
-      transactions
+      filtered
         .filter((t) => t.type === 'PURCHASE' || t.type === 'WITHDRAWAL')
         .reduce((sum, t) => sum + (t.amountPesewas || 0), 0) / 100
     );
-  }, [transactions]);
+  }, [filtered]);
 
   const handleExportStatement = () => {
     const csvHeader = 'Reference,Type,Description,Amount,Balance After,Status,Date\n';
@@ -174,10 +212,10 @@ export const TransactionsPage: React.FC = () => {
           </div>
           <div>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
-              Total Ledger Entries
+              Ledger Entries ({dateRange === '30d' ? '30 days' : dateRange === '7d' ? '7 days' : dateRange === 'today' ? 'Today' : dateRange === '90d' ? '90 days' : 'All time'})
             </span>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-              {transactions.length}
+              {filtered.length}
             </div>
           </div>
         </Card>
@@ -188,7 +226,7 @@ export const TransactionsPage: React.FC = () => {
           </div>
           <div>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
-              Total Inflow (Deposits)
+              Inflow ({dateRange === '30d' ? '30 days' : dateRange === '7d' ? '7 days' : dateRange === 'today' ? 'Today' : dateRange === '90d' ? '90 days' : 'All time'})
             </span>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-primary)', marginTop: '2px', fontFamily: 'var(--font-data)' }}>
               GH₵ {totalInflowGhs.toFixed(2)}
@@ -202,7 +240,7 @@ export const TransactionsPage: React.FC = () => {
           </div>
           <div>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
-              Total Outflow (Purchases)
+              Outflow ({dateRange === '30d' ? '30 days' : dateRange === '7d' ? '7 days' : dateRange === 'today' ? 'Today' : dateRange === '90d' ? '90 days' : 'All time'})
             </span>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '2px', fontFamily: 'var(--font-data)' }}>
               GH₵ {totalOutflowGhs.toFixed(2)}
@@ -211,11 +249,12 @@ export const TransactionsPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* Filters Card */}
+      {/* Filters & Sorting Card */}
       <Card style={{ padding: 'var(--space-4)' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', flex: 1 }}>
-            <div style={{ width: '320px', maxWidth: '100%' }}>
+            {/* Search Input */}
+            <div style={{ width: '280px', maxWidth: '100%' }}>
               <SearchInput
                 value={searchQuery}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
@@ -223,12 +262,42 @@ export const TransactionsPage: React.FC = () => {
               />
             </div>
 
-            <div style={{ width: '180px' }}>
+            {/* Date Range Selector: 30 days, Today, 7 days, 90 days, All time */}
+            <div style={{ width: '150px' }}>
+              <Select
+                value={dateRange}
+                onChange={(e) => setDateRange(e.target.value)}
+                options={[
+                  { label: '30 days', value: '30d' },
+                  { label: 'Today', value: 'today' },
+                  { label: '7 days', value: '7d' },
+                  { label: '90 days', value: '90d' },
+                  { label: 'All time', value: 'all' },
+                ]}
+              />
+            </div>
+
+            {/* Sort Selector: Newest, Oldest, Highest Amount, Lowest Amount */}
+            <div style={{ width: '160px' }}>
+              <Select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                options={[
+                  { label: 'Newest', value: 'newest' },
+                  { label: 'Oldest', value: 'oldest' },
+                  { label: 'Highest Amount', value: 'highest' },
+                  { label: 'Lowest Amount', value: 'lowest' },
+                ]}
+              />
+            </div>
+
+            {/* Type Filter */}
+            <div style={{ width: '160px' }}>
               <Select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
                 options={[
-                  { label: 'All Transaction Types', value: 'ALL' },
+                  { label: 'All Types', value: 'ALL' },
                   { label: 'Deposits', value: 'DEPOSIT' },
                   { label: 'Purchases', value: 'PURCHASE' },
                   { label: 'Refunds', value: 'REFUND' },
@@ -238,8 +307,24 @@ export const TransactionsPage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-            Showing <strong>{paginatedTransactions.length}</strong> of <strong>{filtered.length}</strong> entries
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {(searchQuery || typeFilter !== 'ALL' || dateRange !== '30d' || sortBy !== 'newest') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery('');
+                  setTypeFilter('ALL');
+                  setDateRange('30d');
+                  setSortBy('newest');
+                }}
+              >
+                Reset
+              </Button>
+            )}
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+              Showing <strong>{paginatedTransactions.length}</strong> of <strong>{filtered.length}</strong> entries
+            </div>
           </div>
         </div>
       </Card>
@@ -255,21 +340,23 @@ export const TransactionsPage: React.FC = () => {
               No transactions found
             </h3>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
-              {searchQuery || typeFilter !== 'ALL'
-                ? 'No transactions matching your search query or filter criteria.'
+              {searchQuery || typeFilter !== 'ALL' || dateRange !== '30d' || sortBy !== 'newest'
+                ? 'No transactions matching your selected timeframe (30 days) or search filters.'
                 : 'Wallet deposits and purchase deductions will appear here once initiated.'}
             </p>
           </div>
-          {(searchQuery || typeFilter !== 'ALL') && (
+          {(searchQuery || typeFilter !== 'ALL' || dateRange !== '30d' || sortBy !== 'newest') && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
                 setSearchQuery('');
                 setTypeFilter('ALL');
+                setDateRange('30d');
+                setSortBy('newest');
               }}
             >
-              Clear Filters
+              Reset Filters
             </Button>
           )}
         </Card>

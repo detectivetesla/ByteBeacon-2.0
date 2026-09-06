@@ -40,6 +40,7 @@ export const walletApi = {
     limit?: number;
     search?: string;
     dateRange?: string;
+    sortBy?: string;
   } = {}): Promise<WalletTransactionsResponse> => {
     const res: any = await apiClient.get('/agents/wallet/transactions', {
       params,
