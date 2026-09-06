@@ -88,4 +88,12 @@ export const customerRoutes: RouteObject[] = [
     path: '/dashboard',
     element: <Navigate to="/app/dashboard" replace />,
   },
+  {
+    path: '/customer/wallet',
+    element: <Navigate to="/app/wallet" replace />,
+  },
+  {
+    path: '/customer/transactions',
+    element: <Navigate to="/app/transactions" replace />,
+  },
 ];

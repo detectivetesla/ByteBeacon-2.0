@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
@@ -12,6 +12,7 @@ import {
   Wallet,
   ArrowUpRight,
   ArrowDownLeft,
+  ArrowRight,
   ShieldCheck,
   Plus,
   X,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 
 export const WalletPage: React.FC = () => {
+  const navigate = useNavigate();
   const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
@@ -109,7 +111,7 @@ export const WalletPage: React.FC = () => {
 
     setIsSubmittingTopUp(true);
     try {
-      const returnUrl = `${window.location.origin}/customer/wallet?paystack_verify=true`;
+      const returnUrl = `${window.location.origin}${window.location.pathname}?paystack_verify=true`;
       const res = await walletApi.initializeTopup(amount, returnUrl);
       if (res?.authorizationUrl) {
         toastInfo('Redirecting to Paystack', 'Opening secure payment gateway...');
@@ -262,11 +264,27 @@ export const WalletPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* Recent Transactions */}
+      {/* Recent Transactions (FILO Capped to Latest 5) */}
       <div>
-        <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)' }}>
-          Recent Wallet Activity
-        </h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div>
+            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+              Recent Wallet Activity
+            </h2>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.2rem', margin: 0 }}>
+              Showing latest {Math.min(5, transactions.length)} ledger operations (FILO order)
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/app/transactions')}
+            rightIcon={<ArrowRight size={14} />}
+          >
+            View All History
+          </Button>
+        </div>
+
         {transactions.length === 0 ? (
           <Card style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
             <p style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>
@@ -274,36 +292,133 @@ export const WalletPage: React.FC = () => {
             </p>
           </Card>
         ) : (
-          <Table headers={['Type', 'Description', 'Amount', 'Date', 'Status']}>
-            {transactions.map((tx) => (
-              <tr key={tx.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                <td style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  {tx.type === 'DEPOSIT' || tx.type === 'REFUND' ? (
-                    <div style={{ padding: '0.25rem', borderRadius: '50%', backgroundColor: 'rgba(34, 197, 94, 0.12)', color: 'var(--color-primary)' }}>
-                      <ArrowDownLeft size={14} strokeWidth={2.8} />
+          <Card style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--color-border-default)' }}>
+            <Table minWidth="720px" headers={['Type', 'Description', 'Amount', 'Date', 'Status']}>
+              {transactions.slice(0, 5).map((tx) => (
+                <tr
+                  key={tx.id}
+                  style={{
+                    borderBottom: '1px solid var(--color-border-subtle)',
+                    transition: 'background-color 150ms ease',
+                  }}
+                >
+                  <td style={{ padding: 'var(--space-3) var(--space-4)', whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {tx.type === 'DEPOSIT' || tx.type === 'REFUND' ? (
+                        <div style={{ padding: '0.25rem', borderRadius: '50%', backgroundColor: 'rgba(34, 197, 94, 0.12)', color: 'var(--color-primary)' }}>
+                          <ArrowDownLeft size={14} strokeWidth={2.8} />
+                        </div>
+                      ) : (
+                        <div style={{ padding: '0.25rem', borderRadius: '50%', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: 'var(--color-accent-red)' }}>
+                          <ArrowUpRight size={14} strokeWidth={2.8} />
+                        </div>
+                      )}
+                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>{tx.type}</span>
                     </div>
-                  ) : (
-                    <div style={{ padding: '0.25rem', borderRadius: '50%', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: 'var(--color-accent-red)' }}>
-                      <ArrowUpRight size={14} strokeWidth={2.8} />
-                    </div>
-                  )}
-                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{tx.type}</span>
-                </td>
-                <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>{tx.description}</td>
-                <td style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: tx.type === 'DEPOSIT' || tx.type === 'REFUND' ? 'var(--color-primary)' : 'var(--color-text-primary)' }}>
-                  {tx.type === 'DEPOSIT' || tx.type === 'REFUND' ? '+' : '-'}GH₵ {(tx.amountPesewas / 100).toFixed(2)}
-                </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </td>
-                <td>
-                  <span style={{ fontSize: 'var(--font-size-3xs)', padding: '0.2rem 0.5rem', borderRadius: 'var(--radius-full)', backgroundColor: 'rgba(34, 197, 94, 0.12)', color: 'var(--color-primary)', fontWeight: 700 }}>
-                    {tx.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </Table>
+                  </td>
+                  <td
+                    style={{
+                      padding: 'var(--space-3) var(--space-4)',
+                      fontSize: 'var(--font-size-xs)',
+                      color: 'var(--color-text-primary)',
+                      maxWidth: '320px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={tx.description}
+                  >
+                    {tx.description}
+                  </td>
+                  <td
+                    style={{
+                      padding: 'var(--space-3) var(--space-4)',
+                      fontWeight: 700,
+                      fontFamily: 'var(--font-data)',
+                      fontSize: 'var(--font-size-xs)',
+                      whiteSpace: 'nowrap',
+                      color: tx.type === 'DEPOSIT' || tx.type === 'REFUND' ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                    }}
+                  >
+                    {tx.type === 'DEPOSIT' || tx.type === 'REFUND' ? '+' : '-'}GH₵ {(tx.amountPesewas / 100).toFixed(2)}
+                  </td>
+                  <td
+                    style={{
+                      padding: 'var(--space-3) var(--space-4)',
+                      fontSize: 'var(--font-size-2xs)',
+                      color: 'var(--color-text-muted)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                  <td style={{ padding: 'var(--space-3) var(--space-4)', whiteSpace: 'nowrap' }}>
+                    <span
+                      style={{
+                        fontSize: 'var(--font-size-3xs)',
+                        padding: '0.2rem 0.55rem',
+                        borderRadius: 'var(--radius-full)',
+                        backgroundColor:
+                          tx.status === 'COMPLETED' || (tx.status as string) === 'SUCCESSFUL'
+                            ? 'rgba(34, 197, 94, 0.12)'
+                            : tx.status === 'PENDING'
+                            ? 'rgba(245, 158, 11, 0.12)'
+                            : 'rgba(239, 68, 68, 0.12)',
+                        color:
+                          tx.status === 'COMPLETED' || (tx.status as string) === 'SUCCESSFUL'
+                            ? 'var(--color-primary)'
+                            : tx.status === 'PENDING'
+                            ? '#F59E0B'
+                            : 'var(--color-accent-red)',
+                        fontWeight: 800,
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {tx.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </Table>
+
+            <div
+              style={{
+                padding: 'var(--space-3) var(--space-4)',
+                backgroundColor: 'var(--color-bg-surface-elevated)',
+                borderTop: '1px solid var(--color-border-subtle)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 'var(--font-size-xs)',
+                color: 'var(--color-text-secondary)',
+                flexWrap: 'wrap',
+                gap: '0.5rem',
+              }}
+            >
+              <span>
+                Showing {Math.min(5, transactions.length)} of {transactions.length} recent entries
+              </span>
+              <button
+                type="button"
+                onClick={() => navigate('/app/transactions')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--color-primary)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  padding: 0,
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              >
+                View complete ledger history <ArrowRight size={13} />
+              </button>
+            </div>
+          </Card>
         )}
       </div>
 

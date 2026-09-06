@@ -19,6 +19,8 @@ export type TableProps<T = any> =
       headers?: never;
       children?: never;
       style?: React.CSSProperties;
+      tableStyle?: React.CSSProperties;
+      minWidth?: string | number;
       enableCardView?: boolean;
       emptyMessage?: string;
       emptyText?: string;
@@ -31,6 +33,8 @@ export type TableProps<T = any> =
       keyExtractor?: never;
       onRowClick?: never;
       style?: React.CSSProperties;
+      tableStyle?: React.CSSProperties;
+      minWidth?: string | number;
       enableCardView?: boolean;
       emptyMessage?: string;
       emptyText?: string;
@@ -38,7 +42,12 @@ export type TableProps<T = any> =
 
 export function Table<T = any>(props: TableProps<T>) {
   if ('headers' in props && props.headers) {
-    const { headers, children, style } = props;
+    const { headers, children, style, tableStyle, minWidth } = props;
+    const resolvedMinWidth = minWidth
+      ? typeof minWidth === 'number'
+        ? `${minWidth}px`
+        : minWidth
+      : '600px';
     return (
       <div
         style={{
@@ -49,7 +58,15 @@ export function Table<T = any>(props: TableProps<T>) {
           ...style,
         }}
       >
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '600px' }}>
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            textAlign: 'left',
+            minWidth: resolvedMinWidth,
+            ...tableStyle,
+          }}
+        >
           <thead>
             <tr style={{ borderBottom: '1px solid var(--color-border-default)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
               {headers.map((h, i) => (
@@ -62,6 +79,7 @@ export function Table<T = any>(props: TableProps<T>) {
                     textTransform: 'uppercase',
                     letterSpacing: '0.04em',
                     color: 'var(--color-text-secondary)',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   {h}
@@ -75,7 +93,7 @@ export function Table<T = any>(props: TableProps<T>) {
     );
   }
 
-  const { columns, data, keyExtractor, onRowClick, style, enableCardView = true, emptyMessage, emptyText } = props;
+  const { columns, data, keyExtractor, onRowClick, style, tableStyle, minWidth, enableCardView = true, emptyMessage, emptyText } = props;
   const resolvedEmpty = emptyText || emptyMessage || 'No records found';
 
   if (data.length === 0) {
@@ -126,7 +144,15 @@ export function Table<T = any>(props: TableProps<T>) {
 
       {/* Desktop Table View */}
       <div className="bb-table-desktop">
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            textAlign: 'left',
+            minWidth: minWidth ? (typeof minWidth === 'number' ? `${minWidth}px` : minWidth) : undefined,
+            ...tableStyle,
+          }}
+        >
           <thead>
             <tr style={{ borderBottom: '1px solid var(--color-border-default)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
               {columns.map((col, i) => (
