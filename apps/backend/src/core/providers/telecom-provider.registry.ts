@@ -26,6 +26,8 @@ import {
 } from '@bytebeacon/shared';
 import { logger } from '../logging/logger.js';
 import { DynamicHttpTelecomAdapter, DynamicHttpProviderConfig } from './dynamic-http/dynamic-http.adapter.js';
+import { DataHouseAdapter } from './datahouse/datahouse.adapter.js';
+import { DataHouseClient } from './datahouse/datahouse.client.js';
 import { IProviderCredentialStore } from './credentials/credential-store.interface.js';
 
 export interface ProviderRegistrationOptions {
@@ -220,10 +222,79 @@ export class TelecomProviderRegistry implements ITelecomProvider {
           envWebhook ||
           '';
 
+        const isDataHouseOrGmpl =
+          key === 'datahouse' ||
+          key === 'gmpl' ||
+          normalizedName === 'DATAHOUSE' ||
+          normalizedName === 'GMPL' ||
+          row.slug === 'datahouse' ||
+          row.slug === 'gmpl';
+
         let effectiveBaseUrl =
           (row.apiBaseUrl && String(row.apiBaseUrl).trim()) ||
           envBaseUrl ||
           (key === 'portal-02' || key === 'portal02' ? 'https://www.portal-02.com/api/v1' : '');
+
+        // Sanitize invalid legacy URL seeds (e.g. non-existent datahouse.com.gh)
+        if (isDataHouseOrGmpl) {
+          if (!effectiveBaseUrl || effectiveBaseUrl.includes('datahouse.com.gh') || effectiveBaseUrl.includes('placeholder')) {
+            effectiveBaseUrl = envBaseUrl || 'https://api.getmorepaylessdatahouse.net/api/v1';
+          }
+        }
+
+        // PRESERVE NATIVE SPECIALIZED ADAPTERS (e.g. DataHouseAdapter, Portal02Adapter)
+        // Never overwrite specialized adapters with generic DynamicHttpTelecomAdapter!
+        if (isDataHouseOrGmpl) {
+          let adapter = existingProv;
+          if (!adapter || !(adapter instanceof DataHouseAdapter)) {
+            const dhClient = new DataHouseClient({
+              baseUrl: effectiveBaseUrl,
+              apiKey: effectiveApiKey,
+              webhookSecret: effectiveWebhookSecret,
+            });
+            adapter = new DataHouseAdapter(dhClient);
+          } else if (adapter instanceof DataHouseAdapter) {
+            // Update credentials and URL on client if present
+            const client = (adapter as any).client;
+            if (client) {
+              if (effectiveApiKey) client.apiKey = effectiveApiKey;
+              if (effectiveBaseUrl) client.baseUrl = effectiveBaseUrl.replace(/\/$/, '');
+              if (effectiveWebhookSecret) client.webhookSecret = effectiveWebhookSecret;
+            }
+          }
+
+          const isAuth = Boolean(row.isAuthoritative) || (!foundAuthoritativeInDb && key === 'datahouse');
+          this.providers.set(key, {
+            provider: adapter,
+            isAuthoritative: isAuth,
+            priority: (row as any).priority ?? (isAuth ? 1 : 2),
+            environment: (row.environment as any) || 'LIVE',
+            supportedNetworks: row.supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+          });
+
+          if (isAuth && !foundAuthoritativeInDb) {
+            this.setActiveProvider(row.name);
+            foundAuthoritativeInDb = true;
+          }
+          continue;
+        }
+
+        if (existingProv && !(existingProv instanceof DynamicHttpTelecomAdapter)) {
+          // Native non-DataHouse adapter (e.g. Portal02Adapter)
+          const isAuth = Boolean(row.isAuthoritative);
+          this.providers.set(key, {
+            provider: existingProv,
+            isAuthoritative: isAuth,
+            priority: (row as any).priority || 50,
+            environment: (row.environment as any) || 'LIVE',
+            supportedNetworks: row.supportedNetworks || [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO],
+          });
+          if (isAuth && !foundAuthoritativeInDb) {
+            this.setActiveProvider(row.name);
+            foundAuthoritativeInDb = true;
+          }
+          continue;
+        }
 
         this.updateDynamicCustomProvider({
           providerName: row.name,

@@ -11,6 +11,8 @@ import {
   BeneficiaryValidationResult,
   DataHousePrecheckInput,
   DataHousePrecheckResult,
+  DataHousePublicPrecheckInput,
+  DataHouseBeneficiaryStatusListDto,
   DataHouseWalletBalanceDto,
   ProviderHealth,
   NetworkProvider,
@@ -804,6 +806,14 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
         isValid: true,
       })),
     };
+  }
+
+  public async precheckPublicBeneficiaries(input: DataHousePublicPrecheckInput): Promise<DataHousePrecheckResult> {
+    return this.precheckBeneficiaries(input);
+  }
+
+  public async listBeneficiaries(_params: any = {}): Promise<DataHouseBeneficiaryStatusListDto> {
+    return { items: [], page: 1, limit: 30, total: 0 };
   }
 
   public async getBundles(filter?: { network?: NetworkProvider }): Promise<ProviderBundleDto[]> {

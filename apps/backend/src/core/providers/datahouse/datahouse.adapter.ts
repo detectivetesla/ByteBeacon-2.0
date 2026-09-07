@@ -166,60 +166,98 @@ export class DataHouseAdapter implements ITelecomProvider {
     } catch (err) {
       // If agent precheck fails (e.g. invalid API key, 401, endpoint unavailable),
       // gracefully fall back to chunked public precheck in batches of up to 10
-      const chunkSize = 10;
-      const chunks: string[][] = [];
-      for (let i = 0; i < input.phoneNumbers.length; i += chunkSize) {
-        chunks.push(input.phoneNumbers.slice(i, i + chunkSize));
-      }
-
-      const chunkResults = await Promise.all(
-        chunks.map(async (chunk, idx) => {
-          try {
-            const subCorr = `${correlationId}_chunk_${idx}`;
-            const subResp = await this.client.precheckPublicBeneficiaries(
-              { network: input.network, phoneNumbers: chunk },
-              subCorr,
-            );
-            return DataHouseMapper.toDataHousePrecheckResult(subResp, input.network);
-          } catch {
-            return null;
-          }
-        }),
-      );
-
-      const validChunkResults = chunkResults.filter(Boolean) as DataHousePrecheckResult[];
-      if (validChunkResults.length > 0) {
-        const combinedResults = validChunkResults.flatMap((c) => c.results || []);
-        const combinedUnknown = validChunkResults.flatMap((c) => c.unknown || []);
-        const totalCount = combinedResults.length;
-        const knownCount = combinedResults.filter((r) => r.isKnown).length;
-        const unknownCount = totalCount - knownCount;
-
-        return {
-          network: input.network,
-          enforced: true,
-          sandbox: false,
-          recorded: Boolean(input.record),
-          summary: {
-            total: totalCount,
-            known: knownCount,
-            unknown: unknownCount,
-            valid: combinedResults.filter((r) => r.isValid).length,
-            invalid: combinedResults.filter((r) => !r.isValid).length,
-          },
-          unknown: combinedUnknown,
-          results: combinedResults,
-        };
-      }
-
-      throw err;
+      return this.executeChunkedPublicPrecheck(input.phoneNumbers, input.network, correlationId, Boolean(input.record), err);
     }
   }
 
   public async precheckPublicBeneficiaries(input: DataHousePublicPrecheckInput): Promise<DataHousePrecheckResult> {
     const correlationId = `dh_pub_precheck_${Date.now()}`;
-    const dhResp = await this.client.precheckPublicBeneficiaries(input, correlationId);
-    return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
+    if (input.phoneNumbers.length <= 10) {
+      const dhResp = await this.client.precheckPublicBeneficiaries(input, correlationId);
+      return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
+    }
+
+    // Auto-chunk into batches of 10 if more than 10 numbers are passed
+    return this.executeChunkedPublicPrecheck(input.phoneNumbers, input.network, correlationId, false);
+  }
+
+  private async executeChunkedPublicPrecheck(
+    phoneNumbers: string[],
+    network: NetworkProvider,
+    correlationId: string,
+    record: boolean,
+    fallbackError?: any,
+  ): Promise<DataHousePrecheckResult> {
+    const chunkSize = 10;
+    const chunks: string[][] = [];
+    for (let i = 0; i < phoneNumbers.length; i += chunkSize) {
+      chunks.push(phoneNumbers.slice(i, i + chunkSize));
+    }
+
+    const validChunkResults: DataHousePrecheckResult[] = [];
+    const concurrency = 4;
+
+    for (let i = 0; i < chunks.length; i += concurrency) {
+      const batch = chunks.slice(i, i + concurrency);
+      const batchResults = await Promise.all(
+        batch.map(async (chunk, batchIdx) => {
+          const idx = i + batchIdx;
+          const subCorr = `${correlationId}_chunk_${idx}`;
+          // Retry once on rate limit (429) or transient network hiccup
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const subResp = await this.client.precheckPublicBeneficiaries(
+                { network, phoneNumbers: chunk },
+                subCorr,
+              );
+              return DataHouseMapper.toDataHousePrecheckResult(subResp, network);
+            } catch (chunkErr: any) {
+              if (attempt === 0 && (chunkErr?.statusCode === 429 || chunkErr?.message?.includes('429'))) {
+                await new Promise((resolve) => setTimeout(resolve, 350));
+                continue;
+              }
+              return null;
+            }
+          }
+          return null;
+        }),
+      );
+
+      for (const res of batchResults) {
+        if (res) validChunkResults.push(res);
+      }
+
+      if (i + concurrency < chunks.length) {
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      }
+    }
+
+    if (validChunkResults.length > 0) {
+      const combinedResults = validChunkResults.flatMap((c) => c.results || []);
+      const combinedUnknown = validChunkResults.flatMap((c) => c.unknown || []);
+      const totalCount = combinedResults.length;
+      const knownCount = combinedResults.filter((r) => r.isKnown).length;
+      const unknownCount = totalCount - knownCount;
+
+      return {
+        network,
+        enforced: true,
+        sandbox: false,
+        recorded: record,
+        summary: {
+          total: totalCount,
+          known: knownCount,
+          unknown: unknownCount,
+          valid: combinedResults.filter((r) => r.isValid).length,
+          invalid: combinedResults.filter((r) => !r.isValid).length,
+        },
+        unknown: Array.from(new Set(combinedUnknown)),
+        results: combinedResults,
+      };
+    }
+
+    if (fallbackError) throw fallbackError;
+    throw new Error('Public precheck failed for all chunks');
   }
 
   public async listBeneficiaries(params: any = {}): Promise<DataHouseBeneficiaryStatusListDto> {

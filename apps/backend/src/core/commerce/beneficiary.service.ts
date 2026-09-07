@@ -233,68 +233,17 @@ export class BeneficiaryService {
     const knownPhonesSet = new Set<string>();
     const accountNamesMap = new Map<string, string>();
 
-    // 1. Ultra-fast local DB check first (<2ms) for confirmed approvals and fulfilled orders
-    if (validNormalizedPhones.length > 0) {
-      try {
-        const queryPhones = Array.from(
-          new Set(
-            validNormalizedPhones.flatMap((p) => [
-              p,
-              `+233${p.startsWith('0') ? p.slice(1) : p}`,
-              `233${p.startsWith('0') ? p.slice(1) : p}`,
-            ]),
-          ),
-        );
+    let providerSucceeded = false;
 
-        const dbQuery = `
-          SELECT phone_number as "phoneNumber", NULL as "accountName"
-          FROM beneficiary_validation
-          WHERE phone_number = ANY($1)
-            AND network = 'MTN'
-            AND validation_status IN ('VALID', 'APPROVED')
-            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-          UNION
-          SELECT phone_number as "phoneNumber", NULL as "accountName"
-          FROM pending_beneficiary_approvals
-          WHERE phone_number = ANY($1)
-            AND network = 'MTN'
-            AND status = 'APPROVED'
-          UNION
-          SELECT DISTINCT recipient_phone as "phoneNumber", NULL as "accountName"
-          FROM orders
-          WHERE recipient_phone = ANY($1)
-            AND network = 'MTN'
-            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
-        `;
-        const dbRes = await this.db.query(dbQuery, [queryPhones]);
-        dbRes.rows.forEach((r: any) => {
-          if (r.phoneNumber) {
-            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(r.phoneNumber);
-            if (r.accountName) {
-              accountNamesMap.set(norm, r.accountName);
-            }
-          }
-        });
-      } catch {
-        // Fallback non-fatal
-      }
-    }
-
-    // 2. Query upstream telecom provider ONLY for remaining unknown numbers (no slicing to 10!)
-    const unknownForProvider = validNormalizedPhones.filter(
-      (p) => !knownPhonesSet.has(p) && !knownPhonesSet.has(this.normalizeGhanaPhone(p).normalized),
-    );
-
-    if (unknownForProvider.length > 0 && this.telecomProvider) {
+    // 1. Query upstream authoritative telecom provider (DataHouse) for live MTN precheck
+    if (validNormalizedPhones.length > 0 && this.telecomProvider) {
       const newlyApprovedPhones: string[] = [];
       const newlyUnapprovedPhones: string[] = [];
 
       const chunkSize = this.telecomProvider.precheckBeneficiaries ? 500 : 10;
       const chunks: string[][] = [];
-      for (let i = 0; i < unknownForProvider.length; i += chunkSize) {
-        chunks.push(unknownForProvider.slice(i, i + chunkSize));
+      for (let i = 0; i < validNormalizedPhones.length; i += chunkSize) {
+        chunks.push(validNormalizedPhones.slice(i, i + chunkSize));
       }
 
       for (const chunk of chunks) {
@@ -313,7 +262,8 @@ export class BeneficiaryService {
           }).catch(() => null);
 
           const providerRes: any = await Promise.race([providerCall, timeoutPromise]);
-          if (providerRes && Array.isArray(providerRes.results)) {
+          if (providerRes && Array.isArray(providerRes.results) && providerRes.results.length > 0) {
+            providerSucceeded = true;
             providerRes.results.forEach((r: any) => {
               const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
               const isApproved = Boolean(
@@ -414,6 +364,46 @@ export class BeneficiaryService {
             ).catch(() => {});
           }),
         );
+      }
+    }
+
+    // Offline / unreachable fallback: ONLY if telecom provider was unreachable or failed completely,
+    // consult local beneficiary_validation table for active VALID rows.
+    if (!providerSucceeded && validNormalizedPhones.length > 0) {
+      try {
+        const queryPhones = Array.from(
+          new Set(
+            validNormalizedPhones.flatMap((p) => [
+              p,
+              `+233${p.startsWith('0') ? p.slice(1) : p}`,
+              `233${p.startsWith('0') ? p.slice(1) : p}`,
+            ]),
+          ),
+        );
+        const dbRes = await this.db.query(
+          `SELECT phone_number as "phoneNumber", NULL as "accountName"
+           FROM beneficiary_validation
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND validation_status IN ('VALID', 'APPROVED')
+             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+           UNION
+           SELECT phone_number as "phoneNumber", NULL as "accountName"
+           FROM pending_beneficiary_approvals
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND status = 'APPROVED'`,
+          [queryPhones],
+        );
+        dbRes.rows.forEach((r: any) => {
+          if (r.phoneNumber) {
+            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+            knownPhonesSet.add(norm);
+            knownPhonesSet.add(r.phoneNumber);
+          }
+        });
+      } catch {
+        // Non-fatal
       }
     }
 
@@ -657,60 +647,12 @@ export class BeneficiaryService {
     const validNormalizedPhones = uniqueItems.filter((item) => item.valid).map((item) => item.normalized);
     const knownPhonesSet = new Set<string>();
 
-    // 1. Ultra-fast local DB check first (<2ms) for confirmed approvals and fulfilled orders
-    if (validNormalizedPhones.length > 0) {
-      try {
-        const queryPhones = Array.from(
-          new Set(
-            validNormalizedPhones.flatMap((p) => [
-              p,
-              `+233${p.startsWith('0') ? p.slice(1) : p}`,
-              `233${p.startsWith('0') ? p.slice(1) : p}`,
-            ]),
-          ),
-        );
+    let providerSucceeded = false;
 
-        const dbQuery = `
-          SELECT phone_number as "phoneNumber"
-          FROM beneficiary_validation
-          WHERE phone_number = ANY($1)
-            AND network = 'MTN'
-            AND validation_status IN ('VALID', 'APPROVED')
-            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-          UNION
-          SELECT phone_number as "phoneNumber"
-          FROM pending_beneficiary_approvals
-          WHERE phone_number = ANY($1)
-            AND network = 'MTN'
-            AND status = 'APPROVED'
-          UNION
-          SELECT DISTINCT recipient_phone as "phoneNumber"
-          FROM orders
-          WHERE recipient_phone = ANY($1)
-            AND network = 'MTN'
-            AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
-        `;
-        const dbRes = await this.db.query(dbQuery, [queryPhones]);
-        dbRes.rows.forEach((r: any) => {
-          if (r.phoneNumber) {
-            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(r.phoneNumber);
-          }
-        });
-      } catch {
-        // Fallback non-fatal
-      }
-    }
-
-    // 2. Query upstream telecom provider ONLY for remaining unknown numbers (no hard 10-item truncation)
-    const unknownForProvider = validNormalizedPhones.filter(
-      (p) => !knownPhonesSet.has(p) && !knownPhonesSet.has(this.normalizeGhanaPhone(p).normalized),
-    );
-
+    // 1. Query upstream authoritative telecom provider (DataHouse) for live MTN precheck
     const provider = this.telecomProvider;
     if (
-      unknownForProvider.length > 0 &&
+      validNormalizedPhones.length > 0 &&
       provider &&
       (provider.precheckBeneficiaries || provider.precheckPublicBeneficiaries)
     ) {
@@ -719,8 +661,8 @@ export class BeneficiaryService {
         const newlyUnapprovedPhones: string[] = [];
         const chunkSize = provider.precheckBeneficiaries ? 500 : 10;
         const phoneChunks: string[][] = [];
-        for (let i = 0; i < unknownForProvider.length; i += chunkSize) {
-          phoneChunks.push(unknownForProvider.slice(i, i + chunkSize));
+        for (let i = 0; i < validNormalizedPhones.length; i += chunkSize) {
+          phoneChunks.push(validNormalizedPhones.slice(i, i + chunkSize));
         }
 
         for (const chunk of phoneChunks) {
@@ -771,7 +713,8 @@ export class BeneficiaryService {
               providerRes = null;
             }
           }
-          if (providerRes && Array.isArray(providerRes.results)) {
+          if (providerRes && Array.isArray(providerRes.results) && providerRes.results.length > 0) {
+            providerSucceeded = true;
             providerRes.results.forEach((r: any) => {
               const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
               const isApproved = Boolean(
@@ -871,6 +814,46 @@ export class BeneficiaryService {
         }
       } catch {
         // Non-fatal provider error
+      }
+    }
+
+    // Offline / unreachable fallback: ONLY if telecom provider was unreachable or failed completely,
+    // consult local beneficiary_validation table for active VALID rows.
+    if (!providerSucceeded && validNormalizedPhones.length > 0) {
+      try {
+        const queryPhones = Array.from(
+          new Set(
+            validNormalizedPhones.flatMap((p) => [
+              p,
+              `+233${p.startsWith('0') ? p.slice(1) : p}`,
+              `233${p.startsWith('0') ? p.slice(1) : p}`,
+            ]),
+          ),
+        );
+        const dbRes = await this.db.query(
+          `SELECT phone_number as "phoneNumber"
+           FROM beneficiary_validation
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND validation_status IN ('VALID', 'APPROVED')
+             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+           UNION
+           SELECT phone_number as "phoneNumber"
+           FROM pending_beneficiary_approvals
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND status = 'APPROVED'`,
+          [queryPhones],
+        );
+        dbRes.rows.forEach((r: any) => {
+          if (r.phoneNumber) {
+            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+            knownPhonesSet.add(norm);
+            knownPhonesSet.add(r.phoneNumber);
+          }
+        });
+      } catch {
+        // Non-fatal
       }
     }
 
