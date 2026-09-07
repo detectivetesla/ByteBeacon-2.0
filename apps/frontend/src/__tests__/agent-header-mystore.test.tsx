@@ -61,6 +61,11 @@ vi.mock('../context/ThemeContext.js', () => ({
 }));
 
 describe('Agent Header My Store Link & Approval Gating', () => {
+  const getExpectedStoreUrl = (slug = 'kwame-data') =>
+    typeof import.meta !== 'undefined' && import.meta.env?.VITE_PUBLIC_STOREFRONT_BASE_URL
+      ? `${String(import.meta.env.VITE_PUBLIC_STOREFRONT_BASE_URL).trim().replace(/\/+$/, '')}/${slug}`
+      : `${window.location.origin}/store/${slug}`;
+
   beforeEach(() => {
     vi.clearAllMocks();
     Object.defineProperty(window, 'matchMedia', {
@@ -165,7 +170,7 @@ describe('Agent Header My Store Link & Approval Gating', () => {
       const storeLink = screen.getByRole('link', { name: /My Store/i });
       expect(storeLink).toBeInTheDocument();
       // Verifies it points to the agent's actual storefront, not a random external site
-      expect(storeLink.getAttribute('href')).toBe(`${window.location.origin}/store/kwame-data`);
+      expect(storeLink.getAttribute('href')).toBe(getExpectedStoreUrl('kwame-data'));
       expect(storeLink.getAttribute('target')).toBe('_blank');
       expect(storeLink.getAttribute('rel')).toBe('noopener noreferrer');
     });
@@ -192,7 +197,7 @@ describe('Agent Header My Store Link & Approval Gating', () => {
 
       fireEvent.click(copyBtn);
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        `${window.location.origin}/store/kwame-data`,
+        getExpectedStoreUrl('kwame-data'),
       );
     });
   });
@@ -281,7 +286,7 @@ describe('Agent Header My Store Link & Approval Gating', () => {
       await waitFor(() => {
         const storeLink = screen.getByRole('link', { name: /My Store/i });
         expect(storeLink).toBeInTheDocument();
-        expect(storeLink.getAttribute('href')).toBe(`${window.location.origin}/store/kwame-data`);
+        expect(storeLink.getAttribute('href')).toBe(getExpectedStoreUrl('kwame-data'));
       });
     });
   });

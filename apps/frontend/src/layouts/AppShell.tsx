@@ -166,6 +166,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   };
 
   const fetchNotifications = useCallback(async () => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
     try {
       const res = await notificationsApi.listNotifications({ limit: 20 });
       if (res?.items) {
@@ -195,7 +199,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         setNotifications(mapped);
       }
     } catch {}
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchNotifications();

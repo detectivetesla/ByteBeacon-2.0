@@ -32,6 +32,12 @@ export const useWalletBalance = (): UseWalletBalanceResult => {
   }, [user?.walletBalancePesewas]);
 
   const fetchBalance = useCallback(async () => {
+    if (!user) {
+      setBalancePesewas(0);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
