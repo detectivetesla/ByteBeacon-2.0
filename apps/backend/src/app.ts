@@ -456,6 +456,7 @@ export function createApp(options: AppOptions = {}) {
       ledgerService,
       fulfillmentQueueService,
       fulfillmentWorker,
+      idempotencyService,
     );
 
   const providerReconciliationService =

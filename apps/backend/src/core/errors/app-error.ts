@@ -46,8 +46,17 @@ export class NotFoundError extends AppError {
 }
 
 export class ConflictError extends AppError {
-  constructor(message = 'Resource conflict or duplicate entry') {
-    super(message, 409, 'CONFLICT');
+  constructor(message = 'Resource conflict or duplicate entry', statusCode = 409, code = 'CONFLICT') {
+    super(message, statusCode, code);
+  }
+}
+
+export class IdempotencyConflictError extends ConflictError {
+  constructor(
+    message = 'Idempotency key collision: This key was previously used with a different request payload',
+  ) {
+    super(message, 400, 'BAD_REQUEST');
+    this.name = 'IdempotencyConflictError';
   }
 }
 

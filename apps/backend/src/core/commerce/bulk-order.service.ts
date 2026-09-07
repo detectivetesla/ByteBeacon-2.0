@@ -15,6 +15,7 @@ import {
   LedgerAccountType,
 } from '@bytebeacon/shared';
 import { CatalogService } from './catalog.service.js';
+import { IdempotencyService } from './idempotency.service.js';
 import { FinancialLedgerService } from '../payments/financial-ledger.service.js';
 import { BadRequestError, NotFoundError, ForbiddenError, UnprocessableEntityError, InsufficientBalanceError, BulkNotOnSandboxError } from '../errors/app-error.js';
 import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.js';
@@ -28,6 +29,7 @@ export class BulkOrderService {
   private readonly ledgerService: FinancialLedgerService;
   private readonly fulfillmentQueueService?: FulfillmentQueueService;
   private readonly fulfillmentWorker?: FulfillmentWorker;
+  private readonly idempotencyService?: IdempotencyService;
 
   constructor(
     db: pg.Pool,
@@ -35,12 +37,14 @@ export class BulkOrderService {
     ledgerService?: FinancialLedgerService,
     fulfillmentQueueService?: FulfillmentQueueService,
     fulfillmentWorker?: FulfillmentWorker,
+    idempotencyService?: IdempotencyService,
   ) {
     this.db = db;
     this.catalogService = catalogService;
     this.ledgerService = ledgerService ?? new FinancialLedgerService(db);
     this.fulfillmentQueueService = fulfillmentQueueService;
     this.fulfillmentWorker = fulfillmentWorker;
+    this.idempotencyService = idempotencyService ?? (db ? new IdempotencyService(db) : undefined);
   }
 
   public async createBulkSubmission(
@@ -435,6 +439,28 @@ export class BulkOrderService {
       }
     } catch {
       // fallback to provided ID
+    }
+
+    // 2b. Idempotency Check & Replay Protection (Redis 24h + DB Fallback)
+    const requestHash = this.idempotencyService
+      ? this.idempotencyService.computeHash({
+          network: netUpper,
+          recipients: params.recipients,
+          confirmedPorted: params.confirmedPorted,
+          onUnvalidated: params.onUnvalidated,
+        })
+      : '';
+
+    if (this.idempotencyService && params.idempotencyKey) {
+      const existing = await this.idempotencyService.getExistingResponse(
+        params.idempotencyKey,
+        userId,
+        requestHash,
+      );
+
+      if (existing.exists && existing.body) {
+        return existing.body as AgentBulkOrderResult;
+      }
     }
 
     // 3. Normalization and Phone Validation
@@ -836,6 +862,32 @@ export class BulkOrderService {
         },
       ]);
 
+      const bulkResult: AgentBulkOrderResult = {
+        id: submissionPublicId,
+        referenceCode: submissionRef,
+        network: netUpper,
+        amount: (grandTotalPesewas / 100).toFixed(2),
+        status: 'received',
+        createdAt: new Date().toISOString(),
+        beneficiaryCount: acceptedRecipients.length,
+        groupCount: childOrders.length,
+        orders: childOrders,
+        blocked,
+      };
+
+      if (this.idempotencyService && params.idempotencyKey) {
+        await this.idempotencyService.saveResponse(client, {
+          key: params.idempotencyKey,
+          userId,
+          endpoint: '/agent/orders/bulk',
+          requestHash,
+          responseStatus: 201,
+          responseBody: bulkResult,
+        }).catch((err) => {
+          logger.warn({ err: err?.message, key: params.idempotencyKey }, 'Failed to save bulk idempotency record');
+        });
+      }
+
       await client.query('COMMIT');
 
       // Dispatch order.received webhook events for the agent
@@ -878,18 +930,7 @@ export class BulkOrderService {
         }
       }
 
-      return {
-        id: submissionPublicId,
-        referenceCode: submissionRef,
-        network: netUpper,
-        amount: (grandTotalPesewas / 100).toFixed(2),
-        status: 'received',
-        createdAt: new Date().toISOString(),
-        beneficiaryCount: acceptedRecipients.length,
-        groupCount: childOrders.length,
-        orders: childOrders,
-        blocked,
-      };
+      return bulkResult;
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

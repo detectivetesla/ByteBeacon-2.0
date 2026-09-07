@@ -7,6 +7,7 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
 import { IPaymentProvider } from '../../core/payments/payment-provider.interface.js';
 import { OrderService } from '../../core/commerce/order.service.js';
+import { OrderStateMachine } from '../../core/commerce/order-state-machine.js';
 import { AgentWebhookDispatcherService } from '../../core/webhooks/agent-webhook-dispatcher.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
@@ -320,7 +321,7 @@ export async function agentRoutes(
         throw new BadRequestError('Order service is unavailable');
       }
 
-      const { order } = await orderService.createOrder(
+      const { order, isIdempotentReplay } = await orderService.createOrder(
         {
           productId: bundleId,
           recipientPhone: normalizedLocal,
@@ -341,9 +342,9 @@ export async function agentRoutes(
       const amountGhs = (Number(order.amountPesewas || 0) / 100).toFixed(2);
       const groupSizeGb = (Number(order.dataAmountMb || 1024) / 1024).toFixed(2);
 
-      // Dispatch order.received webhook event to agent
+      // Dispatch order.received webhook event to agent only on fresh order submissions
       const targetAgentId = order.agentId || req.user!.sub;
-      if (targetAgentId) {
+      if (targetAgentId && !isIdempotentReplay) {
         const dispatcher = new AgentWebhookDispatcherService(db);
         dispatcher.dispatchAgentEvent(targetAgentId, 'order.received', {
           id: order.id,
@@ -359,10 +360,14 @@ export async function agentRoutes(
         }).catch(() => {});
       }
 
-      return reply.status(201).send({
+      const orderLifecycleStatus = order.orderStatus
+        ? OrderStateMachine.mapToAgentLifecycleStatus(order.orderStatus, order.paymentStatus, order.refundStatus)
+        : 'received';
+
+      return reply.status(isIdempotentReplay ? 200 : 201).send({
         success: true,
-        statusCode: 201,
-        message: 'Order placed and queued for processing.',
+        statusCode: isIdempotentReplay ? 200 : 201,
+        message: isIdempotentReplay ? 'Order already placed.' : 'Order placed and queued for processing.',
         data: {
           id: order.id,
           publicId: order.publicId,
@@ -378,7 +383,7 @@ export async function agentRoutes(
           groupSizeGb,
           phoneNumber: normalizedLocal,
           email: email || null,
-          status: 'received',
+          status: orderLifecycleStatus,
           isSandbox: false,
           createdAt: order.createdAt,
         },

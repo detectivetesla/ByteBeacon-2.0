@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type pg from 'pg';
 import type { Redis } from 'ioredis';
-import { ConflictError } from '../errors/app-error.js';
+import { IdempotencyConflictError } from '../errors/app-error.js';
 
 export interface IdempotencyRecord {
   key: string;
@@ -56,7 +56,7 @@ export class IdempotencyService {
         };
 
         if (parsed.requestHash !== currentRequestHash) {
-          throw new ConflictError(
+          throw new IdempotencyConflictError(
             'Idempotency key collision: This key was previously used with a different request payload',
           );
         }
@@ -76,7 +76,7 @@ export class IdempotencyService {
     if (result.rows.length > 0) {
       const row = result.rows[0];
       if (row.requestHash !== currentRequestHash) {
-        throw new ConflictError(
+        throw new IdempotencyConflictError(
           'Idempotency key collision: This key was previously used with a different request payload',
         );
       }

@@ -284,6 +284,7 @@ export class FulfillmentWorker {
 
           // Automated Wallet Refund on permanent fulfillment failure
           await this.executeAutomaticRefund(order.id, correlationId, err.message || 'Fulfillment failure');
+          await this.checkBulkBatchCompletion(order.id);
 
           return {
             orderId,
@@ -439,6 +440,7 @@ export class FulfillmentWorker {
       if (isFailed) {
         await this.executeAutomaticRefund(order.id, correlationId, `Provider rejected order with status [${initialProviderStatus}]`);
       }
+      await this.checkBulkBatchCompletion(order.id);
 
       logger.info(
         { orderId: order.id, providerReference: submitResult.providerReference, providerName: activeProvider.providerName, status: finalOrderStatus },
@@ -579,6 +581,105 @@ export class FulfillmentWorker {
     }
   }
 
+  /**
+   * Checks if an order belongs to a bulk submission, updates bulk_submission_items status,
+   * and if the batch reaches a terminal state (with mixed results), dispatches order.partially_approved.
+   */
+  public async checkBulkBatchCompletion(orderId: string): Promise<void> {
+    try {
+      // 1. Check if this order is linked to a bulk submission
+      const itemRes = await this.db.query(
+        `SELECT submission_id FROM bulk_submission_items WHERE order_id = $1 LIMIT 1`,
+        [orderId],
+      );
+      if (!itemRes.rows || itemRes.rows.length === 0 || !itemRes.rows[0].submission_id) {
+        return;
+      }
+      const submissionId = itemRes.rows[0].submission_id;
+
+      // 2. Fetch order status
+      const ordRes = await this.db.query(
+        `SELECT order_status FROM orders WHERE id = $1 LIMIT 1`,
+        [orderId],
+      );
+      const currentStatus = ordRes.rows?.[0]?.order_status;
+      const isCompleted = currentStatus === OrderStatus.COMPLETED;
+      const isFailed = currentStatus === OrderStatus.FAILED || currentStatus === OrderStatus.CANCELLED;
+
+      if (isCompleted) {
+        await this.db.query(
+          `UPDATE bulk_submission_items SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1`,
+          [orderId],
+        ).catch(() => {});
+      } else if (isFailed) {
+        await this.db.query(
+          `UPDATE bulk_submission_items SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1`,
+          [orderId],
+        ).catch(() => {});
+      }
+
+      // 3. Inspect aggregate counts for the entire batch
+      const statsRes = await this.db.query(
+        `SELECT
+           COUNT(*) as total,
+           COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed,
+           COUNT(CASE WHEN status = 'FAILED' THEN 1 END) as failed
+         FROM bulk_submission_items
+         WHERE submission_id = $1`,
+        [submissionId],
+      );
+
+      if (statsRes.rows && statsRes.rows.length > 0) {
+        const total = parseInt(statsRes.rows[0].total, 10) || 0;
+        const completed = parseInt(statsRes.rows[0].completed, 10) || 0;
+        const failed = parseInt(statsRes.rows[0].failed, 10) || 0;
+
+        if (total > 0 && completed + failed === total) {
+          // Fetch submission metadata and agent ID
+          const subRes = await this.db.query(
+            `SELECT bs.id, bs.user_id, a.id as agent_id
+             FROM bulk_submissions bs
+             LEFT JOIN agents a ON a.user_id = bs.user_id
+             WHERE bs.id = $1 LIMIT 1`,
+            [submissionId],
+          );
+          const targetAgentId = subRes.rows?.[0]?.agent_id || subRes.rows?.[0]?.user_id;
+
+          if (completed > 0 && failed > 0) {
+            // Mixed batch -> status PARTIALLY_COMPLETED and dispatch order.partially_approved
+            await this.db.query(
+              `UPDATE bulk_submissions SET status = 'PARTIALLY_COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [submissionId],
+            ).catch(() => {});
+
+            if (targetAgentId) {
+              this.webhookDispatcher?.dispatchAgentEvent(targetAgentId, 'order.partially_approved', {
+                id: submissionId,
+                submission_id: submissionId,
+                status: 'partially_approved',
+                total_count: total,
+                success_count: completed,
+                failed_count: failed,
+              }).catch(() => {});
+            }
+          } else if (completed === total) {
+            await this.db.query(
+              `UPDATE bulk_submissions SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [submissionId],
+            ).catch(() => {});
+          } else if (failed === total) {
+            await this.db.query(
+              `UPDATE bulk_submissions SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [submissionId],
+            ).catch(() => {});
+          }
+        }
+      }
+    } catch (err: any) {
+      logger.debug({ err: err?.message, orderId }, 'Bulk batch completion check notice');
+    }
+  }
+
   private async updateProviderProjection(
     orderId: string,
     statusData: ProviderOrderStatus,
@@ -685,6 +786,10 @@ export class FulfillmentWorker {
     // If transitioned to FAILED/REJECTED, automatically refund the order
     if (isFailed) {
       await this.executeAutomaticRefund(orderId, correlationId, `Provider status transitioned to ${statusData.providerStatus}`);
+    }
+
+    if (isCompleted || isFailed) {
+      await this.checkBulkBatchCompletion(orderId);
     }
 
     return {
