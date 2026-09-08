@@ -589,6 +589,7 @@ export const BuyDataPage: React.FC = () => {
       new Set(mtnRows.map((r) => normalizeGhanaPhoneNumber(r.phone)).filter(Boolean)),
     );
     const knownSet = new Set<string>();
+    const unapprovedSet = new Set<string>();
     const rejectedMap = new Map<string, string>();
     const discoveredPorted: string[] = [];
 
@@ -627,21 +628,30 @@ export const BuyDataPage: React.FC = () => {
                 `233${normP.slice(1)}`,
                 rawP,
                 item.phone,
+                item.phoneNumber,
                 item.normalized,
               ].filter(Boolean);
 
               const isInvalid = item.valid === false || item.status === 'REJECTED';
+              const isUnapproved =
+                !isInvalid &&
+                (item.status === 'UNAPPROVED' ||
+                  item.status === 'PENDING' ||
+                  item.orderable === false ||
+                  (isEnforced && (item.known === false || item.isKnown === false)));
+
               const isApproved =
                 !isInvalid &&
-                (item.orderable !== undefined
-                  ? item.orderable
-                  : isEnforced
-                  ? Boolean((item.known === true || item.isKnown === true) && item.status !== 'UNAPPROVED' && item.status !== 'REJECTED')
-                  : Boolean(item.valid !== false));
+                !isUnapproved &&
+                (item.orderable === true ||
+                  item.status === 'APPROVED' ||
+                  (isEnforced ? Boolean(item.known === true || item.isKnown === true) : Boolean(item.valid !== false)));
 
               if (isInvalid) {
                 const reason = item.message || 'Invalid recipient number';
                 variations.forEach((v) => rejectedMap.set(v, reason));
+              } else if (isUnapproved) {
+                variations.forEach((v) => unapprovedSet.add(v));
               } else if (isApproved) {
                 variations.forEach((v) => knownSet.add(v));
               }
@@ -681,21 +691,30 @@ export const BuyDataPage: React.FC = () => {
                       `233${normP.slice(1)}`,
                       rawP,
                       item.phone,
+                      item.phoneNumber,
                       item.normalized,
                     ].filter(Boolean);
 
                     const isInvalid = item.valid === false || item.status === 'REJECTED';
+                    const isUnapproved =
+                      !isInvalid &&
+                      (item.status === 'UNAPPROVED' ||
+                        item.status === 'PENDING' ||
+                        item.orderable === false ||
+                        (isEnforced && (item.known === false || item.isKnown === false)));
+
                     const isApproved =
                       !isInvalid &&
-                      (item.orderable !== undefined
-                        ? item.orderable
-                        : isEnforced
-                        ? Boolean((item.known === true || (item as any).isKnown === true) && item.status !== 'UNAPPROVED' && item.status !== 'REJECTED')
-                        : Boolean(item.valid !== false));
+                      !isUnapproved &&
+                      (item.orderable === true ||
+                        item.status === 'APPROVED' ||
+                        (isEnforced ? Boolean(item.known === true || item.isKnown === true) : Boolean(item.valid !== false)));
 
                     if (isInvalid) {
                       const reason = item.message || 'Invalid recipient number';
                       variations.forEach((v) => rejectedMap.set(v, reason));
+                    } else if (isUnapproved) {
+                      variations.forEach((v) => unapprovedSet.add(v));
                     } else if (isApproved) {
                       variations.forEach((v) => knownSet.add(v));
                     }
@@ -772,11 +791,18 @@ export const BuyDataPage: React.FC = () => {
         };
       }
 
+      const isExplicitlyUnapproved =
+        unapprovedSet.has(normRowPhone) ||
+        unapprovedSet.has(row.phone) ||
+        unapprovedSet.has(`+233${normRowPhone.slice(1)}`) ||
+        unapprovedSet.has(`233${normRowPhone.slice(1)}`);
+
       const isKnown =
-        knownSet.has(normRowPhone) ||
-        knownSet.has(row.phone) ||
-        knownSet.has(`+233${normRowPhone.slice(1)}`) ||
-        knownSet.has(`233${normRowPhone.slice(1)}`);
+        !isExplicitlyUnapproved &&
+        (knownSet.has(normRowPhone) ||
+          knownSet.has(row.phone) ||
+          knownSet.has(`+233${normRowPhone.slice(1)}`) ||
+          knownSet.has(`233${normRowPhone.slice(1)}`));
 
       if (isKnown) {
         return {

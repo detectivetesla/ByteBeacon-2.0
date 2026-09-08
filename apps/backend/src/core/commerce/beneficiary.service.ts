@@ -242,6 +242,7 @@ export class BeneficiaryService {
     const accountNamesMap = new Map<string, string>();
     const portedCandidatesSet = new Set<string>();
     const upstreamOrderableMap = new Map<string, boolean>();
+    const liveUnapprovedSet = new Set<string>();
 
     // 1. Query upstream authoritative telecom provider (DataHouse) for live MTN precheck
     if (validNormalizedPhones.length > 0 && this.telecomProvider) {
@@ -256,7 +257,7 @@ export class BeneficiaryService {
 
       for (const chunk of chunks) {
         try {
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000));
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 45000));
           const isPublicPrecheck = Boolean(chunk.length <= 10 && this.telecomProvider.precheckPublicBeneficiaries);
           const providerMethod = isPublicPrecheck
             ? this.telecomProvider.precheckPublicBeneficiaries!.bind(this.telecomProvider)
@@ -302,7 +303,8 @@ export class BeneficiaryService {
               const isApproved = Boolean(
                 (r.isKnown === true || (r as any).known === true) &&
                 r.status !== 'UNAPPROVED' &&
-                r.status !== 'REJECTED'
+                r.status !== 'REJECTED' &&
+                r.orderable !== false
               );
               if (isApproved) {
                 if (norm) {
@@ -320,17 +322,32 @@ export class BeneficiaryService {
                   knownPhonesSet.delete(`+233${norm.slice(1)}`);
                   knownPhonesSet.delete(`233${norm.slice(1)}`);
                   newlyUnapprovedPhones.push(norm);
+                  liveUnapprovedSet.add(norm);
+                  liveUnapprovedSet.add(`+233${norm.slice(1)}`);
+                  liveUnapprovedSet.add(`233${norm.slice(1)}`);
+                  upstreamOrderableMap.set(norm, false);
                 }
-                if (r.phoneNumber) knownPhonesSet.delete(r.phoneNumber);
-                if ((r as any).phone) knownPhonesSet.delete((r as any).phone);
+                if (r.phoneNumber) {
+                  knownPhonesSet.delete(r.phoneNumber);
+                  liveUnapprovedSet.add(r.phoneNumber);
+                }
+                if ((r as any).phone) {
+                  knownPhonesSet.delete((r as any).phone);
+                  liveUnapprovedSet.add((r as any).phone);
+                }
               }
             });
 
-            // Also check unknown or blocked arrays in provider response
+            // Also check unknown, blocked, unvalidated, or set-aside arrays in provider response
             const explicitBlocked = [
               ...(Array.isArray(providerRes.unknown) ? providerRes.unknown : []),
               ...(Array.isArray(providerRes.blockedFirstTime) ? providerRes.blockedFirstTime : []),
               ...(Array.isArray(providerRes.blocked) ? providerRes.blocked : []),
+              ...(Array.isArray(providerRes.unvalidated) ? providerRes.unvalidated : []),
+              ...(Array.isArray(providerRes.unvalidatedBeneficiaries) ? providerRes.unvalidatedBeneficiaries : []),
+              ...(Array.isArray(providerRes.setAside) ? providerRes.setAside : []),
+              ...(Array.isArray(providerRes.unapproved) ? providerRes.unapproved : []),
+              ...(Array.isArray(providerRes.notValidated) ? providerRes.notValidated : []),
             ];
             explicitBlocked.forEach((b: any) => {
               const p = typeof b === 'string' ? b : b.phoneNumber || b.phone || b.msisdn;
@@ -341,8 +358,13 @@ export class BeneficiaryService {
                   knownPhonesSet.delete(`+233${norm.slice(1)}`);
                   knownPhonesSet.delete(`233${norm.slice(1)}`);
                   newlyUnapprovedPhones.push(norm);
+                  liveUnapprovedSet.add(norm);
+                  liveUnapprovedSet.add(`+233${norm.slice(1)}`);
+                  liveUnapprovedSet.add(`233${norm.slice(1)}`);
+                  upstreamOrderableMap.set(norm, false);
                 }
                 knownPhonesSet.delete(p);
+                liveUnapprovedSet.add(p);
               }
             });
           }
@@ -401,7 +423,7 @@ export class BeneficiaryService {
       }
     }
 
-    // 2. Database validation check: consult local beneficiary_validation, pending approvals, and historical orders
+    // 2. Database validation check: consult local beneficiary_validation and pending approvals (only if not unapproved by live check)
     if (validNormalizedPhones.length > 0) {
       try {
         const queryPhones = Array.from(
@@ -414,7 +436,7 @@ export class BeneficiaryService {
           ),
         );
 
-        // Check local approved records
+        // Check local approved records (Live telecom precheck is strictly authoritative over cache)
         const approvedRes = await this.db.query(
           `SELECT phone_number as "phoneNumber", NULL as "accountName"
            FROM beneficiary_validation
@@ -427,20 +449,22 @@ export class BeneficiaryService {
            FROM pending_beneficiary_approvals
            WHERE phone_number = ANY($1)
              AND network = 'MTN'
-             AND status = 'APPROVED'
-           UNION
-           SELECT recipient_phone as "phoneNumber", NULL as "accountName"
-           FROM orders
-           WHERE recipient_phone = ANY($1)
-             AND network = 'MTN'
-             AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')`,
+             AND status = 'APPROVED'`,
           [queryPhones],
         );
         approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(r.phoneNumber);
+            // Live telecom precheck is authoritative: never re-approve if live check reported unapproved
+            const isLiveUnapproved =
+              liveUnapprovedSet.has(norm) ||
+              liveUnapprovedSet.has(r.phoneNumber) ||
+              upstreamOrderableMap.get(norm) === false;
+
+            if (!isLiveUnapproved) {
+              knownPhonesSet.add(norm);
+              knownPhonesSet.add(r.phoneNumber);
+            }
           }
         });
 
@@ -467,7 +491,7 @@ export class BeneficiaryService {
               const apNorm = this.normalizeGhanaPhone(ap.phoneNumber).normalized;
               return apNorm === norm;
             });
-            if (!hasApproved) {
+            if (!hasApproved || liveUnapprovedSet.has(norm)) {
               knownPhonesSet.delete(norm);
               knownPhonesSet.delete(r.phoneNumber);
               upstreamOrderableMap.set(norm, false);
@@ -480,12 +504,13 @@ export class BeneficiaryService {
     }
 
     const results = parsedItems.map((item) => {
-      const isKnown = item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.raw)) : false;
+      const isLiveUnapproved = liveUnapprovedSet.has(item.normalized) || liveUnapprovedSet.has(item.raw);
+      const isKnown = item.valid && !isLiveUnapproved ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.raw)) : false;
       const isPortedCandidate = portedCandidatesSet.has(item.normalized) || portedCandidatesSet.has(item.raw);
 
       let isOrderable = false;
       if (upstreamOrderableMap.has(item.normalized)) {
-        isOrderable = Boolean(upstreamOrderableMap.get(item.normalized));
+        isOrderable = Boolean(upstreamOrderableMap.get(item.normalized)) && isKnown;
       } else {
         isOrderable = item.valid && isKnown && !isPortedCandidate;
       }

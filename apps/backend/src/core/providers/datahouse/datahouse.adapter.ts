@@ -198,7 +198,7 @@ export class DataHouseAdapter implements ITelecomProvider {
     }
 
     const validChunkResults: DataHousePrecheckResult[] = [];
-    const concurrency = 4;
+    const concurrency = 8;
 
     for (let i = 0; i < chunks.length; i += concurrency) {
       const batch = chunks.slice(i, i + concurrency);

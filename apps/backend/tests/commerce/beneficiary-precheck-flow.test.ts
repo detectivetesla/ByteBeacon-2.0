@@ -411,6 +411,58 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       expect(json.data.summary.known).toBe(2);
       expect(json.data.summary.unknown).toBe(0);
     });
+
+    it('should never let stale database records override live telecom unapproved status', async () => {
+      const mockResult = {
+        network: NetworkProvider.MTN,
+        enforced: true,
+        results: [
+          { phoneNumber: '0531983428', phone: '0531983428', normalized: '0531983428', isKnown: false, known: false, orderable: false, status: 'UNAPPROVED' },
+          { phoneNumber: '0241112233', phone: '0241112233', normalized: '0241112233', isKnown: true, known: true, orderable: true, status: 'APPROVED' },
+        ],
+      };
+      mockTelecomProvider.precheckBeneficiaries = vi.fn().mockResolvedValue(mockResult);
+      mockTelecomProvider.precheckPublicBeneficiaries = vi.fn().mockResolvedValue(mockResult);
+
+      // Mock database returning stale VALID for 0531983428
+      vi.spyOn(mockDb, 'query').mockImplementation((query: string) => {
+        if (query.includes('FROM beneficiary_validation') && query.includes("validation_status IN ('VALID', 'APPROVED')")) {
+          return Promise.resolve({
+            rows: [
+              { phoneNumber: '0531983428', accountName: null },
+              { phoneNumber: '0241112233', accountName: null },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/beneficiaries/precheck',
+        payload: {
+          network: 'MTN',
+          phoneNumbers: ['0531983428', '0241112233'],
+          record: false,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+
+      const unapproved = json.data.results.find((r: any) => r.phone === '0531983428');
+      expect(unapproved.isKnown).toBe(false);
+      expect(unapproved.known).toBe(false);
+      expect(unapproved.orderable).toBe(false);
+      expect(unapproved.status).toBe('UNAPPROVED');
+
+      const approved = json.data.results.find((r: any) => r.phone === '0241112233');
+      expect(approved.isKnown).toBe(true);
+      expect(approved.known).toBe(true);
+      expect(approved.orderable).toBe(true);
+      expect(approved.status).toBe('APPROVED');
+    });
   });
 
   describe('Admin MTN Approvals Workflow', () => {

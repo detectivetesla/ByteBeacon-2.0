@@ -322,25 +322,82 @@ export class DataHouseMapper {
       payload.items ||
       (Array.isArray(payload) ? payload : []);
 
+    const extractPhones = (items: any[]): string[] => {
+      const phones: string[] = [];
+      items.forEach((b: any) => {
+        const p = typeof b === 'string' ? b : b?.phoneNumber || b?.phone || b?.msisdn || b?.recipient;
+        if (p) phones.push(p);
+      });
+      return phones;
+    };
+
+    const dataObj = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data : {};
+
     const blockedList: any[] = [
       ...(Array.isArray(payload.blockedFirstTime) ? payload.blockedFirstTime : []),
       ...(Array.isArray(payload.blocked) ? payload.blocked : []),
       ...(Array.isArray(payload.unknown) ? payload.unknown : []),
+      ...(Array.isArray(payload.unvalidated) ? payload.unvalidated : []),
+      ...(Array.isArray(payload.unvalidatedBeneficiaries) ? payload.unvalidatedBeneficiaries : []),
+      ...(Array.isArray(payload.unvalidatedRecipients) ? payload.unvalidatedRecipients : []),
+      ...(Array.isArray(payload.setAside) ? payload.setAside : []),
+      ...(Array.isArray(payload.setAsideBeneficiaries) ? payload.setAsideBeneficiaries : []),
+      ...(Array.isArray(payload.setAsideNumbers) ? payload.setAsideNumbers : []),
+      ...(Array.isArray(payload.unapproved) ? payload.unapproved : []),
+      ...(Array.isArray(payload.unapprovedBeneficiaries) ? payload.unapprovedBeneficiaries : []),
+      ...(Array.isArray(payload.notValidated) ? payload.notValidated : []),
+      ...(Array.isArray(payload.notValidatedBeneficiaries) ? payload.notValidatedBeneficiaries : []),
+      ...(Array.isArray(payload.unregistered) ? payload.unregistered : []),
+      ...(Array.isArray(payload.pendingValidation) ? payload.pendingValidation : []),
+      ...(Array.isArray(payload.pendingApproval) ? payload.pendingApproval : []),
+      ...(Array.isArray(payload.pendingBeneficiaries) ? payload.pendingBeneficiaries : []),
+      ...(Array.isArray(payload.newNumbers) ? payload.newNumbers : []),
+      ...(Array.isArray(payload.blockedNumbers) ? payload.blockedNumbers : []),
+      ...(Array.isArray(payload.blockedRecipients) ? payload.blockedRecipients : []),
+      // Nested under payload.data
+      ...(Array.isArray(dataObj.blockedFirstTime) ? dataObj.blockedFirstTime : []),
+      ...(Array.isArray(dataObj.blocked) ? dataObj.blocked : []),
+      ...(Array.isArray(dataObj.unknown) ? dataObj.unknown : []),
+      ...(Array.isArray(dataObj.unvalidated) ? dataObj.unvalidated : []),
+      ...(Array.isArray(dataObj.unvalidatedBeneficiaries) ? dataObj.unvalidatedBeneficiaries : []),
+      ...(Array.isArray(dataObj.setAside) ? dataObj.setAside : []),
+      ...(Array.isArray(dataObj.unapproved) ? dataObj.unapproved : []),
+      ...(Array.isArray(dataObj.notValidated) ? dataObj.notValidated : []),
+      ...(Array.isArray(dataObj.pendingValidation) ? dataObj.pendingValidation : []),
     ];
+
     const blockedSet = new Set<string>();
-    blockedList.forEach((b: any) => {
-      const p = typeof b === 'string' ? b : b.phoneNumber || b.phone || b.msisdn;
-      if (p) {
-        const norm = DataHouseMapper.normalizePhone(p);
-        const local = norm.startsWith('233') ? '0' + norm.slice(3) : norm;
-        blockedSet.add(p);
-        blockedSet.add(norm);
-        blockedSet.add(local);
-        blockedSet.add(`+${norm}`);
-      }
+    extractPhones(blockedList).forEach((p) => {
+      const norm = DataHouseMapper.normalizePhone(p);
+      const local = norm.startsWith('233') ? '0' + norm.slice(3) : norm;
+      blockedSet.add(p);
+      blockedSet.add(norm);
+      blockedSet.add(local);
+      blockedSet.add(`+${norm}`);
     });
 
-    const portedList: any[] = payload.flaggedPorted || payload.mismatched || [];
+    const placeableList: any[] = [
+      ...(Array.isArray(payload.placeable) ? payload.placeable : []),
+      ...(Array.isArray(payload.placeableBeneficiaries) ? payload.placeableBeneficiaries : []),
+      ...(Array.isArray(payload.placeableNumbers) ? payload.placeableNumbers : []),
+      ...(Array.isArray(payload.validBeneficiaries) ? payload.validBeneficiaries : []),
+      ...(Array.isArray(payload.approved) ? payload.approved : []),
+      ...(Array.isArray(payload.approvedBeneficiaries) ? payload.approvedBeneficiaries : []),
+      ...(Array.isArray(dataObj.placeable) ? dataObj.placeable : []),
+      ...(Array.isArray(dataObj.placeableBeneficiaries) ? dataObj.placeableBeneficiaries : []),
+      ...(Array.isArray(dataObj.approved) ? dataObj.approved : []),
+    ];
+    const placeableSet = new Set<string>();
+    extractPhones(placeableList).forEach((p) => {
+      const norm = DataHouseMapper.normalizePhone(p);
+      const local = norm.startsWith('233') ? '0' + norm.slice(3) : norm;
+      placeableSet.add(p);
+      placeableSet.add(norm);
+      placeableSet.add(local);
+      placeableSet.add(`+${norm}`);
+    });
+
+    const portedList: any[] = payload.flaggedPorted || payload.mismatched || dataObj.flaggedPorted || [];
     const portedMap = new Map<string, string>();
     portedList.forEach((item: any) => {
       const p = typeof item === 'string' ? item : item.phoneNumber || item.phone;
@@ -363,6 +420,10 @@ export class DataHouseMapper {
       ...(Array.isArray(payload.mismatched)
         ? payload.mismatched.map((m: any) => (typeof m === 'string' ? m : m.phoneNumber || m.phone || m.msisdn))
         : []),
+      ...(Array.isArray(dataObj.portedCandidates) ? dataObj.portedCandidates : []),
+      ...(Array.isArray(dataObj.flaggedPorted)
+        ? dataObj.flaggedPorted.map((f: any) => (typeof f === 'string' ? f : f.phoneNumber || f.phone || f.msisdn))
+        : []),
     ].filter(Boolean);
     const portedCandidates = Array.from(new Set(portedCandidatesList));
 
@@ -382,6 +443,36 @@ export class DataHouseMapper {
         blockedSet.has(norm) ||
         blockedSet.has(local);
 
+      const isInPlaceableSet =
+        placeableSet.has(phone) ||
+        placeableSet.has(norm) ||
+        placeableSet.has(local);
+
+      const rawStatus = String(r.status || '').toUpperCase();
+      const isUnapprovedStatus =
+        rawStatus === 'PENDING' ||
+        rawStatus === 'UNAPPROVED' ||
+        rawStatus === 'UNVALIDATED' ||
+        rawStatus === 'PENDING_VALIDATION' ||
+        rawStatus === 'PENDING_APPROVAL' ||
+        rawStatus === 'NOT_VALIDATED' ||
+        rawStatus === 'SET_ASIDE' ||
+        rawStatus === 'BLOCKED' ||
+        rawStatus === 'FIRST_TIME' ||
+        rawStatus === 'NEW';
+
+      const isExplicitlyUnapproved =
+        isExplicitlyBlocked ||
+        isUnapprovedStatus ||
+        r.validated === false ||
+        r.isValidated === false ||
+        r.setAside === true ||
+        r.isSetAside === true ||
+        r.blocked === true ||
+        r.isBlocked === true ||
+        r.isApproved === false ||
+        r.approved === false;
+
       const isExplicitlyKnown =
         r.isKnown !== undefined
           ? Boolean(r.isKnown)
@@ -391,27 +482,33 @@ export class DataHouseMapper {
 
       const hasDataHouseGatingData =
         Array.isArray(payload.blockedFirstTime) ||
+        blockedSet.size > 0 ||
+        placeableSet.size > 0 ||
         payload.blockedCount !== undefined ||
-        payload.placeableCount !== undefined;
-
-      const isUnapprovedStatus =
-        r.status === 'PENDING' ||
-        r.status === 'pending' ||
-        r.status === 'UNAPPROVED' ||
-        r.status === 'unapproved';
+        payload.unvalidatedCount !== undefined ||
+        payload.placeableCount !== undefined ||
+        dataObj.blockedCount !== undefined ||
+        dataObj.placeableCount !== undefined;
 
       let isKnownRaw = false;
-      if (isExplicitlyBlocked || isUnapprovedStatus) {
+      if (isExplicitlyUnapproved) {
         isKnownRaw = false;
       } else if (isExplicitlyKnown !== undefined) {
         isKnownRaw = isExplicitlyKnown;
-      } else if (r.status === 'APPROVED' || r.status === 'VALID' || r.status === 'approved' || r.status === 'valid') {
+      } else if (rawStatus === 'APPROVED' || rawStatus === 'VALID') {
         isKnownRaw = true;
+      } else if (placeableSet.size > 0) {
+        isKnownRaw = isInPlaceableSet && !isPorted;
       } else if (network !== NetworkProvider.MTN) {
         isKnownRaw = !isPorted;
       } else if (hasDataHouseGatingData) {
-        // DataHouse explicitly provided gating data: unblocked matching numbers are placeable
-        isKnownRaw = !isExplicitlyBlocked && !isPorted && r.matchesSelected !== false;
+        // If placeableCount is explicitly 0, none are placeable
+        const placeableCount = payload.placeableCount ?? dataObj.placeableCount;
+        if (placeableCount === 0) {
+          isKnownRaw = false;
+        } else {
+          isKnownRaw = !isExplicitlyBlocked && !isPorted && r.matchesSelected !== false;
+        }
       } else {
         // No explicit approval or gating data for MTN: strictly default to unapproved
         isKnownRaw = false;
@@ -424,7 +521,7 @@ export class DataHouseMapper {
           ? Boolean(r.valid)
           : !isPorted;
 
-      const isBlocked = isExplicitlyBlocked || isUnapprovedStatus || (!isKnownRaw && isValid && !isPorted);
+      const isBlocked = isExplicitlyUnapproved || (!isKnownRaw && isValid && !isPorted);
       const isKnown = !isPorted && isKnownRaw && !isBlocked;
 
       const isExplicitlyOrderable =
@@ -443,9 +540,9 @@ export class DataHouseMapper {
 
       const status = isPorted
         ? 'REJECTED'
-        : (isBlocked || isUnapprovedStatus)
+        : (isBlocked || isExplicitlyUnapproved)
         ? 'UNAPPROVED'
-        : (r.status || 'APPROVED');
+        : (isKnown ? (r.status || 'APPROVED') : 'UNAPPROVED');
 
       const message = isPorted
         ? `Carrier mismatch: detected as ${r.detectedNetwork || portedMap.get(norm) || 'non-MTN'}`

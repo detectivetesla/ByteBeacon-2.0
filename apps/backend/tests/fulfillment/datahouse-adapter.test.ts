@@ -320,6 +320,59 @@ describe('DataHouseAdapter and DataHouseClient', () => {
       expect(approved?.status).toBe('APPROVED');
     });
 
+    it('should correctly parse DataHouse response with unvalidated / setAside arrays and mark them UNAPPROVED', async () => {
+      vi.spyOn(mockClient, 'precheckBeneficiaries').mockResolvedValueOnce({
+        rows: [
+          { phoneNumber: '0531983428', dataSizeGb: 1, amount: 3.85, detectedNetwork: 'MTN', matchesSelected: true },
+          { phoneNumber: '0550944482', dataSizeGb: 2, amount: 7.7, detectedNetwork: 'MTN', matchesSelected: true },
+          { phoneNumber: '0594423731', dataSizeGb: 5, amount: 19.25, detectedNetwork: 'MTN', matchesSelected: true },
+          { phoneNumber: '0247850202', dataSizeGb: 10, amount: 38.5, detectedNetwork: 'MTN', matchesSelected: true },
+          { phoneNumber: '0244112233', dataSizeGb: 1, amount: 3.85, detectedNetwork: 'MTN', matchesSelected: true },
+        ],
+        count: 5,
+        matchingCount: 5,
+        mismatchedCount: 0,
+        unvalidated: ['0531983428', '0550944482'],
+        setAside: ['0594423731', '0247850202'],
+        placeable: ['0244112233'],
+        placeableCount: 1,
+        blockedCount: 4,
+      } as any);
+
+      const res = await adapter.precheckBeneficiaries({
+        network: NetworkProvider.MTN,
+        phoneNumbers: ['0531983428', '0550944482', '0594423731', '0247850202', '0244112233'],
+      });
+
+      expect(res.summary.known).toBe(1);
+      expect(res.summary.unknown).toBe(4);
+
+      const unvalidated1 = res.results.find((r) => r.phoneNumber === '0531983428');
+      expect(unvalidated1?.isKnown).toBe(false);
+      expect(unvalidated1?.orderable).toBe(false);
+      expect(unvalidated1?.status).toBe('UNAPPROVED');
+
+      const unvalidated2 = res.results.find((r) => r.phoneNumber === '0550944482');
+      expect(unvalidated2?.isKnown).toBe(false);
+      expect(unvalidated2?.orderable).toBe(false);
+      expect(unvalidated2?.status).toBe('UNAPPROVED');
+
+      const setAside1 = res.results.find((r) => r.phoneNumber === '0594423731');
+      expect(setAside1?.isKnown).toBe(false);
+      expect(setAside1?.orderable).toBe(false);
+      expect(setAside1?.status).toBe('UNAPPROVED');
+
+      const setAside2 = res.results.find((r) => r.phoneNumber === '0247850202');
+      expect(setAside2?.isKnown).toBe(false);
+      expect(setAside2?.orderable).toBe(false);
+      expect(setAside2?.status).toBe('UNAPPROVED');
+
+      const approved = res.results.find((r) => r.phoneNumber === '0244112233');
+      expect(approved?.isKnown).toBe(true);
+      expect(approved?.orderable).toBe(true);
+      expect(approved?.status).toBe('APPROVED');
+    });
+
     it('should list MTN beneficiary approval status list', async () => {
       vi.spyOn(mockClient, 'listBeneficiaries').mockResolvedValueOnce({
         data: {
