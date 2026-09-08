@@ -44,12 +44,13 @@ export async function startWorkerProcess(): Promise<void> {
   const queueManager = new QueueManager(redisClient);
 
   // Initialize telecom provider registry & resilient executor
-  const dhClient = new DataHouseClient({
+  const datahouseClient = new DataHouseClient({
     baseUrl: process.env.DATAHOUSE_BASE_URL || 'https://api.getmorepaylessdatahouse.net/api/v1',
     apiKey: process.env.DATAHOUSE_API_KEY || 'dh_key',
-    timeoutMs: 15000,
+    webhookSecret: process.env.DATAHOUSE_WEBHOOK_SECRET || 'dh_secret',
+    timeoutMs: 120000,
   });
-  const datahouseAdapter = new DataHouseAdapter(dhClient);
+  const datahouseAdapter = new DataHouseAdapter(datahouseClient);
 
   const gmplClient = new GmplClient({
     apiKey: process.env.GMPL_API_KEY || 'gmpl_key',

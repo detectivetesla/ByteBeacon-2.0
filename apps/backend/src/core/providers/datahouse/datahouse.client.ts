@@ -55,8 +55,8 @@ export class DataHouseClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.apiKey = config.apiKey.trim();
     this.webhookSecret = (config.webhookSecret || '').trim();
-    this.timeoutMs = config.timeoutMs || 15000;
-    this.maxRetries = config.maxRetries ?? 2;
+    this.timeoutMs = config.timeoutMs || 120000;
+    this.maxRetries = config.maxRetries ?? 3;
   }
 
   /**
@@ -537,7 +537,7 @@ export class DataHouseClient {
         // 429 Rate Limiting Backoff
         if (response.status === 429) {
           if (attempt <= this.maxRetries) {
-            const backoffMs = Math.min(1000 * Math.pow(2, attempt), 4000);
+            const backoffMs = Math.min(1500 * Math.pow(2, attempt) + Math.random() * 500, 6000);
             logger.warn(
               { endpoint, attempt, backoffMs, correlationId },
               'DataHouse 429 Rate Limit encountered. Backing off before retry...',
@@ -567,7 +567,7 @@ export class DataHouseClient {
         }
 
         if (attempt <= this.maxRetries) {
-          const delayMs = 1000 * attempt;
+          const delayMs = 1500 * Math.pow(2, attempt) + Math.random() * 500;
           logger.warn(
             { err: err?.message, attempt, delayMs, correlationId },
             'DataHouse request network error. Retrying...',

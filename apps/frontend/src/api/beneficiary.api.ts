@@ -78,7 +78,7 @@ export const beneficiaryApi = {
     };
     results: BeneficiaryPrecheckItemDto[];
   }> => {
-    return apiClient.post('/orders/beneficiaries/precheck', params);
+    return apiClient.post('/orders/beneficiaries/precheck', params, { timeoutMs: 300000 });
   },
 
   /**
@@ -89,7 +89,7 @@ export const beneficiaryApi = {
     phoneNumbers: string[];
     record?: boolean;
   }): Promise<AgentBeneficiaryPrecheckResultDto> => {
-    return apiClient.post('/agent/beneficiaries/precheck', params);
+    return apiClient.post('/agent/beneficiaries/precheck', params, { timeoutMs: 300000 });
   },
 
   precheck: async (params: {
@@ -101,7 +101,7 @@ export const beneficiaryApi = {
     enforced: boolean;
     results: BeneficiaryValidationResult[];
   }> => {
-    return apiClient.post('/beneficiaries/precheck', params);
+    return apiClient.post('/beneficiaries/precheck', params, { timeoutMs: 300000 });
   },
 
   /**
@@ -143,7 +143,7 @@ export const beneficiaryApi = {
   },
 
   validatePhoneNumber: async (params: { phoneNumber: string; network: NetworkProvider }): Promise<any> => {
-    return apiClient.post('/beneficiaries/validate', params);
+    return apiClient.post('/beneficiaries/validate', params, { timeoutMs: 30000 });
   },
 
   getBeneficiaryStatus: async (phone: string, network?: NetworkProvider): Promise<any> => {
@@ -157,7 +157,7 @@ export const beneficiaryApi = {
       phoneNumbers: [phoneNumber],
       network,
       record: true,
-    });
+    }, { timeoutMs: 300000 });
   },
 
   getPendingCount: async (): Promise<{ pendingCount: number }> => {

@@ -669,62 +669,81 @@ export const BuyDataPage: React.FC = () => {
             subChunks.push(batch.slice(j, j + CHUNK_SIZE));
           }
 
-          await Promise.all(
-            subChunks.map(async (subChunk) => {
-              try {
-                const pubRes = await beneficiaryApi.precheckPublic({
-                  network: NetworkProvider.MTN,
-                  phoneNumbers: subChunk,
-                });
-                if (pubRes?.portedCandidates && Array.isArray(pubRes.portedCandidates)) {
-                  discoveredPorted.push(...pubRes.portedCandidates);
-                }
-                const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
-                if (Array.isArray(pubResults)) {
-                  const isEnforced = pubRes?.enforced !== false;
-                  pubResults.forEach((item: any) => {
-                    const rawP = item.phone || item.phoneNumber || item.normalized;
-                    const normP = normalizeGhanaPhoneNumber(rawP);
-                    const variations = [
-                      normP,
-                      `+233${normP.slice(1)}`,
-                      `233${normP.slice(1)}`,
-                      rawP,
-                      item.phone,
-                      item.phoneNumber,
-                      item.normalized,
-                    ].filter(Boolean);
+          const subConcurrency = 4;
+          for (let c = 0; c < subChunks.length; c += subConcurrency) {
+            const subBatch = subChunks.slice(c, c + subConcurrency);
+            await Promise.all(
+              subBatch.map(async (subChunk) => {
+                try {
+                  const pubRes = await beneficiaryApi.precheckPublic({
+                    network: NetworkProvider.MTN,
+                    phoneNumbers: subChunk,
+                  });
+                  if (pubRes?.portedCandidates && Array.isArray(pubRes.portedCandidates)) {
+                    discoveredPorted.push(...pubRes.portedCandidates);
+                  }
+                  const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
+                  if (Array.isArray(pubResults)) {
+                    const isEnforced = pubRes?.enforced !== false;
+                    pubResults.forEach((item: any) => {
+                      const rawP = item.phone || item.phoneNumber || item.normalized;
+                      const normP = normalizeGhanaPhoneNumber(rawP);
+                      const variations = [
+                        normP,
+                        `+233${normP.slice(1)}`,
+                        `233${normP.slice(1)}`,
+                        rawP,
+                        item.phone,
+                        item.phoneNumber,
+                        item.normalized,
+                      ].filter(Boolean);
 
-                    const isInvalid = item.valid === false || item.status === 'REJECTED';
-                    const isUnapproved =
-                      !isInvalid &&
-                      (item.status === 'UNAPPROVED' ||
-                        item.status === 'PENDING' ||
-                        item.orderable === false ||
-                        (isEnforced && (item.known === false || item.isKnown === false)));
+                      const isInvalid = item.valid === false || item.status === 'REJECTED';
+                      const isUnapproved =
+                        !isInvalid &&
+                        (item.status === 'UNAPPROVED' ||
+                          item.status === 'PENDING' ||
+                          item.orderable === false ||
+                          (isEnforced && (item.known === false || item.isKnown === false)));
 
-                    const isApproved =
-                      !isInvalid &&
-                      !isUnapproved &&
-                      (item.orderable === true ||
-                        item.status === 'APPROVED' ||
-                        (isEnforced ? Boolean(item.known === true || item.isKnown === true) : Boolean(item.valid !== false)));
+                      const isApproved =
+                        !isInvalid &&
+                        !isUnapproved &&
+                        (item.orderable === true ||
+                          item.status === 'APPROVED' ||
+                          (isEnforced
+                            ? Boolean(item.known === true || item.isKnown === true)
+                            : Boolean(item.valid !== false)));
 
-                    if (isInvalid) {
-                      const reason = item.message || 'Invalid recipient number';
-                      variations.forEach((v) => rejectedMap.set(v, reason));
-                    } else if (isUnapproved) {
-                      variations.forEach((v) => unapprovedSet.add(v));
-                    } else if (isApproved) {
-                      variations.forEach((v) => knownSet.add(v));
+                      if (isInvalid) {
+                        const reason = item.message || 'Invalid recipient number';
+                        variations.forEach((v) => rejectedMap.set(v, reason));
+                      } else if (isUnapproved) {
+                        variations.forEach((v) => unapprovedSet.add(v));
+                      } else if (isApproved) {
+                        variations.forEach((v) => knownSet.add(v));
+                      }
+                    });
+                  }
+                } catch {
+                  // Fallback for subchunk failure (if 5 minutes timeout hit or severe network error)
+                  // Mark as unapproved so we don't drop them
+                  subChunk.forEach((num) => {
+                    const normP = normalizeGhanaPhoneNumber(num);
+                    if (normP) {
+                      unapprovedSet.add(normP);
+                      unapprovedSet.add(`+233${normP.slice(1)}`);
+                      unapprovedSet.add(`233${normP.slice(1)}`);
                     }
                   });
                 }
-              } catch {
-                // Non-fatal per-subchunk error
-              }
-            }),
-          );
+              }),
+            );
+            
+            if (c + subConcurrency < subChunks.length) {
+              await new Promise((resolve) => setTimeout(resolve, 250));
+            }
+          }
         }
       }),
     );

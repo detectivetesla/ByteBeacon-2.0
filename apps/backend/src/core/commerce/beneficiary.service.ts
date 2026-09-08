@@ -257,7 +257,7 @@ export class BeneficiaryService {
 
       for (const chunk of chunks) {
         try {
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 45000));
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 300000));
           const isPublicPrecheck = Boolean(chunk.length <= 10 && this.telecomProvider.precheckPublicBeneficiaries);
           const providerMethod = isPublicPrecheck
             ? this.telecomProvider.precheckPublicBeneficiaries!.bind(this.telecomProvider)

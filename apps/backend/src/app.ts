@@ -335,6 +335,7 @@ export function createApp(options: AppOptions = {}) {
     baseUrl: config.DATAHOUSE_BASE_URL || process.env.DATAHOUSE_BASE_URL || 'https://api.getmorepaylessdatahouse.net/api/v1',
     apiKey: config.DATAHOUSE_API_KEY || process.env.DATAHOUSE_API_KEY || 'dh_key',
     webhookSecret: config.DATAHOUSE_WEBHOOK_SECRET || process.env.DATAHOUSE_WEBHOOK_SECRET || 'dh_secret',
+    timeoutMs: 120000,
   });
   const datahouseAdapter = options.datahouseAdapter ?? new DataHouseAdapter(datahouseClient);
 

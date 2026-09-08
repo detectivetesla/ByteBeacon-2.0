@@ -251,6 +251,7 @@ export class TelecomProviderRegistry implements ITelecomProvider {
               baseUrl: effectiveBaseUrl,
               apiKey: effectiveApiKey,
               webhookSecret: effectiveWebhookSecret,
+              timeoutMs: 120000,
             });
             adapter = new DataHouseAdapter(dhClient);
           } else if (adapter instanceof DataHouseAdapter) {
