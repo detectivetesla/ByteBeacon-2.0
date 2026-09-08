@@ -56,6 +56,7 @@ export interface DataHouseSubmitOrderRequest {
   volume?: number;
   dataAmountMb?: number;
   network?: string;
+  confirmedPorted?: string[];
   [key: string]: unknown;
 }
 
@@ -242,6 +243,7 @@ export interface DataHousePrecheckItem {
   known?: boolean;
   isValid?: boolean;
   valid?: boolean;
+  orderable?: boolean;
   status?: string;
   accountName?: string;
   network?: string;
@@ -256,6 +258,7 @@ export interface DataHousePrecheckSummary {
   invalid?: number;
   known?: number;
   unknown?: number;
+  orderable?: number;
   total?: number;
   recorded?: number;
 }
@@ -268,6 +271,7 @@ export interface DataHousePrecheckResponse {
   reason?: string;
   summary?: DataHousePrecheckSummary;
   unknown?: string[];
+  portedCandidates?: string[];
   results?: DataHousePrecheckItem[];
   data?: DataHousePrecheckItem[] | {
     rows?: any[];
@@ -279,6 +283,7 @@ export interface DataHousePrecheckResponse {
     placeableCount?: number;
     placeableAmount?: number;
     flaggedPorted?: Array<{ phoneNumber: string; detectedNetwork?: string }>;
+    portedCandidates?: string[];
     groups?: Array<{ sizeGb: number; count: number; amount: number }>;
     [key: string]: unknown;
   };

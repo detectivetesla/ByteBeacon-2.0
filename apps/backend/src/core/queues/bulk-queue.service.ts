@@ -49,9 +49,10 @@ export class BulkQueueService {
     recipients: Array<{ phoneNumber: string; dataSizeGb?: number; bundleId?: string }>;
     correlationId: string;
     idempotencyKey: string;
+    confirmedPorted?: string[];
     onUnvalidated?: 'set_aside' | 'reject';
   }): Promise<EnqueueBulkResult> {
-    const { batchId, network, recipients, correlationId, idempotencyKey, onUnvalidated } = params;
+    const { batchId, network, recipients, correlationId, idempotencyKey, confirmedPorted, onUnvalidated } = params;
 
     const totalRecipients = recipients.length;
     const chunkSize = BulkQueueService.CHUNK_SIZE;
@@ -74,6 +75,7 @@ export class BulkQueueService {
         recipients: chunkItems,
         correlationId,
         idempotencyKey: `${idempotencyKey}_chunk_${chunkIdx}`,
+        confirmedPorted,
         onUnvalidated,
       };
 
@@ -108,7 +110,7 @@ export class BulkQueueService {
     rejectedCount: number;
     error?: string;
   }> {
-    const { batchId, chunkIndex, network, recipients, idempotencyKey, onUnvalidated } = jobData;
+    const { batchId, chunkIndex, network, recipients, idempotencyKey, confirmedPorted, onUnvalidated } = jobData;
 
     try {
       if (this.provider.submitBulkOrder) {
@@ -120,6 +122,7 @@ export class BulkQueueService {
             bundleId: r.bundleId,
           })),
           idempotencyKey,
+          confirmedPorted,
           onUnvalidated: onUnvalidated || 'set_aside',
         });
 

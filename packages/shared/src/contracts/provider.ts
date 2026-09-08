@@ -36,6 +36,7 @@ export interface SubmitOrderInput {
   dataAmountMb: number;
   idempotencyKey: string;
   callbackUrl?: string;
+  confirmedPorted?: string[];
   metadata?: Record<string, unknown>;
 }
 
@@ -205,6 +206,7 @@ export interface DataHousePrecheckItemResult {
   normalized?: string;
   isKnown: boolean;
   isValid: boolean;
+  orderable?: boolean;
   status?: string;
   accountName?: string;
   network?: string;
@@ -218,6 +220,7 @@ export interface DataHousePrecheckSummary {
   invalid?: number;
   known?: number;
   unknown?: number;
+  orderable?: number;
   total?: number;
   recorded?: number;
 }
@@ -241,6 +244,7 @@ export interface DataHousePrecheckResult {
   placeableCount?: number;
   blockedFirstTime?: Array<{ phoneNumber: string; sizeGb?: number }>;
   flaggedPorted?: Array<{ phoneNumber: string; detectedNetwork?: string }>;
+  portedCandidates?: string[];
   rawResponse?: Record<string, unknown>;
 }
 

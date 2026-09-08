@@ -106,14 +106,35 @@ export async function orderRoutes(
       const prodNetwork = prodRow?.network;
       const bundleSizeGb = prodRow?.data_amount_mb ? Math.round((prodRow.data_amount_mb / 1024) * 100) / 100 : null;
 
-      if (prodNetwork === 'MTN' || prodNetwork === NetworkProvider.MTN) {
-        const cleanPhone = recipientPhone.trim().replace(/\s+/g, '');
-        const normalizedLocal = cleanPhone.startsWith('+233')
-          ? `0${cleanPhone.slice(4)}`
-          : cleanPhone.startsWith('233')
-            ? `0${cleanPhone.slice(3)}`
-            : cleanPhone;
+      let confirmedPortedList: string[] | undefined;
+      if (Array.isArray(rawBody.confirmedPorted)) {
+        confirmedPortedList = rawBody.confirmedPorted;
+      } else if (typeof rawBody.confirmedPorted === 'string') {
+        try {
+          confirmedPortedList = JSON.parse(rawBody.confirmedPorted);
+        } catch {
+          confirmedPortedList = [rawBody.confirmedPorted];
+        }
+      } else if (rawBody.confirmedPorted === true) {
+        confirmedPortedList = [recipientPhone];
+      }
 
+      const cleanPhone = recipientPhone.trim().replace(/\s+/g, '');
+      const normalizedLocal = cleanPhone.startsWith('+233')
+        ? `0${cleanPhone.slice(4)}`
+        : cleanPhone.startsWith('233')
+          ? `0${cleanPhone.slice(3)}`
+          : cleanPhone;
+
+      const isConfirmedPorted = Boolean(
+        confirmedPortedList &&
+        (confirmedPortedList.includes(recipientPhone) ||
+         confirmedPortedList.includes(cleanPhone) ||
+         confirmedPortedList.includes(normalizedLocal) ||
+         confirmedPortedList.includes(`+233${normalizedLocal.slice(1)}`))
+      );
+
+      if ((prodNetwork === 'MTN' || prodNetwork === NetworkProvider.MTN) && !isConfirmedPorted) {
         const validatedCheck = await Promise.resolve(
           db.query(
             `SELECT 1 FROM beneficiary_validation
@@ -179,6 +200,7 @@ export async function orderRoutes(
           idempotencyKey,
           agentId,
           paymentMethod,
+          confirmedPorted: confirmedPortedList,
         },
         {
           userId: req.user!.sub,

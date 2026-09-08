@@ -26,6 +26,7 @@ export interface BulkChunkJobData {
   recipients: BulkRecipientItem[];
   correlationId: string;
   idempotencyKey: string;
+  confirmedPorted?: string[];
   onUnvalidated?: 'set_aside' | 'reject';
 }
 

@@ -482,6 +482,7 @@ export interface CreateOrderRequest {
   idempotencyKey?: string;
   agentId?: string;
   paymentMethod?: PaymentMethod | string;
+  confirmedPorted?: string[];
 }
 
 export interface OrderPricingSnapshot {
@@ -631,6 +632,7 @@ export interface CreateBulkSubmissionRequest {
   items: BulkSubmissionItemInput[];
   idempotencyKey?: string;
   paymentMethod?: PaymentMethod | string;
+  confirmedPorted?: string[];
 }
 
 export interface BulkSubmissionItemDto {

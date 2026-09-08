@@ -311,6 +311,7 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
         invalid: 0,
         known: 1,
         unknown: 1,
+        orderable: 1,
       });
       expect(json.data.unknown).toEqual(['0249998877']);
       expect(json.data.results).toHaveLength(2);

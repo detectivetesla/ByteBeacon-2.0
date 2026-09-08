@@ -103,6 +103,7 @@ export class FulfillmentWorker {
       const orderRes = await this.db.query(
         `SELECT o.id, o.public_id, o.user_id, o.agent_id, o.recipient_phone, o.network,
                 o.data_amount_mb, o.payment_status, o.order_status, o.product_id,
+                o.pricing_snapshot as "pricingSnapshot",
                 cp.provider_plan_id as "providerPlanId", cp.provider_plan_code as "providerPlanCode",
                 cp.provider_product_code as "providerProductCode", cp.sku, cp.name as "productName",
                 po.id as "providerOrderId", po.provider_name as "providerName",
@@ -195,6 +196,21 @@ export class FulfillmentWorker {
       let submitResult: SubmitOrderResult;
       const startMs = Date.now();
 
+      // Extract any pre-confirmed ported MSISDNs from pricing snapshot
+      const snapshotObj =
+        typeof order.pricingSnapshot === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(order.pricingSnapshot);
+              } catch {
+                return null;
+              }
+            })()
+          : order.pricingSnapshot;
+      const confirmedPorted = Array.isArray(snapshotObj?.confirmedPorted)
+        ? snapshotObj.confirmedPorted
+        : undefined;
+
       try {
         submitResult = await this.circuitBreaker.execute(() =>
           activeProvider.submitOrder({
@@ -204,6 +220,7 @@ export class FulfillmentWorker {
             recipientPhone: order.recipient_phone,
             dataAmountMb: order.data_amount_mb,
             idempotencyKey: deterministicReference,
+            confirmedPorted,
             metadata: {
               correlationId,
               bundleId: order.providerPlanId || order.providerPlanCode || order.product_id,

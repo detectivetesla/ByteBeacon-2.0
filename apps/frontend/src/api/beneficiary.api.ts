@@ -6,6 +6,8 @@ export interface BeneficiaryValidationResult {
   network: NetworkProvider;
   isValid: boolean;
   isKnown: boolean;
+  orderable?: boolean;
+  isPorted?: boolean;
   accountName?: string;
 }
 
@@ -23,6 +25,8 @@ export interface BeneficiaryPrecheckItemDto {
   normalized: string;
   valid: boolean;
   known: boolean;
+  orderable?: boolean;
+  isPorted?: boolean;
   accountName?: string;
 }
 
@@ -32,6 +36,7 @@ export interface AgentBeneficiaryPrecheckResultDto {
   sandbox: boolean;
   recorded: boolean;
   reason?: string;
+  portedCandidates?: string[];
   summary: {
     requested: number;
     unique: number;
@@ -39,6 +44,7 @@ export interface AgentBeneficiaryPrecheckResultDto {
     invalid: number;
     known: number;
     unknown: number;
+    orderable?: number;
   };
   unknown: string[];
   results: BeneficiaryPrecheckItemDto[];
@@ -53,6 +59,18 @@ export const beneficiaryApi = {
     phoneNumbers: string[];
   }): Promise<{
     network: NetworkProvider | string;
+    enforced?: boolean;
+    reason?: string;
+    portedCandidates?: string[];
+    summary?: {
+      requested: number;
+      unique: number;
+      valid: number;
+      invalid: number;
+      known: number;
+      unknown: number;
+      orderable?: number;
+    };
     results: BeneficiaryPrecheckItemDto[];
   }> => {
     return apiClient.post('/orders/beneficiaries/precheck', params);

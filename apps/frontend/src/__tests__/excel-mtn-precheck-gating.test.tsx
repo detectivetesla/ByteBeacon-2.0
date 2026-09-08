@@ -111,12 +111,12 @@ describe('Excel MTN Precheck and Beneficiary Approval Gating', () => {
     });
     fireEvent.change(fileInput);
 
-    // Verify precheck was called with record: true
+    // Verify precheck was called with record: false
     await waitFor(() => {
       expect(beneficiaryApi.precheck).toHaveBeenCalledWith(
         expect.objectContaining({
           network: NetworkProvider.MTN,
-          record: true,
+          record: false,
         }),
       );
     });

@@ -250,6 +250,7 @@ export const BuyDataPage: React.FC = () => {
   const [unapprovedPhone, setUnapprovedPhone] = useState('');
   const [unapprovedPhones, setUnapprovedPhones] = useState<string[]>([]);
   const [isCheckingBeneficiary, setIsCheckingBeneficiary] = useState(false);
+  const [spreadsheetPortedCandidates, setSpreadsheetPortedCandidates] = useState<string[]>([]);
   const [modalPayload, setModalPayload] = useState<{
     title?: string;
     packageSummary?: string;
@@ -258,6 +259,7 @@ export const BuyDataPage: React.FC = () => {
     bundleId?: string;
     recipientPhone?: string;
     bulkItems?: BulkOrderItem[];
+    confirmedPorted?: string[];
   }>({});
 
   const theme = NETWORK_THEMES[selectedNetwork] || NETWORK_THEMES[NetworkProvider.MTN];
@@ -303,6 +305,7 @@ export const BuyDataPage: React.FC = () => {
     setSinglePhoneError('');
 
     // If network is MTN, run precheck for the beneficiary number
+    let singleConfirmedPorted: string[] | undefined = undefined;
     if (selectedNetwork === NetworkProvider.MTN) {
       try {
         setIsCheckingBeneficiary(true);
@@ -311,7 +314,19 @@ export const BuyDataPage: React.FC = () => {
           phoneNumbers: [cleaned],
         });
         const result = precheckRes?.results?.[0];
-        if (result && !result.known) {
+        const isEnforced = precheckRes?.enforced !== false;
+        const isOrderable =
+          result?.orderable !== undefined
+            ? result.orderable
+            : isEnforced
+            ? Boolean(result?.known && result?.valid)
+            : Boolean(result?.valid);
+
+        if (precheckRes?.portedCandidates && precheckRes.portedCandidates.length > 0) {
+          singleConfirmedPorted = precheckRes.portedCandidates;
+        }
+
+        if (result && !isOrderable && isEnforced) {
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
@@ -342,6 +357,7 @@ export const BuyDataPage: React.FC = () => {
       bundleId: currentSingleBundle.id,
       recipientPhone: cleaned,
       bulkItems: undefined,
+      confirmedPorted: singleConfirmedPorted,
     });
     setPurchaseModalOpen(true);
   };
@@ -554,6 +570,7 @@ export const BuyDataPage: React.FC = () => {
       new Set(mtnRows.map((r) => normalizeGhanaPhoneNumber(r.phone)).filter(Boolean)),
     );
     const knownSet = new Set<string>();
+    const discoveredPorted: string[] = [];
 
     const batchSize = 250;
     const batches: string[][] = [];
@@ -565,23 +582,30 @@ export const BuyDataPage: React.FC = () => {
       batches.map(async (batch) => {
         let hasResults = false;
 
-        // 1. Try bulk precheck with opt-in recording
+        // 1. Try bulk precheck without recording (record: false)
         try {
           const res: any = await beneficiaryApi.precheck({
             network: NetworkProvider.MTN,
             phoneNumbers: batch,
-            record: true,
+            record: false,
           });
+
+          if (res?.portedCandidates && Array.isArray(res.portedCandidates)) {
+            discoveredPorted.push(...res.portedCandidates);
+          }
 
           const results = res?.results || res?.data?.results;
           if (Array.isArray(results) && results.length > 0) {
             hasResults = true;
+            const isEnforced = res?.enforced !== false;
             results.forEach((item: any) => {
-              const isApproved = Boolean(
-                (item.known === true || item.isKnown === true) &&
-                item.status !== 'UNAPPROVED' &&
-                item.status !== 'REJECTED'
-              );
+              const isApproved =
+                item.orderable !== undefined
+                  ? item.orderable
+                  : isEnforced
+                  ? Boolean((item.known === true || item.isKnown === true) && item.status !== 'UNAPPROVED' && item.status !== 'REJECTED')
+                  : Boolean(item.valid !== false);
+
               if (isApproved) {
                 const rawP = item.phone || item.phoneNumber || item.normalized;
                 const normP = normalizeGhanaPhoneNumber(rawP);
@@ -614,14 +638,19 @@ export const BuyDataPage: React.FC = () => {
                   network: NetworkProvider.MTN,
                   phoneNumbers: subChunk,
                 });
+                if (pubRes?.portedCandidates && Array.isArray(pubRes.portedCandidates)) {
+                  discoveredPorted.push(...pubRes.portedCandidates);
+                }
                 const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
                 if (Array.isArray(pubResults)) {
+                  const isEnforced = pubRes?.enforced !== false;
                   pubResults.forEach((item: any) => {
-                    const isApproved = Boolean(
-                      (item.known === true || (item as any).isKnown === true) &&
-                      item.status !== 'UNAPPROVED' &&
-                      item.status !== 'REJECTED'
-                    );
+                    const isApproved =
+                      item.orderable !== undefined
+                        ? item.orderable
+                        : isEnforced
+                        ? Boolean((item.known === true || (item as any).isKnown === true) && item.status !== 'UNAPPROVED' && item.status !== 'REJECTED')
+                        : Boolean(item.valid !== false);
                     if (isApproved) {
                       const normP = normalizeGhanaPhoneNumber(item.phone || item.normalized);
                       if (normP) {
@@ -642,6 +671,10 @@ export const BuyDataPage: React.FC = () => {
         }
       }),
     );
+
+    if (discoveredPorted.length > 0) {
+      setSpreadsheetPortedCandidates((prev) => Array.from(new Set([...prev, ...discoveredPorted])));
+    }
 
     return rows.map((row) => {
       if (!row.isValid) {
@@ -959,6 +992,7 @@ export const BuyDataPage: React.FC = () => {
       amountDisplay: `GH₵ ${(excelTotalPesewas / 100).toFixed(2)}`,
       bundleId: targetRows[0]?.bundleId || currentSingleBundle.id,
       bulkItems,
+      confirmedPorted: spreadsheetPortedCandidates.length > 0 ? spreadsheetPortedCandidates : undefined,
     });
     setPurchaseModalOpen(true);
   };
@@ -2244,6 +2278,7 @@ export const BuyDataPage: React.FC = () => {
         channel={channel}
         walletBalanceGhs={balanceGhs}
         bulkItems={modalPayload.bulkItems}
+        confirmedPorted={modalPayload.confirmedPorted}
       />
 
       {/* 6. Beneficiary Not Approved Modal for Individual & Bulk Orders */}

@@ -169,6 +169,7 @@ export class BeneficiaryService {
     enforced?: boolean;
     sandbox?: boolean;
     recorded?: boolean;
+    reason?: string;
     summary?: {
       requested: number;
       unique: number;
@@ -176,8 +177,10 @@ export class BeneficiaryService {
       invalid: number;
       known: number;
       unknown: number;
+      orderable: number;
     };
     unknown?: string[];
+    portedCandidates?: string[];
     results: Array<{
       phone: string;
       phoneNumber: string;
@@ -186,6 +189,7 @@ export class BeneficiaryService {
       isValid: boolean;
       known: boolean;
       isKnown: boolean;
+      orderable: boolean;
       status: string;
       message: string;
       accountName?: string;
@@ -199,7 +203,7 @@ export class BeneficiaryService {
       new Set(parsedItems.filter((item) => item.valid).map((item) => item.normalized)),
     );
 
-    // If TELECEL or non-MTN, every valid Ghanaian MSISDN is known: true
+    // If TELECEL or non-MTN, every valid Ghanaian MSISDN is known: true and orderable: true
     if (net !== NetworkProvider.MTN) {
       const results = parsedItems.map((item) => ({
         phone: item.raw,
@@ -209,6 +213,7 @@ export class BeneficiaryService {
         isValid: item.valid,
         known: item.valid,
         isKnown: item.valid,
+        orderable: item.valid,
         status: item.valid ? 'APPROVED' : 'REJECTED',
         message: item.valid ? 'Direct carrier fulfillment' : 'Invalid Ghanaian phone number format',
       }));
@@ -217,6 +222,7 @@ export class BeneficiaryService {
         enforced: false,
         sandbox: false,
         recorded: false,
+        reason: 'non_mtn',
         summary: {
           requested: phoneNumbers.length,
           unique: parsedItems.length,
@@ -224,14 +230,18 @@ export class BeneficiaryService {
           invalid: results.filter((r) => !r.valid).length,
           known: results.filter((r) => r.known).length,
           unknown: 0,
+          orderable: results.filter((r) => r.orderable).length,
         },
         unknown: [],
+        portedCandidates: [],
         results,
       };
     }
 
     const knownPhonesSet = new Set<string>();
     const accountNamesMap = new Map<string, string>();
+    const portedCandidatesSet = new Set<string>();
+    const upstreamOrderableMap = new Map<string, boolean>();
 
     let providerSucceeded = false;
 
@@ -264,8 +274,34 @@ export class BeneficiaryService {
           const providerRes: any = await Promise.race([safeCall, timeoutPromise]);
           if (providerRes && Array.isArray(providerRes.results) && providerRes.results.length > 0) {
             providerSucceeded = true;
+
+            if (Array.isArray(providerRes.portedCandidates)) {
+              providerRes.portedCandidates.forEach((p: string) => {
+                const norm = this.normalizeGhanaPhone(p).normalized;
+                if (norm) portedCandidatesSet.add(norm);
+                portedCandidatesSet.add(p);
+              });
+            }
+            if (Array.isArray(providerRes.flaggedPorted)) {
+              providerRes.flaggedPorted.forEach((f: any) => {
+                const p = typeof f === 'string' ? f : f.phoneNumber || f.phone;
+                if (p) {
+                  const norm = this.normalizeGhanaPhone(p).normalized;
+                  if (norm) portedCandidatesSet.add(norm);
+                  portedCandidatesSet.add(p);
+                }
+              });
+            }
+
             providerRes.results.forEach((r: any) => {
               const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
+              if (norm && r.orderable !== undefined) {
+                upstreamOrderableMap.set(norm, Boolean(r.orderable));
+              }
+              if ((r as any).isPorted || r.status === 'REJECTED') {
+                if (norm) portedCandidatesSet.add(norm);
+              }
+
               const isApproved = Boolean(
                 (r.isKnown === true || (r as any).known === true) &&
                 r.status !== 'UNAPPROVED' &&
@@ -410,6 +446,15 @@ export class BeneficiaryService {
 
     const results = parsedItems.map((item) => {
       const isKnown = item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.raw)) : false;
+      const isPortedCandidate = portedCandidatesSet.has(item.normalized) || portedCandidatesSet.has(item.raw);
+
+      let isOrderable = false;
+      if (upstreamOrderableMap.has(item.normalized)) {
+        isOrderable = Boolean(upstreamOrderableMap.get(item.normalized));
+      } else {
+        isOrderable = item.valid && isKnown && !isPortedCandidate;
+      }
+
       const status = !item.valid ? 'REJECTED' : isKnown ? 'APPROVED' : 'UNAPPROVED';
       const message = !item.valid
         ? 'Invalid Ghanaian phone number format'
@@ -424,6 +469,7 @@ export class BeneficiaryService {
         isValid: item.valid,
         known: isKnown,
         isKnown,
+        orderable: isOrderable,
         status,
         message,
         accountName: accountNamesMap.get(item.normalized),
@@ -495,8 +541,10 @@ export class BeneficiaryService {
         invalid: results.filter((r) => !r.valid).length,
         known: results.filter((r) => r.known).length,
         unknown: unknownList.length,
+        orderable: results.filter((r) => r.orderable).length,
       },
       unknown: unknownList,
+      portedCandidates: Array.from(portedCandidatesSet),
       results,
     };
   }
@@ -524,13 +572,21 @@ export class BeneficiaryService {
       invalid: number;
       known: number;
       unknown: number;
+      orderable: number;
     };
     unknown: string[];
+    portedCandidates: string[];
     results: Array<{
       phone: string;
+      phoneNumber: string;
       normalized: string;
       valid: boolean;
+      isValid: boolean;
       known: boolean;
+      isKnown: boolean;
+      orderable: boolean;
+      status: string;
+      message: string;
     }>;
   }> {
     const { network, phoneNumbers, record = false, isSandbox = false, userId: _userId } = params;
@@ -558,9 +614,15 @@ export class BeneficiaryService {
     if (isSandbox) {
       const results = uniqueItems.map((item) => ({
         phone: item.phone,
+        phoneNumber: item.phone,
         normalized: item.normalized,
         valid: item.valid,
+        isValid: item.valid,
         known: item.valid,
+        isKnown: item.valid,
+        orderable: item.valid,
+        status: item.valid ? 'APPROVED' : 'REJECTED',
+        message: item.valid ? 'Sandbox validated recipient' : 'Invalid Ghanaian phone number format',
       }));
 
       return {
@@ -576,8 +638,10 @@ export class BeneficiaryService {
           invalid: results.filter((r) => !r.valid).length,
           known: results.filter((r) => r.known).length,
           unknown: 0,
+          orderable: results.filter((r) => r.orderable).length,
         },
         unknown: [],
+        portedCandidates: [],
         results,
       };
     }
@@ -586,9 +650,15 @@ export class BeneficiaryService {
     if (net !== NetworkProvider.MTN) {
       const results = uniqueItems.map((item) => ({
         phone: item.phone,
+        phoneNumber: item.phone,
         normalized: item.normalized,
         valid: item.valid,
+        isValid: item.valid,
         known: item.valid,
+        isKnown: item.valid,
+        orderable: item.valid,
+        status: item.valid ? 'APPROVED' : 'REJECTED',
+        message: item.valid ? 'Direct carrier fulfillment' : 'Invalid Ghanaian phone number format',
       }));
 
       return {
@@ -604,8 +674,10 @@ export class BeneficiaryService {
           invalid: results.filter((r) => !r.valid).length,
           known: results.filter((r) => r.known).length,
           unknown: 0,
+          orderable: results.filter((r) => r.orderable).length,
         },
         unknown: [],
+        portedCandidates: [],
         results,
       };
     }
@@ -619,9 +691,15 @@ export class BeneficiaryService {
     if (isEnforcementOff) {
       const results = uniqueItems.map((item) => ({
         phone: item.phone,
+        phoneNumber: item.phone,
         normalized: item.normalized,
         valid: item.valid,
+        isValid: item.valid,
         known: item.valid,
+        isKnown: item.valid,
+        orderable: item.valid,
+        status: item.valid ? 'APPROVED' : 'REJECTED',
+        message: item.valid ? 'Enforcement disabled' : 'Invalid Ghanaian phone number format',
       }));
 
       return {
@@ -637,8 +715,10 @@ export class BeneficiaryService {
           invalid: results.filter((r) => !r.valid).length,
           known: results.filter((r) => r.known).length,
           unknown: 0,
+          orderable: results.filter((r) => r.orderable).length,
         },
         unknown: [],
+        portedCandidates: [],
         results,
       };
     }
@@ -646,6 +726,8 @@ export class BeneficiaryService {
     // 4. Live MTN Enforcement
     const validNormalizedPhones = uniqueItems.filter((item) => item.valid).map((item) => item.normalized);
     const knownPhonesSet = new Set<string>();
+    const portedCandidatesSet = new Set<string>();
+    const upstreamOrderableMap = new Map<string, boolean>();
 
     let providerSucceeded = false;
 
@@ -715,8 +797,34 @@ export class BeneficiaryService {
           }
           if (providerRes && Array.isArray(providerRes.results) && providerRes.results.length > 0) {
             providerSucceeded = true;
+
+            if (Array.isArray(providerRes.portedCandidates)) {
+              providerRes.portedCandidates.forEach((p: string) => {
+                const norm = this.normalizeGhanaPhone(p).normalized;
+                if (norm) portedCandidatesSet.add(norm);
+                portedCandidatesSet.add(p);
+              });
+            }
+            if (Array.isArray(providerRes.flaggedPorted)) {
+              providerRes.flaggedPorted.forEach((f: any) => {
+                const p = typeof f === 'string' ? f : f.phoneNumber || f.phone;
+                if (p) {
+                  const norm = this.normalizeGhanaPhone(p).normalized;
+                  if (norm) portedCandidatesSet.add(norm);
+                  portedCandidatesSet.add(p);
+                }
+              });
+            }
+
             providerRes.results.forEach((r: any) => {
               const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
+              if (norm && r.orderable !== undefined) {
+                upstreamOrderableMap.set(norm, Boolean(r.orderable));
+              }
+              if ((r as any).isPorted || r.status === 'REJECTED') {
+                if (norm) portedCandidatesSet.add(norm);
+              }
+
               const isApproved = Boolean(
                 (r.isKnown === true || (r as any).known === true) &&
                 r.status !== 'UNAPPROVED' &&
@@ -860,6 +968,15 @@ export class BeneficiaryService {
 
     const results = uniqueItems.map((item) => {
       const isKnown = item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.phone)) : false;
+      const isPortedCandidate = portedCandidatesSet.has(item.normalized) || portedCandidatesSet.has(item.phone);
+
+      let isOrderable = false;
+      if (upstreamOrderableMap.has(item.normalized)) {
+        isOrderable = Boolean(upstreamOrderableMap.get(item.normalized));
+      } else {
+        isOrderable = item.valid && isKnown && !isPortedCandidate;
+      }
+
       const status = !item.valid ? 'REJECTED' : isKnown ? 'APPROVED' : 'UNAPPROVED';
       const message = !item.valid
         ? 'Invalid Ghanaian phone number format'
@@ -874,6 +991,7 @@ export class BeneficiaryService {
         isValid: item.valid,
         known: isKnown,
         isKnown,
+        orderable: isOrderable,
         status,
         message,
       };
@@ -938,8 +1056,10 @@ export class BeneficiaryService {
         invalid: results.filter((r) => !r.valid).length,
         known: results.filter((r) => r.known).length,
         unknown: unknownList.length,
+        orderable: results.filter((r) => r.orderable).length,
       },
       unknown: unknownList,
+      portedCandidates: Array.from(portedCandidatesSet),
       results,
     };
   }

@@ -134,7 +134,7 @@ export class OrderService {
     const publicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
     const cleanPhone = input.recipientPhone.trim().replace(/\s+/g, '');
 
-    const pricingSnapshot: OrderPricingSnapshot = {
+    const pricingSnapshot: OrderPricingSnapshot & { confirmedPorted?: string[] } = {
       productId: product.id,
       sku: product.sku,
       productName: product.name,
@@ -143,6 +143,7 @@ export class OrderService {
       unitPricePesewas: pricePesewas,
       currency: Currency.GHS,
       snapshotTimestamp: new Date().toISOString(),
+      confirmedPorted: input.confirmedPorted,
     };
 
     const client = await this.db.connect();

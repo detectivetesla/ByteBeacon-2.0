@@ -196,7 +196,12 @@ export class BulkOrderService {
               product.network,
               product.dataAmountMb,
               item.amountPesewas,
-              JSON.stringify({ productId: product.id, dataAmountMb: product.dataAmountMb, pricePesewas: item.amountPesewas }),
+              JSON.stringify({
+                productId: product.id,
+                dataAmountMb: product.dataAmountMb,
+                pricePesewas: item.amountPesewas,
+                confirmedPorted: input.confirmedPorted,
+              }),
               `${subRow.id}_${item.recipientPhone}_${Date.now()}`,
             ],
           );
@@ -778,6 +783,7 @@ export class BulkOrderService {
               groupSizeGb: sizeGb,
               unitPricePesewas,
               beneficiaryCount: count,
+              confirmedPorted: params.confirmedPorted,
               beneficiaries: recipientsForSize.map((r) => ({
                 id: `ben_${crypto.randomBytes(6).toString('hex')}`,
                 phoneNumber: r.phoneNumber,

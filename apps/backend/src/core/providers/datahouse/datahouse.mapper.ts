@@ -79,6 +79,7 @@ export class DataHouseMapper {
   public static toDataHouseSubmitRequest(input: SubmitOrderInput): DataHouseSubmitOrderRequest {
     const bundleId = (input.metadata?.bundleId as string) || (input.metadata?.providerProductId as string) || input.orderId;
     const volumeGb = Math.max(1, Math.round((input.dataAmountMb || 1024) / 1024));
+    const confirmedPorted = input.confirmedPorted || (input.metadata?.confirmedPorted as string[] | undefined);
     return {
       bundleId,
       phoneNumber: this.normalizePhone(input.recipientPhone),
@@ -87,6 +88,7 @@ export class DataHouseMapper {
       volume: volumeGb,
       dataAmountMb: input.dataAmountMb,
       network: input.network,
+      confirmedPorted: Array.isArray(confirmedPorted) ? confirmedPorted.map((p) => this.normalizePhone(p)) : undefined,
     };
   }
 
@@ -353,6 +355,17 @@ export class DataHouseMapper {
       }
     });
 
+    const portedCandidatesList: string[] = [
+      ...(Array.isArray(payload.portedCandidates) ? payload.portedCandidates : []),
+      ...(Array.isArray(payload.flaggedPorted)
+        ? payload.flaggedPorted.map((f: any) => (typeof f === 'string' ? f : f.phoneNumber || f.phone || f.msisdn))
+        : []),
+      ...(Array.isArray(payload.mismatched)
+        ? payload.mismatched.map((m: any) => (typeof m === 'string' ? m : m.phoneNumber || m.phone || m.msisdn))
+        : []),
+    ].filter(Boolean);
+    const portedCandidates = Array.from(new Set(portedCandidatesList));
+
     const results = rawRows.map((r: any) => {
       const phone = r.phoneNumber || r.phone || r.msisdn || '';
       const norm = DataHouseMapper.normalizePhone(phone);
@@ -381,19 +394,19 @@ export class DataHouseMapper {
         payload.blockedCount !== undefined ||
         payload.placeableCount !== undefined;
 
-      let isKnown = false;
+      let isKnownRaw = false;
       if (isExplicitlyKnown !== undefined) {
-        isKnown = isExplicitlyKnown;
+        isKnownRaw = isExplicitlyKnown;
       } else if (r.status === 'APPROVED' || r.status === 'VALID' || r.status === 'approved' || r.status === 'valid') {
-        isKnown = true;
+        isKnownRaw = true;
       } else if (network !== NetworkProvider.MTN) {
-        isKnown = !isPorted;
+        isKnownRaw = !isPorted;
       } else if (hasDataHouseGatingData) {
         // DataHouse explicitly provided gating data: unblocked matching numbers are placeable
-        isKnown = !isExplicitlyBlocked && !isPorted && r.matchesSelected !== false;
+        isKnownRaw = !isExplicitlyBlocked && !isPorted && r.matchesSelected !== false;
       } else {
         // No explicit approval or gating data for MTN: strictly default to unapproved
-        isKnown = false;
+        isKnownRaw = false;
       }
 
       const isValid =
@@ -403,7 +416,22 @@ export class DataHouseMapper {
           ? Boolean(r.valid)
           : !isPorted;
 
-      const isBlocked = isExplicitlyBlocked || (!isKnown && isValid && !isPorted);
+      const isBlocked = isExplicitlyBlocked || (!isKnownRaw && isValid && !isPorted);
+      const isKnown = !isPorted && isKnownRaw && !isBlocked;
+
+      const isExplicitlyOrderable =
+        r.orderable !== undefined
+          ? Boolean(r.orderable)
+          : undefined;
+
+      let orderable = false;
+      if (isExplicitlyOrderable !== undefined) {
+        orderable = isExplicitlyOrderable;
+      } else if (payload.enforced === false) {
+        orderable = isValid;
+      } else {
+        orderable = isValid && isKnown && !isBlocked && !isPorted;
+      }
 
       const status = isPorted
         ? 'REJECTED'
@@ -421,8 +449,9 @@ export class DataHouseMapper {
         phoneNumber: phone || local,
         phone: local || phone,
         normalized: local,
-        isKnown: !isPorted && isKnown && !isBlocked,
+        isKnown,
         isValid,
+        orderable,
         status,
         accountName: r.accountName,
         network: r.detectedNetwork || r.network || payload.network || network,
@@ -437,6 +466,7 @@ export class DataHouseMapper {
       invalid: payload.summary?.invalid ?? (payload.mismatchedCount !== undefined ? payload.mismatchedCount : results.filter((r: any) => !r.isValid).length),
       known: payload.placeableCount !== undefined ? payload.placeableCount : (payload.summary?.known ?? results.filter((r: any) => r.isKnown).length),
       unknown: payload.blockedCount !== undefined ? payload.blockedCount : (payload.summary?.unknown ?? results.filter((r: any) => !r.isKnown && r.isValid).length),
+      orderable: payload.summary?.orderable ?? (payload.placeableCount !== undefined ? payload.placeableCount : results.filter((r: any) => r.orderable).length),
     };
 
     return {
@@ -454,6 +484,7 @@ export class DataHouseMapper {
       placeableCount: payload.placeableCount !== undefined ? payload.placeableCount : results.filter((r: any) => r.isKnown).length,
       blockedFirstTime: payload.blockedFirstTime,
       flaggedPorted: payload.flaggedPorted,
+      portedCandidates,
       rawResponse: resp,
     };
   }

@@ -48,6 +48,7 @@ export interface PurchaseModalProps {
   isGuestPurchase?: boolean;
   channel?: 'CUSTOMER' | 'AGENT' | 'STORE' | 'API';
   bulkItems?: BulkOrderItem[];
+  confirmedPorted?: string[];
 }
 
 const NETWORK_MODAL_THEMES: Record<
@@ -78,18 +79,24 @@ const NETWORK_MODAL_THEMES: Record<
     glowColor: 'rgba(231, 25, 45, 0.25)',
   },
   [NetworkProvider.AIRTELTIGO]: {
-    brandColor: '#0066B2',
-    buttonBg: '#0066B2',
+    brandColor: '#003399',
+    buttonBg: '#003399',
     buttonTextColor: '#FFFFFF',
-    accentBg: 'rgba(0, 102, 178, 0.08)',
-    borderColor: 'rgba(0, 102, 178, 0.35)',
-    glowColor: 'rgba(0, 102, 178, 0.25)',
+    accentBg: 'rgba(0, 51, 153, 0.08)',
+    borderColor: 'rgba(0, 51, 153, 0.35)',
+    glowColor: 'rgba(0, 51, 153, 0.25)',
   },
 };
 
-// Dynamically load Paystack inline script if not present
+// Simple in-memory script load memoizer
+let paystackLoadedPromise: Promise<boolean> | null = null;
 function loadPaystackScript(): Promise<boolean> {
-  return new Promise((resolve) => {
+  if (paystackLoadedPromise) return paystackLoadedPromise;
+  paystackLoadedPromise = new Promise<boolean>((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(false);
+      return;
+    }
     if ((window as any).PaystackPop) {
       resolve(true);
       return;
@@ -108,6 +115,7 @@ function loadPaystackScript(): Promise<boolean> {
     script.onerror = () => resolve(false);
     document.body.appendChild(script);
   });
+  return paystackLoadedPromise;
 }
 
 export const PurchaseModal: React.FC<PurchaseModalProps> = ({
@@ -124,6 +132,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   isGuestPurchase,
   channel,
   bulkItems,
+  confirmedPorted: initialConfirmedPorted,
 }) => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
@@ -147,6 +156,11 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
   const [unapprovedPhone, setUnapprovedPhone] = useState('');
   const [unapprovedPhones, setUnapprovedPhones] = useState<string[]>([]);
+  const [discoveredPorted, setDiscoveredPorted] = useState<string[]>([]);
+
+  const effectiveConfirmedPorted = useMemo(() => {
+    return Array.from(new Set([...(initialConfirmedPorted || []), ...discoveredPorted]));
+  }, [initialConfirmedPorted, discoveredPorted]);
 
   // Determine active channel: explicitly passed, or inferred from authenticated user role
   const isAgentRole = user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin';
@@ -275,6 +289,109 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   // Early return when modal is closed
   if (!isOpen) return null;
 
+  /**
+   * Prechecks the exact recipient list before charging the customer.
+   * Uses orderable (not known) to determine MTN acceptability, respects enforced: false,
+   * passes record: false, and collects any portedCandidates.
+   * Batches up to 1,000 numbers.
+   */
+  const verifyRecipientOrderability = async (
+    targetPhones: string[],
+    net: NetworkProvider,
+  ): Promise<{ canProceed: boolean; unapproved: string[]; portedCandidates: string[] }> => {
+    if (net !== NetworkProvider.MTN) {
+      return { canProceed: true, unapproved: [], portedCandidates: [] };
+    }
+
+    const uniquePhones = Array.from(
+      new Set(targetPhones.map((p) => (p || '').trim().replace(/\s+/g, '')).filter(Boolean)),
+    );
+    if (uniquePhones.length === 0) {
+      return { canProceed: true, unapproved: [], portedCandidates: [] };
+    }
+
+    const BATCH_SIZE = 1000;
+    const unapproved: string[] = [];
+    const ported: string[] = [];
+
+    for (let i = 0; i < uniquePhones.length; i += BATCH_SIZE) {
+      const batch = uniquePhones.slice(i, i + BATCH_SIZE);
+      try {
+        let res: any;
+        if (activeChannel === 'AGENT') {
+          try {
+            res = await beneficiaryApi.precheckAgent({
+              network: NetworkProvider.MTN,
+              phoneNumbers: batch,
+              record: false,
+            });
+          } catch {
+            res = await beneficiaryApi.precheck({
+              network: NetworkProvider.MTN,
+              phoneNumbers: batch,
+              record: false,
+            });
+          }
+        } else {
+          if (batch.length <= 10) {
+            res = await beneficiaryApi.precheckPublic({
+              network: NetworkProvider.MTN,
+              phoneNumbers: batch,
+            });
+          } else {
+            try {
+              res = await beneficiaryApi.precheckAgent({
+                network: NetworkProvider.MTN,
+                phoneNumbers: batch,
+                record: false,
+              });
+            } catch {
+              res = await beneficiaryApi.precheck({
+                network: NetworkProvider.MTN,
+                phoneNumbers: batch,
+                record: false,
+              });
+            }
+          }
+        }
+
+        const isEnforced = res?.enforced !== false;
+        if (res?.portedCandidates && Array.isArray(res.portedCandidates)) {
+          ported.push(...res.portedCandidates);
+        }
+
+        const items: any[] = res?.results || res?.data?.results || [];
+        for (const item of items) {
+          const isOrderable =
+            item.orderable !== undefined
+              ? item.orderable
+              : isEnforced
+              ? Boolean((item.known === true || item.isKnown === true) && item.valid !== false)
+              : Boolean(item.valid !== false);
+
+          if (!isOrderable && isEnforced) {
+            unapproved.push(item.phone || item.phoneNumber || item.normalized);
+          }
+        }
+      } catch (err: any) {
+        if (
+          err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+          err?.status === 422 ||
+          err?.message?.toLowerCase().includes('beneficiary') ||
+          err?.message?.toLowerCase().includes('mtn number not yet validated')
+        ) {
+          unapproved.push(...batch);
+        }
+      }
+    }
+
+    return {
+      canProceed: unapproved.length === 0,
+      unapproved,
+      portedCandidates: ported,
+    };
+  };
+
   const handleValidateAndContinue = async () => {
     if (isMaintenanceMode) {
       toastError(
@@ -294,27 +411,14 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
     if (network === NetworkProvider.MTN) {
       try {
         setIsProcessing(true);
-        const precheckRes = await beneficiaryApi.precheckPublic({
-          network: NetworkProvider.MTN,
-          phoneNumbers: [cleaned],
-        });
-        const result = precheckRes?.results?.[0];
-        if (result && !result.known) {
-          setUnapprovedPhone(cleaned);
-          setUnapprovedModalOpen(true);
-          setIsProcessing(false);
-          return;
+        const check = await verifyRecipientOrderability([cleaned], network);
+        if (check.portedCandidates.length > 0) {
+          setDiscoveredPorted((prev) => Array.from(new Set([...prev, ...check.portedCandidates])));
         }
-      } catch (err: any) {
-        if (
-          err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
-          err?.status === 422 ||
-          err?.message?.toLowerCase().includes('beneficiary') ||
-          err?.message?.toLowerCase().includes('mtn number not yet validated')
-        ) {
+        if (!check.canProceed) {
           setUnapprovedPhone(cleaned);
+          setUnapprovedPhones(check.unapproved);
           setUnapprovedModalOpen(true);
-          setIsProcessing(false);
           return;
         }
       } finally {
@@ -350,6 +454,37 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       toastError('Bundle Required', 'Please select a data bundle before proceeding.');
       setStep(1);
       return;
+    }
+
+    // Precheck exact recipient list before charging customer
+    const recipientList =
+      isBulk && bulkItems && bulkItems.length > 0
+        ? bulkItems.map((i) => i.recipientPhone)
+        : [targetPhone];
+
+    if (network === NetworkProvider.MTN) {
+      setIsProcessing(true);
+      try {
+        const check = await verifyRecipientOrderability(recipientList, network);
+        if (check.portedCandidates.length > 0) {
+          setDiscoveredPorted((prev) => Array.from(new Set([...prev, ...check.portedCandidates])));
+        }
+        if (!check.canProceed) {
+          setIsProcessing(false);
+          setUnapprovedPhone(check.unapproved[0] || targetPhone);
+          setUnapprovedPhones(check.unapproved);
+          setUnapprovedModalOpen(true);
+          toastError(
+            'MTN Recipient Unapproved',
+            `${check.unapproved.length} recipient(s) cannot be ordered on MTN. Customer was not charged.`,
+          );
+          return;
+        }
+      } catch {
+        // Non-fatal error; continue
+      } finally {
+        setIsProcessing(false);
+      }
     }
 
     const payEmail = buyerEmail.trim() || user?.email || `${targetPhone || 'customer'}@bytebeacon.com`;
@@ -397,6 +532,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   })),
                   paymentMethod: PaymentMethod.PAYSTACK,
                   idempotencyKey: response.reference || `bulk_${Date.now()}`,
+                  confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
                 });
                 if (response.reference) {
                   await ordersApi.verifyPayment(response.reference, submission.id).catch(() => {});
@@ -408,6 +544,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   recipientPhone: targetPhone,
                   paymentMethod: PaymentMethod.PAYSTACK,
                   idempotencyKey: response.reference || `ord_${Date.now()}`,
+                  confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
                 });
                 if (response.reference) {
                   await ordersApi
@@ -465,6 +602,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
             })),
             paymentMethod: effectiveIsGuest ? PaymentMethod.PAYSTACK : PaymentMethod.WALLET,
             idempotencyKey: `bulk_pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+            confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
           });
           setCompletedOrder({ id: submission.id, count: bulkItems.length });
         } else {
@@ -473,6 +611,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
             recipientPhone: targetPhone,
             paymentMethod: effectiveIsGuest ? PaymentMethod.PAYSTACK : PaymentMethod.WALLET,
             idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
           });
           setCompletedOrder({ id: created.publicId || created.id });
         }
@@ -520,6 +659,43 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       toastError('Insufficient Balance', `You need GH₵ ${shortfall} more to complete this purchase.`);
       return;
     }
+    const cleanedPhone = (
+      recipientPhone ||
+      initialRecipientPhone ||
+      (customRecipientSummary && !isBulk ? customRecipientSummary : '') ||
+      ''
+    ).trim().replace(/\s+/g, '');
+
+    // Precheck exact recipient list before charging wallet
+    const recipientList =
+      isBulk && bulkItems && bulkItems.length > 0
+        ? bulkItems.map((i) => i.recipientPhone)
+        : [cleanedPhone];
+
+    if (network === NetworkProvider.MTN) {
+      setIsProcessing(true);
+      try {
+        const check = await verifyRecipientOrderability(recipientList, network);
+        if (check.portedCandidates.length > 0) {
+          setDiscoveredPorted((prev) => Array.from(new Set([...prev, ...check.portedCandidates])));
+        }
+        if (!check.canProceed) {
+          setIsProcessing(false);
+          setUnapprovedPhone(check.unapproved[0] || cleanedPhone);
+          setUnapprovedPhones(check.unapproved);
+          setUnapprovedModalOpen(true);
+          toastError(
+            'MTN Recipient Unapproved',
+            `${check.unapproved.length} recipient(s) cannot be ordered on MTN. Wallet was not charged.`,
+          );
+          return;
+        }
+      } catch {
+        // Non-fatal error; continue
+      } finally {
+        setIsProcessing(false);
+      }
+    }
 
     setIsProcessing(true);
 
@@ -533,6 +709,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
           })),
           paymentMethod: PaymentMethod.WALLET,
           idempotencyKey: `bulk_sub_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
         });
 
         setIsProcessing(false);
@@ -550,12 +727,6 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         if (!bundleId) {
           throw new Error('Please select a valid data package before purchasing.');
         }
-        const cleanedPhone = (
-          recipientPhone ||
-          initialRecipientPhone ||
-          (customRecipientSummary && !isBulk ? customRecipientSummary : '') ||
-          ''
-        ).trim().replace(/\s+/g, '');
         if (!cleanedPhone) {
           throw new Error('Please enter a recipient phone number before purchasing.');
         }
@@ -564,6 +735,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
           recipientPhone: cleanedPhone,
           paymentMethod: PaymentMethod.WALLET,
           idempotencyKey: `ord_buy_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
         });
 
         setIsProcessing(false);
