@@ -394,8 +394,16 @@ export class DataHouseMapper {
         payload.blockedCount !== undefined ||
         payload.placeableCount !== undefined;
 
+      const isUnapprovedStatus =
+        r.status === 'PENDING' ||
+        r.status === 'pending' ||
+        r.status === 'UNAPPROVED' ||
+        r.status === 'unapproved';
+
       let isKnownRaw = false;
-      if (isExplicitlyKnown !== undefined) {
+      if (isExplicitlyBlocked || isUnapprovedStatus) {
+        isKnownRaw = false;
+      } else if (isExplicitlyKnown !== undefined) {
         isKnownRaw = isExplicitlyKnown;
       } else if (r.status === 'APPROVED' || r.status === 'VALID' || r.status === 'approved' || r.status === 'valid') {
         isKnownRaw = true;
@@ -416,7 +424,7 @@ export class DataHouseMapper {
           ? Boolean(r.valid)
           : !isPorted;
 
-      const isBlocked = isExplicitlyBlocked || (!isKnownRaw && isValid && !isPorted);
+      const isBlocked = isExplicitlyBlocked || isUnapprovedStatus || (!isKnownRaw && isValid && !isPorted);
       const isKnown = !isPorted && isKnownRaw && !isBlocked;
 
       const isExplicitlyOrderable =
@@ -435,7 +443,7 @@ export class DataHouseMapper {
 
       const status = isPorted
         ? 'REJECTED'
-        : isBlocked
+        : (isBlocked || isUnapprovedStatus)
         ? 'UNAPPROVED'
         : (r.status || 'APPROVED');
 

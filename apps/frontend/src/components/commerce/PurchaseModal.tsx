@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { NetworkProvider, PaymentMethod } from '@bytebeacon/shared';
 import { Button } from '../ui/Button/Button.js';
-import { PhoneInput, Input } from '../ui/index.js';
+import { PhoneInput, Input, detectGhanaianNetwork } from '../ui/index.js';
 import { NetworkBadge } from '../ui/Badge/Badge.js';
 import { BundleItem } from './BundleSelector.js';
 import { catalogApi } from '../../api/catalog.api.js';
@@ -299,7 +299,10 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
     targetPhones: string[],
     net: NetworkProvider,
   ): Promise<{ canProceed: boolean; unapproved: string[]; portedCandidates: string[] }> => {
-    if (net !== NetworkProvider.MTN) {
+    const isMtn =
+      net === NetworkProvider.MTN ||
+      targetPhones.some((p) => detectGhanaianNetwork(p) === 'MTN');
+    if (!isMtn) {
       return { canProceed: true, unapproved: [], portedCandidates: [] };
     }
 
@@ -362,12 +365,15 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
 
         const items: any[] = res?.results || res?.data?.results || [];
         for (const item of items) {
-          const isOrderable =
-            item.orderable !== undefined
-              ? item.orderable
-              : isEnforced
-              ? Boolean((item.known === true || item.isKnown === true) && item.valid !== false)
-              : Boolean(item.valid !== false);
+          const isExplicitlyUnapproved =
+            item.status === 'UNAPPROVED' || item.status === 'PENDING';
+          const isOrderable = isExplicitlyUnapproved
+            ? false
+            : item.orderable !== undefined
+            ? item.orderable
+            : isEnforced
+            ? Boolean((item.known === true || item.isKnown === true) && item.valid !== false)
+            : Boolean(item.valid !== false);
 
           if (!isOrderable && isEnforced) {
             unapproved.push(item.phone || item.phoneNumber || item.normalized);
@@ -408,10 +414,11 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
     setPhoneError('');
 
     // Precheck MTN numbers before advancing
-    if (network === NetworkProvider.MTN) {
+    const isMtn = network === NetworkProvider.MTN || detectGhanaianNetwork(cleaned) === 'MTN';
+    if (isMtn) {
       try {
         setIsProcessing(true);
-        const check = await verifyRecipientOrderability([cleaned], network);
+        const check = await verifyRecipientOrderability([cleaned], NetworkProvider.MTN);
         if (check.portedCandidates.length > 0) {
           setDiscoveredPorted((prev) => Array.from(new Set([...prev, ...check.portedCandidates])));
         }
@@ -462,10 +469,14 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         ? bulkItems.map((i) => i.recipientPhone)
         : [targetPhone];
 
-    if (network === NetworkProvider.MTN) {
+    const isMtnOrder =
+      network === NetworkProvider.MTN ||
+      recipientList.some((p) => detectGhanaianNetwork(p) === 'MTN');
+
+    if (isMtnOrder) {
       setIsProcessing(true);
       try {
-        const check = await verifyRecipientOrderability(recipientList, network);
+        const check = await verifyRecipientOrderability(recipientList, NetworkProvider.MTN);
         if (check.portedCandidates.length > 0) {
           setDiscoveredPorted((prev) => Array.from(new Set([...prev, ...check.portedCandidates])));
         }
@@ -672,10 +683,14 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         ? bulkItems.map((i) => i.recipientPhone)
         : [cleanedPhone];
 
-    if (network === NetworkProvider.MTN) {
+    const isMtnOrder =
+      network === NetworkProvider.MTN ||
+      recipientList.some((p) => detectGhanaianNetwork(p) === 'MTN');
+
+    if (isMtnOrder) {
       setIsProcessing(true);
       try {
-        const check = await verifyRecipientOrderability(recipientList, network);
+        const check = await verifyRecipientOrderability(recipientList, NetworkProvider.MTN);
         if (check.portedCandidates.length > 0) {
           setDiscoveredPorted((prev) => Array.from(new Set([...prev, ...check.portedCandidates])));
         }

@@ -8,7 +8,7 @@ import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { PurchaseModal, BulkOrderItem } from '../../components/commerce/PurchaseModal.js';
 import { BeneficiaryNotApprovedModal } from '../../components/commerce/BeneficiaryNotApprovedModal.js';
 import { Card } from '../../components/ui/Card/Card.js';
-import { PhoneInput, Select, Checkbox, Textarea } from '../../components/ui/index.js';
+import { PhoneInput, Select, Checkbox, Textarea, detectGhanaianNetwork } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import {
@@ -304,9 +304,15 @@ export const BuyDataPage: React.FC = () => {
     }
     setSinglePhoneError('');
 
-    // If network is MTN, run precheck for the beneficiary number
+    // If network is MTN (or phone prefix is MTN), run precheck for the beneficiary number
+    const detectedNet = detectGhanaianNetwork(cleaned);
+    const isMtnOrder =
+      selectedNetwork === NetworkProvider.MTN ||
+      detectedNet === 'MTN' ||
+      currentSingleBundle.network === NetworkProvider.MTN;
     let singleConfirmedPorted: string[] | undefined = undefined;
-    if (selectedNetwork === NetworkProvider.MTN) {
+
+    if (isMtnOrder) {
       try {
         setIsCheckingBeneficiary(true);
         const precheckRes = await beneficiaryApi.precheckPublic({
@@ -326,7 +332,14 @@ export const BuyDataPage: React.FC = () => {
           singleConfirmedPorted = precheckRes.portedCandidates;
         }
 
-        if (result && !isOrderable && isEnforced) {
+        const isUnapproved =
+          !result ||
+          !isOrderable ||
+          !result.known ||
+          result.status === 'UNAPPROVED' ||
+          result.status === 'PENDING';
+
+        if (isUnapproved && isEnforced) {
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
@@ -337,7 +350,8 @@ export const BuyDataPage: React.FC = () => {
           err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
           err?.status === 422 ||
           err?.message?.toLowerCase().includes('beneficiary') ||
-          err?.message?.toLowerCase().includes('mtn number not yet validated')
+          err?.message?.toLowerCase().includes('mtn number not yet validated') ||
+          err?.message?.toLowerCase().includes('not added to our beneficiary')
         ) {
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);

@@ -404,9 +404,8 @@ export class BeneficiaryService {
       }
     }
 
-    // Offline / unreachable fallback: ONLY if telecom provider was unreachable or failed completely,
-    // consult local beneficiary_validation table for active VALID rows.
-    if (!providerSucceeded && validNormalizedPhones.length > 0) {
+    // 2. Database validation check: consult local beneficiary_validation, pending approvals, and historical orders
+    if (validNormalizedPhones.length > 0) {
       try {
         const queryPhones = Array.from(
           new Set(
@@ -417,7 +416,9 @@ export class BeneficiaryService {
             ]),
           ),
         );
-        const dbRes = await this.db.query(
+
+        // Check local approved records
+        const approvedRes = await this.db.query(
           `SELECT phone_number as "phoneNumber", NULL as "accountName"
            FROM beneficiary_validation
            WHERE phone_number = ANY($1)
@@ -429,14 +430,51 @@ export class BeneficiaryService {
            FROM pending_beneficiary_approvals
            WHERE phone_number = ANY($1)
              AND network = 'MTN'
-             AND status = 'APPROVED'`,
+             AND status = 'APPROVED'
+           UNION
+           SELECT recipient_phone as "phoneNumber", NULL as "accountName"
+           FROM orders
+           WHERE recipient_phone = ANY($1)
+             AND network = 'MTN'
+             AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')`,
           [queryPhones],
         );
-        dbRes.rows.forEach((r: any) => {
+        approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
             knownPhonesSet.add(norm);
             knownPhonesSet.add(r.phoneNumber);
+          }
+        });
+
+        // Check explicit pending or rejected records in local DB
+        const pendingRes = await this.db.query(
+          `SELECT phone_number as "phoneNumber"
+           FROM pending_beneficiary_approvals
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND status IN ('PENDING', 'REJECTED')
+           UNION
+           SELECT phone_number as "phoneNumber"
+           FROM beneficiary_validation
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND validation_status IN ('PENDING', 'REJECTED')`,
+          [queryPhones],
+        );
+        pendingRes.rows.forEach((r: any) => {
+          if (r.phoneNumber) {
+            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+            // If it's pending/rejected and not approved in approvedRes, ensure it is removed from known
+            const hasApproved = approvedRes.rows.some((ap: any) => {
+              const apNorm = this.normalizeGhanaPhone(ap.phoneNumber).normalized;
+              return apNorm === norm;
+            });
+            if (!hasApproved) {
+              knownPhonesSet.delete(norm);
+              knownPhonesSet.delete(r.phoneNumber);
+              upstreamOrderableMap.set(norm, false);
+            }
           }
         });
       } catch {
@@ -926,9 +964,8 @@ export class BeneficiaryService {
       }
     }
 
-    // Offline / unreachable fallback: ONLY if telecom provider was unreachable or failed completely,
-    // consult local beneficiary_validation table for active VALID rows.
-    if (!providerSucceeded && validNormalizedPhones.length > 0) {
+    // 2. Database validation check: consult local beneficiary_validation, pending approvals, and historical orders
+    if (validNormalizedPhones.length > 0) {
       try {
         const queryPhones = Array.from(
           new Set(
@@ -939,7 +976,7 @@ export class BeneficiaryService {
             ]),
           ),
         );
-        const dbRes = await this.db.query(
+        const approvedRes = await this.db.query(
           `SELECT phone_number as "phoneNumber"
            FROM beneficiary_validation
            WHERE phone_number = ANY($1)
@@ -951,14 +988,49 @@ export class BeneficiaryService {
            FROM pending_beneficiary_approvals
            WHERE phone_number = ANY($1)
              AND network = 'MTN'
-             AND status = 'APPROVED'`,
+             AND status = 'APPROVED'
+           UNION
+           SELECT recipient_phone as "phoneNumber"
+           FROM orders
+           WHERE recipient_phone = ANY($1)
+             AND network = 'MTN'
+             AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')`,
           [queryPhones],
         );
-        dbRes.rows.forEach((r: any) => {
+        approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
             knownPhonesSet.add(norm);
             knownPhonesSet.add(r.phoneNumber);
+          }
+        });
+
+        const pendingRes = await this.db.query(
+          `SELECT phone_number as "phoneNumber"
+           FROM pending_beneficiary_approvals
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND status IN ('PENDING', 'REJECTED')
+           UNION
+           SELECT phone_number as "phoneNumber"
+           FROM beneficiary_validation
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND validation_status IN ('PENDING', 'REJECTED')`,
+          [queryPhones],
+        );
+        pendingRes.rows.forEach((r: any) => {
+          if (r.phoneNumber) {
+            const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+            const hasApproved = approvedRes.rows.some((ap: any) => {
+              const apNorm = this.normalizeGhanaPhone(ap.phoneNumber).normalized;
+              return apNorm === norm;
+            });
+            if (!hasApproved) {
+              knownPhonesSet.delete(norm);
+              knownPhonesSet.delete(r.phoneNumber);
+              upstreamOrderableMap.set(norm, false);
+            }
           }
         });
       } catch {

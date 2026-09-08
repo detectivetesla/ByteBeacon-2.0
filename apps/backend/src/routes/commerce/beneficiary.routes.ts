@@ -83,11 +83,12 @@ export async function beneficiaryRoutes(
       Body: {
         network: NetworkProvider | string;
         phoneNumbers: string[];
+        record?: boolean;
       };
     }>,
     reply: FastifyReply,
   ) => {
-    const { network, phoneNumbers } = req.body || {};
+    const { network, phoneNumbers, record = true } = req.body || {};
 
     if (!network) {
       throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
@@ -107,7 +108,11 @@ export async function beneficiaryRoutes(
     const result = await beneficiaryService.precheckPublicBeneficiaries({
       network: network as NetworkProvider,
       phoneNumbers,
+      record: record !== false,
+      userId: (req.user as any)?.sub,
     });
+
+    const isEnforced = result.enforced !== false;
 
     return reply.status(200).send({
       success: true,
@@ -115,6 +120,9 @@ export async function beneficiaryRoutes(
       message: 'Success',
       data: {
         network: result.network,
+        enforced: isEnforced,
+        portedCandidates: result.portedCandidates || [],
+        summary: result.summary,
         results: result.results.map((r) => ({
           phone: r.phone,
           normalized: r.normalized,
@@ -125,7 +133,7 @@ export async function beneficiaryRoutes(
     });
   };
 
-  app.post<{ Body: { network: NetworkProvider | string; phoneNumbers: string[] } }>(
+  app.post<{ Body: { network: NetworkProvider | string; phoneNumbers: string[]; record?: boolean } }>(
     '/orders/beneficiaries/precheck',
     { preHandler: publicPrecheckRateLimit ? [publicPrecheckRateLimit] : [] },
     handlePublicPrecheck,

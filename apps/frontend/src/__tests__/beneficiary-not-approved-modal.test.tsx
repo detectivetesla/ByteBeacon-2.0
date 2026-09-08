@@ -4,9 +4,12 @@ import { BrowserRouter } from 'react-router-dom';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { BeneficiaryNotApprovedModal } from '../components/commerce/BeneficiaryNotApprovedModal.js';
 import { PurchaseModal } from '../components/commerce/PurchaseModal.js';
+import { BuyDataPage } from '../pages/customer/BuyDataPage.js';
 import { ToastProvider } from '../context/ToastContext.js';
+import { PlatformStatusProvider } from '../context/PlatformStatusContext.js';
 import { ordersApi } from '../api/orders.api.js';
 import { beneficiaryApi } from '../api/beneficiary.api.js';
+import { catalogApi } from '../api/catalog.api.js';
 
 // Mock Auth Context & Hooks
 vi.mock('../context/AuthContext.js', () => ({
@@ -34,11 +37,20 @@ vi.mock('../context/PlatformStatusContext.js', () => ({
     isMaintenanceMode: false,
     maintenanceMessage: '',
   }),
+  PlatformStatusProvider: ({ children }: any) => children,
 }));
 
 vi.mock('../api/beneficiary.api.js', () => ({
   beneficiaryApi: {
     precheckPublic: vi.fn(),
+  },
+}));
+
+vi.mock('../api/catalog.api.js', () => ({
+  catalogApi: {
+    getBundles: vi.fn().mockResolvedValue([]),
+    getPublicPackages: vi.fn().mockResolvedValue([]),
+    getCachedPublicPackages: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -213,5 +225,131 @@ describe('PurchaseModal Integration with BeneficiaryNotApprovedModal', () => {
     });
 
     expect(screen.getByText('0541349282')).toBeTruthy();
+    // Verify user is NOT taken to the payment modal
+    expect(screen.queryByRole('button', { name: /Confirm Purchase/i })).toBeNull();
+  });
+
+  it('blocks advancing to payment screen when precheck reports status UNAPPROVED / orderable: false', async () => {
+    (beneficiaryApi.precheckPublic as any).mockResolvedValue({
+      network: 'MTN',
+      enforced: true,
+      results: [
+        {
+          phone: '0240001122',
+          normalized: '0240001122',
+          valid: true,
+          known: false,
+          orderable: false,
+          status: 'UNAPPROVED',
+        },
+      ],
+    });
+
+    render(
+      <BrowserRouter>
+        <ToastProvider>
+          <PurchaseModal
+            isOpen={true}
+            onClose={() => {}}
+            initialNetwork={NetworkProvider.MTN}
+            initialBundleId="bundle_mtn_5gb"
+            initialRecipientPhone=""
+          />
+        </ToastProvider>
+      </BrowserRouter>,
+    );
+
+    const phoneInput = screen.getByPlaceholderText(/024 123 4567/i);
+    fireEvent.change(phoneInput, { target: { value: '0240001122' } });
+
+    const continueBtn = screen.getByRole('button', { name: /Continue to Payment/i });
+    fireEvent.click(continueBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /New beneficiary number/i })).toBeTruthy();
+    });
+
+    expect(screen.getByText('0240001122')).toBeTruthy();
+    // Verify user is NOT taken to the payment modal
+    expect(screen.queryByRole('button', { name: /Confirm Purchase/i })).toBeNull();
   });
 });
+
+describe('BuyDataPage Single Order Gating Suite', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (catalogApi.getBundles as any).mockResolvedValue([
+      {
+        id: 'prod-mtn-5gb',
+        sku: 'MTN-5GB',
+        network: NetworkProvider.MTN,
+        dataAmountMb: 5120,
+        basePricePesewas: 2800,
+        agentPricePesewas: 1900,
+        validityDays: 30,
+        validityDesc: 'Non-Expiry',
+        popular: true,
+        isActive: true,
+      },
+    ]);
+  });
+
+  it('shows BeneficiaryNotApprovedModal for single orders instead of taking the user to the payment model', async () => {
+    (beneficiaryApi.precheckPublic as any).mockResolvedValue({
+      network: 'MTN',
+      enforced: true,
+      results: [
+        {
+          phone: '0541349282',
+          normalized: '0541349282',
+          valid: true,
+          known: false,
+          orderable: false,
+          status: 'UNAPPROVED',
+        },
+      ],
+    });
+
+    render(
+      <BrowserRouter>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(catalogApi.getBundles).toHaveBeenCalled();
+    });
+
+    // Enter single recipient
+    const recipientInput = screen.getByPlaceholderText(/024 123 4567/i);
+    fireEvent.change(recipientInput, { target: { value: '0541349282' } });
+
+    // Submit single order (Buy Data button)
+    const submitBtn = screen.getByRole('button', { name: /Buy Data/i });
+    fireEvent.click(submitBtn);
+
+    // Precheck should be called
+    await waitFor(() => {
+      expect(beneficiaryApi.precheckPublic).toHaveBeenCalledWith({
+        network: NetworkProvider.MTN,
+        phoneNumbers: ['0541349282'],
+      });
+    });
+
+    // BeneficiaryNotApprovedModal should be displayed with exact copy and number
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /New beneficiary number/i })).toBeTruthy();
+    });
+    expect(screen.getAllByText('0541349282').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/is not added to our beneficiary list at the moment/i)).toBeTruthy();
+
+    // Payment modal must NOT be shown!
+    expect(screen.queryByRole('button', { name: /Confirm Purchase/i })).toBeNull();
+    expect(screen.queryByText(/Payment Method/i)).toBeNull();
+  });
+});
+

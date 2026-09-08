@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { PhoneInput, Input, Card, Badge, Button } from '../../components/ui/index.js';
+import { PhoneInput, Input, Card, Badge, Button, detectGhanaianNetwork } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { MaintenanceBanner } from '../../components/navigation/MaintenanceBanner.js';
@@ -190,14 +190,26 @@ export const PublicStorefrontPage: React.FC = () => {
 
     setIsCheckingOut(true);
     try {
-      if (selectedProduct.network === 'MTN' || (selectedProduct.network as any) === NetworkProvider.MTN) {
+      const isMtn =
+        selectedProduct.network === 'MTN' ||
+        (selectedProduct.network as any) === NetworkProvider.MTN ||
+        detectGhanaianNetwork(cleanRecipient) === 'MTN';
+
+      if (isMtn) {
         try {
           const precheckRes = await beneficiaryApi.precheckPublic({
             network: NetworkProvider.MTN,
             phoneNumbers: [cleanRecipient],
           });
           const result = precheckRes?.results?.[0];
-          if (result && !result.known) {
+          const isOrderable =
+            result?.orderable !== undefined
+              ? result.orderable
+              : precheckRes?.enforced === false
+              ? result?.valid !== false
+              : Boolean(result?.known && result?.valid);
+
+          if (result && (!isOrderable || !result.known || result.status === 'UNAPPROVED' || result.status === 'PENDING')) {
             setUnapprovedPhone(cleanRecipient);
             setUnapprovedModalOpen(true);
             setIsCheckingOut(false);
