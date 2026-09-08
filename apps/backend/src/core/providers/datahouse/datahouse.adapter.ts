@@ -198,7 +198,7 @@ export class DataHouseAdapter implements ITelecomProvider {
     }
 
     const validChunkResults: DataHousePrecheckResult[] = [];
-    const concurrency = 4;
+    const concurrency = 2;
 
     for (let i = 0; i < chunks.length; i += concurrency) {
       const batch = chunks.slice(i, i + concurrency);
@@ -206,7 +206,7 @@ export class DataHouseAdapter implements ITelecomProvider {
         batch.map(async (chunk, batchIdx) => {
           const idx = i + batchIdx;
           const subCorr = `${correlationId}_chunk_${idx}`;
-          for (let attempt = 0; attempt < 3; attempt++) {
+          for (let attempt = 0; attempt < 5; attempt++) {
             try {
               const subResp = await this.client.precheckPublicBeneficiaries(
                 { network, phoneNumbers: chunk },
@@ -214,38 +214,11 @@ export class DataHouseAdapter implements ITelecomProvider {
               );
               return DataHouseMapper.toDataHousePrecheckResult(subResp, network);
             } catch (chunkErr: any) {
-              if (attempt < 2) {
-                const backoff = attempt === 0 ? 1000 : 2500;
-                await new Promise((resolve) => setTimeout(resolve, backoff));
+              if (attempt < 4) {
+                await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
                 continue;
               }
-              // Map failed numbers to UNAPPROVED instead of dropping them
-              return {
-                network,
-                enforced: true,
-                sandbox: false,
-                recorded: record,
-                summary: {
-                  total: chunk.length,
-                  known: 0,
-                  unknown: chunk.length,
-                  valid: chunk.length,
-                  invalid: 0,
-                },
-                unknown: chunk,
-                results: chunk.map((phone) => ({
-                  phone,
-                  phoneNumber: phone,
-                  normalized: phone.startsWith('0') ? phone : `0${phone.replace(/^(?:\+?233)/, '')}`,
-                  valid: true,
-                  isValid: true,
-                  known: false,
-                  isKnown: false,
-                  orderable: false,
-                  status: 'UNAPPROVED',
-                  message: 'Telecom verification pending',
-                })),
-              } as DataHousePrecheckResult;
+              return null;
             }
           }
           return null;

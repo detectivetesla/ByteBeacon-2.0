@@ -509,7 +509,10 @@ export class DataHouseClient {
         if (includeApiKey && this.apiKey) {
           headers['x-api-key'] = this.apiKey;
           headers['X-API-Key'] = this.apiKey;
-          headers['Authorization'] = `Bearer ${this.apiKey}`;
+          // Only send Bearer if the key is formatted as a JWT (3 dot-separated parts)
+          if (this.apiKey.startsWith('ey') && this.apiKey.split('.').length === 3) {
+            headers['Authorization'] = `Bearer ${this.apiKey}`;
+          }
         }
 
         if (customHeaders) {
@@ -534,15 +537,20 @@ export class DataHouseClient {
           return undefined as unknown as T;
         }
 
-        // 429 Rate Limiting Backoff
+        // 429 Rate Limiting Backoff — strictly respect x-ratelimit-reset / retry-after header
         if (response.status === 429) {
+          const resetHeader = response.headers.get('x-ratelimit-reset') || response.headers.get('retry-after');
+          const resetSeconds = resetHeader ? parseInt(resetHeader, 10) : 0;
+          const waitMs = resetSeconds > 0
+            ? (resetSeconds + 1) * 1000
+            : Math.min(2000 * Math.pow(2, attempt), 10000);
+
           if (attempt <= this.maxRetries) {
-            const backoffMs = Math.min(1500 * Math.pow(2, attempt) + Math.random() * 500, 6000);
             logger.warn(
-              { endpoint, attempt, backoffMs, correlationId },
-              'DataHouse 429 Rate Limit encountered. Backing off before retry...',
+              { endpoint, attempt, waitMs, resetSeconds, correlationId },
+              'DataHouse 429 Rate Limit encountered. Waiting for rate limit window to reset...',
             );
-            await new Promise((resolve) => setTimeout(resolve, backoffMs));
+            await new Promise((resolve) => setTimeout(resolve, waitMs));
             continue;
           }
           throw new DataHouseRateLimitError();

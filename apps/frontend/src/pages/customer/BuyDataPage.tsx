@@ -593,7 +593,7 @@ export const BuyDataPage: React.FC = () => {
     const rejectedMap = new Map<string, string>();
     const discoveredPorted: string[] = [];
 
-    const batchSize = 250;
+    const batchSize = 1000;
     const batches: string[][] = [];
     for (let i = 0; i < uniqueMtnPhones.length; i += batchSize) {
       batches.push(uniqueMtnPhones.slice(i, i + batchSize));
