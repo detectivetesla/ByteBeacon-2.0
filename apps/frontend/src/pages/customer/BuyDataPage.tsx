@@ -1890,7 +1890,7 @@ export const BuyDataPage: React.FC = () => {
                         marginBottom: 'var(--space-3)',
                       }}
                     >
-                      <Loader2 size={24} className="animate-spin" />
+                      <Loader2 size={24} className="animate-spin" style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }} />
                     </div>
                     <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
                       Checking your file...
@@ -2113,7 +2113,7 @@ export const BuyDataPage: React.FC = () => {
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       {isVerifyingApprovals && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)' }}>
-                          <Loader2 size={13} className="animate-spin" />
+                          <Loader2 size={13} className="animate-spin" style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }} />
                           <span>Verifying MTN approvals...</span>
                         </div>
                       )}
