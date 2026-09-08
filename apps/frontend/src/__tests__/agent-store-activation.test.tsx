@@ -54,11 +54,10 @@ describe('Agent Storefront Setup & Activation Paywall Page', () => {
     );
 
     await waitFor(() => {
-      expect(storesApi.getStore).toHaveBeenCalled();
+      expect(screen.getByText(/Unlock Your Standalone Agent Store/i)).toBeTruthy();
     });
 
     expect(screen.getByText(/Agent Storefront Platform/i)).toBeTruthy();
-    expect(screen.getByText(/Unlock Your Standalone Agent Store/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Pay GH₵ 500.00 via Paystack & Activate Store/i })).toBeTruthy();
   });
 

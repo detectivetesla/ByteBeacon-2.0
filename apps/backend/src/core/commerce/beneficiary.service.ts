@@ -249,10 +249,52 @@ export class BeneficiaryService {
       const newlyApprovedPhones: string[] = [];
       const newlyUnapprovedPhones: string[] = [];
 
+      // For large batches (> 20 numbers, e.g. Excel uploads), pre-resolve numbers that were
+      // authoritatively verified by DataHouse within the last 24h to avoid hitting public rate limits.
+      // For small sets (<= 20) or single orders, 100% live telecom check is always performed.
+      let phonesToQueryLive = validNormalizedPhones;
+      if (validNormalizedPhones.length > 20) {
+        try {
+          const queryPhones = Array.from(
+            new Set(
+              validNormalizedPhones.flatMap((p) => [
+                p,
+                `+233${p.startsWith('0') ? p.slice(1) : p}`,
+                `233${p.startsWith('0') ? p.slice(1) : p}`,
+              ]),
+            ),
+          );
+          const recentApprovedRes = await this.db.query(
+            `SELECT phone_number as "phoneNumber"
+             FROM beneficiary_validation
+             WHERE phone_number = ANY($1)
+               AND network = 'MTN'
+               AND validation_status IN ('VALID', 'APPROVED')
+               AND provider_reference = 'DH-PRECHECK'
+               AND validated_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'`,
+            [queryPhones],
+          );
+          recentApprovedRes.rows.forEach((r: any) => {
+            if (r.phoneNumber) {
+              const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
+              if (norm) {
+                knownPhonesSet.add(norm);
+                knownPhonesSet.add(r.phoneNumber);
+                knownPhonesSet.add(`+233${norm.slice(1)}`);
+                knownPhonesSet.add(`233${norm.slice(1)}`);
+              }
+            }
+          });
+          phonesToQueryLive = validNormalizedPhones.filter((p) => !knownPhonesSet.has(p));
+        } catch {
+          phonesToQueryLive = validNormalizedPhones;
+        }
+      }
+
       const chunkSize = this.telecomProvider.precheckBeneficiaries ? 500 : 10;
       const chunks: string[][] = [];
-      for (let i = 0; i < validNormalizedPhones.length; i += chunkSize) {
-        chunks.push(validNormalizedPhones.slice(i, i + chunkSize));
+      for (let i = 0; i < phonesToQueryLive.length; i += chunkSize) {
+        chunks.push(phonesToQueryLive.slice(i, i + chunkSize));
       }
 
       for (const chunk of chunks) {

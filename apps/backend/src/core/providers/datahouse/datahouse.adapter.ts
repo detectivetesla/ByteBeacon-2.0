@@ -56,6 +56,7 @@ export class DataHouseAdapter implements ITelecomProvider {
   }
 
   private bundleCache: Map<string, { bundles: any[]; expiresAt: number }> = new Map();
+  private static precheckCache: Map<string, { result: any; isKnown: boolean; timestamp: number }> = new Map();
 
   private async resolveBundleId(input: SubmitOrderInput): Promise<string | undefined> {
     const rawBundleId = (input.metadata?.bundleId as string) || (input.metadata?.providerProductId as string);
@@ -191,52 +192,93 @@ export class DataHouseAdapter implements ITelecomProvider {
     record: boolean,
     fallbackError?: any,
   ): Promise<DataHousePrecheckResult> {
-    const chunkSize = 10;
-    const chunks: string[][] = [];
-    for (let i = 0; i < phoneNumbers.length; i += chunkSize) {
-      chunks.push(phoneNumbers.slice(i, i + chunkSize));
+    const uncachedNumbers: string[] = [];
+    const cachedResults: any[] = [];
+    const now = Date.now();
+    const APPROVED_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours for approved numbers
+    const UNAPPROVED_TTL_MS = 3 * 60 * 1000;     // 3 minutes for unapproved numbers
+
+    for (const phone of phoneNumbers) {
+      const norm = DataHouseMapper.normalizePhone(phone);
+      const cached = DataHouseAdapter.precheckCache.get(norm);
+      if (cached) {
+        const ttl = cached.isKnown ? APPROVED_TTL_MS : UNAPPROVED_TTL_MS;
+        if (now - cached.timestamp < ttl) {
+          cachedResults.push(cached.result);
+          continue;
+        }
+      }
+      uncachedNumbers.push(phone);
     }
 
     const validChunkResults: DataHousePrecheckResult[] = [];
-    const concurrency = 2;
 
-    for (let i = 0; i < chunks.length; i += concurrency) {
-      const batch = chunks.slice(i, i + concurrency);
-      const batchResults = await Promise.all(
-        batch.map(async (chunk, batchIdx) => {
-          const idx = i + batchIdx;
-          const subCorr = `${correlationId}_chunk_${idx}`;
-          for (let attempt = 0; attempt < 5; attempt++) {
-            try {
-              const subResp = await this.client.precheckPublicBeneficiaries(
-                { network, phoneNumbers: chunk },
-                subCorr,
-              );
-              return DataHouseMapper.toDataHousePrecheckResult(subResp, network);
-            } catch (chunkErr: any) {
-              if (attempt < 4) {
-                await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
-                continue;
-              }
-              return null;
-            }
-          }
-          return null;
-        }),
-      );
-
-      for (const res of batchResults) {
-        if (res) validChunkResults.push(res);
+    if (uncachedNumbers.length > 0) {
+      const chunkSize = 10;
+      const chunks: string[][] = [];
+      for (let i = 0; i < uncachedNumbers.length; i += chunkSize) {
+        chunks.push(uncachedNumbers.slice(i, i + chunkSize));
       }
 
-      if (i + concurrency < chunks.length) {
-        await new Promise((resolve) => setTimeout(resolve, 150));
+      const concurrency = 3;
+
+      for (let i = 0; i < chunks.length; i += concurrency) {
+        const batch = chunks.slice(i, i + concurrency);
+        const batchResults = await Promise.all(
+          batch.map(async (chunk, batchIdx) => {
+            const idx = i + batchIdx;
+            const subCorr = `${correlationId}_chunk_${idx}`;
+            for (let attempt = 0; attempt < 5; attempt++) {
+              try {
+                const subResp = await this.client.precheckPublicBeneficiaries(
+                  { network, phoneNumbers: chunk },
+                  subCorr,
+                );
+                const mapped = DataHouseMapper.toDataHousePrecheckResult(subResp, network);
+                // Cache individual results for subsequent fast resolution
+                if (mapped.results && Array.isArray(mapped.results)) {
+                  for (const r of mapped.results) {
+                    const norm = DataHouseMapper.normalizePhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '');
+                    if (norm) {
+                      DataHouseAdapter.precheckCache.set(norm, {
+                        result: r,
+                        isKnown: Boolean(r.isKnown),
+                        timestamp: Date.now(),
+                      });
+                    }
+                  }
+                }
+                return mapped;
+              } catch (chunkErr: any) {
+                if (attempt < 4) {
+                  await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+                  continue;
+                }
+                return null;
+              }
+            }
+            return null;
+          }),
+        );
+
+        for (const res of batchResults) {
+          if (res) validChunkResults.push(res);
+        }
+
+        if (i + concurrency < chunks.length) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
       }
     }
 
-    if (validChunkResults.length > 0) {
-      const combinedResults = validChunkResults.flatMap((c) => c.results || []);
-      const combinedUnknown = validChunkResults.flatMap((c) => c.unknown || []);
+    const freshResults = validChunkResults.flatMap((c) => c.results || []);
+    const combinedResults = [...cachedResults, ...freshResults];
+
+    if (combinedResults.length > 0) {
+      const combinedUnknown = [
+        ...cachedResults.filter((r) => !r.isKnown).map((r) => r.phoneNumber || r.phone),
+        ...validChunkResults.flatMap((c) => c.unknown || []),
+      ];
       const totalCount = combinedResults.length;
       const knownCount = combinedResults.filter((r) => r.isKnown).length;
       const unknownCount = totalCount - knownCount;
