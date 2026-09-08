@@ -173,7 +173,10 @@ export class DataHouseAdapter implements ITelecomProvider {
   public async precheckPublicBeneficiaries(input: DataHousePublicPrecheckInput): Promise<DataHousePrecheckResult> {
     const correlationId = `dh_pub_precheck_${Date.now()}`;
     if (input.phoneNumbers.length <= 10) {
-      const dhResp = await this.client.precheckPublicBeneficiaries(input, correlationId);
+      const dhResp = await this.client.precheckPublicBeneficiaries({
+        network: input.network,
+        phoneNumbers: input.phoneNumbers,
+      }, correlationId);
       return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
     }
 

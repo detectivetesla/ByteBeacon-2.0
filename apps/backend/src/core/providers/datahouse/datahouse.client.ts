@@ -244,10 +244,15 @@ export class DataHouseClient {
     req: DataHousePublicPrecheckRequest,
     correlationId = 'public_precheck',
   ): Promise<DataHousePrecheckResponse> {
+    // DataHouse /orders/beneficiaries/precheck strictly disallows unexpected properties (e.g. record)
+    const cleanPayload = {
+      network: req.network,
+      phoneNumbers: req.phoneNumbers,
+    };
     const resp = await this.request<{ success?: boolean; data?: DataHousePrecheckResponse } | DataHousePrecheckResponse>(
       '/orders/beneficiaries/precheck',
       'POST',
-      req,
+      cleanPayload,
       correlationId,
       false, // Omit API key for public endpoint
     );

@@ -249,19 +249,19 @@ export class BeneficiaryService {
       for (const chunk of chunks) {
         try {
           const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000));
-          const providerMethod = (chunk.length <= 10 && this.telecomProvider.precheckPublicBeneficiaries)
-            ? this.telecomProvider.precheckPublicBeneficiaries.bind(this.telecomProvider)
+          const isPublicPrecheck = Boolean(chunk.length <= 10 && this.telecomProvider.precheckPublicBeneficiaries);
+          const providerMethod = isPublicPrecheck
+            ? this.telecomProvider.precheckPublicBeneficiaries!.bind(this.telecomProvider)
             : (this.telecomProvider.precheckBeneficiaries
                 ? this.telecomProvider.precheckBeneficiaries.bind(this.telecomProvider)
                 : this.telecomProvider.precheckPublicBeneficiaries!.bind(this.telecomProvider));
 
-          const providerCall = providerMethod({
-            network: net,
-            phoneNumbers: chunk,
-            record: params.record,
-          }).catch(() => null);
+          const providerCall = isPublicPrecheck
+            ? (providerMethod as any)({ network: net, phoneNumbers: chunk })
+            : (providerMethod as any)({ network: net, phoneNumbers: chunk, record: params.record });
+          const safeCall = providerCall.catch(() => null);
 
-          const providerRes: any = await Promise.race([providerCall, timeoutPromise]);
+          const providerRes: any = await Promise.race([safeCall, timeoutPromise]);
           if (providerRes && Array.isArray(providerRes.results) && providerRes.results.length > 0) {
             providerSucceeded = true;
             providerRes.results.forEach((r: any) => {
@@ -351,19 +351,20 @@ export class BeneficiaryService {
         );
       }
 
-      // Demote newly unapproved numbers so stale VALID rows are fixed
+      // Demote newly unapproved numbers so stale VALID rows are fixed across all phone variations
       if (newlyUnapprovedPhones.length > 0) {
         const uniqueNewlyUnapproved = Array.from(new Set(newlyUnapprovedPhones));
-        await Promise.all(
-          uniqueNewlyUnapproved.map(async (p) => {
-            await this.db.query(
-              `UPDATE beneficiary_validation
-               SET validation_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
-               WHERE phone_number = $1 AND network = 'MTN'`,
-              [p],
-            ).catch(() => {});
-          }),
-        );
+        const allVariations = uniqueNewlyUnapproved.flatMap((p) => [
+          p,
+          `+233${p.startsWith('0') ? p.slice(1) : p}`,
+          `233${p.startsWith('0') ? p.slice(1) : p}`,
+        ]);
+        await this.db.query(
+          `UPDATE beneficiary_validation
+           SET validation_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
+           WHERE phone_number = ANY($1) AND network = 'MTN'`,
+          [allVariations],
+        ).catch(() => {});
       }
     }
 
@@ -437,9 +438,17 @@ export class BeneficiaryService {
     if (params.record && unknownList.length > 0) {
       recorded = true;
       try {
+        let effectiveAgentId = params.userId;
+        if (!effectiveAgentId) {
+          const userRes = await this.db.query(
+            `SELECT id FROM users WHERE role IN ('ADMIN', 'AGENT', 'SUPER_ADMIN') ORDER BY created_at ASC LIMIT 1`,
+          ).catch(() => null);
+          effectiveAgentId = userRes?.rows?.[0]?.id;
+        }
+
         await Promise.all(
           unknownList.map(async (unkPhone) => {
-            if (params.userId) {
+            if (effectiveAgentId) {
               await this.db.query(
                 `INSERT INTO pending_beneficiary_approvals (
                   phone_number, network, agent_id, status, attempt_count,
@@ -449,16 +458,7 @@ export class BeneficiaryService {
                 SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
                     last_detected_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP`,
-                [unkPhone, params.userId],
-              ).catch(() => {});
-            } else {
-              await this.db.query(
-                `INSERT INTO pending_beneficiary_approvals (
-                  phone_number, network, status, attempt_count,
-                  first_detected_at, last_detected_at, created_at, updated_at
-                ) VALUES ($1, 'MTN', 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT DO NOTHING`,
-                [unkPhone],
+                [unkPhone, effectiveAgentId],
               ).catch(() => {});
             }
 
@@ -798,19 +798,20 @@ export class BeneficiaryService {
           );
         }
 
-        // Demote unapproved numbers in local DB so stale/corrupted VALID rows are fixed
+        // Demote unapproved numbers in local DB across all variations so stale/corrupted VALID rows are fixed
         if (newlyUnapprovedPhones.length > 0) {
           const uniqueNewlyUnapproved = Array.from(new Set(newlyUnapprovedPhones));
-          await Promise.all(
-            uniqueNewlyUnapproved.map(async (p) => {
-              await this.db.query(
-                `UPDATE beneficiary_validation
-                 SET validation_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
-                 WHERE phone_number = $1 AND network = 'MTN'`,
-                [p],
-              ).catch(() => {});
-            }),
-          );
+          const allVariations = uniqueNewlyUnapproved.flatMap((p) => [
+            p,
+            `+233${p.startsWith('0') ? p.slice(1) : p}`,
+            `233${p.startsWith('0') ? p.slice(1) : p}`,
+          ]);
+          await this.db.query(
+            `UPDATE beneficiary_validation
+             SET validation_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
+             WHERE phone_number = ANY($1) AND network = 'MTN'`,
+            [allVariations],
+          ).catch(() => {});
         }
       } catch {
         // Non-fatal provider error

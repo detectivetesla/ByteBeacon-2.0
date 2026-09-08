@@ -762,24 +762,43 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       if (res.ok) {
         const body = await res.json().catch(() => ({}));
         const dataObj = (body as any).data || body;
+        const isMtn = input.network === NetworkProvider.MTN;
+        const rawResults = Array.isArray(dataObj.results)
+          ? dataObj.results
+          : Array.isArray(dataObj.rows)
+          ? dataObj.rows
+          : Array.isArray(dataObj)
+          ? dataObj
+          : [];
+        const results = rawResults.length > 0
+          ? rawResults.map((r: any) => ({
+              phoneNumber: r.phoneNumber || r.phone || r.normalized,
+              isKnown: r.isKnown !== undefined ? Boolean(r.isKnown) : r.known !== undefined ? Boolean(r.known) : !isMtn,
+              isValid: r.isValid !== undefined ? Boolean(r.isValid) : r.valid !== undefined ? Boolean(r.valid) : true,
+              status: r.status,
+              message: r.message,
+            }))
+          : input.phoneNumbers.map((phone) => ({
+              phoneNumber: phone,
+              isKnown: !isMtn,
+              isValid: true,
+            }));
+        const knownCount = results.filter((r: any) => r.isKnown).length;
+        const unknownCount = results.length - knownCount;
         return {
           network: input.network,
-          enforced: Boolean(dataObj.enforced),
+          enforced: Boolean(dataObj.enforced ?? isMtn),
           sandbox: Boolean(dataObj.sandbox),
           recorded: Boolean(dataObj.recorded),
           summary: dataObj.summary || {
             total: input.phoneNumbers.length,
-            known: input.phoneNumbers.length,
-            unknown: 0,
-            valid: input.phoneNumbers.length,
-            invalid: 0,
+            known: knownCount,
+            unknown: unknownCount,
+            valid: results.filter((r: any) => r.isValid).length,
+            invalid: results.filter((r: any) => !r.isValid).length,
           },
-          unknown: dataObj.unknown || [],
-          results: dataObj.results || input.phoneNumbers.map((phone) => ({
-            phoneNumber: phone,
-            isKnown: true,
-            isValid: true,
-          })),
+          unknown: dataObj.unknown || results.filter((r: any) => !r.isKnown).map((r: any) => r.phoneNumber),
+          results,
         };
       }
     } catch {
