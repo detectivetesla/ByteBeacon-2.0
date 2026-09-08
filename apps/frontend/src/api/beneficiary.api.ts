@@ -22,10 +22,15 @@ export interface BeneficiaryItemDto {
 
 export interface BeneficiaryPrecheckItemDto {
   phone: string;
+  phoneNumber?: string;
   normalized: string;
   valid: boolean;
+  isValid?: boolean;
   known: boolean;
+  isKnown?: boolean;
   orderable?: boolean;
+  status?: string;
+  message?: string;
   isPorted?: boolean;
   accountName?: string;
 }

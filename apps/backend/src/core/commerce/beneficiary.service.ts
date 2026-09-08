@@ -243,8 +243,6 @@ export class BeneficiaryService {
     const portedCandidatesSet = new Set<string>();
     const upstreamOrderableMap = new Map<string, boolean>();
 
-    let providerSucceeded = false;
-
     // 1. Query upstream authoritative telecom provider (DataHouse) for live MTN precheck
     if (validNormalizedPhones.length > 0 && this.telecomProvider) {
       const newlyApprovedPhones: string[] = [];
@@ -273,7 +271,6 @@ export class BeneficiaryService {
 
           const providerRes: any = await Promise.race([safeCall, timeoutPromise]);
           if (providerRes && Array.isArray(providerRes.results) && providerRes.results.length > 0) {
-            providerSucceeded = true;
 
             if (Array.isArray(providerRes.portedCandidates)) {
               providerRes.portedCandidates.forEach((p: string) => {
@@ -767,8 +764,6 @@ export class BeneficiaryService {
     const portedCandidatesSet = new Set<string>();
     const upstreamOrderableMap = new Map<string, boolean>();
 
-    let providerSucceeded = false;
-
     // 1. Query upstream authoritative telecom provider (DataHouse) for live MTN precheck
     const provider = this.telecomProvider;
     if (
@@ -834,7 +829,6 @@ export class BeneficiaryService {
             }
           }
           if (providerRes && Array.isArray(providerRes.results) && providerRes.results.length > 0) {
-            providerSucceeded = true;
 
             if (Array.isArray(providerRes.portedCandidates)) {
               providerRes.portedCandidates.forEach((p: string) => {
@@ -1188,6 +1182,14 @@ export class BeneficiaryService {
     }
 
     let recordedCount = 0;
+    let effectiveAgentId = userId;
+    if (!effectiveAgentId) {
+      const userRes = await this.db.query(
+        `SELECT id FROM users WHERE role IN ('ADMIN', 'AGENT', 'SUPER_ADMIN') ORDER BY created_at ASC LIMIT 1`,
+      ).catch(() => null);
+      effectiveAgentId = userRes?.rows?.[0]?.id;
+    }
+
     await Promise.all(
       items.map(async (item) => {
         const norm = this.normalizeGhanaPhone(item.phoneNumber);
@@ -1216,11 +1218,11 @@ export class BeneficiaryService {
           dataAmountMb: item.dataAmountMb || (sizeGb ? Math.round(sizeGb * 1024) : null),
           pricePesewas: item.pricePesewas || null,
           recordedAt: new Date().toISOString(),
-          agentId: userId || null,
+          agentId: effectiveAgentId || null,
         });
 
         try {
-          if (userId) {
+          if (effectiveAgentId) {
             await this.db.query(
               `INSERT INTO pending_beneficiary_approvals (
                 phone_number, network, agent_id, status, attempt_count,
@@ -1231,7 +1233,7 @@ export class BeneficiaryService {
                   last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
                   last_detected_at = CURRENT_TIMESTAMP,
                   updated_at = CURRENT_TIMESTAMP`,
-              [phone, net, userId, sizeGb],
+              [phone, net, effectiveAgentId, sizeGb],
             ).catch(() => {});
           }
 
@@ -1246,7 +1248,7 @@ export class BeneficiaryService {
                 agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
                 provider_response_metadata = $5::jsonb,
                 updated_at = CURRENT_TIMESTAMP`,
-            [phone, net, sizeGb, userId || null, metadata],
+            [phone, net, sizeGb, effectiveAgentId || null, metadata],
           ).catch(() => {});
 
           recordedCount++;

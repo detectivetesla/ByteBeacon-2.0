@@ -154,6 +154,66 @@ describe('Spreadsheet Parser & Excel Validation', () => {
       expect(result.rows[1].isValid).toBe(false);
       expect(result.rows[1].error).toBe('Invalid Ghana mobile number');
     });
+
+    it('correctly detects phone column when Serial Number / S/N column is present', async () => {
+      const wb = XLSX.utils.book_new();
+      const wsData = [
+        ['S/N', 'Phone Number', 'Data (GB)'],
+        [1, '0241234567', '5GB'],
+        [2, '0559876543', '10GB'],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+
+      const result = await parseSpreadsheetFile(arrayBuffer, mockBundles);
+
+      expect(result.totalRows).toBe(2);
+      expect(result.validRows).toBe(2);
+      expect(result.rows[0].phone).toBe('0241234567');
+      expect(result.rows[0].bundleId).toBe('prod-mtn-5gb');
+      expect(result.rows[1].phone).toBe('0559876543');
+      expect(result.rows[1].bundleId).toBe('prod-mtn-10gb');
+    });
+
+    it('correctly parses headerless spreadsheets starting directly with data rows', async () => {
+      const wb = XLSX.utils.book_new();
+      const wsData = [
+        ['0241234567', '5GB'],
+        ['0559876543', '10GB'],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      const arrayBuffer = XLSX.write(wb, { bookType: 'csv', type: 'array' });
+
+      const result = await parseSpreadsheetFile(arrayBuffer, mockBundles);
+
+      expect(result.totalRows).toBe(2);
+      expect(result.validRows).toBe(2);
+      expect(result.rows[0].phone).toBe('0241234567');
+      expect(result.rows[1].phone).toBe('0559876543');
+    });
+
+    it('parses mixed carrier numbers and correctly classifies initial status', async () => {
+      const wb = XLSX.utils.book_new();
+      const wsData = [
+        ['Phone', 'Bundle'],
+        ['0241234567', '5GB'], // MTN
+        ['0201234567', '5GB'], // Telecel
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      const arrayBuffer = XLSX.write(wb, { bookType: 'csv', type: 'array' });
+
+      const result = await parseSpreadsheetFile(arrayBuffer, mockBundles);
+
+      expect(result.totalRows).toBe(2);
+      expect(result.rows[0].network).toBe('MTN');
+      expect(result.rows[0].status).toBe('UNAPPROVED'); // MTN requires live precheck
+      expect(result.rows[1].network).toBe('TELECEL');
+      expect(result.rows[1].status).toBe('APPROVED'); // Telecel is direct fulfillment
+      expect(result.rows[1].isKnown).toBe(true);
+    });
   });
 
   describe('generateSpreadsheetTemplate', () => {

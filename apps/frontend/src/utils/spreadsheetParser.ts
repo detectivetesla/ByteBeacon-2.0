@@ -98,26 +98,43 @@ export const DEFAULT_FALLBACK_BUNDLES: BundleItem[] = [
 export function matchBundleVolume(
   rawVol: string | number | undefined | null,
   availableBundles: BundleItem[],
+  preferredNetwork?: string,
 ): BundleItem | undefined {
   const effectiveBundles =
     availableBundles && availableBundles.length > 0
       ? availableBundles
       : DEFAULT_FALLBACK_BUNDLES;
 
-  if (rawVol === undefined || rawVol === null) return effectiveBundles[0];
+  const fallbackBundle = preferredNetwork
+    ? effectiveBundles.find((b) => b.network === preferredNetwork) || effectiveBundles[0]
+    : effectiveBundles[0];
+
+  if (rawVol === undefined || rawVol === null) return fallbackBundle;
 
   const volStr = String(rawVol).trim();
-  if (!volStr) return effectiveBundles[0];
+  if (!volStr) return fallbackBundle;
 
   const lower = volStr.toLowerCase().replace(/\s+/g, '');
 
   // 1. Direct match by display string (e.g. "5gb", "5 gb", "10gb")
+  if (preferredNetwork) {
+    const netDisplay = effectiveBundles.find(
+      (b) => b.network === preferredNetwork && b.dataDisplay.toLowerCase().replace(/\s+/g, '') === lower,
+    );
+    if (netDisplay) return netDisplay;
+  }
   const exactDisplay = effectiveBundles.find(
     (b) => b.dataDisplay.toLowerCase().replace(/\s+/g, '') === lower,
   );
   if (exactDisplay) return exactDisplay;
 
   // 2. Direct match by SKU or ID
+  if (preferredNetwork) {
+    const netSku = effectiveBundles.find(
+      (b) => b.network === preferredNetwork && (b.sku.toLowerCase() === lower || b.id.toLowerCase() === lower),
+    );
+    if (netSku) return netSku;
+  }
   const exactSkuOrId = effectiveBundles.find(
     (b) => b.sku.toLowerCase() === lower || b.id.toLowerCase() === lower,
   );
@@ -132,6 +149,15 @@ export function matchBundleVolume(
     }
 
     // Find bundle with dataAmountMb / 1024 matching numVal (within small tolerance)
+    if (preferredNetwork) {
+      const netMatchedGb = effectiveBundles.find((b) => {
+        if (b.network !== preferredNetwork) return false;
+        const bGb = b.dataAmountMb / 1024;
+        return Math.abs(bGb - numVal) < 0.05;
+      });
+      if (netMatchedGb) return netMatchedGb;
+    }
+
     const matchedGb = effectiveBundles.find((b) => {
       const bGb = b.dataAmountMb / 1024;
       return Math.abs(bGb - numVal) < 0.05;
@@ -145,7 +171,7 @@ export function matchBundleVolume(
     return {
       id: `custom-bundle-${numVal}gb`,
       sku: `CUSTOM-${numVal}GB`,
-      network: effectiveBundles[0]?.network || ('MTN' as any),
+      network: (preferredNetwork || effectiveBundles[0]?.network || 'MTN') as any,
       dataAmountMb: baseMb,
       dataDisplay: `${numVal} GB`,
       pricePesewas: estPrice,
@@ -156,7 +182,7 @@ export function matchBundleVolume(
   }
 
   // Fallback to default/first bundle
-  return effectiveBundles[0];
+  return fallbackBundle;
 }
 
 /**
@@ -285,46 +311,108 @@ export async function parseSpreadsheetFile(
   // Search first 5 rows for header row
   for (let r = 0; r < Math.min(rawRows.length, 5); r++) {
     const row = rawRows[r];
-    if (!Array.isArray(row)) continue;
+    if (!Array.isArray(row) || row.length === 0) continue;
+
+    // First check if this row contains actual data values instead of headers
+    const rowHasPhoneData = row.some((cell) => {
+      const s = String(cell || '').trim();
+      return isValidGhanaPhoneNumber(normalizeGhanaPhoneNumber(s));
+    });
+
+    if (rowHasPhoneData) {
+      // Row contains an actual phone number, so it is a data row, not a header row
+      startDataRowIdx = r;
+      break;
+    }
 
     let foundPhone = -1;
+    let foundPhoneScore = 0;
     let foundVolume = -1;
+    let foundVolumeScore = 0;
     let foundNetwork = -1;
 
     for (let c = 0; c < row.length; c++) {
-      const cell = String(row[c] || '').trim().toLowerCase();
+      const rawCell = String(row[c] || '').trim();
+      const cell = rawCell.toLowerCase();
+      if (!cell) continue;
+
+      // Disqualifiers for phone: Serial number, Row number, Account number, S/N, No., etc.
+      const isDisqualifiedAsPhone =
+        cell.includes('serial') ||
+        cell.includes('s/n') ||
+        cell === 'sn' ||
+        cell.includes('row') ||
+        cell.includes('item') ||
+        cell.includes('no.') ||
+        cell === 'no' ||
+        cell.includes('index') ||
+        cell.includes('account') ||
+        cell.includes('order') ||
+        cell.includes('reference') ||
+        cell.includes('ref') ||
+        cell.includes('invoice') ||
+        cell.includes('id') ||
+        cell.includes('transaction');
+
+      // Phone column detection
+      if (!isDisqualifiedAsPhone) {
+        if (
+          cell.includes('phone') ||
+          cell.includes('msisdn') ||
+          cell.includes('mobile') ||
+          cell.includes('recipient') ||
+          cell.includes('beneficiary')
+        ) {
+          if (foundPhoneScore < 10) {
+            foundPhone = c;
+            foundPhoneScore = 10;
+          }
+        } else if (cell.includes('contact')) {
+          if (foundPhoneScore < 5) {
+            foundPhone = c;
+            foundPhoneScore = 5;
+          }
+        } else if ((cell === 'number' || cell === 'numbers') && foundPhoneScore < 2) {
+          foundPhone = c;
+          foundPhoneScore = 2;
+        }
+      }
+
+      // Volume column detection: avoid matching pure numeric/data strings like "5GB", "10", "2.5"
+      const isDataVolumeValue = /^\d+(\.\d+)?\s*(gb|mb)?$/i.test(cell);
+      if (!isDataVolumeValue) {
+        if (
+          cell.includes('data') ||
+          cell.includes('volume') ||
+          cell.includes('bundle') ||
+          cell.includes('capacity') ||
+          cell.includes('package') ||
+          cell.includes('size') ||
+          cell === 'gb' ||
+          cell === 'mb' ||
+          cell.includes('(gb)') ||
+          cell.includes('(mb)')
+        ) {
+          if (foundVolumeScore < 10) {
+            foundVolume = c;
+            foundVolumeScore = 10;
+          }
+        }
+      }
+
+      // Network column detection
       if (
-        cell.includes('phone') ||
-        cell.includes('msisdn') ||
-        cell.includes('recipient') ||
-        cell.includes('beneficiary') ||
-        cell.includes('mobile') ||
-        cell.includes('number') ||
-        cell.includes('contact')
-      ) {
-        foundPhone = c;
-      } else if (
-        cell.includes('data') ||
-        cell.includes('volume') ||
-        cell.includes('bundle') ||
-        cell.includes('capacity') ||
-        cell.includes('package') ||
-        cell.includes('size') ||
-        cell.includes('gb') ||
-        cell.includes('mb')
-      ) {
-        foundVolume = c;
-      } else if (
         cell.includes('network') ||
         cell.includes('carrier') ||
         cell.includes('telco') ||
-        cell.includes('provider')
+        cell.includes('provider') ||
+        cell.includes('operator')
       ) {
         foundNetwork = c;
       }
     }
 
-    if (foundPhone !== -1 || foundVolume !== -1) {
+    if (foundPhoneScore >= 2 || foundVolumeScore >= 10) {
       if (foundPhone !== -1) phoneColIdx = foundPhone;
       if (foundVolume !== -1) volumeColIdx = foundVolume;
       if (foundNetwork !== -1) networkColIdx = foundNetwork;
@@ -373,7 +461,7 @@ export async function parseSpreadsheetFile(
       rowNetwork = 'AIRTELTIGO';
     }
 
-    const matched = matchBundleVolume(rawVol, availableBundles);
+    const matched = matchBundleVolume(rawVol, availableBundles, rowNetwork);
 
     const isValid = isValidPhone && Boolean(matched?.id);
     const price = matched?.pricePesewas || 0;

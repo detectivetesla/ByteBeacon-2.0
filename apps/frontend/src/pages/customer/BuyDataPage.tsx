@@ -217,6 +217,12 @@ export const BuyDataPage: React.FC = () => {
     return DEFAULT_FALLBACK_BUNDLES.map((b) => ({ ...b, network: selectedNetwork }));
   }, [allBundlesByNetwork, selectedNetwork]);
 
+  // Derive all catalog bundles across all networks for Excel / cross-carrier matching
+  const allCatalogBundles = useMemo(() => {
+    const flattened = Object.values(allBundlesByNetwork).flat();
+    return flattened.length > 0 ? flattened : DEFAULT_FALLBACK_BUNDLES;
+  }, [allBundlesByNetwork]);
+
   // Synchronize default selected bundle whenever availableBundles or selectedNetwork changes
   useEffect(() => {
     if (availableBundles.length > 0) {
@@ -558,11 +564,10 @@ export const BuyDataPage: React.FC = () => {
     const mtnRows = rows.filter((r) => {
       if (!r.isValid) return false;
       if (r.network === 'TELECEL' || r.network === 'AIRTELTIGO') return false;
-      if (r.network === 'MTN') return true;
-      return selectedNetwork === NetworkProvider.MTN;
+      return true; // MTN or unspecified carrier default
     });
 
-    if (selectedNetwork !== NetworkProvider.MTN && mtnRows.length === 0) {
+    if (mtnRows.length === 0) {
       return rows.map((r) => {
         if (!r.isValid) {
           return {
@@ -584,6 +589,7 @@ export const BuyDataPage: React.FC = () => {
       new Set(mtnRows.map((r) => normalizeGhanaPhoneNumber(r.phone)).filter(Boolean)),
     );
     const knownSet = new Set<string>();
+    const rejectedMap = new Map<string, string>();
     const discoveredPorted: string[] = [];
 
     const batchSize = 250;
@@ -613,23 +619,31 @@ export const BuyDataPage: React.FC = () => {
             hasResults = true;
             const isEnforced = res?.enforced !== false;
             results.forEach((item: any) => {
+              const rawP = item.phone || item.phoneNumber || item.normalized;
+              const normP = normalizeGhanaPhoneNumber(rawP);
+              const variations = [
+                normP,
+                `+233${normP.slice(1)}`,
+                `233${normP.slice(1)}`,
+                rawP,
+                item.phone,
+                item.normalized,
+              ].filter(Boolean);
+
+              const isInvalid = item.valid === false || item.status === 'REJECTED';
               const isApproved =
-                item.orderable !== undefined
+                !isInvalid &&
+                (item.orderable !== undefined
                   ? item.orderable
                   : isEnforced
                   ? Boolean((item.known === true || item.isKnown === true) && item.status !== 'UNAPPROVED' && item.status !== 'REJECTED')
-                  : Boolean(item.valid !== false);
+                  : Boolean(item.valid !== false));
 
-              if (isApproved) {
-                const rawP = item.phone || item.phoneNumber || item.normalized;
-                const normP = normalizeGhanaPhoneNumber(rawP);
-                if (normP) {
-                  knownSet.add(normP);
-                  knownSet.add(`+233${normP.slice(1)}`);
-                  knownSet.add(`233${normP.slice(1)}`);
-                }
-                if (item.phone) knownSet.add(item.phone);
-                if (item.normalized) knownSet.add(item.normalized);
+              if (isInvalid) {
+                const reason = item.message || 'Invalid recipient number';
+                variations.forEach((v) => rejectedMap.set(v, reason));
+              } else if (isApproved) {
+                variations.forEach((v) => knownSet.add(v));
               }
             });
           }
@@ -659,21 +673,31 @@ export const BuyDataPage: React.FC = () => {
                 if (Array.isArray(pubResults)) {
                   const isEnforced = pubRes?.enforced !== false;
                   pubResults.forEach((item: any) => {
+                    const rawP = item.phone || item.phoneNumber || item.normalized;
+                    const normP = normalizeGhanaPhoneNumber(rawP);
+                    const variations = [
+                      normP,
+                      `+233${normP.slice(1)}`,
+                      `233${normP.slice(1)}`,
+                      rawP,
+                      item.phone,
+                      item.normalized,
+                    ].filter(Boolean);
+
+                    const isInvalid = item.valid === false || item.status === 'REJECTED';
                     const isApproved =
-                      item.orderable !== undefined
+                      !isInvalid &&
+                      (item.orderable !== undefined
                         ? item.orderable
                         : isEnforced
                         ? Boolean((item.known === true || (item as any).isKnown === true) && item.status !== 'UNAPPROVED' && item.status !== 'REJECTED')
-                        : Boolean(item.valid !== false);
-                    if (isApproved) {
-                      const normP = normalizeGhanaPhoneNumber(item.phone || item.normalized);
-                      if (normP) {
-                        knownSet.add(normP);
-                        knownSet.add(`+233${normP.slice(1)}`);
-                        knownSet.add(`233${normP.slice(1)}`);
-                      }
-                      if (item.phone) knownSet.add(item.phone);
-                      if (item.normalized) knownSet.add(item.normalized);
+                        : Boolean(item.valid !== false));
+
+                    if (isInvalid) {
+                      const reason = item.message || 'Invalid recipient number';
+                      variations.forEach((v) => rejectedMap.set(v, reason));
+                    } else if (isApproved) {
+                      variations.forEach((v) => knownSet.add(v));
                     }
                   });
                 }
@@ -699,20 +723,9 @@ export const BuyDataPage: React.FC = () => {
         };
       }
 
-      // Check carrier mismatch against selected package network
-      if (selectedNetwork && row.network && row.network !== selectedNetwork) {
-        return {
-          ...row,
-          status: 'REJECTED' as const,
-          statusReason: `Carrier mismatch: Recipient is ${row.network}, but ${selectedNetwork} was selected`,
-          isValid: false,
-          isKnown: false,
-        };
-      }
-
       const isMtn =
         row.network === 'MTN' ||
-        (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO' && selectedNetwork === NetworkProvider.MTN);
+        (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO');
 
       if (!isMtn) {
         return {
@@ -724,6 +737,41 @@ export const BuyDataPage: React.FC = () => {
       }
 
       const normRowPhone = normalizeGhanaPhoneNumber(row.phone);
+
+      // Check if phone was flagged as ported
+      const isPorted =
+        discoveredPorted.includes(normRowPhone) ||
+        discoveredPorted.includes(row.phone) ||
+        spreadsheetPortedCandidates.includes(normRowPhone) ||
+        spreadsheetPortedCandidates.includes(row.phone);
+
+      if (isPorted) {
+        return {
+          ...row,
+          status: 'REJECTED' as const,
+          statusReason: 'Ported recipient number detected',
+          isValid: false,
+          isKnown: false,
+        };
+      }
+
+      // Check if explicitly rejected by telecom precheck
+      const rejectionReason =
+        rejectedMap.get(normRowPhone) ||
+        rejectedMap.get(row.phone) ||
+        rejectedMap.get(`+233${normRowPhone.slice(1)}`) ||
+        rejectedMap.get(`233${normRowPhone.slice(1)}`);
+
+      if (rejectionReason) {
+        return {
+          ...row,
+          status: 'REJECTED' as const,
+          statusReason: rejectionReason,
+          isValid: false,
+          isKnown: false,
+        };
+      }
+
       const isKnown =
         knownSet.has(normRowPhone) ||
         knownSet.has(row.phone) ||
@@ -772,7 +820,7 @@ export const BuyDataPage: React.FC = () => {
     setExcelFilter('ALL');
 
     try {
-      const result = await parseSpreadsheetFile(file, availableBundles);
+      const result = await parseSpreadsheetFile(file, allCatalogBundles);
 
       if (result.error) {
         setExcelLoading(false);
@@ -797,20 +845,10 @@ export const BuyDataPage: React.FC = () => {
             statusReason: row.error || 'Invalid Ghanaian phone number format',
           };
         }
-        // Check carrier mismatch against selected package network
-        if (selectedNetwork && row.network && row.network !== selectedNetwork) {
-          return {
-            ...row,
-            status: 'REJECTED' as const,
-            statusReason: `Carrier mismatch: Recipient is ${row.network}, but ${selectedNetwork} was selected`,
-            isValid: false,
-            isKnown: false,
-          };
-        }
 
         const isMtn =
           row.network === 'MTN' ||
-          (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO' && selectedNetwork === NetworkProvider.MTN);
+          (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO');
 
         if (!isMtn) {
           return {
@@ -1001,7 +1039,7 @@ export const BuyDataPage: React.FC = () => {
 
     setModalPayload({
       title: 'Excel Bulk Order',
-      packageSummary: `${targetRows.length} Packages (${selectedNetwork})`,
+      packageSummary: `${targetRows.length} Packages (Bulk Batch)`,
       recipientSummary: `${targetRows.length} Recipients (${excelFile.name})`,
       amountDisplay: `GH₵ ${(excelTotalPesewas / 100).toFixed(2)}`,
       bundleId: targetRows[0]?.bundleId || currentSingleBundle.id,
