@@ -367,9 +367,39 @@ export class BeneficiaryService {
                 liveUnapprovedSet.add(p);
               }
             });
+          } else {
+            // Provider returned null (timeout) or empty results — mark ALL chunk numbers
+            // as unapproved to prevent stale DB cache from resurrecting them as approved
+            for (const phone of chunk) {
+              const norm = this.normalizeGhanaPhone(phone).normalized;
+              if (norm) {
+                knownPhonesSet.delete(norm);
+                knownPhonesSet.delete(`+233${norm.slice(1)}`);
+                knownPhonesSet.delete(`233${norm.slice(1)}`);
+                newlyUnapprovedPhones.push(norm);
+                liveUnapprovedSet.add(norm);
+                liveUnapprovedSet.add(`+233${norm.slice(1)}`);
+                liveUnapprovedSet.add(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, false);
+              }
+            }
           }
         } catch {
-          // Non-fatal per-chunk error
+          // Chunk failed — mark ALL numbers in this chunk as unapproved to prevent
+          // stale DB cache from resurrecting them as approved
+          for (const phone of chunk) {
+            const norm = this.normalizeGhanaPhone(phone).normalized;
+            if (norm) {
+              knownPhonesSet.delete(norm);
+              knownPhonesSet.delete(`+233${norm.slice(1)}`);
+              knownPhonesSet.delete(`233${norm.slice(1)}`);
+              newlyUnapprovedPhones.push(norm);
+              liveUnapprovedSet.add(norm);
+              liveUnapprovedSet.add(`+233${norm.slice(1)}`);
+              liveUnapprovedSet.add(`233${norm.slice(1)}`);
+              upstreamOrderableMap.set(norm, false);
+            }
+          }
         }
       }
 

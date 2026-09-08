@@ -599,8 +599,8 @@ export const BuyDataPage: React.FC = () => {
       batches.push(uniqueMtnPhones.slice(i, i + batchSize));
     }
 
-    await Promise.all(
-      batches.map(async (batch) => {
+    // Process batches sequentially to avoid overwhelming the backend with concurrent 250-number requests
+    for (const batch of batches) {
         let hasResults = false;
 
         // 1. Try bulk precheck without recording (record: false)
@@ -658,6 +658,8 @@ export const BuyDataPage: React.FC = () => {
             });
           }
         } catch {
+          // Bulk precheck failed — check which numbers weren't resolved yet
+          // and mark them as unapproved to be safe
           hasResults = false;
         }
 
@@ -745,8 +747,7 @@ export const BuyDataPage: React.FC = () => {
             }
           }
         }
-      }),
-    );
+    }
 
     if (discoveredPorted.length > 0) {
       setSpreadsheetPortedCandidates((prev) => Array.from(new Set([...prev, ...discoveredPorted])));
