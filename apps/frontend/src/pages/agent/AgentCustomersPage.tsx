@@ -148,6 +148,26 @@ export const AgentCustomersPage: React.FC = () => {
   const filteredSubAgents = useMemo(() => {
     let result = subAgents.filter((item) => {
       if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
+
+      // Date Filter
+      if (dateFilter && dateFilter !== 'all') {
+        const itemTime = item.dateJoined ? new Date(item.dateJoined).getTime() : 0;
+        if (itemTime > 0) {
+          const now = Date.now();
+          if (dateFilter === 'today') {
+            const startOfToday = new Date().setHours(0, 0, 0, 0);
+            if (itemTime < startOfToday) return false;
+          } else if (dateFilter === '7d') {
+            if (now - itemTime > 7 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '30d') {
+            if (now - itemTime > 30 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === 'this_month') {
+            const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+            if (itemTime < startOfMonth) return false;
+          }
+        }
+      }
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesName = item.name.toLowerCase().includes(q);
@@ -174,7 +194,7 @@ export const AgentCustomersPage: React.FC = () => {
     });
 
     return result;
-  }, [subAgents, statusFilter, searchQuery, sortBy]);
+  }, [subAgents, statusFilter, searchQuery, sortBy, dateFilter]);
 
   const totalPages = Math.ceil(filteredSubAgents.length / itemsPerPage) || 1;
   const paginatedSubAgents = useMemo(() => {

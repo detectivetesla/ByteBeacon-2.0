@@ -24,7 +24,9 @@ import {
 import { useToast } from '../../context/ToastContext.js';
 import { ordersApi } from '../../api/orders.api.js';
 
-interface OrderRowData extends OrderDetailsItem {}
+interface OrderRowData extends OrderDetailsItem {
+  createdAtMs?: number;
+}
 
 export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
@@ -71,27 +73,33 @@ export const OrdersPage: React.FC = () => {
           ? res
           : [];
 
-        const mapped: OrderRowData[] = orderList.map((o: any) => ({
-          id: o.id,
-          orderNumber: o.publicId || o.reference || o.id.slice(0, 8).toUpperCase(),
-          network: o.network,
-          recipient: o.recipientPhone || '—',
-          dataDisplay: `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB`,
-          amountDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
-          source: (o.paymentMethod || 'Wallet') as any,
-          paidDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
-          orderStatus: o.orderStatus || OrderStatus.PROCESSING,
-          paymentStatus: o.paymentStatus || PaymentStatus.PENDING,
-          dateDisplay: o.createdAt
-            ? new Date(o.createdAt).toLocaleDateString([], {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : '—',
-        }));
+        const mapped: OrderRowData[] = orderList.map((o: any) => {
+          const rawCreated = o.createdAt || o.created_at || (o.timestamp ? o.timestamp : undefined);
+          const createdAtMs = rawCreated ? new Date(rawCreated).getTime() : 0;
+          return {
+            id: o.id,
+            orderNumber: o.publicId || o.reference || (o.id ? o.id.slice(0, 8).toUpperCase() : '—'),
+            network: o.network,
+            recipient: o.recipientPhone || o.recipient || '—',
+            dataDisplay: o.dataAmountMb ? `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB` : o.dataDisplay || '—',
+            amountDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
+            source: (o.paymentMethod || o.source || 'Wallet') as any,
+            paidDisplay: `GH₵ ${((o.amountPesewas || 0) / 100).toFixed(2)}`,
+            orderStatus: o.orderStatus || OrderStatus.PROCESSING,
+            paymentStatus: o.paymentStatus || PaymentStatus.PENDING,
+            dateDisplay: rawCreated
+              ? new Date(rawCreated).toLocaleDateString([], {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—',
+            timestamp: rawCreated,
+            createdAtMs,
+          };
+        });
         setOrders(mapped);
       } else {
         setOrders([]);
@@ -106,6 +114,11 @@ export const OrdersPage: React.FC = () => {
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, paymentFilter, dateRange, customFrom, customTo, searchQuery, sortBy]);
 
   const metrics = useMemo(() => {
     let totalSpent = 0;
@@ -133,6 +146,40 @@ export const OrdersPage: React.FC = () => {
     let result = orders.filter((order) => {
       if (statusFilter !== 'ALL' && order.orderStatus !== statusFilter) return false;
       if (paymentFilter !== 'ALL' && order.paymentStatus !== paymentFilter) return false;
+
+      // Date Range Filter
+      if (dateRange !== 'all') {
+        const orderTime = order.createdAtMs || (order.timestamp ? new Date(order.timestamp).getTime() : 0);
+        if (orderTime > 0) {
+          const now = Date.now();
+          if (dateRange === 'today') {
+            const startOfToday = new Date().setHours(0, 0, 0, 0);
+            if (orderTime < startOfToday) return false;
+          } else if (dateRange === 'yesterday') {
+            const startOfToday = new Date().setHours(0, 0, 0, 0);
+            const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+            if (orderTime < startOfYesterday || orderTime >= startOfToday) return false;
+          } else if (dateRange === '7d') {
+            if (now - orderTime > 7 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateRange === '14d') {
+            if (now - orderTime > 14 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateRange === '30d') {
+            if (now - orderTime > 30 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateRange === '90d') {
+            if (now - orderTime > 90 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateRange === 'custom') {
+            if (customFrom) {
+              const fromTime = new Date(customFrom).setHours(0, 0, 0, 0);
+              if (orderTime < fromTime) return false;
+            }
+            if (customTo) {
+              const toTime = new Date(customTo).setHours(23, 59, 59, 999);
+              if (orderTime > toTime) return false;
+            }
+          }
+        }
+      }
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesId = order.orderNumber.toLowerCase().includes(q);
@@ -143,24 +190,33 @@ export const OrdersPage: React.FC = () => {
     });
 
     result.sort((a, b) => {
-      if (sortBy === 'newest') return b.id.localeCompare(a.id);
-      if (sortBy === 'oldest') return a.id.localeCompare(b.id);
+      const aTime = a.createdAtMs || (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+      const bTime = b.createdAtMs || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+
+      if (sortBy === 'newest') {
+        if (bTime !== aTime) return bTime - aTime;
+        return (b.id || '').localeCompare(a.id || '');
+      }
+      if (sortBy === 'oldest') {
+        if (aTime !== bTime) return aTime - bTime;
+        return (a.id || '').localeCompare(b.id || '');
+      }
       if (sortBy === 'highest') {
-        const aVal = parseFloat((a.paidDisplay || a.amountDisplay).replace(/[^\d.]/g, '')) || 0;
-        const bVal = parseFloat((b.paidDisplay || b.amountDisplay).replace(/[^\d.]/g, '')) || 0;
+        const aVal = parseFloat((a.paidDisplay || a.amountDisplay || '0').replace(/[^\d.]/g, '')) || 0;
+        const bVal = parseFloat((b.paidDisplay || b.amountDisplay || '0').replace(/[^\d.]/g, '')) || 0;
         return bVal - aVal;
       }
       if (sortBy === 'lowest') {
-        const aVal = parseFloat((a.paidDisplay || a.amountDisplay).replace(/[^\d.]/g, '')) || 0;
-        const bVal = parseFloat((b.paidDisplay || b.amountDisplay).replace(/[^\d.]/g, '')) || 0;
+        const aVal = parseFloat((a.paidDisplay || a.amountDisplay || '0').replace(/[^\d.]/g, '')) || 0;
+        const bVal = parseFloat((b.paidDisplay || b.amountDisplay || '0').replace(/[^\d.]/g, '')) || 0;
         return aVal - bVal;
       }
-      if (sortBy === 'status') return a.orderStatus.localeCompare(b.orderStatus);
+      if (sortBy === 'status') return (a.orderStatus || '').localeCompare(b.orderStatus || '');
       return 0;
     });
 
     return result;
-  }, [orders, statusFilter, paymentFilter, searchQuery, sortBy]);
+  }, [orders, statusFilter, paymentFilter, searchQuery, sortBy, dateRange, customFrom, customTo]);
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -502,6 +558,8 @@ export const OrdersPage: React.FC = () => {
                 options={[
                   { label: 'All payments', value: 'ALL' },
                   { label: 'Paid', value: PaymentStatus.PAID },
+                  { label: 'Pending', value: PaymentStatus.PENDING },
+                  { label: 'Failed', value: PaymentStatus.FAILED },
                   { label: 'Partial refund', value: PaymentStatus.PARTIALLY_REFUNDED },
                   { label: 'Refunded', value: PaymentStatus.REFUNDED },
                 ]}
@@ -612,6 +670,9 @@ export const OrdersPage: React.FC = () => {
                 options={[
                   { label: 'All payments', value: 'ALL' },
                   { label: 'Paid', value: PaymentStatus.PAID },
+                  { label: 'Pending', value: PaymentStatus.PENDING },
+                  { label: 'Failed', value: PaymentStatus.FAILED },
+                  { label: 'Partial refund', value: PaymentStatus.PARTIALLY_REFUNDED },
                   { label: 'Refunded', value: PaymentStatus.REFUNDED },
                 ]}
               />

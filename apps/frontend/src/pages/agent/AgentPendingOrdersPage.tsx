@@ -70,7 +70,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [dateFilter, setDateFilter] = useState<string>('30d');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest' | 'status'>('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest' | 'status' | 'data_desc' | 'data_asc'>('newest');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -92,6 +92,27 @@ export const AgentPendingOrdersPage: React.FC = () => {
   const filteredRecords = useMemo(() => {
     let result = records.filter((item) => {
       if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
+
+      // Date Filter
+      if (dateFilter && dateFilter !== 'all') {
+        const itemTime = new Date(item.rawDate).getTime();
+        if (!isNaN(itemTime)) {
+          const now = Date.now();
+          if (dateFilter === 'today') {
+            const startOfToday = new Date().setHours(0, 0, 0, 0);
+            if (itemTime < startOfToday) return false;
+          } else if (dateFilter === '7d') {
+            if (now - itemTime > 7 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '30d') {
+            if (now - itemTime > 30 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '90d') {
+            if (now - itemTime > 90 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '1y') {
+            if (now - itemTime > 365 * 24 * 60 * 60 * 1000) return false;
+          }
+        }
+      }
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesPhone = item.beneficiary.replace(/\s+/g, '').includes(q.replace(/\s+/g, ''));
@@ -109,10 +130,10 @@ export const AgentPendingOrdersPage: React.FC = () => {
       if (sortBy === 'oldest') {
         return new Date(a.rawDate).getTime() - new Date(b.rawDate).getTime();
       }
-      if (sortBy === 'highest') {
+      if (sortBy === 'highest' || (sortBy as string) === 'data_desc') {
         return parseDataSizeMb(b.dataSize) - parseDataSizeMb(a.dataSize);
       }
-      if (sortBy === 'lowest') {
+      if (sortBy === 'lowest' || (sortBy as string) === 'data_asc') {
         return parseDataSizeMb(a.dataSize) - parseDataSizeMb(b.dataSize);
       }
       if (sortBy === 'status') {
@@ -128,7 +149,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
     });
 
     return result;
-  }, [records, statusFilter, searchQuery, sortBy]);
+  }, [records, statusFilter, searchQuery, sortBy, dateFilter]);
 
   const totalPages = Math.ceil(filteredRecords.length / itemsPerPage) || 1;
   const paginatedRecords = useMemo(() => {

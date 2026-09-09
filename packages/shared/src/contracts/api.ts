@@ -2781,14 +2781,20 @@ export interface AgentOrderBeneficiaryItem {
 
 export interface AgentOrderListItem {
   id: string;
+  publicId?: string;
   referenceCode: string;
   network: string;
   status: string;
+  orderStatus?: string;
   paymentStatus: string;
   amount: string;
+  amountPesewas?: number;
+  dataAmountMb?: number;
+  recipientPhone?: string;
   groupSizeGb: number;
   submissionId: string | null;
   createdAt: string;
+  updatedAt?: string;
   approvedAt: string | null;
   approvedByName: string | null;
   beneficiaryCount: number;

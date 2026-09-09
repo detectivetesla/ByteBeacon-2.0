@@ -152,9 +152,27 @@ export const AgentRefundReportsPage: React.FC = () => {
   };
 
   const filteredRefunds = useMemo(() => {
-    return refunds.filter((r) => {
+    const list = refunds.filter((r) => {
       if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
       if (paymentFilter !== 'ALL' && r.paymentMethod !== paymentFilter) return false;
+
+      // Date Range Filter
+      if (dateFilter && dateFilter !== 'all' && r.requestedAt) {
+        const itemTime = new Date(r.requestedAt).getTime();
+        if (!isNaN(itemTime)) {
+          const now = Date.now();
+          if (dateFilter === 'today') {
+            const startOfToday = new Date().setHours(0, 0, 0, 0);
+            if (itemTime < startOfToday) return false;
+          } else if (dateFilter === '7d') {
+            if (now - itemTime > 7 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '30d') {
+            if (now - itemTime > 30 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '90d') {
+            if (now - itemTime > 90 * 24 * 60 * 60 * 1000) return false;
+          }
+        }
+      }
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -166,7 +184,14 @@ export const AgentRefundReportsPage: React.FC = () => {
 
       return true;
     });
-  }, [refunds, statusFilter, paymentFilter, searchQuery]);
+
+    list.sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
+    return list;
+  }, [refunds, statusFilter, paymentFilter, searchQuery, dateFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, paymentFilter, searchQuery, dateFilter]);
 
   const totalPages = Math.ceil(filteredRefunds.length / itemsPerPage) || 1;
   const paginatedRefunds = useMemo(() => {

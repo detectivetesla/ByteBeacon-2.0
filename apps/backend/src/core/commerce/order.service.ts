@@ -804,10 +804,72 @@ export class OrderService {
     isAdmin = false,
     page = 1,
     limit = 20,
+    filters?: {
+      status?: string;
+      paymentStatus?: string;
+      network?: string;
+      search?: string;
+      after?: string;
+      before?: string;
+    },
   ): Promise<PaginatedResponse<OrderSummaryDto>> {
     const offset = (page - 1) * limit;
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let paramIdx = 1;
 
-    let query = `
+    if (!isAdmin) {
+      conditions.push(`user_id = $${paramIdx++}`);
+      params.push(userId);
+    }
+
+    if (filters?.network && filters.network.toUpperCase() !== 'ALL') {
+      conditions.push(`network = $${paramIdx++}`);
+      params.push(filters.network.toUpperCase());
+    }
+
+    if (filters?.status && filters.status.toUpperCase() !== 'ALL') {
+      const st = filters.status.toUpperCase();
+      if (st === 'PROCESSING') {
+        conditions.push(`order_status = 'PROCESSING'`);
+      } else if (st === 'COMPLETED' || st === 'DELIVERED') {
+        conditions.push(`order_status = 'COMPLETED'`);
+      } else if (st === 'FAILED') {
+        conditions.push(`order_status = 'FAILED'`);
+      } else if (st === 'SUBMITTED') {
+        conditions.push(`order_status = 'SUBMITTED'`);
+      } else if (st === 'CANCELLED') {
+        conditions.push(`order_status = 'CANCELLED'`);
+      } else {
+        conditions.push(`order_status = $${paramIdx++}`);
+        params.push(st);
+      }
+    }
+
+    if (filters?.paymentStatus && filters.paymentStatus.toUpperCase() !== 'ALL') {
+      conditions.push(`payment_status = $${paramIdx++}`);
+      params.push(filters.paymentStatus.toUpperCase());
+    }
+
+    if (filters?.search && filters.search.trim()) {
+      const s = filters.search.trim();
+      conditions.push(`(public_id ILIKE $${paramIdx} OR recipient_phone ILIKE $${paramIdx})`);
+      params.push(`%${s}%`);
+      paramIdx++;
+    }
+
+    if (filters?.after) {
+      conditions.push(`created_at >= $${paramIdx++}`);
+      params.push(new Date(filters.after));
+    }
+    if (filters?.before) {
+      conditions.push(`created_at <= $${paramIdx++}`);
+      params.push(new Date(filters.before));
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const query = `
       SELECT id, public_id as "publicId", user_id as "userId", agent_id as "agentId",
              recipient_phone as "recipientPhone", network, data_amount_mb as "dataAmountMb",
              amount_pesewas as "amountPesewas", currency,
@@ -815,25 +877,17 @@ export class OrderService {
              provider_status as "providerStatus", refund_status as "refundStatus",
              created_at as "createdAt", updated_at as "updatedAt"
       FROM orders
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIdx++} OFFSET $${paramIdx++}
     `;
-    const params: unknown[] = [];
+    const queryParams = [...params, limit, offset];
 
-    if (!isAdmin) {
-      query += ' WHERE user_id = $1';
-      params.push(userId);
-    }
+    const result = await this.db.query(query, queryParams);
 
-    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
-
-    const result = await this.db.query(query, params);
-
-    const countQuery = isAdmin
-      ? 'SELECT COUNT(*) as total FROM orders'
-      : 'SELECT COUNT(*) as total FROM orders WHERE user_id = $1';
-    const countParams = isAdmin ? [] : [userId];
-    const countRes = await this.db.query<{ total: string }>(countQuery, countParams);
-    const total = parseInt(countRes.rows[0].total, 10) || 0;
+    const countQuery = `SELECT COUNT(*) as total FROM orders ${whereClause}`;
+    const countRes = await this.db.query<{ total: string }>(countQuery, params);
+    const total = parseInt(countRes.rows[0]?.total || '0', 10);
 
     return {
       items: result.rows.map((r) => ({
@@ -956,14 +1010,16 @@ export class OrderService {
     // Filter by status
     if (params.status && params.status.toLowerCase() !== 'all') {
       const st = params.status.toLowerCase();
-      if (st === 'approved' || st === 'fulfilled' || st === 'completed') {
+      if (st === 'approved' || st === 'fulfilled' || st === 'completed' || st === 'delivered') {
         conditions.push(`(o.order_status = 'COMPLETED' OR o.provider_status = 'COMPLETED')`);
       } else if (st === 'received' || st === 'created' || st === 'submitted') {
         conditions.push(`(o.order_status IN ('CREATED', 'SUBMITTED', 'READY_FOR_FULFILLMENT') OR o.provider_status IN ('UNKNOWN', 'RECEIVED'))`);
       } else if (st === 'processing') {
         conditions.push(`(o.order_status = 'PROCESSING' OR o.provider_status = 'PROCESSING')`);
-      } else if (st === 'rejected' || st === 'fulfillment_failed' || st === 'failed' || st === 'cancelled') {
-        conditions.push(`(o.order_status IN ('FAILED', 'CANCELLED') OR o.provider_status IN ('FAILED', 'REJECTED'))`);
+      } else if (st === 'rejected' || st === 'fulfillment_failed' || st === 'failed') {
+        conditions.push(`(o.order_status = 'FAILED' OR o.provider_status IN ('FAILED', 'REJECTED'))`);
+      } else if (st === 'cancelled') {
+        conditions.push(`o.order_status = 'CANCELLED'`);
       } else {
         conditions.push(`(o.order_status ILIKE $${paramIdx} OR o.provider_status ILIKE $${paramIdx})`);
         queryParams.push(st);
@@ -1039,15 +1095,22 @@ export class OrderService {
       const amountGhs = (parseInt(r.amountPesewas || '0', 10) / 100).toFixed(2);
 
       return {
-        id: r.publicId,
+        id: r.publicId || r.id,
+        orderId: r.id,
+        publicId: r.publicId,
         referenceCode: r.providerReference || r.publicId,
+        recipientPhone: r.recipientPhone,
         network: r.network,
         status: mappedStatus,
+        orderStatus: r.orderStatus,
         paymentStatus: String(r.paymentStatus || 'PENDING').toLowerCase(),
         amount: amountGhs,
+        amountPesewas: parseInt(r.amountPesewas || '0', 10),
+        dataAmountMb: r.dataAmountMb,
         groupSizeGb: sizeGb,
         submissionId: r.submissionId || null,
         createdAt: new Date(r.createdAt).toISOString(),
+        updatedAt: new Date(r.updatedAt).toISOString(),
         approvedAt: isApproved ? new Date(r.updatedAt).toISOString() : null,
         approvedByName: isApproved ? 'Ops Team' : null,
         beneficiaryCount: 1,

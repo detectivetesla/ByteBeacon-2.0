@@ -282,7 +282,18 @@ export async function orderRoutes(
 
 
   // 3. LIST ORDERS (Paginated with tenant isolation)
-  app.get<{ Querystring: { page?: string; limit?: string } }>(
+  app.get<{
+    Querystring: {
+      page?: string;
+      limit?: string;
+      status?: string;
+      paymentStatus?: string;
+      network?: string;
+      search?: string;
+      after?: string;
+      before?: string;
+    };
+  }>(
     '/orders',
     {
       preHandler: [
@@ -291,7 +302,18 @@ export async function orderRoutes(
       ],
     },
     async (
-      req: FastifyRequest<{ Querystring: { page?: string; limit?: string } }>,
+      req: FastifyRequest<{
+        Querystring: {
+          page?: string;
+          limit?: string;
+          status?: string;
+          paymentStatus?: string;
+          network?: string;
+          search?: string;
+          after?: string;
+          before?: string;
+        };
+      }>,
       reply: FastifyReply,
     ) => {
       const page = req.query.page ? Math.max(1, parseInt(req.query.page, 10)) : 1;
@@ -302,7 +324,14 @@ export async function orderRoutes(
       const isAdmin =
         req.user!.role === UserRole.ADMIN || req.user!.role === UserRole.SUPER_ADMIN;
 
-      const result = await orderService.listOrders(req.user!.sub, isAdmin, page, limit);
+      const result = await orderService.listOrders(req.user!.sub, isAdmin, page, limit, {
+        status: req.query.status,
+        paymentStatus: req.query.paymentStatus,
+        network: req.query.network,
+        search: req.query.search,
+        after: req.query.after,
+        before: req.query.before,
+      });
 
       const response: ApiResponse<PaginatedResponse<OrderSummaryDto>> = {
         success: true,

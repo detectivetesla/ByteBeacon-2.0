@@ -135,16 +135,70 @@ export const AgentWithdrawalsPage: React.FC = () => {
 
   // Filtered & Sorted Payouts
   const filteredPayouts = useMemo(() => {
-    return payouts.filter((p) => {
+    const list = payouts.filter((p) => {
       const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
       const matchesSearch =
         searchQuery === '' ||
         p.reference.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.recipientAccount.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.recipientName.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesStatus && matchesSearch;
+      if (!matchesStatus || !matchesSearch) return false;
+
+      // Date Range Filter
+      if (dateFilter && dateFilter !== 'all') {
+        const itemTime = p.rawDate ? new Date(p.rawDate).getTime() : 0;
+        if (itemTime > 0) {
+          const now = Date.now();
+          if (dateFilter === 'today') {
+            const startOfToday = new Date().setHours(0, 0, 0, 0);
+            if (itemTime < startOfToday) return false;
+          } else if (dateFilter === '7d') {
+            if (now - itemTime > 7 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '30d') {
+            if (now - itemTime > 30 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '90d') {
+            if (now - itemTime > 90 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '1y') {
+            if (now - itemTime > 365 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === 'custom') {
+            if (customStartDate) {
+              const fromTime = new Date(customStartDate).setHours(0, 0, 0, 0);
+              if (itemTime < fromTime) return false;
+            }
+            if (customEndDate) {
+              const toTime = new Date(customEndDate).setHours(23, 59, 59, 999);
+              if (itemTime > toTime) return false;
+            }
+          }
+        }
+      }
+
+      return true;
     });
-  }, [payouts, statusFilter, searchQuery]);
+
+    list.sort((a, b) => {
+      const aTime = a.rawDate ? new Date(a.rawDate).getTime() : 0;
+      const bTime = b.rawDate ? new Date(b.rawDate).getTime() : 0;
+
+      if (sortBy === 'newest') {
+        if (bTime !== aTime) return bTime - aTime;
+        return b.id.localeCompare(a.id);
+      }
+      if (sortBy === 'oldest') {
+        if (aTime !== bTime) return aTime - bTime;
+        return a.id.localeCompare(b.id);
+      }
+      if (sortBy === 'highest') {
+        return (b.amountPesewas || 0) - (a.amountPesewas || 0);
+      }
+      if (sortBy === 'lowest') {
+        return (a.amountPesewas || 0) - (b.amountPesewas || 0);
+      }
+      return 0;
+    });
+
+    return list;
+  }, [payouts, statusFilter, searchQuery, dateFilter, customStartDate, customEndDate, sortBy]);
 
   const paginatedPayouts = useMemo(() => {
     const start = (historyPage - 1) * historyPageSize;
