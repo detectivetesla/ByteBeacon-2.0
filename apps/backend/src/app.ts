@@ -566,6 +566,27 @@ export function createApp(options: AppOptions = {}) {
   // Commerce, Payment & Fulfillment Routes: /api/v1
   app.register(
     async (commerceSubApp: FastifyInstance) => {
+      commerceSubApp.get('/', async (_req, reply) => {
+        return reply.status(200).send({
+          name: 'ByteBeacon 2.0 API Gateway',
+          status: 'online',
+          version: '2.0.0',
+          baseUrl: 'https://api.bytebeacon.com/api/v1',
+          environment: process.env.NODE_ENV || 'production',
+          endpoints: {
+            agentProfile: '/api/v1/agent/me',
+            orders: '/api/v1/agent/orders',
+            createOrder: '/api/v1/orders',
+            beneficiaries: '/api/v1/agent/beneficiaries',
+            catalog: '/api/v1/catalog/products',
+            wallet: '/api/v1/agent/wallet/balance',
+            apiUsage: '/api/v1/agent/api-usage',
+            docs: '/docs',
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
       await catalogRoutes(commerceSubApp, { catalogService, tokenService });
       await orderRoutes(commerceSubApp, {
         db: dbPool!,

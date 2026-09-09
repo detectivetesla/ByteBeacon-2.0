@@ -24,6 +24,14 @@ export function createAuthHooks(
 ) {
   const authenticateCustomer = async (req: FastifyRequest, _reply: FastifyReply) => {
     const authHeader = req.headers.authorization;
+    const apiKeyHeader = (req.headers['x-api-key'] as string) || '';
+
+    // If an API key is provided, authenticate via API key service
+    if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+      await authenticateApiKey()(req, _reply);
+      return;
+    }
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new UnauthorizedError('Customer authorization token missing');
     }

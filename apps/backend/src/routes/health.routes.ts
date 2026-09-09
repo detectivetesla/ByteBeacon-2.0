@@ -91,3 +91,5 @@ export async function healthRoutes(fastify: FastifyInstance) {
   fastify.get('/health/status', handlePlatformStatus);
   fastify.get('/api/v1/platform/status', handlePlatformStatus);
 }
+
+
