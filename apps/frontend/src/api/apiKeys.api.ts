@@ -1,4 +1,5 @@
 import { apiClient } from './httpClient.js';
+import { AgentApiUsageResponse } from '@bytebeacon/shared';
 
 export interface ApiKeyItem {
   id: string;
@@ -47,4 +48,22 @@ export const apiKeysApi = {
   rollKey: async (keyId: string): Promise<ApiKeyCreatedResponse> => {
     return apiClient.post<ApiKeyCreatedResponse>(`/developer/api-keys/${keyId}/roll`);
   },
+
+  getApiUsage: async (params?: {
+    mode?: 'all' | 'live' | 'sandbox';
+    page?: number;
+    limit?: number;
+  }): Promise<AgentApiUsageResponse> => {
+    const query = new URLSearchParams();
+    if (params?.mode) query.set('mode', params.mode);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await apiClient.get<AgentApiUsageResponse | { data: AgentApiUsageResponse }>(`/agent/api-usage${qs}`);
+    if (res && 'data' in res && (res as any).data?.overview) {
+      return (res as any).data;
+    }
+    return res as AgentApiUsageResponse;
+  },
 };
+

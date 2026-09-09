@@ -2917,6 +2917,53 @@ export interface ProviderDeleteResult {
   reason: string;
 }
 
+// ---------------------------------------------------------------------------
+// Agent API Usage Telemetry Contracts
+// ---------------------------------------------------------------------------
+export interface AgentApiUsageOverviewDto {
+  totalCalls7d: number;
+  liveCalls7d: number;
+  sandboxCalls7d: number;
+  successRatePercent: number;
+  failureRatePercent: number;
+  p95LatencyMs: number;
+  avgLatencyMs: number;
+}
 
+export interface AgentApiDailyUsageItem {
+  date: string; // e.g. '09-03'
+  fullDate: string; // ISO date string
+  successes: number;
+  failures: number;
+  total: number;
+  avgLatencyMs: number;
+}
 
+export interface AgentApiTopEndpointItem {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  path: string;
+  count: number;
+}
 
+export interface AgentApiRequestLogItem {
+  id: string;
+  timestamp: string;
+  mode: 'live' | 'sandbox';
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  path: string;
+  statusCode: number;
+  latencyMs: number;
+}
+
+export interface AgentApiUsageResponse {
+  overview: AgentApiUsageOverviewDto;
+  daily: AgentApiDailyUsageItem[];
+  topEndpoints: AgentApiTopEndpointItem[];
+  recentRequests: {
+    items: AgentApiRequestLogItem[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
