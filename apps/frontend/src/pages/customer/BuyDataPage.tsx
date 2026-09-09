@@ -705,11 +705,18 @@ export const BuyDataPage: React.FC = () => {
                 const isInvalid = item.valid === false || item.status === 'REJECTED';
                 const isUnapproved =
                   !isInvalid &&
-                  (item.status === 'UNAPPROVED' || item.known === false || item.isKnown === false);
+                  isMtnOrder &&
+                  (item.status === 'UNAPPROVED' ||
+                    item.status === 'PENDING' ||
+                    item.known === false ||
+                    item.isKnown === false ||
+                    item.orderable === false);
                 const isApproved =
                   !isInvalid &&
                   !isUnapproved &&
-                  (item.status === 'APPROVED' || item.known === true || item.isKnown === true || item.orderable === true);
+                  (item.status === 'APPROVED' ||
+                    (!isMtnOrder && item.valid !== false) ||
+                    ((item.known === true || item.isKnown === true) && item.orderable !== false));
 
                 if (isInvalid) {
                   variations.forEach((v) => rejectedMap.set(v, item.message || 'Invalid recipient number'));
@@ -814,17 +821,19 @@ export const BuyDataPage: React.FC = () => {
               const isInvalid = item.valid === false || item.status === 'REJECTED';
               const isUnapproved =
                 !isInvalid &&
+                isMtnOrder &&
                 (item.status === 'UNAPPROVED' ||
                   item.status === 'PENDING' ||
                   item.orderable === false ||
-                  (isEnforced && (item.known === false || item.isKnown === false)));
+                  item.known === false ||
+                  item.isKnown === false);
 
               const isApproved =
                 !isInvalid &&
                 !isUnapproved &&
-                (item.orderable === true ||
-                  item.status === 'APPROVED' ||
-                  (isEnforced ? Boolean(item.known === true || item.isKnown === true) : Boolean(item.valid !== false)));
+                (item.status === 'APPROVED' ||
+                  (!isMtnOrder && item.valid !== false) ||
+                  ((item.known === true || item.isKnown === true) && item.orderable !== false));
 
               if (isInvalid) {
                 const reason = item.message || 'Invalid recipient number';
@@ -882,19 +891,19 @@ export const BuyDataPage: React.FC = () => {
                       const isInvalid = item.valid === false || item.status === 'REJECTED';
                       const isUnapproved =
                         !isInvalid &&
+                        isMtnOrder &&
                         (item.status === 'UNAPPROVED' ||
                           item.status === 'PENDING' ||
                           item.orderable === false ||
-                          (isEnforced && (item.known === false || item.isKnown === false)));
+                          item.known === false ||
+                          item.isKnown === false);
 
                       const isApproved =
                         !isInvalid &&
                         !isUnapproved &&
-                        (item.orderable === true ||
-                          item.status === 'APPROVED' ||
-                          (isEnforced
-                            ? Boolean(item.known === true || item.isKnown === true)
-                            : Boolean(item.valid !== false)));
+                        (item.status === 'APPROVED' ||
+                          (!isMtnOrder && item.valid !== false) ||
+                          ((item.known === true || item.isKnown === true) && item.orderable !== false));
 
                       if (isInvalid) {
                         const reason = item.message || 'Invalid recipient number';

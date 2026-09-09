@@ -535,7 +535,7 @@ export class TelecomProviderRegistry implements ITelecomProvider {
     const isMtn = input.network === NetworkProvider.MTN;
     return {
       network: input.network,
-      enforced: false,
+      enforced: isMtn,
       sandbox: false,
       recorded: false,
       summary: {

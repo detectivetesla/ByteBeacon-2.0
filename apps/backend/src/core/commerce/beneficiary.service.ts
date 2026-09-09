@@ -319,7 +319,7 @@ export class BeneficiaryService {
                AND network = 'MTN'
                AND validation_status IN ('VALID', 'APPROVED')
                AND provider_reference = 'DH-PRECHECK'
-               AND validated_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'`,
+               AND validated_at > CURRENT_TIMESTAMP - INTERVAL '2 hours'`,
             [queryPhones],
           );
           recentApprovedRes.rows.forEach((r: any) => {
@@ -1170,13 +1170,7 @@ export class BeneficiaryService {
            FROM pending_beneficiary_approvals
            WHERE phone_number = ANY($1)
              AND network = 'MTN'
-             AND status = 'APPROVED'
-           UNION
-           SELECT recipient_phone as "phoneNumber"
-           FROM orders
-           WHERE recipient_phone = ANY($1)
-             AND network = 'MTN'
-             AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')`,
+             AND status = 'APPROVED'`,
           [queryPhones],
         );
         approvedRes.rows.forEach((r: any) => {
