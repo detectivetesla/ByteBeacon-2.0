@@ -364,4 +364,104 @@ describe('Excel MTN Precheck and Beneficiary Approval Gating', () => {
     const totalRowsEl = screen.getByText('Total Rows');
     expect(totalRowsEl).toBeTruthy();
   }, 30000);
+
+  it('correctly handles 476 numbers with 282 approved, 193 unapproved, and 1 carrier mismatch (Telecel)', async () => {
+    // Generate 476 phones: 193 unapproved, 1 Telecel, 282 approved
+    const unapprovedPhones = [
+      '0531983428', '0550944482', '0594423731', '0247850202', '0546036488',
+      '0535407507', '0242627848', '0535864550', '0532681344', '0249669592',
+      ...Array.from({ length: 183 }, (_, i) => `054${String(1000000 + i).padStart(7, '0')}`),
+    ];
+    const telecelPhone = '0204138408';
+    const approvedPhones = Array.from({ length: 282 }, (_, i) => `024${String(2000000 + i).padStart(7, '0')}`);
+
+    const all476Phones = [...unapprovedPhones, telecelPhone, ...approvedPhones];
+    expect(all476Phones).toHaveLength(476);
+
+    (beneficiaryApi.precheck as any).mockImplementation(async ({ phoneNumbers }: { phoneNumbers: string[] }) => {
+      return {
+        network: 'MTN',
+        enforced: true,
+        results: phoneNumbers.map((p) => {
+          const isUnapproved = unapprovedPhones.includes(p);
+          const isTelecel = p === telecelPhone;
+          return {
+            phone: p,
+            normalized: p,
+            valid: true,
+            known: !isUnapproved && !isTelecel,
+            isKnown: !isUnapproved && !isTelecel,
+            status: isUnapproved ? 'UNAPPROVED' : isTelecel ? 'REJECTED' : 'APPROVED',
+          };
+        }),
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['Beneficiary Msisdn', 'Data (GB)'],
+      ...all476Phones.map((p) => [p, '5GB']),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+    const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const file = new File([arrayBuffer], 'mtn_476_numbers.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    file.arrayBuffer = () => Promise.resolve(arrayBuffer);
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/buy-data']}>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(catalogApi.getBundles).toHaveBeenCalled();
+    });
+
+    // Switch to Excel
+    fireEvent.click(screen.getByRole('button', { name: /Excel/i }));
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      configurable: true,
+    });
+    fireEvent.change(fileInput);
+
+    await waitFor(
+      () => {
+        expect(beneficiaryApi.precheck).toHaveBeenCalled();
+      },
+      { timeout: 10000 },
+    );
+
+    // Verify exactly 476 total, 282 approved, 193 unapproved, 1 rejected/mismatch
+    await waitFor(() => {
+      expect(screen.getByText(/193 number/i)).toBeTruthy();
+      expect(screen.getByText(/1 number/i)).toBeTruthy();
+      expect(screen.getByText('0204138408')).toBeTruthy();
+      expect(screen.getByText('TELECEL')).toBeTruthy();
+    });
+
+    // Verify recordUnapproved was called with 193 unapproved items
+    expect(beneficiaryApi.recordUnapproved).toHaveBeenCalled();
+    const recordCalls = (beneficiaryApi.recordUnapproved as any).mock.calls;
+    const recordedItems = recordCalls[0][0].items;
+    expect(recordedItems).toHaveLength(193);
+
+    // Test ticking "All of these are ported"
+    const portedCheckbox = screen.getByRole('checkbox', { name: /All of these are ported/i });
+    fireEvent.click(portedCheckbox);
+
+    // Now approved count should be 283 (282 + 1 ported), and 0 mismatch
+    await waitFor(() => {
+      expect(screen.getByText('Continue to Payment (283 Approved) →')).toBeTruthy();
+    });
+  });
 });

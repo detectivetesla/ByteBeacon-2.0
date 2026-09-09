@@ -953,7 +953,7 @@ export class BeneficiaryService {
           let providerRes: any = null;
           if (provider.precheckBeneficiaries) {
             try {
-              const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000));
+              const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000));
               const call = provider.precheckBeneficiaries({
                 network: net,
                 phoneNumbers: chunk,
@@ -974,7 +974,7 @@ export class BeneficiaryService {
               const subResults = await Promise.all(
                 subChunks.map(async (sc) => {
                   try {
-                    const timeoutSub = new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000));
+                    const timeoutSub = new Promise<null>((resolve) => setTimeout(() => resolve(null), 30000));
                     const callSub = provider.precheckPublicBeneficiaries!({
                       network: net,
                       phoneNumbers: sc,
@@ -1029,7 +1029,8 @@ export class BeneficiaryService {
               const isApproved = Boolean(
                 (r.isKnown === true || (r as any).known === true) &&
                 r.status !== 'UNAPPROVED' &&
-                r.status !== 'REJECTED'
+                r.status !== 'REJECTED' &&
+                r.orderable !== false
               );
               if (isApproved) {
                 if (norm) {
@@ -1046,9 +1047,19 @@ export class BeneficiaryService {
                   knownPhonesSet.delete(`+233${norm.slice(1)}`);
                   knownPhonesSet.delete(`233${norm.slice(1)}`);
                   newlyUnapprovedPhones.push(norm);
+                  liveUnapprovedSet.add(norm);
+                  liveUnapprovedSet.add(`+233${norm.slice(1)}`);
+                  liveUnapprovedSet.add(`233${norm.slice(1)}`);
+                  upstreamOrderableMap.set(norm, false);
                 }
-                if (r.phoneNumber) knownPhonesSet.delete(r.phoneNumber);
-                if ((r as any).phone) knownPhonesSet.delete((r as any).phone);
+                if (r.phoneNumber) {
+                  knownPhonesSet.delete(r.phoneNumber);
+                  liveUnapprovedSet.add(r.phoneNumber);
+                }
+                if ((r as any).phone) {
+                  knownPhonesSet.delete((r as any).phone);
+                  liveUnapprovedSet.add((r as any).phone);
+                }
               }
             });
 
@@ -1057,6 +1068,11 @@ export class BeneficiaryService {
               ...(Array.isArray(providerRes.unknown) ? providerRes.unknown : []),
               ...(Array.isArray(providerRes.blockedFirstTime) ? providerRes.blockedFirstTime : []),
               ...(Array.isArray(providerRes.blocked) ? providerRes.blocked : []),
+              ...(Array.isArray(providerRes.unvalidated) ? providerRes.unvalidated : []),
+              ...(Array.isArray(providerRes.unvalidatedBeneficiaries) ? providerRes.unvalidatedBeneficiaries : []),
+              ...(Array.isArray(providerRes.setAside) ? providerRes.setAside : []),
+              ...(Array.isArray(providerRes.unapproved) ? providerRes.unapproved : []),
+              ...(Array.isArray(providerRes.notValidated) ? providerRes.notValidated : []),
             ];
             explicitBlocked.forEach((b: any) => {
               const p = typeof b === 'string' ? b : b.phoneNumber || b.phone || b.msisdn;
@@ -1067,8 +1083,13 @@ export class BeneficiaryService {
                   knownPhonesSet.delete(`+233${norm.slice(1)}`);
                   knownPhonesSet.delete(`233${norm.slice(1)}`);
                   newlyUnapprovedPhones.push(norm);
+                  liveUnapprovedSet.add(norm);
+                  liveUnapprovedSet.add(`+233${norm.slice(1)}`);
+                  liveUnapprovedSet.add(`233${norm.slice(1)}`);
+                  upstreamOrderableMap.set(norm, false);
                 }
                 knownPhonesSet.delete(p);
+                liveUnapprovedSet.add(p);
               }
             });
           }
@@ -1161,8 +1182,16 @@ export class BeneficiaryService {
         approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(r.phoneNumber);
+            // Live telecom precheck is authoritative: never re-approve if live check reported unapproved
+            const isLiveUnapproved =
+              liveUnapprovedSet.has(norm) ||
+              liveUnapprovedSet.has(r.phoneNumber) ||
+              upstreamOrderableMap.get(norm) === false;
+
+            if (!isLiveUnapproved) {
+              knownPhonesSet.add(norm);
+              knownPhonesSet.add(r.phoneNumber);
+            }
           }
         });
 
@@ -1187,7 +1216,7 @@ export class BeneficiaryService {
               const apNorm = this.normalizeGhanaPhone(ap.phoneNumber).normalized;
               return apNorm === norm;
             });
-            if (!hasApproved) {
+            if (!hasApproved || liveUnapprovedSet.has(norm)) {
               knownPhonesSet.delete(norm);
               knownPhonesSet.delete(r.phoneNumber);
               upstreamOrderableMap.set(norm, false);
@@ -1200,7 +1229,8 @@ export class BeneficiaryService {
     }
 
     const results = uniqueItems.map((item) => {
-      const isKnown = item.valid ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.phone)) : false;
+      const isLiveUnapproved = liveUnapprovedSet.has(item.normalized) || liveUnapprovedSet.has(item.phone);
+      const isKnown = item.valid && !isLiveUnapproved ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.phone)) : false;
       const isPortedCandidate = portedCandidatesSet.has(item.normalized) || portedCandidatesSet.has(item.phone);
 
       let isOrderable = false;

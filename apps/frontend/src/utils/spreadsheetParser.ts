@@ -6,6 +6,9 @@ export type RecipientRowStatus = 'APPROVED' | 'UNAPPROVED' | 'REJECTED';
 export interface ParsedSpreadsheetRow {
   phone: string;
   network?: string;
+  detectedNetwork?: 'MTN' | 'TELECEL' | 'AIRTELTIGO' | 'UNKNOWN';
+  isCarrierMismatch?: boolean;
+  isPorted?: boolean;
   bundleId: string;
   data: string;
   dataAmountMb?: number;
@@ -191,6 +194,7 @@ export function matchBundleVolume(
 export async function parseSpreadsheetFile(
   fileOrBuffer: File | Blob | ArrayBuffer,
   availableBundles: BundleItem[],
+  selectedNetwork?: string,
 ): Promise<SpreadsheetParseResult> {
   let arrayBuffer: ArrayBuffer;
 
@@ -439,8 +443,10 @@ export async function parseSpreadsheetFile(
 
     const normalizedPhone = normalizeGhanaPhoneNumber(rawPhone);
     const isValidPhone = isValidGhanaPhoneNumber(normalizedPhone);
+    const detected = detectGhanaNetwork(normalizedPhone);
+    let isCarrierMismatch = false;
 
-    // Resolve network: from column or inferred from phone prefix
+    // Resolve network: from column or inferred from phone prefix or selectedNetwork
     let rowNetwork: string = rawNet.toUpperCase();
     if (
       !rowNetwork ||
@@ -451,8 +457,14 @@ export async function parseSpreadsheetFile(
         !rowNetwork.includes('TIGO') &&
         rowNetwork !== 'AT')
     ) {
-      const detected = detectGhanaNetwork(normalizedPhone);
-      rowNetwork = detected !== 'UNKNOWN' ? detected : 'MTN';
+      if (selectedNetwork) {
+        rowNetwork = selectedNetwork.toUpperCase();
+        if (detected !== 'UNKNOWN' && detected !== rowNetwork) {
+          isCarrierMismatch = true;
+        }
+      } else {
+        rowNetwork = detected !== 'UNKNOWN' ? detected : 'MTN';
+      }
     } else if (rowNetwork.includes('MTN')) {
       rowNetwork = 'MTN';
     } else if (rowNetwork.includes('TELECEL') || rowNetwork.includes('VODAFONE')) {
@@ -461,11 +473,15 @@ export async function parseSpreadsheetFile(
       rowNetwork = 'AIRTELTIGO';
     }
 
+    if (selectedNetwork && rowNetwork !== selectedNetwork.toUpperCase()) {
+      isCarrierMismatch = true;
+    }
+
     const matched = matchBundleVolume(rawVol, availableBundles, rowNetwork);
 
     const isValid = isValidPhone && Boolean(matched?.id);
     const price = matched?.pricePesewas || 0;
-    if (isValid) {
+    if (isValid && !isCarrierMismatch) {
       totalPesewas += price;
     }
 
@@ -473,28 +489,42 @@ export async function parseSpreadsheetFile(
       ? 'Invalid Ghana mobile number'
       : !matched?.id
       ? 'No matching data bundle'
+      : isCarrierMismatch
+      ? `Carrier mismatch: number appears to be on ${detected || rowNetwork} rather than ${selectedNetwork || 'target network'}`
       : undefined;
 
-    // MTN numbers require live verification; other carriers fulfill directly
-    const isMtn = rowNetwork === 'MTN';
-    const status: RecipientRowStatus = isValid
-      ? (isMtn ? 'UNAPPROVED' : 'APPROVED')
-      : 'REJECTED';
-    const statusReason = isValid
-      ? (isMtn ? 'Pending MTN Up2U precheck' : 'Direct carrier fulfillment')
-      : errorMsg;
+    // MTN numbers require live verification; other carriers fulfill directly.
+    // Carrier mismatches must be marked REJECTED until confirmed as ported.
+    const isMtn = (selectedNetwork ? selectedNetwork.toUpperCase() : rowNetwork) === 'MTN';
+    let status: RecipientRowStatus = 'REJECTED';
+    let statusReason = errorMsg;
+
+    if (isValid) {
+      if (isCarrierMismatch) {
+        status = 'REJECTED';
+        statusReason = `Appears to be on ${detected} rather than ${selectedNetwork || rowNetwork}. Tick if ported.`;
+      } else if (isMtn) {
+        status = 'UNAPPROVED';
+        statusReason = 'Pending MTN Up2U precheck';
+      } else {
+        status = 'APPROVED';
+        statusReason = 'Direct carrier fulfillment';
+      }
+    }
 
     parsedRows.push({
       phone: normalizedPhone || rawPhone,
       network: rowNetwork,
+      detectedNetwork: detected,
+      isCarrierMismatch,
       bundleId: matched?.id || '',
       data: matched?.dataDisplay || String(rawVol),
       dataAmountMb: matched?.dataAmountMb,
       pricePesewas: price,
-      isValid,
+      isValid: isValid && !isCarrierMismatch,
       status,
       statusReason,
-      isKnown: isValid && !isMtn,
+      isKnown: isValid && !isMtn && !isCarrierMismatch,
       rawPhone,
       rawVolume: rawVol,
       error: errorMsg,
@@ -582,4 +612,34 @@ export function generateSpreadsheetReport(
 
   return { blob, filename };
 }
+
+/**
+ * Generates an exported XLSX file for set-aside numbers (e.g. unvalidated MTN numbers or non-ported carrier mismatch numbers).
+ */
+export function generateSetAsideSpreadsheet(
+  rows: ParsedSpreadsheetRow[],
+  filenamePrefix = 'set_aside_numbers',
+): { blob: Blob; filename: string } {
+  const headers = ['Beneficiary Msisdn', 'Data (GB)', 'Network', 'Reason'];
+  const wsData = [
+    headers,
+    ...rows.map((r) => [
+      r.phone || r.rawPhone || '',
+      r.data || r.rawVolume || '',
+      r.detectedNetwork || r.network || '',
+      r.statusReason || (r.status === 'UNAPPROVED' ? 'Pending MTN Validation' : 'Set Aside'),
+    ]),
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  XLSX.utils.book_append_sheet(wb, ws, 'SetAside');
+  const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbOut], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const filename = `${filenamePrefix}_${rows.length}.xlsx`;
+  return { blob, filename };
+}
+
 

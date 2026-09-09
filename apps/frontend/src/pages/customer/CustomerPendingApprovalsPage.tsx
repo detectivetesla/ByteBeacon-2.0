@@ -420,6 +420,26 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
     }, 600);
   };
 
+  const [isSyncingWithProvider, setIsSyncingWithProvider] = useState(false);
+
+  const handleSyncWithProvider = async () => {
+    setIsSyncingWithProvider(true);
+    try {
+      const res = await beneficiaryApi.syncApprovalsWithProvider({
+        network: networkFilter !== 'ALL' ? networkFilter : 'MTN',
+      });
+      toastSuccess(
+        'MTN Sync Complete',
+        `Synchronized with MTN Gateway: ${res.synced} total (${res.approved} approved, ${res.pending} pending, ${res.rejected} rejected).`,
+      );
+      await fetchApprovals();
+    } catch (err: any) {
+      toastError('Sync Failed', err?.message || 'Failed to sync with telecom gateway.');
+    } finally {
+      setIsSyncingWithProvider(false);
+    }
+  };
+
   const handlePrecheckNewNumber = async () => {
     const clean = newPhone.trim().replace(/\s+/g, '');
     const ghanaPhoneRegex = /^(?:\+233|0)[235]\d{8}$/;
@@ -540,6 +560,16 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
             leftIcon={<RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />}
           >
             Refresh
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncWithProvider}
+            isLoading={isSyncingWithProvider}
+            leftIcon={<RefreshCw size={14} className={isSyncingWithProvider ? 'animate-spin' : ''} />}
+          >
+            Sync with MTN
           </Button>
 
           <Button

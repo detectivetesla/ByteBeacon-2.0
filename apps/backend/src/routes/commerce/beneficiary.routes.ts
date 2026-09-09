@@ -494,6 +494,24 @@ export async function beneficiaryRoutes(
     },
   );
 
+  // 4b. CUSTOMER/AGENT: SYNC BENEFICIARY APPROVALS FROM PROVIDER
+  app.post<{ Body: { network?: string; status?: string; search?: string } }>(
+    '/beneficiaries/approvals/sync',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const { network, status, search } = req.body || {};
+      const result = await beneficiaryService.syncBeneficiariesFromProvider({
+        network,
+        status,
+        search,
+      });
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
   // 5. ADMIN: LIST MTN BENEFICIARY APPROVALS
   app.get<{
     Querystring: {

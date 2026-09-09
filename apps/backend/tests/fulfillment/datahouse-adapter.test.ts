@@ -26,6 +26,9 @@ describe('DataHouseAdapter and DataHouseClient', () => {
       webhookSecret: mockWebhookSecret,
       timeoutMs: 5000,
     });
+    vi.spyOn(mockClient, 'getBundles').mockResolvedValue({
+      data: { data: [{ id: '550e8400-e29b-41d4-a716-446655440000', dataVolume: '5GB', dataSizeGb: 5 }] },
+    } as any);
     adapter = new DataHouseAdapter(mockClient);
   });
 

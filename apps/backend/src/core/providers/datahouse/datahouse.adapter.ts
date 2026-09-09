@@ -163,7 +163,7 @@ export class DataHouseAdapter implements ITelecomProvider {
     const correlationId = `dh_precheck_${Date.now()}`;
     try {
       const dhResp = await this.client.precheckBeneficiaries(input, correlationId);
-      return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
+      return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network, input.phoneNumbers);
     } catch (err) {
       // If agent precheck fails (e.g. invalid API key, 401, endpoint unavailable),
       // gracefully fall back to chunked public precheck in batches of up to 10
@@ -178,7 +178,7 @@ export class DataHouseAdapter implements ITelecomProvider {
         network: input.network,
         phoneNumbers: input.phoneNumbers,
       }, correlationId);
-      return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network);
+      return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network, input.phoneNumbers);
     }
 
     // Auto-chunk into batches of 10 if more than 10 numbers are passed
@@ -234,7 +234,7 @@ export class DataHouseAdapter implements ITelecomProvider {
                   { network, phoneNumbers: chunk },
                   subCorr,
                 );
-                const mapped = DataHouseMapper.toDataHousePrecheckResult(subResp, network);
+                const mapped = DataHouseMapper.toDataHousePrecheckResult(subResp, network, chunk);
                 // Cache individual results for subsequent fast resolution
                 if (mapped.results && Array.isArray(mapped.results)) {
                   for (const r of mapped.results) {

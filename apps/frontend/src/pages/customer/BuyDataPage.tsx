@@ -40,6 +40,7 @@ import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import {
   parseSpreadsheetFile,
   generateSpreadsheetTemplate,
+  generateSetAsideSpreadsheet,
   normalizeGhanaPhoneNumber,
   ParsedSpreadsheetRow,
   RecipientRowStatus,
@@ -280,6 +281,7 @@ export const BuyDataPage: React.FC = () => {
   const [unapprovedPhones, setUnapprovedPhones] = useState<string[]>([]);
   const [isCheckingBeneficiary, setIsCheckingBeneficiary] = useState(false);
   const [spreadsheetPortedCandidates, setSpreadsheetPortedCandidates] = useState<string[]>([]);
+  const [confirmedPortedNumbers, setConfirmedPortedNumbers] = useState<string[]>([]);
   const [modalPayload, setModalPayload] = useState<{
     title?: string;
     packageSummary?: string;
@@ -584,14 +586,42 @@ export const BuyDataPage: React.FC = () => {
 
   // Helper to verify spreadsheet rows against MTN approval list / precheck
   const verifySpreadsheetRows = async (rows: ParsedSpreadsheetRow[]): Promise<ParsedSpreadsheetRow[]> => {
+    const isMtnOrder = selectedNetwork === NetworkProvider.MTN;
+
+    if (!isMtnOrder) {
+      return rows.map((r) => {
+        if (!r.isValid || r.isCarrierMismatch) {
+          return {
+            ...r,
+            status: 'REJECTED' as const,
+            statusReason: r.statusReason || r.error || 'Invalid Ghanaian phone number format',
+          };
+        }
+        return {
+          ...r,
+          status: 'APPROVED' as const,
+          statusReason: 'Direct carrier fulfillment',
+          isKnown: true,
+        };
+      });
+    }
+
     const mtnRows = rows.filter((r) => {
-      if (!r.isValid) return false;
-      if (r.network === 'TELECEL' || r.network === 'AIRTELTIGO') return false;
-      return true; // MTN or unspecified carrier default
+      const isConfirmedPorted = r.isPorted || confirmedPortedNumbers.includes(r.phone);
+      if (r.isCarrierMismatch && !isConfirmedPorted) return false;
+      return r.isValid;
     });
 
     if (mtnRows.length === 0) {
       return rows.map((r) => {
+        const isConfirmedPorted = r.isPorted || confirmedPortedNumbers.includes(r.phone);
+        if (r.isCarrierMismatch && !isConfirmedPorted) {
+          return {
+            ...r,
+            status: 'REJECTED' as const,
+            statusReason: `Appears to be on ${r.detectedNetwork || 'different network'} rather than MTN. Tick if ported.`,
+          };
+        }
         if (!r.isValid) {
           return {
             ...r,
@@ -904,6 +934,17 @@ export const BuyDataPage: React.FC = () => {
     }
 
     return rows.map((row) => {
+      const isConfirmedPorted = row.isPorted || confirmedPortedNumbers.includes(row.phone);
+      if (row.isCarrierMismatch && !isConfirmedPorted) {
+        return {
+          ...row,
+          status: 'REJECTED' as const,
+          statusReason: `Appears to be on ${row.detectedNetwork || 'different network'} rather than ${selectedNetwork}. Tick if ported.`,
+          isValid: false,
+          isKnown: false,
+        };
+      }
+
       if (!row.isValid) {
         return {
           ...row,
@@ -912,11 +953,7 @@ export const BuyDataPage: React.FC = () => {
         };
       }
 
-      const isMtn =
-        row.network === 'MTN' ||
-        (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO');
-
-      if (!isMtn) {
+      if (!isMtnOrder) {
         return {
           ...row,
           status: 'APPROVED' as const,
@@ -926,23 +963,6 @@ export const BuyDataPage: React.FC = () => {
       }
 
       const normRowPhone = normalizeGhanaPhoneNumber(row.phone);
-
-      // Check if phone was flagged as ported
-      const isPorted =
-        discoveredPorted.includes(normRowPhone) ||
-        discoveredPorted.includes(row.phone) ||
-        spreadsheetPortedCandidates.includes(normRowPhone) ||
-        spreadsheetPortedCandidates.includes(row.phone);
-
-      if (isPorted) {
-        return {
-          ...row,
-          status: 'REJECTED' as const,
-          statusReason: 'Ported recipient number detected',
-          isValid: false,
-          isKnown: false,
-        };
-      }
 
       // Check if explicitly rejected by telecom precheck
       const rejectionReason =
@@ -978,7 +998,9 @@ export const BuyDataPage: React.FC = () => {
         return {
           ...row,
           status: 'APPROVED' as const,
-          statusReason: 'Validated MTN recipient (Instant Delivery)',
+          statusReason: isConfirmedPorted
+            ? `Ported recipient confirmed (${row.detectedNetwork || 'Carrier'} -> MTN)`
+            : 'Validated MTN recipient (Instant Delivery)',
           isKnown: true,
         };
       } else {
@@ -1016,7 +1038,7 @@ export const BuyDataPage: React.FC = () => {
     setExcelFilter('ALL');
 
     try {
-      const result = await parseSpreadsheetFile(file, allCatalogBundles);
+      const result = await parseSpreadsheetFile(file, allCatalogBundles, selectedNetwork);
 
       if (result.error) {
         setExcelLoading(false);
@@ -1033,20 +1055,17 @@ export const BuyDataPage: React.FC = () => {
       }
 
       // Render parsed rows immediately (<20ms) so user never gets stuck at "Checking your file..."
+      const isMtnOrder = selectedNetwork === NetworkProvider.MTN;
       const initialRows: ParsedSpreadsheetRow[] = result.rows.map((row) => {
-        if (!row.isValid) {
+        if (!row.isValid || row.isCarrierMismatch) {
           return {
             ...row,
             status: 'REJECTED' as const,
-            statusReason: row.error || 'Invalid Ghanaian phone number format',
+            statusReason: row.statusReason || row.error || 'Carrier mismatch / Invalid format',
           };
         }
 
-        const isMtn =
-          row.network === 'MTN' ||
-          (row.network !== 'TELECEL' && row.network !== 'AIRTELTIGO');
-
-        if (!isMtn) {
+        if (!isMtnOrder) {
           return {
             ...row,
             status: 'APPROVED' as const,
@@ -1131,6 +1150,101 @@ export const BuyDataPage: React.FC = () => {
   const rejectedExcelRows = useMemo(() => {
     return excelParsedRows.filter((r) => r.status === 'REJECTED');
   }, [excelParsedRows]);
+
+  const carrierMismatchRows = useMemo(() => {
+    return excelParsedRows.filter((r) => r.isCarrierMismatch && !r.isPorted);
+  }, [excelParsedRows]);
+
+  const handleToggleAllPorted = (checked: boolean) => {
+    if (checked) {
+      const allPhones = carrierMismatchRows.map((r) => r.phone);
+      setConfirmedPortedNumbers((prev) => Array.from(new Set([...prev, ...allPhones])));
+      setExcelParsedRows((prev) =>
+        prev.map((r) => {
+          if (r.isCarrierMismatch) {
+            return {
+              ...r,
+              isCarrierMismatch: false,
+              isPorted: true,
+              isValid: true,
+              status: 'APPROVED',
+              statusReason: `Ported recipient (${r.detectedNetwork || 'Carrier'} -> ${selectedNetwork})`,
+              isKnown: true,
+            };
+          }
+          return r;
+        }),
+      );
+    } else {
+      setConfirmedPortedNumbers([]);
+      setExcelParsedRows((prev) =>
+        prev.map((r) => {
+          if (r.isPorted) {
+            return {
+              ...r,
+              isCarrierMismatch: true,
+              isPorted: false,
+              isValid: false,
+              status: 'REJECTED',
+              statusReason: `Appears to be on ${r.detectedNetwork || 'different network'} rather than ${selectedNetwork}. Tick if ported.`,
+              isKnown: false,
+            };
+          }
+          return r;
+        }),
+      );
+    }
+  };
+
+  const handleToggleSinglePorted = (phone: string, checked: boolean) => {
+    setConfirmedPortedNumbers((prev) =>
+      checked ? Array.from(new Set([...prev, phone])) : prev.filter((p) => p !== phone),
+    );
+    setExcelParsedRows((prev) =>
+      prev.map((r) => {
+        if (r.phone === phone || r.rawPhone === phone) {
+          if (checked) {
+            return {
+              ...r,
+              isCarrierMismatch: false,
+              isPorted: true,
+              isValid: true,
+              status: 'APPROVED',
+              statusReason: `Ported recipient (${r.detectedNetwork || 'Carrier'} -> ${selectedNetwork})`,
+              isKnown: true,
+            };
+          } else {
+            return {
+              ...r,
+              isCarrierMismatch: true,
+              isPorted: false,
+              isValid: false,
+              status: 'REJECTED',
+              statusReason: `Appears to be on ${r.detectedNetwork || 'different network'} rather than ${selectedNetwork}. Tick if ported.`,
+              isKnown: false,
+            };
+          }
+        }
+        return r;
+      }),
+    );
+  };
+
+  const handleDownloadSetAside = (type: 'unapproved' | 'mismatch') => {
+    const rowsToExport = type === 'unapproved' ? unapprovedExcelRows : carrierMismatchRows;
+    if (rowsToExport.length === 0) return;
+    const prefix = type === 'unapproved' ? 'unvalidated_mtn_set_aside' : 'different_network_set_aside';
+    const { blob, filename } = generateSetAsideSpreadsheet(rowsToExport, prefix);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toastSuccess('Set-Aside Downloaded', `${filename} downloaded successfully.`);
+  };
 
   const displayedExcelRows = useMemo(() => {
     if (excelFilter === 'APPROVED') return approvedExcelRows;
@@ -1240,7 +1354,12 @@ export const BuyDataPage: React.FC = () => {
       amountDisplay: `GH₵ ${(excelTotalPesewas / 100).toFixed(2)}`,
       bundleId: targetRows[0]?.bundleId || currentSingleBundle.id,
       bulkItems,
-      confirmedPorted: spreadsheetPortedCandidates.length > 0 ? spreadsheetPortedCandidates : undefined,
+      confirmedPorted:
+        confirmedPortedNumbers.length > 0
+          ? confirmedPortedNumbers
+          : spreadsheetPortedCandidates.length > 0
+          ? spreadsheetPortedCandidates
+          : undefined,
     });
     setPurchaseModalOpen(true);
   };
@@ -2129,53 +2248,178 @@ export const BuyDataPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Informative Alerts */}
+                  {/* Card 1: Unvalidated Numbers (DataHouse Authoritative Match) */}
                   {unapprovedExcelRows.length > 0 && (
                     <div
                       style={{
-                        padding: '10px 14px',
-                        borderRadius: 'var(--radius-md)',
+                        padding: '14px 18px',
+                        borderRadius: 'var(--radius-lg)',
                         backgroundColor: 'var(--color-warning-surface)',
                         border: '1px solid var(--color-warning-border)',
-                        color: 'var(--color-warning)',
-                        fontSize: 'var(--font-size-2xs)',
-                        lineHeight: 1.4,
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        gap: '8px',
+                        flexDirection: 'column',
+                        gap: '12px',
                       }}
                     >
-                      <div>
-                        <strong>⏳ {unapprovedExcelRows.length} Unapproved / First-Time MTN number(s):</strong> Under MTN telecom compliance, first-time recipients must be approved before direct fulfillment. They will be recorded in the MTN verification queue and excluded from immediate charges.
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                            {unapprovedExcelRows.length} number{unapprovedExcelRows.length > 1 ? 's' : ''} haven't been validated by MTN yet ({unapprovedExcelRows.length} Unapproved / First-Time MTN).
+                          </h4>
+                          <p style={{ margin: '4px 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+                            On submit they'll be set aside and sent to MTN for approval (not charged) — the rest of the file is ordered as normal. Nothing to remove by hand.
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={() => handleDownloadSetAside('unapproved')}
+                          leftIcon={<Download size={12} />}
+                          style={{ borderColor: 'var(--color-warning-border)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}
+                        >
+                          Download {unapprovedExcelRows.length} set-aside number{unapprovedExcelRows.length > 1 ? 's' : ''} (.xlsx)
+                        </Button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const phones = unapprovedExcelRows.map((r) => r.phone);
-                          setUnapprovedPhone(phones[0] || '');
-                          setUnapprovedPhones(phones);
-                          setUnapprovedModalOpen(true);
-                        }}
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: 'rgba(255, 204, 0, 0.15)',
-                          border: '1px solid var(--color-warning-border)',
-                          color: 'var(--color-warning)',
-                          fontSize: 'var(--font-size-3xs)',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        View Unapproved Numbers ↗
-                      </button>
+
+                      {/* Phone preview list */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                        {unapprovedExcelRows.slice(0, 10).map((r) => (
+                          <span
+                            key={r.phone}
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              padding: '3px 8px',
+                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                              borderRadius: '4px',
+                              color: 'var(--color-text-primary)',
+                            }}
+                          >
+                            {r.phone}
+                          </span>
+                        ))}
+                        {unapprovedExcelRows.length > 10 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const phones = unapprovedExcelRows.map((r) => r.phone);
+                              setUnapprovedPhone(phones[0] || '');
+                              setUnapprovedPhones(phones);
+                              setUnapprovedModalOpen(true);
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              padding: '3px 8px',
+                              color: 'var(--color-brand-primary)',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            +{unapprovedExcelRows.length - 10} more
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
-                  {rejectedExcelRows.length > 0 && (
+                  {/* Card 2: Numbers on a Different Network than selectedNetwork (DataHouse Match) */}
+                  {carrierMismatchRows.length > 0 && (
+                    <div
+                      style={{
+                        padding: '14px 18px',
+                        borderRadius: 'var(--radius-lg)',
+                        backgroundColor: 'var(--color-bg-surface-elevated)',
+                        border: '1px solid var(--color-border-subtle)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                            {carrierMismatchRows.length} number{carrierMismatchRows.length > 1 ? 's' : ''} appear to be on a different network than {selectedNetwork}.
+                          </h4>
+                          <p style={{ margin: '4px 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+                            Tick the ones that are ported (kept their old number after switching) to include them in this order. Un-ticked numbers are set aside.
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={() => handleDownloadSetAside('mismatch')}
+                          leftIcon={<Download size={12} />}
+                          style={{ whiteSpace: 'nowrap' }}
+                        >
+                          Download {carrierMismatchRows.length} set-aside number{carrierMismatchRows.length > 1 ? 's' : ''} (.xlsx)
+                        </Button>
+                      </div>
+
+                      {/* Select All Ported */}
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                        <input
+                          type="checkbox"
+                          checked={carrierMismatchRows.length > 0 && carrierMismatchRows.every((r) => confirmedPortedNumbers.includes(r.phone))}
+                          onChange={(e) => handleToggleAllPorted(e.target.checked)}
+                          style={{ accentColor: theme.brandColor, width: '16px', height: '16px', cursor: 'pointer' }}
+                        />
+                        All of these are ported
+                      </label>
+
+                      {/* List of carrier mismatch numbers */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto' }}>
+                        {carrierMismatchRows.map((r) => {
+                          const isChecked = confirmedPortedNumbers.includes(r.phone);
+                          return (
+                            <div
+                              key={r.phone}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '6px 12px',
+                                backgroundColor: 'var(--color-bg-base)',
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid var(--color-border-subtle)',
+                              }}
+                            >
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => handleToggleSinglePorted(r.phone, e.target.checked)}
+                                  style={{ accentColor: theme.brandColor, width: '15px', height: '15px', cursor: 'pointer' }}
+                                />
+                                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                                  {r.phone}
+                                </span>
+                              </label>
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                  color: 'var(--color-danger)',
+                                  textTransform: 'uppercase',
+                                }}
+                              >
+                                {r.detectedNetwork || 'OTHER'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Card 3: Invalid Digits or Bad Format */}
+                  {rejectedExcelRows.filter((r) => !r.isCarrierMismatch).length > 0 && (
                     <div
                       style={{
                         padding: '10px 14px',
@@ -2187,7 +2431,7 @@ export const BuyDataPage: React.FC = () => {
                         lineHeight: 1.4,
                       }}
                     >
-                      <strong>✗ {rejectedExcelRows.length} Rejected number(s):</strong> Contains invalid Ghanaian digits or unsupported carrier prefix and will be omitted from order processing.
+                      <strong>✗ {rejectedExcelRows.filter((r) => !r.isCarrierMismatch).length} Rejected number(s):</strong> Contains invalid Ghanaian digits or corrupt format and will be omitted from order processing.
                     </div>
                   )}
 

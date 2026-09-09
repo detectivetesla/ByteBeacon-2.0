@@ -221,5 +221,20 @@ export const beneficiaryApi = {
   getPendingCount: async (): Promise<{ pendingCount: number }> => {
     return apiClient.get<{ pendingCount: number }>('/beneficiaries/pending-count');
   },
+
+  syncApprovalsWithProvider: async (params?: {
+    network?: string;
+    status?: string;
+    search?: string;
+  }): Promise<{
+    synced: number;
+    approved: number;
+    rejected: number;
+    submitted: number;
+    pending: number;
+  }> => {
+    return apiClient.post('/beneficiaries/approvals/sync', params || {}, { timeoutMs: 60000 });
+  },
 };
+
 
