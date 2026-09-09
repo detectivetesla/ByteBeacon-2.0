@@ -673,7 +673,7 @@ export const BuyDataPage: React.FC = () => {
 
           let isDone = false;
           while (!isDone && !cancelVerificationRef.current) {
-            await new Promise((resolve) => setTimeout(resolve, 350));
+            await new Promise((resolve) => setTimeout(resolve, 100));
             if (cancelVerificationRef.current) break;
 
             const pollRes = await beneficiaryApi.getVerificationJobStatus(jobId);
@@ -859,7 +859,7 @@ export const BuyDataPage: React.FC = () => {
             subChunks.push(batch.slice(j, j + CHUNK_SIZE));
           }
 
-          const subConcurrency = 4;
+          const subConcurrency = 8;
           for (let c = 0; c < subChunks.length; c += subConcurrency) {
             const subBatch = subChunks.slice(c, c + subConcurrency);
             await Promise.all(

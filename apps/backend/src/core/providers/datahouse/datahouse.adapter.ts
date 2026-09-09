@@ -220,7 +220,7 @@ export class DataHouseAdapter implements ITelecomProvider {
         chunks.push(uncachedNumbers.slice(i, i + chunkSize));
       }
 
-      const concurrency = 3;
+      const concurrency = 6;
 
       for (let i = 0; i < chunks.length; i += concurrency) {
         const batch = chunks.slice(i, i + concurrency);

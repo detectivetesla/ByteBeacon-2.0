@@ -57,7 +57,7 @@ export class BeneficiaryVerificationJobService {
   private readonly bullQueue: Queue | null = null;
   private readonly inMemoryJobs = new Map<string, VerificationJobState>();
 
-  public static readonly CHUNK_SIZE = 100;
+  public static readonly CHUNK_SIZE = 500;
   public static readonly STATE_TTL_SECONDS = 3600; // 1 hour retention
   private static readonly REDIS_PREFIX = 'bb:beneficiary:job:';
 

@@ -1095,14 +1095,14 @@ export class BeneficiaryService {
           }
         }
 
-        // Persist newly discovered approved numbers to local DB so subsequent lookups are instant via bulk queries
+        // Persist newly discovered approved numbers to local DB (fire-and-forget for speed)
         if (newlyApprovedPhones.length > 0) {
           const uniqueNewlyApproved = Array.from(new Set(newlyApprovedPhones));
           const meta = JSON.stringify({
             source: 'telecom_provider_precheck',
             verifiedAt: new Date().toISOString(),
           });
-          await this.db.query(
+          this.db.query(
             `INSERT INTO beneficiary_validation (
               phone_number, network, validation_status, validated_at, expires_at,
               provider_reference, provider_response_metadata, created_at, updated_at
@@ -1118,7 +1118,7 @@ export class BeneficiaryService {
             [uniqueNewlyApproved, meta],
           ).catch(() => {});
 
-          await this.db.query(
+          this.db.query(
             `UPDATE pending_beneficiary_approvals
              SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
              WHERE phone_number = ANY($1) AND network = 'MTN'`,
@@ -1126,7 +1126,7 @@ export class BeneficiaryService {
           ).catch(() => {});
         }
 
-        // Demote unapproved numbers in local DB across all variations so stale/corrupted VALID rows are fixed
+        // Demote unapproved numbers in local DB (fire-and-forget for speed)
         if (newlyUnapprovedPhones.length > 0) {
           const uniqueNewlyUnapproved = Array.from(new Set(newlyUnapprovedPhones));
           const allVariations = uniqueNewlyUnapproved.flatMap((p) => [
@@ -1134,7 +1134,7 @@ export class BeneficiaryService {
             `+233${p.startsWith('0') ? p.slice(1) : p}`,
             `233${p.startsWith('0') ? p.slice(1) : p}`,
           ]);
-          await this.db.query(
+          this.db.query(
             `UPDATE beneficiary_validation
              SET validation_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
              WHERE phone_number = ANY($1) AND network = 'MTN'`,
@@ -1158,21 +1158,40 @@ export class BeneficiaryService {
             ]),
           ),
         );
-        const approvedRes = await this.db.query(
-          `SELECT phone_number as "phoneNumber"
-           FROM beneficiary_validation
-           WHERE phone_number = ANY($1)
-             AND network = 'MTN'
-             AND validation_status IN ('VALID', 'APPROVED')
-             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-           UNION
-           SELECT phone_number as "phoneNumber"
-           FROM pending_beneficiary_approvals
-           WHERE phone_number = ANY($1)
-             AND network = 'MTN'
-             AND status = 'APPROVED'`,
-          [queryPhones],
-        );
+
+        // Run both queries in parallel for faster results
+        const [approvedRes, pendingRes] = await Promise.all([
+          this.db.query(
+            `SELECT phone_number as "phoneNumber"
+             FROM beneficiary_validation
+             WHERE phone_number = ANY($1)
+               AND network = 'MTN'
+               AND validation_status IN ('VALID', 'APPROVED')
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+             UNION
+             SELECT phone_number as "phoneNumber"
+             FROM pending_beneficiary_approvals
+             WHERE phone_number = ANY($1)
+               AND network = 'MTN'
+               AND status = 'APPROVED'`,
+            [queryPhones],
+          ),
+          this.db.query(
+            `SELECT phone_number as "phoneNumber"
+             FROM pending_beneficiary_approvals
+             WHERE phone_number = ANY($1)
+               AND network = 'MTN'
+               AND status IN ('PENDING', 'REJECTED')
+             UNION
+             SELECT phone_number as "phoneNumber"
+             FROM beneficiary_validation
+             WHERE phone_number = ANY($1)
+               AND network = 'MTN'
+               AND validation_status IN ('PENDING', 'REJECTED')`,
+            [queryPhones],
+          ),
+        ]);
+
         approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
@@ -1189,20 +1208,6 @@ export class BeneficiaryService {
           }
         });
 
-        const pendingRes = await this.db.query(
-          `SELECT phone_number as "phoneNumber"
-           FROM pending_beneficiary_approvals
-           WHERE phone_number = ANY($1)
-             AND network = 'MTN'
-             AND status IN ('PENDING', 'REJECTED')
-           UNION
-           SELECT phone_number as "phoneNumber"
-           FROM beneficiary_validation
-           WHERE phone_number = ANY($1)
-             AND network = 'MTN'
-             AND validation_status IN ('PENDING', 'REJECTED')`,
-          [queryPhones],
-        );
         pendingRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
