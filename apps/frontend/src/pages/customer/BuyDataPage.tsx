@@ -646,15 +646,6 @@ export const BuyDataPage: React.FC = () => {
     const rejectedMap = new Map<string, string>();
     const discoveredPorted: string[] = [];
 
-    console.log('[BB-DEBUG] verifySpreadsheetRows START', {
-      isMtnOrder,
-      selectedNetwork,
-      totalRows: rows.length,
-      mtnRowsCount: mtnRows.length,
-      uniqueMtnPhonesCount: uniqueMtnPhones.length,
-      samplePhones: uniqueMtnPhones.slice(0, 5),
-    });
-
     // 0. Primary High-Speed Async Pipeline (HTTP 202 + BullMQ Background Worker)
     let jobUsed = false;
     if (typeof beneficiaryApi.startVerificationJob === 'function') {
@@ -698,15 +689,6 @@ export const BuyDataPage: React.FC = () => {
             });
 
             if (Array.isArray(pollRes.results)) {
-              console.log('[BB-DEBUG] Job poll results', {
-                jobStatus: pollRes.status,
-                resultsCount: pollRes.results.length,
-                approvedCount: pollRes.approvedCount,
-                unapprovedCount: pollRes.unapprovedCount,
-                rejectedCount: pollRes.rejectedCount,
-                sampleResult: pollRes.results[0],
-                sampleResult2: pollRes.results.find((r: any) => r.status === 'UNAPPROVED'),
-              });
               pollRes.results.forEach((item) => {
                 const rawP = item.phone || item.phoneNumber || item.normalized;
                 const normP = normalizeGhanaPhoneNumber(rawP);
@@ -960,17 +942,6 @@ export const BuyDataPage: React.FC = () => {
       setSpreadsheetPortedCandidates((prev) => Array.from(new Set([...prev, ...discoveredPorted])));
     }
 
-    console.log('[BB-DEBUG] FINAL MAPPING ENTRY', {
-      jobUsed,
-      knownSetSize: knownSet.size,
-      unapprovedSetSize: unapprovedSet.size,
-      rejectedMapSize: rejectedMap.size,
-      sampleKnown: Array.from(knownSet).slice(0, 5),
-      sampleUnapproved: Array.from(unapprovedSet).slice(0, 5),
-      sampleRejected: Array.from(rejectedMap.entries()).slice(0, 5),
-      totalRowsToMap: rows.length,
-    });
-
     return rows.map((row) => {
       const isConfirmedPorted = row.isPorted || confirmedPortedNumbers.includes(row.phone);
       if (row.isCarrierMismatch && !isConfirmedPorted) {
@@ -1131,16 +1102,6 @@ export const BuyDataPage: React.FC = () => {
         const approvedCount = enrichedRows.filter((r) => r.status === 'APPROVED').length;
         const unapprovedCount = enrichedRows.filter((r) => r.status === 'UNAPPROVED').length;
         const rejectedCount = enrichedRows.filter((r) => r.status === 'REJECTED').length;
-
-        console.log('[BB-DEBUG] FINAL enrichedRows counts', {
-          total: enrichedRows.length,
-          approved: approvedCount,
-          unapproved: unapprovedCount,
-          rejected: rejectedCount,
-          sampleApproved: enrichedRows.find((r) => r.status === 'APPROVED'),
-          sampleUnapproved: enrichedRows.find((r) => r.status === 'UNAPPROVED'),
-          sampleRejected: enrichedRows.find((r) => r.status === 'REJECTED'),
-        });
 
         // Record unapproved items to Pending MTN Approvals with bundle metadata
         const unapprovedItems = enrichedRows.filter((r) => r.status === 'UNAPPROVED');
