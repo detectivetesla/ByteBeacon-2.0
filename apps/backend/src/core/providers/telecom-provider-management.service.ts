@@ -1852,15 +1852,22 @@ export class TelecomProviderManagementService {
 
       await client.query('COMMIT');
 
+      // Update primary provider for networks in database so DB persistence matches runtime
+      await this.db.query(
+        `UPDATE telecom_networks SET primary_provider_name = $1 WHERE is_active = TRUE`,
+        [promoted.name],
+      ).catch(() => {});
+
       // Ensure provider is dynamically reloaded in runtime registry directly from database
       await this.registry.loadProvidersFromDatabase(this.db, this.credentialStore).catch(() => {});
       this.registry.setActiveProvider(promoted.name);
 
       const targetProv = await this.getProvider(promoted.id).catch(() => null);
-      if (targetProv) {
-        for (const net of targetProv.supportedNetworks) {
-          this.registry.setNetworkRouting(String(net), promoted.name);
-        }
+      const networksToRoute = targetProv?.supportedNetworks?.length
+        ? targetProv.supportedNetworks
+        : [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO];
+      for (const net of networksToRoute) {
+        this.registry.setNetworkRouting(String(net), promoted.name);
       }
 
       if (this.auditService && actorId) {

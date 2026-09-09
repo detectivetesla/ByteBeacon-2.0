@@ -104,7 +104,8 @@ export async function adminAgentsRoutes(
             COALESCE((
               SELECT SUM(amount_pesewas)
               FROM orders
-              WHERE (agent_id IS NOT NULL OR user_id IN (SELECT id FROM users WHERE LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller') OR security_domain = 'AGENT')) AND payment_status = 'PAID'
+              WHERE (agent_id IS NOT NULL OR user_id IN (SELECT id FROM users WHERE LOWER(COALESCE(role::text, '')) IN ('agent', 'superagent', 'reseller') OR security_domain = 'AGENT'))
+                AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'
             ), 0) as "totalRevenuePesewas"
           FROM users u
           LEFT JOIN agents a ON a.user_id = u.id
@@ -129,7 +130,8 @@ export async function adminAgentsRoutes(
               COALESCE((
                 SELECT SUM(amount_pesewas)
                 FROM orders
-                WHERE agent_id IS NOT NULL AND payment_status = 'PAID'
+                WHERE agent_id IS NOT NULL
+                  AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'
               ), 0) as "totalRevenuePesewas"
             FROM agents a
             JOIN users u ON a.user_id = u.id
@@ -324,7 +326,8 @@ export async function adminAgentsRoutes(
           GROUP BY agent_id
         ) k ON k.uid = u.id
         LEFT JOIN (
-          SELECT COALESCE(agent_id, user_id) as aid, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
+          SELECT COALESCE(agent_id, user_id) as aid, COUNT(*) as orders_count,
+                 SUM(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' THEN amount_pesewas ELSE 0 END) as revenue_pesewas
           FROM orders
           WHERE payment_status = 'PAID'
           GROUP BY COALESCE(agent_id, user_id)
@@ -481,9 +484,9 @@ export async function adminAgentsRoutes(
                 COALESCE(s.store_status, 'ACTIVE') as "storeStatus",
                 COALESCE(s.approval_status, 'APPROVED') as "approvalStatus",
                 COALESCE((SELECT COUNT(*) FROM store_products WHERE store_id = s.id), 0) as "productsCount",
-                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (store_id = s.id OR agent_id = s.agent_id) AND payment_status = 'PAID'), 0) as "totalSalesPesewas"
-         FROM stores s
-         WHERE s.agent_id::text = $1 OR s.user_id::text = $2`,
+                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (store_id = s.id OR agent_id = s.agent_id) AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) as "totalSalesPesewas"
+          FROM stores s
+          WHERE s.agent_id::text = $1 OR s.user_id::text = $2`,
         [agentId, userId],
       ).catch(async () => {
         return db.query(
@@ -491,9 +494,9 @@ export async function adminAgentsRoutes(
                   COALESCE(s.status, 'ACTIVE') as "storeStatus",
                   COALESCE(s.status, 'APPROVED') as "approvalStatus",
                   COALESCE((SELECT COUNT(*) FROM store_products WHERE store_id = s.id), 0) as "productsCount",
-                  COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (store_id = s.id OR agent_id = s.agent_id) AND payment_status = 'PAID'), 0) as "totalSalesPesewas"
-           FROM agent_stores s
-           WHERE s.agent_id::text = $1 OR s.user_id::text = $2`,
+                  COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (store_id = s.id OR agent_id = s.agent_id) AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) as "totalSalesPesewas"
+            FROM agent_stores s
+            WHERE s.agent_id::text = $1 OR s.user_id::text = $2`,
           [agentId, userId],
         ).catch(() => ({ rows: [] }));
       });
@@ -525,7 +528,7 @@ export async function adminAgentsRoutes(
                 u.email, u.phone, a.business_name as "businessName", COALESCE(a.status, 'ACTIVE') as status,
                 COALESCE(u.wallet_balance_pesewas, 0) as "walletBalancePesewas",
                 COALESCE((SELECT COUNT(*) FROM orders WHERE agent_id = a.id), 0) as "ordersCount",
-                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE agent_id = a.id AND payment_status = 'PAID'), 0) as "revenuePesewas",
+                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE agent_id = a.id AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) as "revenuePesewas",
                 a.created_at as "createdAt"
          FROM agents a
          JOIN users u ON a.user_id = u.id
@@ -555,7 +558,7 @@ export async function adminAgentsRoutes(
         `SELECT ac.id, ac.customer_id as "customerId", COALESCE(u.full_name, 'Customer') as "fullName",
                 u.email, u.phone,
                 COALESCE((SELECT COUNT(*) FROM orders WHERE user_id = u.id AND agent_id = $1), 0) as "ordersCount",
-                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE user_id = u.id AND agent_id = $1 AND payment_status = 'PAID'), 0) as "spentPesewas",
+                COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE user_id = u.id AND agent_id = $1 AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) as "spentPesewas",
                 (SELECT MAX(created_at) FROM orders WHERE user_id = u.id AND agent_id = $1) as "lastOrderDate",
                 ac.created_at as "createdAt"
          FROM agent_customers ac
@@ -1305,7 +1308,7 @@ export async function adminAgentsRoutes(
           COALESCE(a.status, u.status, 'ACTIVE') as status,
           ROUND(COALESCE(u.wallet_balance_pesewas, 0) / 100.0, 2) as "walletBalanceGhs",
           COALESCE((SELECT COUNT(*) FROM orders WHERE agent_id = a.id OR user_id = u.id), 0) as "ordersCount",
-          COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND payment_status = 'PAID'), 0) / 100.0 as "revenueGhs",
+          COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) / 100.0 as "revenueGhs",
           COALESCE(a.created_at, u.created_at) as "createdAt"
         FROM users u
         LEFT JOIN agents a ON a.user_id = u.id

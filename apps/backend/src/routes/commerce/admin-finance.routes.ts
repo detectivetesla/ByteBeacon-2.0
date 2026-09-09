@@ -68,11 +68,11 @@ export async function adminFinanceRoutes(
         : Math.round(parseFloat(row.agentBalanceGhs || '0') * 100);
       const totalFloatPesewas = customerWalletBalancePesewas + agentWalletBalancePesewas;
 
-      // 2. Revenue from Completed Orders
+      // 2. Revenue from Completed Orders (Excluding failed and refunded orders)
       const orderMetricsRes = await db.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN payment_status = 'PAID' THEN amount_pesewas ELSE 0 END), 0) as "totalRevenue",
-          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND agent_id IS NOT NULL THEN (amount_pesewas * 0.03) ELSE 0 END), 0) as "totalCommissions"
+          COALESCE(SUM(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' THEN amount_pesewas ELSE 0 END), 0) as "totalRevenue",
+          COALESCE(SUM(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' AND agent_id IS NOT NULL THEN (amount_pesewas * 0.03) ELSE 0 END), 0) as "totalCommissions"
         FROM orders
       `);
       const totalRevenuePesewas = parseInt(orderMetricsRes.rows[0]?.totalRevenue || '0', 10);
@@ -137,7 +137,7 @@ export async function adminFinanceRoutes(
       const trendRes = await db.query(`
         SELECT 
           TO_CHAR(d.day, 'YYYY-MM-DD') as "date",
-          COALESCE(SUM(CASE WHEN o.payment_status = 'PAID' THEN o.amount_pesewas ELSE 0 END), 0) as "revenuePesewas",
+          COALESCE(SUM(CASE WHEN o.order_status IN ('COMPLETED', 'DELIVERED') AND o.payment_status = 'PAID' AND COALESCE(o.refund_status, 'NONE') != 'COMPLETED' THEN o.amount_pesewas ELSE 0 END), 0) as "revenuePesewas",
           COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN p.amount_pesewas ELSE 0 END), 0) as "depositsPesewas",
           COALESCE(SUM(CASE WHEN r.status = 'COMPLETED' THEN r.amount_pesewas ELSE 0 END), 0) as "refundsPesewas"
         FROM GENERATE_SERIES(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, '1 day'::interval) d(day)

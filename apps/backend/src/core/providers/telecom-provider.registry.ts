@@ -385,14 +385,15 @@ export class TelecomProviderRegistry implements ITelecomProvider {
 
     // Automatically update default primary carrier routing for networks supported by this provider
     const activeEntry = this.providers.get(foundKey);
-    if (activeEntry) {
-      for (const net of activeEntry.supportedNetworks) {
-        const existing = this.carrierRouting.get(String(net).toUpperCase());
-        this.setNetworkRouting(String(net), foundKey, existing?.fallback);
-      }
+    const networksToRoute = (activeEntry?.supportedNetworks && activeEntry.supportedNetworks.length > 0)
+      ? activeEntry.supportedNetworks
+      : [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO];
+    for (const net of networksToRoute) {
+      const existing = this.carrierRouting.get(String(net).toUpperCase());
+      this.setNetworkRouting(String(net), foundKey, existing?.fallback);
     }
 
-    logger.info({ activeProvider: foundKey }, '[TELECOM_REGISTRY] Switched active authoritative telecom provider');
+    logger.info({ activeProvider: foundKey, routedNetworks: networksToRoute }, '[TELECOM_REGISTRY] Switched active authoritative telecom provider');
   }
 
   public getActiveProvider(): ITelecomProvider {

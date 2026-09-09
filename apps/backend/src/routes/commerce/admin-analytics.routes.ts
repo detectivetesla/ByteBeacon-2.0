@@ -50,19 +50,19 @@ export async function adminAnalyticsRoutes(
         return { rows: [{ totalUsers: 0, totalCustomers: 0, totalAgents: 0, totalAdmins: 0, totalSuperAdmins: 0, activeUsers: 0, mfaUsers: 0 }] };
       });
 
-      // 2. Order metrics & projections (Rock-solid PostgreSQL interval arithmetic and dual lifetime/period aggregation)
+      // 2. Order metrics & projections (Authoritative net volume excluding failed and refunded orders)
       const orderStatsRes = await db.query(`
         SELECT 
           COUNT(*) as "lifetimeOrders",
-          COALESCE(SUM(amount_pesewas), 0) as "lifetimeVolumePesewas",
+          COALESCE(SUM(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' THEN amount_pesewas ELSE 0 END), 0) as "lifetimeVolumePesewas",
           COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) THEN 1 END) as "totalOrders",
           COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as "completedOrders",
           COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status IN ('PENDING', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT', 'CREATED', 'VALIDATING') THEN 1 END) as "processingOrders",
           COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as "failedOrders",
-          COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status = 'REFUNDED' THEN 1 END) as "refundedOrders",
-          COALESCE(SUM(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) THEN amount_pesewas ELSE 0 END), 0) as "periodVolumePesewas",
-          COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_pesewas ELSE 0 END), 0) as "todayVolumePesewas",
-          COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE) THEN amount_pesewas ELSE 0 END), 0) as "monthVolumePesewas"
+          COUNT(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND (order_status = 'REFUNDED' OR refund_status = 'COMPLETED') THEN 1 END) as "refundedOrders",
+          COALESCE(SUM(CASE WHEN ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int))) AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' THEN amount_pesewas ELSE 0 END), 0) as "periodVolumePesewas",
+          COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' THEN amount_pesewas ELSE 0 END), 0) as "todayVolumePesewas",
+          COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE) AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' THEN amount_pesewas ELSE 0 END), 0) as "monthVolumePesewas"
         FROM orders
       `, [days]).catch((err) => {
         app.log.error({ err }, '[ADMIN_ANALYTICS] Error calculating orderStats');
@@ -87,7 +87,7 @@ export async function adminAnalyticsRoutes(
         SELECT 
           network,
           COUNT(*) as "orderCount",
-          COALESCE(SUM(amount_pesewas), 0) as "volumePesewas"
+          COALESCE(SUM(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' THEN amount_pesewas ELSE 0 END), 0) as "volumePesewas"
         FROM orders
         WHERE ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int)))
         GROUP BY network
@@ -113,9 +113,9 @@ export async function adminAnalyticsRoutes(
         SELECT 
           CASE WHEN LOWER(COALESCE(u.role::text, 'customer')) IN ('agent', 'superagent', 'reseller') THEN 'agent' ELSE 'customer' END as tier,
           COUNT(*) as "orderCount",
-          COALESCE(SUM(o.amount_pesewas), 0) as "volumePesewas",
-          COALESCE(SUM(CASE WHEN o.created_at >= CURRENT_DATE THEN o.amount_pesewas ELSE 0 END), 0) as "todayVolumePesewas",
-          COALESCE(SUM(CASE WHEN o.created_at >= date_trunc('month', CURRENT_DATE) THEN o.amount_pesewas ELSE 0 END), 0) as "monthVolumePesewas"
+          COALESCE(SUM(CASE WHEN o.order_status IN ('COMPLETED', 'DELIVERED') AND o.payment_status = 'PAID' AND COALESCE(o.refund_status, 'NONE') != 'COMPLETED' THEN o.amount_pesewas ELSE 0 END), 0) as "volumePesewas",
+          COALESCE(SUM(CASE WHEN o.created_at >= CURRENT_DATE AND o.order_status IN ('COMPLETED', 'DELIVERED') AND o.payment_status = 'PAID' AND COALESCE(o.refund_status, 'NONE') != 'COMPLETED' THEN o.amount_pesewas ELSE 0 END), 0) as "todayVolumePesewas",
+          COALESCE(SUM(CASE WHEN o.created_at >= date_trunc('month', CURRENT_DATE) AND o.order_status IN ('COMPLETED', 'DELIVERED') AND o.payment_status = 'PAID' AND COALESCE(o.refund_status, 'NONE') != 'COMPLETED' THEN o.amount_pesewas ELSE 0 END), 0) as "monthVolumePesewas"
         FROM orders o
         LEFT JOIN users u ON u.id = o.user_id
         WHERE ($1::int = 0 OR ($1::int = 1 AND o.created_at >= CURRENT_DATE) OR ($1::int > 1 AND o.created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int)))

@@ -12,7 +12,7 @@ export async function webhookRoutes(
     '/webhooks/paystack',
     async (req: FastifyRequest, reply: FastifyReply) => {
       const signature = (req.headers['x-paystack-signature'] as string) || '';
-      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      const rawBody = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
 
       try {
         const result = await deps.webhookService.handlePaystackWebhook(

@@ -250,7 +250,8 @@ export function createApp(options: AppOptions = {}) {
   app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
 
   // 3b. Graceful JSON Content-Type Parser (tolerates empty bodies on POST/DELETE/PUT/PATCH)
-  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    (req as any).rawBody = body;
     if (!body || (typeof body === 'string' && body.trim() === '')) {
       done(null, {});
       return;
@@ -406,6 +407,16 @@ export function createApp(options: AppOptions = {}) {
   const fulfillmentQueueService =
     options.fulfillmentQueueService ?? new FulfillmentQueueService(dbPool, redisClient, queueManager);
 
+  const paymentProvider =
+    options.paymentProvider ??
+    (config.NODE_ENV !== 'production' && config.ALLOW_MOCK_PROVIDERS && !config.PAYSTACK_SECRET_KEY && !process.env.PAYSTACK_SECRET_KEY
+      ? (new MockPaymentProvider() as unknown as IPaymentProvider)
+      : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || '' }));
+
+  const refundService =
+    options.refundService ??
+    new RefundService(dbPool, paymentProvider, ledgerService, idempotencyService);
+
   const fulfillmentWorker =
     options.fulfillmentWorker ??
     new FulfillmentWorker(
@@ -414,6 +425,8 @@ export function createApp(options: AppOptions = {}) {
       circuitBreaker,
       retryPolicy,
       fulfillmentQueueService,
+      undefined,
+      refundService,
     );
 
   const orderService =
@@ -426,12 +439,6 @@ export function createApp(options: AppOptions = {}) {
       fulfillmentQueueService,
       fulfillmentWorker,
     );
-
-  const paymentProvider =
-    options.paymentProvider ??
-    (config.NODE_ENV !== 'production' && config.ALLOW_MOCK_PROVIDERS && !config.PAYSTACK_SECRET_KEY && !process.env.PAYSTACK_SECRET_KEY
-      ? (new MockPaymentProvider() as unknown as IPaymentProvider)
-      : new PaystackAdapter({ secretKey: config.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_SECRET_KEY || '' }));
 
   const paymentService =
     options.paymentService ??
@@ -446,9 +453,6 @@ export function createApp(options: AppOptions = {}) {
   const webhookService =
     options.webhookService ??
     new PaymentWebhookService(dbPool, redisClient, paymentProvider, paymentService);
-  const refundService =
-    options.refundService ??
-    new RefundService(dbPool, paymentProvider, ledgerService, idempotencyService);
 
   const beneficiaryCacheService =
     options.beneficiaryCacheService ?? new BeneficiaryCacheService(redisClient);

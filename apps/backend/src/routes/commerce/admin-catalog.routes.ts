@@ -368,15 +368,15 @@ export async function adminCatalogRoutes(
       const analyticsQuery = `
         SELECT
           COUNT(*) as "lifetimeOrders",
-          COALESCE(SUM(amount_pesewas), 0) as "lifetimeRevenuePesewas",
+          COALESCE(SUM(amount_pesewas) FILTER (WHERE order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) as "lifetimeRevenuePesewas",
           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) as "todayOrders",
-          COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_DATE), 0) as "todayRevenuePesewas",
+          COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_DATE AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) as "todayRevenuePesewas",
           COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days') as "last7DaysOrders",
-          COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'), 0) as "last7DaysRevenuePesewas",
+          COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days' AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) as "last7DaysRevenuePesewas",
           COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days') as "last30DaysOrders",
-          COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'), 0) as "last30DaysRevenuePesewas",
+          COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days' AND order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'), 0) as "last30DaysRevenuePesewas",
           COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days') as "last90DaysOrders",
-          COUNT(*) FILTER (WHERE order_status = 'COMPLETED') as "successfulOrders",
+          COUNT(*) FILTER (WHERE order_status IN ('COMPLETED', 'DELIVERED')) as "successfulOrders",
           COUNT(*) FILTER (WHERE order_status = 'FAILED') as "failedOrders",
           COUNT(*) FILTER (WHERE refund_status = 'COMPLETED') as "refundedOrders"
         FROM orders

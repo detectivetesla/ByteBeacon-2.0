@@ -501,4 +501,135 @@ describe('Wallet Deduction & Refund End-to-End Suite', () => {
       });
     });
   });
+
+  describe('4. Automated Fulfillment Failure Refund & Double-Entry Integrity', () => {
+    it('should atomically refund wallet balance, insert into refunds table, and post balanced double-entry ledger lines', async () => {
+      let userBalancePesewas = 1000;
+      let orderStatus = OrderStatus.READY_FOR_FULFILLMENT;
+      let paymentStatus = PaymentStatus.PAID;
+      let refundStatus = RefundStatus.NONE;
+      const insertedRefunds: any[] = [];
+      const updatedPayments: any[] = [];
+
+      mockClient.query.mockImplementation((q: string, params?: any[]) => {
+        if (q === 'BEGIN' || q === 'COMMIT' || q === 'ROLLBACK') {
+          return Promise.resolve({ rows: [] });
+        }
+        if (q.includes('FROM orders') && q.includes('FOR UPDATE')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'ord_fail_1',
+                public_id: 'ord_fail_pub_1',
+                user_id: 'usr_cust_1',
+                agent_id: null,
+                amount_pesewas: 600,
+                currency: Currency.GHS,
+                payment_status: paymentStatus,
+                order_status: orderStatus,
+                refund_status: refundStatus,
+              },
+            ],
+          });
+        }
+        if (q.includes('FROM payments')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'pay_fail_1',
+                provider: 'WALLET',
+                payment_method: 'WALLET',
+                provider_reference: 'pst_wal_fail_1',
+                amount_pesewas: 600,
+                currency: Currency.GHS,
+                status: paymentStatus,
+              },
+            ],
+          });
+        }
+        if (q.includes('FROM refunds WHERE')) {
+          return Promise.resolve({ rows: insertedRefunds });
+        }
+        if (q.includes('INSERT INTO refunds')) {
+          const row = {
+            id: 'ref_fail_1',
+            public_id: 'ref_fail_pub_1',
+            created_at: new Date(),
+            updated_at: new Date(),
+          };
+          insertedRefunds.push(row);
+          return Promise.resolve({ rows: [row] });
+        }
+        if (q.includes('UPDATE payments SET status')) {
+          paymentStatus = PaymentStatus.REFUNDED;
+          updatedPayments.push({ id: params?.[1], status: params?.[0] });
+          return Promise.resolve({ rows: [], rowCount: 1 });
+        }
+        if (q.includes('UPDATE orders')) {
+          refundStatus = RefundStatus.COMPLETED;
+          orderStatus = OrderStatus.FAILED;
+          paymentStatus = PaymentStatus.REFUNDED;
+          return Promise.resolve({ rows: [], rowCount: 1 });
+        }
+        if (q.includes('UPDATE users')) {
+          const credit = params![0];
+          userBalancePesewas += credit;
+          return Promise.resolve({ rows: [], rowCount: 1 });
+        }
+        if (q.includes('SELECT wallet_balance_pesewas')) {
+          return Promise.resolve({
+            rows: [{ wallet_balance_pesewas: userBalancePesewas, wallet_balance: (userBalancePesewas / 100).toFixed(2) }],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const refundService = new RefundService(
+        mockDb,
+        mockPaymentProvider,
+        mockLedgerService,
+        mockIdempotencyService,
+      );
+
+      const refundResult = await refundService.executeAutomatedOrderRefund(
+        'ord_fail_1',
+        'Provider rejected bundle submission',
+        'corr_fail_1',
+      );
+
+      expect(refundResult.success).toBe(true);
+      expect(refundResult.amountRefundedPesewas).toBe(600);
+      expect(userBalancePesewas).toBe(1600); // 1000 + 600
+      expect(orderStatus).toBe(OrderStatus.FAILED);
+      expect(refundStatus).toBe(RefundStatus.COMPLETED);
+      expect(paymentStatus).toBe(PaymentStatus.REFUNDED);
+      expect(insertedRefunds).toHaveLength(1);
+
+      // Financial Ledger: exactly 2 entries (DEBIT PLATFORM_ESCROW, CREDIT CUSTOMER_WALLET)
+      expect(ledgerEntries).toHaveLength(2);
+      expect(ledgerEntries[0]).toMatchObject({
+        entryType: 'DEBIT',
+        accountType: 'PLATFORM_ESCROW',
+        amountPesewas: 600,
+      });
+      expect(ledgerEntries[1]).toMatchObject({
+        entryType: 'CREDIT',
+        accountType: 'CUSTOMER_WALLET',
+        accountId: 'usr_cust_1',
+        amountPesewas: 600,
+      });
+
+      // Second invocation must be an idempotent no-op with zero extra ledger entries
+      const idempotentResult = await refundService.executeAutomatedOrderRefund(
+        'ord_fail_1',
+        'Provider rejected bundle submission',
+        'corr_fail_2',
+      );
+
+      expect(idempotentResult.success).toBe(true);
+      expect(idempotentResult.alreadyRefunded).toBe(true);
+      expect(userBalancePesewas).toBe(1600); // No double credit
+      expect(ledgerEntries).toHaveLength(2); // No extra ledger entries
+    });
+  });
 });

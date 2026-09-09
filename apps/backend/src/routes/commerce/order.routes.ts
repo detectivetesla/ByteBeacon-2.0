@@ -100,7 +100,7 @@ export async function orderRoutes(
 
       // Beneficiary validation enforcement for MTN individual orders (Up2U first-time rule)
       const prodRes = await Promise.resolve(
-        db.query(`SELECT network, data_amount_mb FROM products WHERE id = $1 LIMIT 1`, [productId]),
+        db.query(`SELECT network, data_amount_mb FROM catalog_products WHERE id = $1 LIMIT 1`, [productId]),
       ).catch(() => ({ rows: [] }));
       const prodRow = prodRes.rows?.[0];
       const prodNetwork = prodRow?.network;

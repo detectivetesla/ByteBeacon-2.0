@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type pg from 'pg';
 import {
   OrderStatus,
@@ -14,6 +15,7 @@ import { FulfillmentQueueService } from './fulfillment-queue.service.js';
 import { QueueManager } from '../../infrastructure/queues/queue.manager.js';
 import { logger } from '../logging/logger.js';
 import { AgentWebhookDispatcherService } from '../webhooks/agent-webhook-dispatcher.service.js';
+import type { RefundService } from '../payments/refund.service.js';
 
 export interface ProcessOrderResult {
   orderId: string;
@@ -31,6 +33,7 @@ export class FulfillmentWorker {
   private readonly retryPolicy: RetryPolicy;
   private readonly queueService: FulfillmentQueueService;
   private readonly webhookDispatcher?: AgentWebhookDispatcherService;
+  private readonly refundService?: RefundService;
 
   constructor(
     db: pg.Pool,
@@ -39,6 +42,7 @@ export class FulfillmentWorker {
     retryPolicy: RetryPolicy,
     queueService: FulfillmentQueueService,
     webhookDispatcher?: AgentWebhookDispatcherService,
+    refundService?: RefundService,
   ) {
     this.db = db;
     this.provider = provider;
@@ -46,6 +50,7 @@ export class FulfillmentWorker {
     this.retryPolicy = retryPolicy;
     this.queueService = queueService;
     this.webhookDispatcher = webhookDispatcher || new AgentWebhookDispatcherService(db);
+    this.refundService = refundService;
   }
 
   /**
@@ -485,99 +490,128 @@ export class FulfillmentWorker {
     reason: string = 'AUTOMATIC_FULFILLMENT_FAILURE_REFUND',
   ): Promise<boolean> {
     try {
-      // 1. Fetch order details
-      const orderRes = await this.db.query(
-        `SELECT id, user_id, agent_id, amount_pesewas, payment_status, refund_status
-         FROM orders
-         WHERE id = $1`,
-        [orderId],
-      );
+      if (this.refundService) {
+        const res = await this.refundService.executeAutomatedOrderRefund(orderId, reason, correlationId);
+        if (!res.success) return false;
+      } else {
+        // Authoritative fallback with balanced double-entry ledger lines if refundService is not injected
+        const client = await this.db.connect();
+        try {
+          await client.query('BEGIN');
+          const orderRes = await client.query(
+            `SELECT id, public_id, user_id, agent_id, amount_pesewas, currency, payment_status, refund_status
+             FROM orders WHERE id = $1 FOR UPDATE`,
+            [orderId],
+          );
+          if (orderRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return false;
+          }
+          const order = orderRes.rows[0];
+          if (order.refund_status === 'COMPLETED') {
+            await client.query('COMMIT');
+            return true;
+          }
+          if (order.payment_status !== PaymentStatus.PAID || !order.user_id || Number(order.amount_pesewas) <= 0) {
+            await client.query(
+              `UPDATE orders SET order_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+              [OrderStatus.FAILED, orderId],
+            );
+            await client.query('COMMIT');
+            return true;
+          }
 
-      if (orderRes.rows.length === 0) return false;
-      const order = orderRes.rows[0];
+          const amountPesewas = Number(order.amount_pesewas);
 
-      // Verification: must be paid and not already refunded
-      if (
-        order.payment_status !== PaymentStatus.PAID ||
-        order.refund_status === 'COMPLETED' ||
-        !order.user_id ||
-        !order.amount_pesewas ||
-        Number(order.amount_pesewas) <= 0
-      ) {
-        return false;
+          // Find or create payment
+          const payRes = await client.query(
+            `SELECT id FROM payments WHERE order_id = $1 AND status = 'PAID' ORDER BY created_at DESC LIMIT 1`,
+            [orderId],
+          );
+          let paymentId = payRes.rows[0]?.id;
+          if (!paymentId) {
+            const newPay = await client.query(
+              `INSERT INTO payments (order_id, user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, paid_at)
+               VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'PAID', CURRENT_TIMESTAMP) RETURNING id`,
+              [order.id, order.user_id, amountPesewas, order.currency || 'GHS', `pst_wal_${order.public_id || order.id}`],
+            );
+            paymentId = newPay.rows[0].id;
+          }
+
+          const refundRes = await client.query(
+            `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status)
+             VALUES ($1, $2, $3, $4, 'COMPLETED') RETURNING id`,
+            [paymentId, order.id, amountPesewas, reason],
+          );
+          const refundId = refundRes.rows[0].id;
+
+          await client.query(
+            `UPDATE payments SET status = 'REFUNDED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [paymentId],
+          );
+          await client.query(
+            `UPDATE orders SET refund_status = 'COMPLETED', payment_status = 'REFUNDED', order_status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [order.id],
+          );
+          await client.query(
+            `UPDATE users
+             SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+                 wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [amountPesewas, order.user_id],
+          );
+
+          // Balanced double-entry financial ledger (Total Debits == Total Credits)
+          const transactionId = crypto.randomUUID();
+          const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+          await client.query(
+            `INSERT INTO financial_ledger (transaction_id, entry_type, account_type, account_id, amount_pesewas, currency, reference_type, reference_id, description)
+             VALUES ($1, 'DEBIT', 'PLATFORM_ESCROW', $2, $3, $4, 'REFUND', $5, $6),
+                    ($1, 'CREDIT', 'CUSTOMER_WALLET', $7, $3, $4, 'REFUND', $5, $8)`,
+            [
+              transactionId,
+              platformSystemAccountId,
+              amountPesewas,
+              order.currency || 'GHS',
+              refundId,
+              `Platform escrow debited for automated refund on Order ${order.id}`,
+              order.user_id,
+              `Customer wallet credited for automated refund on Order ${order.id}`,
+            ],
+          );
+
+          await client.query('COMMIT');
+        } catch (fErr) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw fErr;
+        } finally {
+          client.release();
+        }
       }
 
-      const amountPesewas = Number(order.amount_pesewas);
-
-      // 2. Refund user's wallet
-      await this.db.query(
-        `UPDATE users
-         SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
-             wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [amountPesewas, order.user_id],
-      );
-
-      // 3. Mark order as refunded
-      await this.db.query(
-        `UPDATE orders
-         SET refund_status = 'COMPLETED',
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
+      // Webhook dispatching: wallet.updated & purchase.failed
+      const orderMeta = await this.db.query(
+        'SELECT id, public_id, user_id, agent_id, network, recipient_phone, amount_pesewas FROM orders WHERE id = $1',
         [orderId],
-      );
+      ).catch(() => ({ rows: [] }));
+      const ord = orderMeta.rows[0];
 
-      // 4. Record ledger entry (double-entry accounting)
-      await this.db.query(
-        `INSERT INTO financial_ledger (
-            transaction_id, entry_type, account_type, account_id,
-            amount_pesewas, currency, reference_type, reference_id,
-            description
-         ) VALUES (
-            uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
-            $2, 'GHS', 'ORDER_REFUND', $3,
-            $4
-         )`,
-        [order.user_id, amountPesewas, orderId, `Automated refund for failed order [${orderId}]: ${reason}`],
-      ).catch(() => {});
-
-      // 5. Insert order event
-      await this.db.query(
-        `INSERT INTO order_events (
-            order_id, event_type, correlation_id, actor_id, actor_type, source,
-            previous_state, new_state
-         ) VALUES ($1, 'ORDER_REFUNDED', $2, $3, 'SYSTEM', 'FULFILLMENT_WORKER', $4, $5)`,
-        [
-          orderId,
-          correlationId,
-          order.user_id,
-          JSON.stringify({ refundStatus: order.refund_status || 'NONE' }),
-          JSON.stringify({
-            refundStatus: 'COMPLETED',
-            amountPesewas,
-            reason,
-            refundedAt: new Date().toISOString(),
-          }),
-        ],
-      ).catch(() => {});
-
-      // 6. Webhook dispatching: wallet.updated
-      const targetAgentId = order.agent_id || order.user_id;
-      if (targetAgentId) {
+      if (ord) {
+        const targetAgentId = ord.agent_id || ord.user_id;
         const balRes = await this.db.query(
           'SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1',
-          [order.user_id],
+          [ord.user_id],
         ).catch(() => ({ rows: [] }));
         const balanceAfter =
           balRes.rows[0]?.wallet_balance ??
           ((balRes.rows[0]?.wallet_balance_pesewas || 0) / 100).toFixed(2);
 
         this.webhookDispatcher?.dispatchAgentEvent(targetAgentId, 'wallet.updated', {
-          wallet_id: order.user_id,
+          wallet_id: ord.user_id,
           agent_id: targetAgentId,
           direction: 'credit',
-          amount: (amountPesewas / 100).toFixed(2),
+          amount: (Number(ord.amount_pesewas || 0) / 100).toFixed(2),
           currency: 'GHS',
           balance_after: balanceAfter,
           reason: `Automated refund for failed order [${orderId}]: ${reason}`,
@@ -585,8 +619,8 @@ export class FulfillmentWorker {
       }
 
       logger.info(
-        { orderId, userId: order.user_id, amountPesewas, reason },
-        '[FULFILLMENT_WORKER] Automated wallet refund successfully executed for failed order',
+        { orderId, reason },
+        '[FULFILLMENT_WORKER] Automated wallet refund successfully completed for failed order',
       );
       return true;
     } catch (err: any) {
