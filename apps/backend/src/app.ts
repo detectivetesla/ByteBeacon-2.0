@@ -25,6 +25,8 @@ import { CatalogService } from './core/commerce/catalog.service.js';
 import { IdempotencyService } from './core/commerce/idempotency.service.js';
 import { OrderService } from './core/commerce/order.service.js';
 import { BeneficiaryService } from './core/commerce/beneficiary.service.js';
+import { BeneficiaryCacheService } from './core/cache/beneficiary-cache.service.js';
+import { BeneficiaryVerificationJobService } from './core/commerce/beneficiary-verification-job.service.js';
 import { BulkOrderService } from './core/commerce/bulk-order.service.js';
 import { IPaymentProvider } from './core/payments/payment-provider.interface.js';
 import { PaystackAdapter } from './core/payments/paystack.adapter.js';
@@ -105,6 +107,8 @@ export interface AppOptions {
   idempotencyService?: IdempotencyService;
   orderService?: OrderService;
   beneficiaryService?: BeneficiaryService;
+  beneficiaryCacheService?: BeneficiaryCacheService;
+  beneficiaryVerificationJobService?: BeneficiaryVerificationJobService;
   bulkOrderService?: BulkOrderService;
   paymentProvider?: IPaymentProvider;
   ledgerService?: FinancialLedgerService;
@@ -446,8 +450,16 @@ export function createApp(options: AppOptions = {}) {
     options.refundService ??
     new RefundService(dbPool, paymentProvider, ledgerService, idempotencyService);
 
+  const beneficiaryCacheService =
+    options.beneficiaryCacheService ?? new BeneficiaryCacheService(redisClient);
+
   const beneficiaryService =
-    options.beneficiaryService ?? new BeneficiaryService(dbPool, telecomProvider);
+    options.beneficiaryService ??
+    new BeneficiaryService(dbPool, telecomProvider, beneficiaryCacheService);
+
+  const beneficiaryVerificationJobService =
+    options.beneficiaryVerificationJobService ??
+    new BeneficiaryVerificationJobService(beneficiaryService, redisClient, queueManager);
 
   const bulkOrderService =
     options.bulkOrderService ??
@@ -477,6 +489,7 @@ export function createApp(options: AppOptions = {}) {
     fulfillmentWorker.attachBullWorker(queueManager);
     bulkQueueService.attachBullWorker(queueManager);
     reconciliationQueueService.attachBullWorker(queueManager);
+    beneficiaryVerificationJobService.attachBullWorker(queueManager);
   }
 
   // Graceful shutdown: drain queues and stop workers on server close
@@ -600,6 +613,7 @@ export function createApp(options: AppOptions = {}) {
       await beneficiaryRoutes(commerceSubApp, {
         db: dbPool!,
         beneficiaryService,
+        verificationJobService: beneficiaryVerificationJobService,
         tokenService,
         apiKeyService,
         rbacService,

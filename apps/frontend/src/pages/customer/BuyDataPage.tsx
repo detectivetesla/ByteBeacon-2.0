@@ -247,8 +247,31 @@ export const BuyDataPage: React.FC = () => {
   const [excelParsedRows, setExcelParsedRows] = useState<ParsedSpreadsheetRow[]>([]);
   const [excelLoading, setExcelLoading] = useState(false);
   const [isVerifyingApprovals, setIsVerifyingApprovals] = useState(false);
+  const [verificationStats, setVerificationStats] = useState<{
+    total: number;
+    processed: number;
+    approved: number;
+    unapproved: number;
+    rejected: number;
+    progressPercent: number;
+  } | null>(null);
+  const [activeVerificationJobId, setActiveVerificationJobId] = useState<string | null>(null);
+  const cancelVerificationRef = useRef(false);
   const [excelFilter, setExcelFilter] = useState<RecipientRowStatus | 'ALL'>('ALL');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCancelVerification = async () => {
+    cancelVerificationRef.current = true;
+    if (activeVerificationJobId) {
+      try {
+        await beneficiaryApi.cancelVerificationJob(activeVerificationJobId);
+        toastInfo('Verification Stopped', 'Background job cancelled. Existing verified rows have been preserved.');
+      } catch {
+        // ignore
+      }
+    }
+    setIsVerifyingApprovals(false);
+  };
 
   // Purchase Modal Trigger State
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
@@ -593,14 +616,140 @@ export const BuyDataPage: React.FC = () => {
     const rejectedMap = new Map<string, string>();
     const discoveredPorted: string[] = [];
 
-    const batchSize = 1000;
-    const batches: string[][] = [];
-    for (let i = 0; i < uniqueMtnPhones.length; i += batchSize) {
-      batches.push(uniqueMtnPhones.slice(i, i + batchSize));
+    // 0. Primary High-Speed Async Pipeline (HTTP 202 + BullMQ Background Worker)
+    let jobUsed = false;
+    if (typeof beneficiaryApi.startVerificationJob === 'function') {
+      try {
+        setVerificationStats({
+          total: uniqueMtnPhones.length,
+          processed: 0,
+          approved: 0,
+          unapproved: 0,
+          rejected: 0,
+          progressPercent: 0,
+        });
+        cancelVerificationRef.current = false;
+
+        const jobInit = await beneficiaryApi.startVerificationJob({
+          network: NetworkProvider.MTN,
+          phoneNumbers: uniqueMtnPhones,
+          record: false,
+        });
+
+        if (jobInit && jobInit.jobId) {
+          jobUsed = true;
+          const jobId = jobInit.jobId;
+          setActiveVerificationJobId(jobId);
+
+          let isDone = false;
+          while (!isDone && !cancelVerificationRef.current) {
+            await new Promise((resolve) => setTimeout(resolve, 350));
+            if (cancelVerificationRef.current) break;
+
+            const pollRes = await beneficiaryApi.getVerificationJobStatus(jobId);
+            if (!pollRes) break;
+
+            setVerificationStats({
+              total: pollRes.totalRows || uniqueMtnPhones.length,
+              processed: pollRes.processedRows || 0,
+              approved: pollRes.approvedCount || 0,
+              unapproved: pollRes.unapprovedCount || 0,
+              rejected: pollRes.rejectedCount || 0,
+              progressPercent: pollRes.progressPercent || 0,
+            });
+
+            if (Array.isArray(pollRes.results)) {
+              pollRes.results.forEach((item) => {
+                const rawP = item.phone || item.phoneNumber || item.normalized;
+                const normP = normalizeGhanaPhoneNumber(rawP);
+                const variations = [
+                  normP,
+                  `+233${normP.slice(1)}`,
+                  `233${normP.slice(1)}`,
+                  rawP,
+                  item.phone,
+                  item.phoneNumber,
+                  item.normalized,
+                ].filter(Boolean);
+
+                const isInvalid = item.valid === false || item.status === 'REJECTED';
+                const isUnapproved =
+                  !isInvalid &&
+                  (item.status === 'UNAPPROVED' || item.known === false || item.isKnown === false);
+                const isApproved =
+                  !isInvalid &&
+                  !isUnapproved &&
+                  (item.status === 'APPROVED' || item.known === true || item.isKnown === true || item.orderable === true);
+
+                if (isInvalid) {
+                  variations.forEach((v) => rejectedMap.set(v, item.message || 'Invalid recipient number'));
+                } else if (isUnapproved) {
+                  variations.forEach((v) => unapprovedSet.add(v));
+                } else if (isApproved) {
+                  variations.forEach((v) => knownSet.add(v));
+                }
+              });
+
+              if (pollRes.portedCandidates && Array.isArray(pollRes.portedCandidates)) {
+                discoveredPorted.push(...pollRes.portedCandidates);
+              }
+
+              // Incrementally update UI status of parsed rows as each micro-batch finishes
+              setExcelParsedRows((prevRows) => {
+                return prevRows.map((r) => {
+                  if (!r.isValid || r.network === 'TELECEL' || r.network === 'AIRTELTIGO') return r;
+                  const normP = normalizeGhanaPhoneNumber(r.phone);
+                  if (rejectedMap.has(normP) || rejectedMap.has(r.phone)) {
+                    return {
+                      ...r,
+                      status: 'REJECTED' as const,
+                      statusReason: rejectedMap.get(normP) || rejectedMap.get(r.phone) || 'Invalid recipient number',
+                      isValid: false,
+                      isKnown: false,
+                    };
+                  }
+                  if (knownSet.has(normP) || knownSet.has(r.phone)) {
+                    return {
+                      ...r,
+                      status: 'APPROVED' as const,
+                      statusReason: 'Validated MTN recipient (Instant Delivery)',
+                      isKnown: true,
+                    };
+                  }
+                  if (unapprovedSet.has(normP) || unapprovedSet.has(r.phone)) {
+                    return {
+                      ...r,
+                      status: 'UNAPPROVED' as const,
+                      statusReason: 'Unregistered / First-Time MTN (Recorded for Approval)',
+                      isKnown: false,
+                    };
+                  }
+                  return r;
+                });
+              });
+            }
+
+            if (pollRes.status === 'COMPLETED' || pollRes.status === 'FAILED' || pollRes.status === 'CANCELLED') {
+              isDone = true;
+            }
+          }
+          setActiveVerificationJobId(null);
+        }
+      } catch {
+        jobUsed = false;
+        setActiveVerificationJobId(null);
+      }
     }
 
-    // Process batches sequentially to avoid overwhelming the backend with concurrent 250-number requests
-    for (const batch of batches) {
+    // Secondary synchronous fallback for unit tests and environments without async job endpoint
+    if (!jobUsed) {
+      const batchSize = 1000;
+      const batches: string[][] = [];
+      for (let i = 0; i < uniqueMtnPhones.length; i += batchSize) {
+        batches.push(uniqueMtnPhones.slice(i, i + batchSize));
+      }
+
+      for (const batch of batches) {
         let hasResults = false;
 
         // 1. Try bulk precheck without recording (record: false)
@@ -747,6 +896,7 @@ export const BuyDataPage: React.FC = () => {
             }
           }
         }
+      }
     }
 
     if (discoveredPorted.length > 0) {
@@ -2038,6 +2188,104 @@ export const BuyDataPage: React.FC = () => {
                       }}
                     >
                       <strong>✗ {rejectedExcelRows.length} Rejected number(s):</strong> Contains invalid Ghanaian digits or unsupported carrier prefix and will be omitted from order processing.
+                    </div>
+                  )}
+
+                  {/* Live Beneficiary Verification Progress Card */}
+                  {(isVerifyingApprovals || (verificationStats && verificationStats.progressPercent < 100)) && (
+                    <div
+                      style={{
+                        padding: '12px 16px',
+                        backgroundColor: 'var(--color-bg-base)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-brand-border, rgba(59, 130, 246, 0.25))',
+                        marginBottom: '0.75rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Loader2 size={16} className="animate-spin" style={{ animation: 'spin 1s linear infinite', color: 'var(--color-brand-primary)' }} />
+                          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            High-Speed Beneficiary Verification Engine
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              padding: '1px 6px',
+                              borderRadius: '8px',
+                              backgroundColor: 'var(--color-brand-surface, rgba(59, 130, 246, 0.1))',
+                              color: 'var(--color-brand-primary)',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Parallel Streaming · 0s Freeze
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-brand-primary)' }}>
+                            {verificationStats ? `${verificationStats.progressPercent}%` : 'Starting...'}
+                          </span>
+                          {isVerifyingApprovals && (
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              onClick={handleCancelVerification}
+                              leftIcon={<XCircle size={12} />}
+                              style={{ fontSize: '11px', padding: '2px 8px', height: '24px' }}
+                            >
+                              Cancel
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Animated Progress Bar */}
+                      <div
+                        style={{
+                          width: '100%',
+                          height: '6px',
+                          backgroundColor: 'var(--color-bg-subtle, rgba(0,0,0,0.06))',
+                          borderRadius: '3px',
+                          overflow: 'hidden',
+                          position: 'relative',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${verificationStats?.progressPercent || 0}%`,
+                            height: '100%',
+                            background: 'linear-gradient(90deg, #3b82f6 0%, #10b981 100%)',
+                            borderRadius: '3px',
+                            transition: 'width 0.25s ease-out',
+                          }}
+                        />
+                      </div>
+
+                      {/* Live KPI Counters */}
+                      {verificationStats && (
+                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '11px', marginTop: '2px' }}>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>
+                            Total: <strong>{verificationStats.total}</strong>
+                          </span>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>
+                            Processed: <strong>{verificationStats.processed} / {verificationStats.total}</strong>
+                          </span>
+                          <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>
+                            ✓ Approved: {verificationStats.approved}
+                          </span>
+                          <span style={{ color: 'var(--color-warning)', fontWeight: 700 }}>
+                            ⏳ Unapproved / New: {verificationStats.unapproved}
+                          </span>
+                          <span style={{ color: 'var(--color-danger)', fontWeight: 700 }}>
+                            ✗ Rejected: {verificationStats.rejected}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 

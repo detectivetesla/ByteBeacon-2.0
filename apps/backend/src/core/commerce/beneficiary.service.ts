@@ -6,6 +6,8 @@ import {
 } from '@bytebeacon/shared';
 import { ITelecomProvider } from '../providers/telecom/telecom-provider.interface.js';
 import { BadRequestError, NotFoundError } from '../errors/app-error.js';
+import { BeneficiaryCacheService, CachedBeneficiaryVerification } from '../cache/beneficiary-cache.service.js';
+import { TelecomCircuitBreaker } from '../providers/telecom-circuit-breaker.js';
 
 export interface PrecheckBeneficiaryResult {
   network: NetworkProvider;
@@ -22,10 +24,25 @@ export interface PrecheckBeneficiaryResult {
 export class BeneficiaryService {
   private readonly db: pg.Pool;
   private readonly telecomProvider: ITelecomProvider | null;
+  private readonly cacheService: BeneficiaryCacheService | null;
+  private readonly circuitBreaker: TelecomCircuitBreaker | null;
 
-  constructor(db: pg.Pool, telecomProvider: ITelecomProvider | null = null) {
+  constructor(
+    db: pg.Pool,
+    telecomProvider: ITelecomProvider | null = null,
+    cacheService: BeneficiaryCacheService | null = null,
+    circuitBreaker: TelecomCircuitBreaker | null = null,
+  ) {
     this.db = db;
     this.telecomProvider = telecomProvider;
+    this.cacheService = cacheService;
+    this.circuitBreaker =
+      circuitBreaker ||
+      (telecomProvider ? new TelecomCircuitBreaker({ providerName: telecomProvider.providerName }) : null);
+  }
+
+  public getCircuitBreaker(): TelecomCircuitBreaker | null {
+    return this.circuitBreaker;
   }
 
   public async validatePhoneNumber(
@@ -244,20 +261,51 @@ export class BeneficiaryService {
     const upstreamOrderableMap = new Map<string, boolean>();
     const liveUnapprovedSet = new Set<string>();
 
+    // 0. Query Redis Cache first (Sub-millisecond lookup for previously verified numbers)
+    const uncachedPhones: string[] = [];
+    if (this.cacheService && validNormalizedPhones.length > 0) {
+      try {
+        const cachedMap = await this.cacheService.getCachedResults(String(net), validNormalizedPhones);
+        for (const p of validNormalizedPhones) {
+          const cached = cachedMap.get(p);
+          if (cached) {
+            if (cached.status === 'APPROVED') {
+              knownPhonesSet.add(p);
+              knownPhonesSet.add(`+233${p.slice(1)}`);
+              knownPhonesSet.add(`233${p.slice(1)}`);
+              if (cached.accountName) accountNamesMap.set(p, cached.accountName);
+              upstreamOrderableMap.set(p, true);
+            } else if (cached.status === 'UNAPPROVED') {
+              liveUnapprovedSet.add(p);
+              liveUnapprovedSet.add(`+233${p.slice(1)}`);
+              liveUnapprovedSet.add(`233${p.slice(1)}`);
+              upstreamOrderableMap.set(p, false);
+            }
+          } else {
+            uncachedPhones.push(p);
+          }
+        }
+      } catch {
+        uncachedPhones.push(...validNormalizedPhones);
+      }
+    } else {
+      uncachedPhones.push(...validNormalizedPhones);
+    }
+
     // 1. Query upstream authoritative telecom provider (DataHouse) for live MTN precheck
-    if (validNormalizedPhones.length > 0 && this.telecomProvider) {
+    if (uncachedPhones.length > 0 && this.telecomProvider) {
       const newlyApprovedPhones: string[] = [];
       const newlyUnapprovedPhones: string[] = [];
 
       // For large batches (> 20 numbers, e.g. Excel uploads), pre-resolve numbers that were
       // authoritatively verified by DataHouse within the last 24h to avoid hitting public rate limits.
       // For small sets (<= 20) or single orders, 100% live telecom check is always performed.
-      let phonesToQueryLive = validNormalizedPhones;
-      if (validNormalizedPhones.length > 20) {
+      let phonesToQueryLive = uncachedPhones;
+      if (uncachedPhones.length > 20) {
         try {
           const queryPhones = Array.from(
             new Set(
-              validNormalizedPhones.flatMap((p) => [
+              uncachedPhones.flatMap((p) => [
                 p,
                 `+233${p.startsWith('0') ? p.slice(1) : p}`,
                 `233${p.startsWith('0') ? p.slice(1) : p}`,
@@ -285,9 +333,9 @@ export class BeneficiaryService {
               }
             }
           });
-          phonesToQueryLive = validNormalizedPhones.filter((p) => !knownPhonesSet.has(p));
+          phonesToQueryLive = uncachedPhones.filter((p) => !knownPhonesSet.has(p));
         } catch {
-          phonesToQueryLive = validNormalizedPhones;
+          phonesToQueryLive = uncachedPhones;
         }
       }
 
@@ -416,37 +464,35 @@ export class BeneficiaryService {
         }
       }
 
-      // 3. Persist newly discovered approved numbers to local DB cache (30 days validity)
+      // 3. Persist newly discovered approved numbers to local DB cache (30 days validity) via bulk queries
       if (newlyApprovedPhones.length > 0) {
         const uniqueNewlyApproved = Array.from(new Set(newlyApprovedPhones));
-        await Promise.all(
-          uniqueNewlyApproved.map(async (p) => {
-            const meta = JSON.stringify({
-              source: 'telecom_provider_precheck',
-              verifiedAt: new Date().toISOString(),
-            });
-            await this.db.query(
-              `INSERT INTO beneficiary_validation (
-                phone_number, network, validation_status, validated_at, expires_at,
-                provider_reference, provider_response_metadata, created_at, updated_at
-              ) VALUES ($1, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-PRECHECK', $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-              ON CONFLICT (phone_number, network) DO UPDATE
-              SET validation_status = 'VALID',
-                  validated_at = CURRENT_TIMESTAMP,
-                  expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
-                  provider_reference = 'DH-PRECHECK',
-                  updated_at = CURRENT_TIMESTAMP`,
-              [p, meta],
-            ).catch(() => {});
+        const meta = JSON.stringify({
+          source: 'telecom_provider_precheck',
+          verifiedAt: new Date().toISOString(),
+        });
+        await this.db.query(
+          `INSERT INTO beneficiary_validation (
+            phone_number, network, validation_status, validated_at, expires_at,
+            provider_reference, provider_response_metadata, created_at, updated_at
+          )
+          SELECT unk, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-PRECHECK', $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          FROM unnest($1::text[]) AS unk
+          ON CONFLICT (phone_number, network) DO UPDATE
+          SET validation_status = 'VALID',
+              validated_at = CURRENT_TIMESTAMP,
+              expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
+              provider_reference = 'DH-PRECHECK',
+              updated_at = CURRENT_TIMESTAMP`,
+          [uniqueNewlyApproved, meta],
+        ).catch(() => {});
 
-            await this.db.query(
-              `UPDATE pending_beneficiary_approvals
-               SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-               WHERE phone_number = $1 AND network = 'MTN'`,
-              [p],
-            ).catch(() => {});
-          }),
-        );
+        await this.db.query(
+          `UPDATE pending_beneficiary_approvals
+           SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE phone_number = ANY($1) AND network = 'MTN'`,
+          [uniqueNewlyApproved],
+        ).catch(() => {});
       }
 
       // Demote newly unapproved numbers so stale VALID rows are fixed across all phone variations
@@ -595,41 +641,65 @@ export class BeneficiaryService {
           effectiveAgentId = userRes?.rows?.[0]?.id;
         }
 
-        await Promise.all(
-          unknownList.map(async (unkPhone) => {
-            if (effectiveAgentId) {
-              await this.db.query(
-                `INSERT INTO pending_beneficiary_approvals (
-                  phone_number, network, agent_id, status, attempt_count,
-                  first_detected_at, last_detected_at, created_at, updated_at
-                ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT (agent_id, phone_number, network) DO UPDATE
-                SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
-                    last_detected_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP`,
-                [unkPhone, effectiveAgentId],
-              ).catch(() => {});
-            }
+        if (effectiveAgentId) {
+          await this.db.query(
+            `INSERT INTO pending_beneficiary_approvals (
+              phone_number, network, agent_id, status, attempt_count,
+              first_detected_at, last_detected_at, created_at, updated_at
+            )
+            SELECT unk, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            FROM unnest($1::text[]) AS unk
+            ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+            SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                last_detected_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP`,
+            [unknownList, effectiveAgentId],
+          ).catch(() => {});
+        }
 
-            const metadata = JSON.stringify({
-              agentId: params.userId || null,
-              recordedVia: 'precheck',
-              recordedAt: new Date().toISOString(),
-            });
-            await this.db.query(
-              `INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
-               VALUES ($1, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-               ON CONFLICT (phone_number, network) DO UPDATE
-               SET validation_status = 'PENDING',
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE beneficiary_validation.validation_status != 'APPROVED'`,
-              [unkPhone, metadata, params.userId || null],
-            ).catch(() => {});
-          }),
-        );
+        const metadata = JSON.stringify({
+          agentId: params.userId || null,
+          recordedVia: 'precheck',
+          recordedAt: new Date().toISOString(),
+        });
+        await this.db.query(
+          `INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
+           SELECT unk, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+           FROM unnest($1::text[]) AS unk
+           ON CONFLICT (phone_number, network) DO UPDATE
+           SET validation_status = 'PENDING',
+               updated_at = CURRENT_TIMESTAMP
+           WHERE beneficiary_validation.validation_status != 'APPROVED'`,
+          [unknownList, metadata, params.userId || null],
+        ).catch(() => {});
       } catch {
         // Non-fatal recording failure
       }
+    }
+
+    // Persist verified results to Redis cache asynchronously
+    if (this.cacheService && results.length > 0) {
+      const cacheItems: CachedBeneficiaryVerification[] = results
+        .filter((r) => r.valid)
+        .map((r) => ({
+          phoneNumber: r.phone,
+          normalized: r.normalized,
+          network: String(net),
+          status: r.status as 'APPROVED' | 'UNAPPROVED' | 'REJECTED',
+          isValid: r.valid,
+          isKnown: r.known,
+          orderable: r.orderable,
+          accountName: r.accountName,
+          message: r.message,
+          cachedAt: Date.now(),
+          ttlSeconds:
+            r.status === 'APPROVED'
+              ? BeneficiaryCacheService.TTL_APPROVED
+              : r.status === 'REJECTED'
+              ? BeneficiaryCacheService.TTL_REJECTED
+              : BeneficiaryCacheService.TTL_UNAPPROVED,
+        }));
+      this.cacheService.setCachedResults(String(net), cacheItems).catch(() => {});
     }
 
     return {
@@ -831,11 +901,42 @@ export class BeneficiaryService {
     const knownPhonesSet = new Set<string>();
     const portedCandidatesSet = new Set<string>();
     const upstreamOrderableMap = new Map<string, boolean>();
+    const liveUnapprovedSet = new Set<string>();
+
+    // 0. Query Redis Cache first (Sub-millisecond lookup for previously verified numbers)
+    const uncachedPhones: string[] = [];
+    if (this.cacheService && validNormalizedPhones.length > 0) {
+      try {
+        const cachedMap = await this.cacheService.getCachedResults(String(net), validNormalizedPhones);
+        for (const p of validNormalizedPhones) {
+          const cached = cachedMap.get(p);
+          if (cached) {
+            if (cached.status === 'APPROVED') {
+              knownPhonesSet.add(p);
+              knownPhonesSet.add(`+233${p.slice(1)}`);
+              knownPhonesSet.add(`233${p.slice(1)}`);
+              upstreamOrderableMap.set(p, true);
+            } else if (cached.status === 'UNAPPROVED') {
+              liveUnapprovedSet.add(p);
+              liveUnapprovedSet.add(`+233${p.slice(1)}`);
+              liveUnapprovedSet.add(`233${p.slice(1)}`);
+              upstreamOrderableMap.set(p, false);
+            }
+          } else {
+            uncachedPhones.push(p);
+          }
+        }
+      } catch {
+        uncachedPhones.push(...validNormalizedPhones);
+      }
+    } else {
+      uncachedPhones.push(...validNormalizedPhones);
+    }
 
     // 1. Query upstream authoritative telecom provider (DataHouse) for live MTN precheck
     const provider = this.telecomProvider;
     if (
-      validNormalizedPhones.length > 0 &&
+      uncachedPhones.length > 0 &&
       provider &&
       (provider.precheckBeneficiaries || provider.precheckPublicBeneficiaries)
     ) {
@@ -844,8 +945,8 @@ export class BeneficiaryService {
         const newlyUnapprovedPhones: string[] = [];
         const chunkSize = provider.precheckBeneficiaries ? 500 : 10;
         const phoneChunks: string[][] = [];
-        for (let i = 0; i < validNormalizedPhones.length; i += chunkSize) {
-          phoneChunks.push(validNormalizedPhones.slice(i, i + chunkSize));
+        for (let i = 0; i < uncachedPhones.length; i += chunkSize) {
+          phoneChunks.push(uncachedPhones.slice(i, i + chunkSize));
         }
 
         for (const chunk of phoneChunks) {
@@ -973,37 +1074,35 @@ export class BeneficiaryService {
           }
         }
 
-        // Persist newly discovered approved numbers to local DB so subsequent lookups are instant
+        // Persist newly discovered approved numbers to local DB so subsequent lookups are instant via bulk queries
         if (newlyApprovedPhones.length > 0) {
           const uniqueNewlyApproved = Array.from(new Set(newlyApprovedPhones));
-          await Promise.all(
-            uniqueNewlyApproved.map(async (p) => {
-              const meta = JSON.stringify({
-                source: 'telecom_provider_precheck',
-                verifiedAt: new Date().toISOString(),
-              });
-              await this.db.query(
-                `INSERT INTO beneficiary_validation (
-                  phone_number, network, validation_status, validated_at, expires_at,
-                  provider_reference, provider_response_metadata, created_at, updated_at
-                ) VALUES ($1, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-PRECHECK', $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT (phone_number, network) DO UPDATE
-                SET validation_status = 'VALID',
-                    validated_at = CURRENT_TIMESTAMP,
-                    expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
-                    provider_reference = 'DH-PRECHECK',
-                    updated_at = CURRENT_TIMESTAMP`,
-                [p, meta],
-              ).catch(() => {});
+          const meta = JSON.stringify({
+            source: 'telecom_provider_precheck',
+            verifiedAt: new Date().toISOString(),
+          });
+          await this.db.query(
+            `INSERT INTO beneficiary_validation (
+              phone_number, network, validation_status, validated_at, expires_at,
+              provider_reference, provider_response_metadata, created_at, updated_at
+            )
+            SELECT unk, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-PRECHECK', $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            FROM unnest($1::text[]) AS unk
+            ON CONFLICT (phone_number, network) DO UPDATE
+            SET validation_status = 'VALID',
+                validated_at = CURRENT_TIMESTAMP,
+                expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
+                provider_reference = 'DH-PRECHECK',
+                updated_at = CURRENT_TIMESTAMP`,
+            [uniqueNewlyApproved, meta],
+          ).catch(() => {});
 
-              await this.db.query(
-                `UPDATE pending_beneficiary_approvals
-                 SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                 WHERE phone_number = $1 AND network = 'MTN'`,
-                [p],
-              ).catch(() => {});
-            }),
-          );
+          await this.db.query(
+            `UPDATE pending_beneficiary_approvals
+             SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             WHERE phone_number = ANY($1) AND network = 'MTN'`,
+            [uniqueNewlyApproved],
+          ).catch(() => {});
         }
 
         // Demote unapproved numbers in local DB across all variations so stale/corrupted VALID rows are fixed
@@ -1139,43 +1238,64 @@ export class BeneficiaryService {
     if (record && unknownList.length > 0) {
       recorded = true;
       try {
-        await Promise.all(
-          unknownList.map(async (unkPhone) => {
-            // 1. Record into pending_beneficiary_approvals attributed to this agent
-            if (_userId) {
-              await this.db.query(
-                `INSERT INTO pending_beneficiary_approvals (
-                  phone_number, network, agent_id, status, attempt_count,
-                  first_detected_at, last_detected_at, created_at, updated_at
-                ) VALUES ($1, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT (agent_id, phone_number, network) DO UPDATE
-                SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
-                    last_detected_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP`,
-                [unkPhone, _userId],
-              ).catch(() => {});
-            }
+        if (_userId) {
+          await this.db.query(
+            `INSERT INTO pending_beneficiary_approvals (
+              phone_number, network, agent_id, status, attempt_count,
+              first_detected_at, last_detected_at, created_at, updated_at
+            )
+            SELECT unk, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            FROM unnest($1::text[]) AS unk
+            ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+            SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                last_detected_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP`,
+            [unknownList, _userId],
+          ).catch(() => {});
+        }
 
-            // 2. Also record in beneficiary_validation for system-wide validation tracking
-            const metadata = JSON.stringify({
-              agentId: _userId || null,
-              recordedVia: 'agent_precheck',
-              recordedAt: new Date().toISOString(),
-            });
-            const insertPendingQuery = `
-              INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
-              VALUES ($1, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-              ON CONFLICT (phone_number, network) DO UPDATE
-              SET validation_status = 'PENDING',
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE beneficiary_validation.validation_status != 'APPROVED'
-            `;
-            await this.db.query(insertPendingQuery, [unkPhone, metadata, _userId || null]).catch(() => {});
-          }),
-        );
+        const metadata = JSON.stringify({
+          agentId: _userId || null,
+          recordedVia: 'agent_precheck',
+          recordedAt: new Date().toISOString(),
+        });
+        const insertPendingQuery = `
+          INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
+          SELECT unk, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          FROM unnest($1::text[]) AS unk
+          ON CONFLICT (phone_number, network) DO UPDATE
+          SET validation_status = 'PENDING',
+              updated_at = CURRENT_TIMESTAMP
+          WHERE beneficiary_validation.validation_status != 'APPROVED'
+        `;
+        await this.db.query(insertPendingQuery, [unknownList, metadata, _userId || null]).catch(() => {});
       } catch {
         // Non-fatal recording error
       }
+    }
+
+    // Persist verified results to Redis cache asynchronously
+    if (this.cacheService && results.length > 0) {
+      const cacheItems: CachedBeneficiaryVerification[] = results
+        .filter((r) => r.valid)
+        .map((r) => ({
+          phoneNumber: r.phone,
+          normalized: r.normalized,
+          network: String(net),
+          status: r.status as 'APPROVED' | 'UNAPPROVED' | 'REJECTED',
+          isValid: r.valid,
+          isKnown: r.known,
+          orderable: r.orderable,
+          message: r.message,
+          cachedAt: Date.now(),
+          ttlSeconds:
+            r.status === 'APPROVED'
+              ? BeneficiaryCacheService.TTL_APPROVED
+              : r.status === 'REJECTED'
+              ? BeneficiaryCacheService.TTL_REJECTED
+              : BeneficiaryCacheService.TTL_UNAPPROVED,
+        }));
+      this.cacheService.setCachedResults(String(net), cacheItems).catch(() => {});
     }
 
     return {
@@ -1258,73 +1378,89 @@ export class BeneficiaryService {
       effectiveAgentId = userRes?.rows?.[0]?.id;
     }
 
-    await Promise.all(
-      items.map(async (item) => {
-        const norm = this.normalizeGhanaPhone(item.phoneNumber);
-        if (!norm.valid) return;
+    const validItemsMap = new Map<string, { phone: string; net: string; sizeGb: number | null; metadata: string }>();
 
-        const phone = norm.normalized;
-        const net = (item.network ? String(item.network).toUpperCase() : 'MTN') as NetworkProvider;
+    for (const item of items) {
+      const norm = this.normalizeGhanaPhone(item.phoneNumber);
+      if (!norm.valid) continue;
 
-        // Parse numeric GB volume from dataSize or dataAmountMb
-        let sizeGb: number | null = null;
-        if (typeof item.dataAmountMb === 'number' && item.dataAmountMb > 0) {
-          sizeGb = parseFloat((item.dataAmountMb / 1024).toFixed(2));
-        } else if (item.dataSize) {
-          const m = String(item.dataSize).match(/([\d.]+)\s*(GB|MB)?/i);
-          if (m) {
-            const val = parseFloat(m[1]);
-            const unit = (m[2] || 'GB').toUpperCase();
-            sizeGb = unit === 'MB' ? parseFloat((val / 1024).toFixed(2)) : val;
-          }
+      const phone = norm.normalized;
+      const net = (item.network ? String(item.network).toUpperCase() : 'MTN') as NetworkProvider;
+
+      let sizeGb: number | null = null;
+      if (typeof item.dataAmountMb === 'number' && item.dataAmountMb > 0) {
+        sizeGb = parseFloat((item.dataAmountMb / 1024).toFixed(2));
+      } else if (item.dataSize) {
+        const m = String(item.dataSize).match(/([\d.]+)\s*(GB|MB)?/i);
+        if (m) {
+          const val = parseFloat(m[1]);
+          const unit = (m[2] || 'GB').toUpperCase();
+          sizeGb = unit === 'MB' ? parseFloat((val / 1024).toFixed(2)) : val;
         }
+      }
 
-        const metadata = JSON.stringify({
-          detectedFrom: item.detectedFrom || 'Excel Upload',
-          channel: item.detectedFrom || 'Excel Upload',
-          dataSize: item.dataSize || (sizeGb ? `${sizeGb} GB` : null),
-          dataAmountMb: item.dataAmountMb || (sizeGb ? Math.round(sizeGb * 1024) : null),
-          pricePesewas: item.pricePesewas || null,
-          recordedAt: new Date().toISOString(),
-          agentId: effectiveAgentId || null,
-        });
+      const metadata = JSON.stringify({
+        detectedFrom: item.detectedFrom || 'Excel Upload',
+        channel: item.detectedFrom || 'Excel Upload',
+        dataSize: item.dataSize || (sizeGb ? `${sizeGb} GB` : null),
+        dataAmountMb: item.dataAmountMb || (sizeGb ? Math.round(sizeGb * 1024) : null),
+        pricePesewas: item.pricePesewas || null,
+        recordedAt: new Date().toISOString(),
+        agentId: effectiveAgentId || null,
+      });
 
-        try {
-          if (effectiveAgentId) {
-            await this.db.query(
-              `INSERT INTO pending_beneficiary_approvals (
-                phone_number, network, agent_id, status, attempt_count,
-                last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
-              ) VALUES ($1, $2, $3, 'PENDING', 1, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-              ON CONFLICT (agent_id, phone_number, network) DO UPDATE
-              SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
-                  last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
-                  last_detected_at = CURRENT_TIMESTAMP,
-                  updated_at = CURRENT_TIMESTAMP`,
-              [phone, net, effectiveAgentId, sizeGb],
-            ).catch(() => {});
-          }
+      const key = `${phone}_${net}`;
+      validItemsMap.set(key, { phone, net, sizeGb, metadata });
+    }
 
-          await this.db.query(
-            `INSERT INTO beneficiary_validation (
-              phone_number, network, validation_status, attempt_count,
-              last_bundle_size_gb, agent_id, provider_response_metadata, created_at, updated_at
-            ) VALUES ($1, $2, 'PENDING', 1, $3, $4, $5::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ON CONFLICT (phone_number, network) DO UPDATE
-            SET attempt_count = beneficiary_validation.attempt_count + 1,
-                last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
-                agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
-                provider_response_metadata = $5::jsonb,
-                updated_at = CURRENT_TIMESTAMP`,
-            [phone, net, sizeGb, effectiveAgentId || null, metadata],
-          ).catch(() => {});
+    const uniqueItems = Array.from(validItemsMap.values());
+    if (uniqueItems.length === 0) {
+      return { count: 0 };
+    }
 
-          recordedCount++;
-        } catch {
-          // Non-fatal per-item error
-        }
-      }),
-    );
+    const phones = uniqueItems.map((u) => u.phone);
+    const networks = uniqueItems.map((u) => u.net);
+    const sizesGb = uniqueItems.map((u) => u.sizeGb);
+    const metadatas = uniqueItems.map((u) => u.metadata);
+
+    try {
+      if (effectiveAgentId) {
+        await this.db.query(
+          `INSERT INTO pending_beneficiary_approvals (
+            phone_number, network, agent_id, status, attempt_count,
+            last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
+          )
+          SELECT t.phone, t.net, $4, 'PENDING', 1, t.size_gb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          FROM unnest($1::text[], $2::text[], $3::numeric[]) AS t(phone, net, size_gb)
+          ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+          SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+              last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
+              last_detected_at = CURRENT_TIMESTAMP,
+              updated_at = CURRENT_TIMESTAMP`,
+          [phones, networks, sizesGb, effectiveAgentId],
+        ).catch(() => {});
+      }
+
+      await this.db.query(
+        `INSERT INTO beneficiary_validation (
+          phone_number, network, validation_status, attempt_count,
+          last_bundle_size_gb, agent_id, provider_response_metadata, created_at, updated_at
+        )
+        SELECT t.phone, t.net, 'PENDING', 1, t.size_gb, $5, t.meta::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        FROM unnest($1::text[], $2::text[], $3::numeric[], $4::text[]) AS t(phone, net, size_gb, meta)
+        ON CONFLICT (phone_number, network) DO UPDATE
+        SET attempt_count = beneficiary_validation.attempt_count + 1,
+            last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+            agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
+            provider_response_metadata = EXCLUDED.provider_response_metadata,
+            updated_at = CURRENT_TIMESTAMP`,
+        [phones, networks, sizesGb, metadatas, effectiveAgentId || null],
+      ).catch(() => {});
+
+      recordedCount = uniqueItems.length;
+    } catch {
+      // Non-fatal recording error
+    }
 
     return { count: recordedCount };
   }

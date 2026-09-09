@@ -5,6 +5,7 @@ export const QUEUE_NAMES = {
   RECONCILIATION: 'bb:reconciliation',
   WEBHOOKS: 'bb:webhooks',
   BULK_PROCESSING: 'bb:bulk-processing',
+  BENEFICIARY_VERIFICATION: 'bb:beneficiary-verification',
   NOTIFICATIONS: 'bb:notifications',
 } as const;
 

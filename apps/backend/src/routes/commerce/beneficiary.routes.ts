@@ -1,11 +1,12 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type pg from 'pg';
 import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
+import { BeneficiaryVerificationJobService } from '../../core/commerce/beneficiary-verification-job.service.js';
 import { TokenService } from '../../core/security/token.service.js';
 import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
-import { BadRequestError } from '../../core/errors/app-error.js';
+import { BadRequestError, NotFoundError } from '../../core/errors/app-error.js';
 import { RateLimiterService } from '../../core/security/rate-limiter.service.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
 import {
@@ -19,6 +20,7 @@ import {
 export interface BeneficiaryRouteDependencies {
   db: pg.Pool;
   beneficiaryService: BeneficiaryService;
+  verificationJobService?: BeneficiaryVerificationJobService;
   tokenService: TokenService;
   apiKeyService: ApiKeyService;
   rbacService: RbacService;
@@ -30,6 +32,8 @@ export async function beneficiaryRoutes(
   deps: BeneficiaryRouteDependencies,
 ) {
   const { db, beneficiaryService, tokenService, apiKeyService, rbacService, rateLimiter } = deps;
+  const verificationJobService =
+    deps.verificationJobService || new BeneficiaryVerificationJobService(beneficiaryService);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const publicPrecheckRateLimit = rateLimiter
     ? createRateLimitHook(rateLimiter, { limit: 30, windowSeconds: 60 })
@@ -202,6 +206,105 @@ export async function beneficiaryRoutes(
         statusCode: 200,
         message: 'Success',
         data: result,
+      });
+    },
+  );
+
+  // 1b-2. ASYNCHRONOUS VERIFICATION JOBS (HTTP 202 Accepted for bulk Excel verification)
+  app.post<{
+    Body: {
+      network: NetworkProvider | string;
+      phoneNumbers: string[];
+      record?: boolean;
+    };
+  }>(
+    '/beneficiaries/verification-jobs',
+    async (req, reply) => {
+      const { network, phoneNumbers, record = false } = req.body || {};
+
+      if (!network) {
+        throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
+      }
+      if (!phoneNumbers || !Array.isArray(phoneNumbers) || phoneNumbers.length === 0) {
+        throw new BadRequestError('phoneNumbers array is required and cannot be empty');
+      }
+
+      const maxLimit = 10000;
+      if (phoneNumbers.length > maxLimit) {
+        throw new BadRequestError(`Up to ${maxLimit} phone numbers allowed per verification job`);
+      }
+
+      let authenticatedUserId: string | undefined;
+      const authHeader = req.headers.authorization;
+      const apiKeyHeader = req.headers['x-api-key'];
+
+      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
+        try {
+          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
+          authenticatedUserId = payload.sub;
+        } catch {
+          // fallback
+        }
+      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        try {
+          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
+          const key = await apiKeyService.validateApiKey(rawKey);
+          authenticatedUserId = key.agentId;
+        } catch {
+          // fallback
+        }
+      }
+
+      const jobState = await verificationJobService.startJob({
+        network: network as NetworkProvider,
+        phoneNumbers,
+        record: Boolean(record),
+        userId: authenticatedUserId,
+      });
+
+      return reply.status(202).send({
+        success: true,
+        statusCode: 202,
+        message: 'Verification job initiated',
+        data: jobState,
+      });
+    },
+  );
+
+  // 1b-3. GET VERIFICATION JOB STATUS & LIVE PROGRESS
+  app.get<{ Params: { jobId: string } }>(
+    '/beneficiaries/verification-jobs/:jobId',
+    async (req, reply) => {
+      const { jobId } = req.params;
+      const jobState = await verificationJobService.getJob(jobId);
+
+      if (!jobState) {
+        throw new NotFoundError(`Verification job [${jobId}] not found`);
+      }
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        data: jobState,
+      });
+    },
+  );
+
+  // 1b-4. CANCEL VERIFICATION JOB
+  app.post<{ Params: { jobId: string } }>(
+    '/beneficiaries/verification-jobs/:jobId/cancel',
+    async (req, reply) => {
+      const { jobId } = req.params;
+      const cancelled = await verificationJobService.cancelJob(jobId);
+
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        data: {
+          jobId,
+          status: cancelled ? 'CANCELLED' : 'NOT_MODIFIED',
+          cancelled,
+        },
       });
     },
   );

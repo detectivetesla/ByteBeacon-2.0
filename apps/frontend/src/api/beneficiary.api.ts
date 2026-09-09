@@ -55,7 +55,65 @@ export interface AgentBeneficiaryPrecheckResultDto {
   results: BeneficiaryPrecheckItemDto[];
 }
 
+export interface VerificationJobItemResultDto {
+  phone: string;
+  phoneNumber?: string;
+  normalized: string;
+  valid: boolean;
+  isValid?: boolean;
+  known: boolean;
+  isKnown?: boolean;
+  orderable?: boolean;
+  status: 'APPROVED' | 'UNAPPROVED' | 'REJECTED';
+  message: string;
+  accountName?: string;
+}
+
+export interface VerificationJobStatusResponse {
+  jobId: string;
+  network: NetworkProvider | string;
+  status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  totalRows: number;
+  processedRows: number;
+  approvedCount: number;
+  unapprovedCount: number;
+  rejectedCount: number;
+  progressPercent: number;
+  portedCandidates?: string[];
+  results: VerificationJobItemResultDto[];
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
 export const beneficiaryApi = {
+  /**
+   * Starts an asynchronous beneficiary verification job for Excel/bulk rows.
+   * Immediately returns HTTP 202 with jobId.
+   */
+  startVerificationJob: async (params: {
+    network: NetworkProvider | string;
+    phoneNumbers: string[];
+    record?: boolean;
+  }): Promise<VerificationJobStatusResponse> => {
+    return apiClient.post('/beneficiaries/verification-jobs', params);
+  },
+
+  /**
+   * Polls live status, real-time counters, and streaming row results for an active verification job.
+   */
+  getVerificationJobStatus: async (jobId: string): Promise<VerificationJobStatusResponse> => {
+    return apiClient.get(`/beneficiaries/verification-jobs/${jobId}`);
+  },
+
+  /**
+   * Cancels an ongoing background verification job.
+   */
+  cancelVerificationJob: async (jobId: string): Promise<{ jobId: string; status: string }> => {
+    return apiClient.post(`/beneficiaries/verification-jobs/${jobId}/cancel`);
+  },
+
   /**
    * Public precheck endpoint (up to 10 numbers, no auth needed).
    */
