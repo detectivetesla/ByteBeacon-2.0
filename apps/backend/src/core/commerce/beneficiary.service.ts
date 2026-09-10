@@ -339,7 +339,7 @@ export class BeneficiaryService {
         }
       }
 
-      const chunkSize = this.telecomProvider.precheckBeneficiaries ? 500 : 10;
+      const chunkSize = this.telecomProvider.precheckBeneficiaries ? 200 : 10;
       const chunks: string[][] = [];
       for (let i = 0; i < phonesToQueryLive.length; i += chunkSize) {
         chunks.push(phonesToQueryLive.slice(i, i + chunkSize));
@@ -943,7 +943,7 @@ export class BeneficiaryService {
       try {
         const newlyApprovedPhones: string[] = [];
         const newlyUnapprovedPhones: string[] = [];
-        const chunkSize = provider.precheckBeneficiaries ? 500 : 10;
+        const chunkSize = provider.precheckBeneficiaries ? 200 : 10;
         const phoneChunks: string[][] = [];
         for (let i = 0; i < uncachedPhones.length; i += chunkSize) {
           phoneChunks.push(uncachedPhones.slice(i, i + chunkSize));
@@ -953,7 +953,7 @@ export class BeneficiaryService {
           let providerRes: any = null;
           if (provider.precheckBeneficiaries) {
             try {
-              const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000));
+              const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 120000));
               const call = provider.precheckBeneficiaries({
                 network: net,
                 phoneNumbers: chunk,

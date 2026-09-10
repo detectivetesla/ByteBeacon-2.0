@@ -228,7 +228,7 @@ export class DataHouseAdapter implements ITelecomProvider {
           batch.map(async (chunk, batchIdx) => {
             const idx = i + batchIdx;
             const subCorr = `${correlationId}_chunk_${idx}`;
-            for (let attempt = 0; attempt < 5; attempt++) {
+            for (let attempt = 0; attempt < 2; attempt++) {
               try {
                 const subResp = await this.client.precheckPublicBeneficiaries(
                   { network, phoneNumbers: chunk },
@@ -250,8 +250,8 @@ export class DataHouseAdapter implements ITelecomProvider {
                 }
                 return mapped;
               } catch (chunkErr: any) {
-                if (attempt < 4) {
-                  await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+                if (attempt < 1) {
+                  await new Promise((resolve) => setTimeout(resolve, 500));
                   continue;
                 }
                 return null;
