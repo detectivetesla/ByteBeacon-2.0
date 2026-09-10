@@ -272,7 +272,7 @@ export const BuyDataPage: React.FC = () => {
           beneficiaryApi
             .getVerificationJobStatus(parsed.jobId)
             .then((res) => {
-              if (res && (res.status === 'PROCESSING' || res.status === 'COMPLETED')) {
+              if (res && res.status === 'PROCESSING') {
                 setActiveVerificationJobId(parsed.jobId);
                 setVerificationStats({
                   total: res.totalRows,
@@ -750,91 +750,117 @@ export const BuyDataPage: React.FC = () => {
         if (jobInit && jobInit.jobId) {
           jobUsed = true;
           const jobId = jobInit.jobId;
-          setActiveVerificationJobId(jobId);
 
-          try {
-            localStorage.setItem(
-              'bb_active_verification_job',
-              JSON.stringify({ jobId, network: selectedNetwork, timestamp: Date.now() }),
-            );
-          } catch {
-            // ignore
-          }
-
-          let isDone = false;
-          let pollCount = 0;
-          while (!isDone && !cancelVerificationRef.current) {
-            // Adaptive poll interval: 200ms for first 10, 1s for next 20, then 3s
-            const pollDelay = pollCount < 10 ? 200 : pollCount < 30 ? 1000 : 3000;
-            await new Promise((resolve) => setTimeout(resolve, pollDelay));
-            pollCount++;
-            if (cancelVerificationRef.current) break;
-
-            const pollRes = await beneficiaryApi.getVerificationJobStatus(jobId);
-            if (!pollRes) break;
-
+          // If job was completed immediately (cached / idempotent), apply results immediately!
+          if (jobInit.status === 'COMPLETED' && Array.isArray(jobInit.results) && jobInit.results.length > 0) {
+            jobInit.results.forEach(classifyResult);
+            if (jobInit.portedCandidates && Array.isArray(jobInit.portedCandidates)) {
+              discoveredPorted.push(...jobInit.portedCandidates);
+            }
             setVerificationStats({
-              total: pollRes.totalRows || uniqueMtnPhones.length,
-              processed: pollRes.processedRows || 0,
-              approved: pollRes.approvedCount || 0,
-              unapproved: pollRes.unapprovedCount || 0,
-              rejected: pollRes.rejectedCount || 0,
-              pending: pollRes.pendingCount || 0,
-              progressPercent: pollRes.progressPercent || 0,
+              total: jobInit.totalRows || uniqueMtnPhones.length,
+              processed: jobInit.totalRows || uniqueMtnPhones.length,
+              approved: jobInit.approvedCount || 0,
+              unapproved: jobInit.unapprovedCount || 0,
+              rejected: jobInit.rejectedCount || 0,
+              pending: jobInit.pendingCount || 0,
+              progressPercent: 100,
             });
+            setActiveVerificationJobId(null);
+            try {
+              localStorage.removeItem('bb_active_verification_job');
+            } catch {
+              // ignore
+            }
+          } else {
+            setActiveVerificationJobId(jobId);
 
-            if (Array.isArray(pollRes.results)) {
-              pollRes.results.forEach(classifyResult);
+            try {
+              localStorage.setItem(
+                'bb_active_verification_job',
+                JSON.stringify({ jobId, network: selectedNetwork, timestamp: Date.now() }),
+              );
+            } catch {
+              // ignore
+            }
 
-              if (pollRes.portedCandidates && Array.isArray(pollRes.portedCandidates)) {
-                discoveredPorted.push(...pollRes.portedCandidates);
+            let isDone = false;
+            let pollCount = 0;
+            while (!isDone && !cancelVerificationRef.current) {
+              // Poll immediately on count 0, then wait fast 100ms interval for first 5 polls
+              if (pollCount > 0) {
+                const pollDelay = pollCount < 6 ? 100 : pollCount < 15 ? 250 : 1000;
+                await new Promise((resolve) => setTimeout(resolve, pollDelay));
               }
+              pollCount++;
+              if (cancelVerificationRef.current) break;
 
-              // Incrementally update UI status of parsed rows as each chunk finishes
-              setExcelParsedRows((prevRows) => {
-                return prevRows.map((r) => {
-                  if (!r.isValid || r.network === 'TELECEL' || r.network === 'AIRTELTIGO') return r;
-                  const normP = normalizeGhanaPhoneNumber(r.phone);
-                  if (rejectedMap.has(normP) || rejectedMap.has(r.phone)) {
-                    return {
-                      ...r,
-                      status: 'REJECTED' as const,
-                      statusReason: rejectedMap.get(normP) || rejectedMap.get(r.phone) || 'Invalid recipient number',
-                      isValid: false,
-                      isKnown: false,
-                    };
-                  }
-                  if (knownSet.has(normP) || knownSet.has(r.phone)) {
-                    return {
-                      ...r,
-                      status: 'APPROVED' as const,
-                      statusReason: 'Validated MTN recipient (Instant Delivery)',
-                      isKnown: true,
-                    };
-                  }
-                  if (unapprovedSet.has(normP) || unapprovedSet.has(r.phone)) {
-                    return {
-                      ...r,
-                      status: 'UNAPPROVED' as const,
-                      statusReason: 'Unregistered / First-Time MTN (Recorded for Approval)',
-                      isKnown: false,
-                    };
-                  }
-                  return r;
-                });
+              const pollRes = await beneficiaryApi.getVerificationJobStatus(jobId);
+              if (!pollRes) break;
+
+              setVerificationStats({
+                total: pollRes.totalRows || uniqueMtnPhones.length,
+                processed: pollRes.processedRows || 0,
+                approved: pollRes.approvedCount || 0,
+                unapproved: pollRes.unapprovedCount || 0,
+                rejected: pollRes.rejectedCount || 0,
+                pending: pollRes.pendingCount || 0,
+                progressPercent: pollRes.progressPercent || 0,
               });
-            }
 
-            if (pollRes.status === 'COMPLETED' || pollRes.status === 'FAILED' || pollRes.status === 'CANCELLED') {
-              isDone = true;
-              try {
-                localStorage.removeItem('bb_active_verification_job');
-              } catch {
-                // ignore
+              if (Array.isArray(pollRes.results)) {
+                pollRes.results.forEach(classifyResult);
+
+                if (pollRes.portedCandidates && Array.isArray(pollRes.portedCandidates)) {
+                  discoveredPorted.push(...pollRes.portedCandidates);
+                }
+
+                // Incrementally update UI status of parsed rows as each chunk finishes
+                setExcelParsedRows((prevRows) => {
+                  return prevRows.map((r) => {
+                    if (!r.isValid || r.network === 'TELECEL' || r.network === 'AIRTELTIGO') return r;
+                    const normP = normalizeGhanaPhoneNumber(r.phone);
+                    if (rejectedMap.has(normP) || rejectedMap.has(r.phone)) {
+                      return {
+                        ...r,
+                        status: 'REJECTED' as const,
+                        statusReason: rejectedMap.get(normP) || rejectedMap.get(r.phone) || 'Invalid recipient number',
+                        isValid: false,
+                        isKnown: false,
+                      };
+                    }
+                    if (knownSet.has(normP) || knownSet.has(r.phone)) {
+                      return {
+                        ...r,
+                        status: 'APPROVED' as const,
+                        statusReason: 'Validated MTN recipient (Instant Delivery)',
+                        isKnown: true,
+                      };
+                    }
+                    if (unapprovedSet.has(normP) || unapprovedSet.has(r.phone)) {
+                      return {
+                        ...r,
+                        status: 'UNAPPROVED' as const,
+                        statusReason: 'Unregistered / First-Time MTN (Recorded for Approval)',
+                        isKnown: false,
+                      };
+                    }
+                    return r;
+                  });
+                });
+              }
+
+              if (pollRes.status === 'COMPLETED' || pollRes.status === 'FAILED' || pollRes.status === 'CANCELLED') {
+                isDone = true;
+                try {
+                  localStorage.removeItem('bb_active_verification_job');
+                } catch {
+                  // ignore
+                }
               }
             }
+            setActiveVerificationJobId(null);
           }
-          setActiveVerificationJobId(null);
         }
       } catch {
         jobUsed = false;
