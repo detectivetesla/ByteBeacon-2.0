@@ -32,6 +32,8 @@ import {
   XCircle,
   FileText,
   RefreshCw,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
@@ -130,6 +132,36 @@ export const BuyDataPage: React.FC = () => {
   const [singleBundleId, setSingleBundleId] = useState<string>('');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringFrequency, setRecurringFrequency] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+
+  // Real-time Single Order Beneficiary Verification
+  type SingleApprovalStatus =
+    | 'IDLE'
+    | 'CHECKING'
+    | 'APPROVED'
+    | 'UNAPPROVED'
+    | 'PORTED_CANDIDATE'
+    | 'NON_MTN'
+    | 'ERROR';
+
+  const [singleApprovalStatus, setSingleApprovalStatus] = useState<SingleApprovalStatus>('IDLE');
+  const [singleApprovalMessage, setSingleApprovalMessage] = useState<string>('');
+  const [singleAccountName, setSingleAccountName] = useState<string>('');
+  const [singleIsPortedCandidate, setSingleIsPortedCandidate] = useState<boolean>(false);
+  const [singleTreatAsPorted, setSingleTreatAsPorted] = useState<boolean>(false);
+  const [singleVerifiedPhone, setSingleVerifiedPhone] = useState<string>('');
+
+  const singlePrecheckCacheRef = useRef<
+    Record<
+      string,
+      {
+        status: SingleApprovalStatus;
+        message: string;
+        accountName?: string;
+        isPorted?: boolean;
+        result?: any;
+      }
+    >
+  >({});
 
   const mapProductsToBundles = useCallback((items: any[]): BundleItem[] => {
     return items.map((p) => {
@@ -361,6 +393,145 @@ export const BuyDataPage: React.FC = () => {
     );
   }, [availableBundles, singleBundleId, selectedNetwork]);
 
+  // Proactive real-time beneficiary approval check for single order
+  useEffect(() => {
+    if (orderMode !== 'single') return;
+
+    const cleaned = normalizeGhanaPhoneNumber(singlePhone);
+    const isValidGhanaMsisdn = /^(0|\+?233)[25][0-9]{8}$/.test(cleaned);
+
+    if (!isValidGhanaMsisdn || cleaned.length !== 10) {
+      setSingleApprovalStatus('IDLE');
+      setSingleApprovalMessage('');
+      setSingleAccountName('');
+      setSingleIsPortedCandidate(false);
+      setSingleTreatAsPorted(false);
+      setSingleVerifiedPhone('');
+      return;
+    }
+
+    const detectedNet = detectGhanaianNetwork(cleaned);
+    const isMtn =
+      selectedNetwork === NetworkProvider.MTN ||
+      detectedNet === 'MTN' ||
+      currentSingleBundle?.network === NetworkProvider.MTN;
+
+    // Non-MTN carriers (Telecel, AirtelTigo) do not enforce MTN whitelist restrictions
+    if (!isMtn) {
+      setSingleApprovalStatus('NON_MTN');
+      setSingleApprovalMessage(`Direct ${selectedNetwork || detectedNet} fulfillment (no whitelist required)`);
+      setSingleAccountName('');
+      setSingleIsPortedCandidate(false);
+      setSingleTreatAsPorted(false);
+      setSingleVerifiedPhone(cleaned);
+      return;
+    }
+
+    // Check in-memory cache for instant feedback
+    const cacheKey = `${selectedNetwork}:${cleaned}`;
+    const cached = singlePrecheckCacheRef.current[cacheKey];
+    if (cached) {
+      setSingleApprovalStatus(cached.status);
+      setSingleApprovalMessage(cached.message);
+      setSingleAccountName(cached.accountName || '');
+      setSingleIsPortedCandidate(Boolean(cached.isPorted));
+      setSingleVerifiedPhone(cleaned);
+      return;
+    }
+
+    // Set checking state and debounce precheck by 400ms
+    setSingleApprovalStatus('CHECKING');
+    setSingleApprovalMessage('Checking MTN beneficiary approval status...');
+
+    let isCancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const precheckRes = await beneficiaryApi.precheckPublic({
+          network: NetworkProvider.MTN,
+          phoneNumbers: [cleaned],
+        });
+        if (isCancelled) return;
+
+        const result = precheckRes?.results?.[0];
+        const isEnforced = precheckRes?.enforced !== false;
+        const isPorted = Boolean(
+          (precheckRes?.portedCandidates && precheckRes.portedCandidates.includes(cleaned)) ||
+          result?.isPorted,
+        );
+        const isOrderable =
+          result?.orderable !== undefined
+            ? result.orderable
+            : isEnforced
+            ? Boolean(result?.known && result?.valid)
+            : Boolean(result?.valid);
+
+        const isApproved = Boolean(
+          result &&
+          isOrderable &&
+          result.known &&
+          result.status !== 'UNAPPROVED' &&
+          result.status !== 'PENDING',
+        );
+
+        let status: SingleApprovalStatus = 'UNAPPROVED';
+        let msg = 'Number is not added to our MTN beneficiary list.';
+
+        if (isApproved) {
+          status = 'APPROVED';
+          msg = 'Approved MTN Beneficiary. Ready for instant delivery.';
+        } else if (isPorted) {
+          status = 'PORTED_CANDIDATE';
+          msg = 'Ported number detected. May require ported delivery route.';
+        } else {
+          status = 'UNAPPROVED';
+          msg = result?.message || 'Number is not added to our MTN beneficiary list.';
+        }
+
+        const cacheEntry = {
+          status,
+          message: msg,
+          accountName: result?.accountName,
+          isPorted,
+          result,
+        };
+        singlePrecheckCacheRef.current[cacheKey] = cacheEntry;
+
+        setSingleApprovalStatus(status);
+        setSingleApprovalMessage(msg);
+        setSingleAccountName(result?.accountName || '');
+        setSingleIsPortedCandidate(isPorted);
+        setSingleVerifiedPhone(cleaned);
+      } catch (err: any) {
+        if (isCancelled) return;
+        const isUnapprovedErr =
+          err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+          err?.status === 422 ||
+          err?.message?.toLowerCase().includes('beneficiary') ||
+          err?.message?.toLowerCase().includes('mtn number not yet validated') ||
+          err?.message?.toLowerCase().includes('not added to our beneficiary');
+
+        const status: SingleApprovalStatus = isUnapprovedErr ? 'UNAPPROVED' : 'ERROR';
+        const msg = isUnapprovedErr
+          ? 'Number is not added to our MTN beneficiary list.'
+          : err?.message || 'Could not verify beneficiary status.';
+
+        singlePrecheckCacheRef.current[cacheKey] = {
+          status,
+          message: msg,
+        };
+
+        setSingleApprovalStatus(status);
+        setSingleApprovalMessage(msg);
+        setSingleVerifiedPhone(cleaned);
+      }
+    }, 400);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [singlePhone, selectedNetwork, orderMode, currentSingleBundle?.network]);
+
   // Single Order Submit
   const handleSingleOrderSubmit = async () => {
     if (isMaintenanceMode) {
@@ -371,8 +542,8 @@ export const BuyDataPage: React.FC = () => {
       toastError('Bundle Required', 'Please select a data bundle before submitting.');
       return;
     }
-    const cleaned = singlePhone.replace(/\s+/g, '');
-    if (!/^(0|\+?233)[25][0-9]{8}$/.test(cleaned)) {
+    const cleaned = normalizeGhanaPhoneNumber(singlePhone);
+    if (!/^(0|\+?233)[25][0-9]{8}$/.test(cleaned) || cleaned.length !== 10) {
       setSinglePhoneError('Enter a valid Ghana 10-digit mobile number (e.g. 0241234567)');
       return;
     }
@@ -384,9 +555,37 @@ export const BuyDataPage: React.FC = () => {
       selectedNetwork === NetworkProvider.MTN ||
       detectedNet === 'MTN' ||
       currentSingleBundle.network === NetworkProvider.MTN;
-    let singleConfirmedPorted: string[] | undefined = undefined;
+    let singleConfirmedPorted: string[] | undefined = singleTreatAsPorted ? [cleaned] : undefined;
 
     if (isMtnOrder) {
+      // 1. Fast path: If already verified in real-time
+      if (singleVerifiedPhone === cleaned) {
+        if (singleApprovalStatus === 'UNAPPROVED') {
+          setUnapprovedPhone(cleaned);
+          setUnapprovedPhones([cleaned]);
+          setUnapprovedModalOpen(true);
+          return;
+        }
+        if (singleApprovalStatus === 'APPROVED' || singleApprovalStatus === 'NON_MTN') {
+          if (singleIsPortedCandidate && singleTreatAsPorted) {
+            singleConfirmedPorted = [cleaned];
+          }
+          setModalPayload({
+            title: isRecurring ? `Recurring Order (${recurringFrequency})` : 'Purchase Data',
+            packageSummary: currentSingleBundle.dataDisplay,
+            recipientSummary: cleaned,
+            amountDisplay: currentSingleBundle.priceDisplay,
+            bundleId: currentSingleBundle.id,
+            recipientPhone: cleaned,
+            bulkItems: undefined,
+            confirmedPorted: singleConfirmedPorted,
+          });
+          setPurchaseModalOpen(true);
+          return;
+        }
+      }
+
+      // 2. Synchronous fallback (if user clicked submit before debounce finished)
       try {
         setIsCheckingBeneficiary(true);
         const precheckRes = await beneficiaryApi.precheckPublic({
@@ -413,6 +612,23 @@ export const BuyDataPage: React.FC = () => {
           result.status === 'UNAPPROVED' ||
           result.status === 'PENDING';
 
+        const cacheKey = `${selectedNetwork}:${cleaned}`;
+        const finalStatus: SingleApprovalStatus = isUnapproved ? 'UNAPPROVED' : 'APPROVED';
+        const finalMsg = isUnapproved
+          ? (result?.message || 'Number is not added to our MTN beneficiary list.')
+          : 'Approved MTN Beneficiary. Ready for instant delivery.';
+
+        singlePrecheckCacheRef.current[cacheKey] = {
+          status: finalStatus,
+          message: finalMsg,
+          accountName: result?.accountName,
+          isPorted: Boolean(singleConfirmedPorted?.length),
+        };
+        setSingleApprovalStatus(finalStatus);
+        setSingleApprovalMessage(finalMsg);
+        setSingleAccountName(result?.accountName || '');
+        setSingleVerifiedPhone(cleaned);
+
         if (isUnapproved && isEnforced) {
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
@@ -427,6 +643,9 @@ export const BuyDataPage: React.FC = () => {
           err?.message?.toLowerCase().includes('mtn number not yet validated') ||
           err?.message?.toLowerCase().includes('not added to our beneficiary')
         ) {
+          setSingleApprovalStatus('UNAPPROVED');
+          setSingleApprovalMessage('Number is not added to our MTN beneficiary list.');
+          setSingleVerifiedPhone(cleaned);
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
@@ -1682,6 +1901,187 @@ export const BuyDataPage: React.FC = () => {
                   hint={`Enter the 10-digit ${selectedNetwork} recipient mobile number.`}
                 />
 
+                {/* Real-time Beneficiary Approval Detection Banner */}
+                {singleApprovalStatus === 'CHECKING' && (
+                  <div
+                    style={{
+                      padding: '0.625rem 0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-bg-base)',
+                      border: '1px solid var(--color-border-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: 'var(--font-size-xs)',
+                      color: 'var(--color-text-secondary)',
+                      marginTop: '-0.5rem',
+                    }}
+                  >
+                    <Loader2 size={15} className="animate-spin" style={{ animation: 'spin 1s linear infinite', color: theme.brandColor }} />
+                    <span style={{ fontWeight: 600 }}>{singleApprovalMessage || 'Verifying MTN beneficiary approval status...'}</span>
+                  </div>
+                )}
+
+                {singleApprovalStatus === 'APPROVED' && (
+                  <div
+                    style={{
+                      padding: '0.625rem 0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem',
+                      marginTop: '-0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <CheckCircle2 size={16} color="var(--color-success)" />
+                      <div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-success)' }}>
+                          Approved MTN Beneficiary
+                        </div>
+                        <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)' }}>
+                          {singleAccountName ? `${singleAccountName} • ` : ''}{singleApprovalMessage || 'Eligible for instant data delivery'}
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: 900,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: 'var(--color-success)',
+                        color: '#ffffff',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      APPROVED
+                    </span>
+                  </div>
+                )}
+
+                {singleApprovalStatus === 'UNAPPROVED' && (
+                  <div
+                    style={{
+                      padding: '0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.4rem',
+                      marginTop: '-0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <AlertTriangle size={16} color="var(--color-warning)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div>
+                          <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-warning)' }}>
+                            Beneficiary Not Approved
+                          </div>
+                          <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)', marginTop: '2px', lineHeight: 1.4 }}>
+                            {singleApprovalMessage || 'This MTN number is not yet approved on the telecom whitelist. Orders cannot be fulfilled until approved.'}
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '9px',
+                          fontWeight: 900,
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: 'var(--color-warning)',
+                          color: '#000000',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          flexShrink: 0,
+                        }}
+                      >
+                        UNAPPROVED
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.2rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cleaned = singleVerifiedPhone || normalizeGhanaPhoneNumber(singlePhone);
+                          setUnapprovedPhone(cleaned);
+                          setUnapprovedPhones([cleaned]);
+                          setUnapprovedModalOpen(true);
+                        }}
+                        style={{
+                          fontSize: 'var(--font-size-3xs)',
+                          fontWeight: 800,
+                          color: 'var(--color-warning)',
+                          background: 'none',
+                          border: 'none',
+                          padding: '0.2rem 0.4rem',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Submit this number for approval →
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {singleApprovalStatus === 'PORTED_CANDIDATE' && (
+                  <div
+                    style={{
+                      padding: '0.625rem 0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem',
+                      marginTop: '-0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Info size={15} color="var(--color-brand)" />
+                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                        Ported Number Candidate
+                      </span>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: 'var(--font-size-3xs)', fontWeight: 700, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={singleTreatAsPorted}
+                        onChange={(e) => setSingleTreatAsPorted(e.target.checked)}
+                      />
+                      <span>Process as Ported MTN</span>
+                    </label>
+                  </div>
+                )}
+
+                {singleApprovalStatus === 'NON_MTN' && (
+                  <div
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-bg-base)',
+                      border: '1px solid var(--color-border-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      marginTop: '-0.5rem',
+                    }}
+                  >
+                    <CheckCircle2 size={15} color="var(--color-success)" />
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                      Valid {selectedNetwork} Number • Direct carrier fulfillment (no whitelist required)
+                    </span>
+                  </div>
+                )}
+
                 {/* Package Dropdown Selector */}
                 <div>
                   <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>
@@ -1797,6 +2197,43 @@ export const BuyDataPage: React.FC = () => {
                       </strong>
                     </div>
 
+                    {/* Beneficiary Status Row */}
+                    {singleApprovalStatus !== 'IDLE' && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Beneficiary Status</span>
+                        {singleApprovalStatus === 'CHECKING' && (
+                          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Checking...
+                          </span>
+                        )}
+                        {singleApprovalStatus === 'APPROVED' && (
+                          <span style={{ fontSize: '9px', fontWeight: 900, padding: '2px 6px', borderRadius: '4px', backgroundColor: 'var(--color-success)', color: '#fff', textTransform: 'uppercase' }}>
+                            Approved
+                          </span>
+                        )}
+                        {singleApprovalStatus === 'UNAPPROVED' && (
+                          <span style={{ fontSize: '9px', fontWeight: 900, padding: '2px 6px', borderRadius: '4px', backgroundColor: 'var(--color-warning)', color: '#000', textTransform: 'uppercase' }}>
+                            Unapproved
+                          </span>
+                        )}
+                        {singleApprovalStatus === 'NON_MTN' && (
+                          <span style={{ fontSize: '9px', fontWeight: 900, padding: '2px 6px', borderRadius: '4px', backgroundColor: 'var(--color-success)', color: '#fff', textTransform: 'uppercase' }}>
+                            Eligible
+                          </span>
+                        )}
+                        {singleApprovalStatus === 'PORTED_CANDIDATE' && (
+                          <span style={{ fontSize: '9px', fontWeight: 900, padding: '2px 6px', borderRadius: '4px', backgroundColor: '#3B82F6', color: '#fff', textTransform: 'uppercase' }}>
+                            Ported
+                          </span>
+                        )}
+                        {singleApprovalStatus === 'ERROR' && (
+                          <span style={{ fontSize: '9px', fontWeight: 900, padding: '2px 6px', borderRadius: '4px', backgroundColor: 'var(--color-danger)', color: '#fff', textTransform: 'uppercase' }}>
+                            Error
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {isRecurring && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Frequency</span>
@@ -1824,8 +2261,18 @@ export const BuyDataPage: React.FC = () => {
                     padding: '0.65rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: isMaintenanceMode || isCheckingBeneficiary ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                    color: isMaintenanceMode || isCheckingBeneficiary ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                    backgroundColor:
+                      isMaintenanceMode || isCheckingBeneficiary
+                        ? 'var(--color-bg-surface-muted)'
+                        : singleApprovalStatus === 'UNAPPROVED'
+                        ? 'var(--color-warning)'
+                        : theme.buttonBg,
+                    color:
+                      isMaintenanceMode || isCheckingBeneficiary
+                        ? 'var(--color-text-muted)'
+                        : singleApprovalStatus === 'UNAPPROVED'
+                        ? '#000000'
+                        : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-sm)',
                     cursor: isMaintenanceMode || isCheckingBeneficiary ? 'not-allowed' : 'pointer',
@@ -1835,7 +2282,7 @@ export const BuyDataPage: React.FC = () => {
                     justifyContent: 'center',
                     gap: '0.4rem',
                     boxShadow: !isMaintenanceMode && !isCheckingBeneficiary ? `0 3px 12px ${theme.glowColor}` : 'none',
-                    transition: 'transform 100ms ease',
+                    transition: 'all 150ms ease',
                   }}
                   onMouseDown={(e) => (!isMaintenanceMode && !isCheckingBeneficiary && (e.currentTarget.style.transform = 'translateY(1px)'))}
                   onMouseUp={(e) => (!isMaintenanceMode && !isCheckingBeneficiary && (e.currentTarget.style.transform = 'translateY(0)'))}
@@ -1845,6 +2292,8 @@ export const BuyDataPage: React.FC = () => {
                       ? 'Platform in Maintenance'
                       : isCheckingBeneficiary
                         ? 'Verifying Beneficiary...'
+                        : singleApprovalStatus === 'UNAPPROVED'
+                        ? `Buy Data (Unapproved) — ${currentSingleBundle.priceDisplay}`
                         : `Buy Data (${currentSingleBundle.priceDisplay})`}
                   </span>
                   <ArrowRight size={16} strokeWidth={2.6} />
@@ -2281,7 +2730,7 @@ export const BuyDataPage: React.FC = () => {
                         </div>
                         <Button
                           variant="outline"
-                          size="xs"
+                          size="sm"
                           onClick={() => handleDownloadSetAside('unapproved')}
                           leftIcon={<Download size={12} />}
                           style={{ borderColor: 'var(--color-warning-border)', color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}
@@ -2359,7 +2808,7 @@ export const BuyDataPage: React.FC = () => {
                         </div>
                         <Button
                           variant="outline"
-                          size="xs"
+                          size="sm"
                           onClick={() => handleDownloadSetAside('mismatch')}
                           leftIcon={<Download size={12} />}
                           style={{ whiteSpace: 'nowrap' }}
@@ -2486,7 +2935,7 @@ export const BuyDataPage: React.FC = () => {
                           {isVerifyingApprovals && (
                             <Button
                               variant="outline"
-                              size="xs"
+                              size="sm"
                               onClick={handleCancelVerification}
                               leftIcon={<XCircle size={12} />}
                               style={{ fontSize: '11px', padding: '2px 8px', height: '24px' }}

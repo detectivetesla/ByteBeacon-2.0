@@ -351,5 +351,118 @@ describe('BuyDataPage Single Order Gating Suite', () => {
     expect(screen.queryByRole('button', { name: /Confirm Purchase/i })).toBeNull();
     expect(screen.queryByText(/Payment Method/i)).toBeNull();
   });
+
+  it('proactively detects unapproved beneficiary inline BEFORE submit button or popup modal is clicked', async () => {
+    (beneficiaryApi.precheckPublic as any).mockResolvedValue({
+      network: 'MTN',
+      enforced: true,
+      results: [
+        {
+          phone: '0541349282',
+          normalized: '0541349282',
+          valid: true,
+          known: false,
+          orderable: false,
+          status: 'UNAPPROVED',
+        },
+      ],
+    });
+
+    render(
+      <BrowserRouter>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(catalogApi.getBundles).toHaveBeenCalled();
+    });
+
+    // Enter single recipient
+    const recipientInput = screen.getByPlaceholderText(/024 123 4567/i);
+    fireEvent.change(recipientInput, { target: { value: '0541349282' } });
+
+    // Without clicking submit, precheck should trigger proactively after debounce
+    await waitFor(
+      () => {
+        expect(beneficiaryApi.precheckPublic).toHaveBeenCalledWith({
+          network: NetworkProvider.MTN,
+          phoneNumbers: ['0541349282'],
+        });
+      },
+      { timeout: 3000 },
+    );
+
+    // Inline UNAPPROVED banner should be displayed directly in the form
+    await waitFor(() => {
+      expect(screen.getAllByText(/Beneficiary Not Approved/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/UNAPPROVED/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Modals must NOT be open yet!
+    expect(screen.queryByRole('heading', { name: /New beneficiary number/i })).toBeNull();
+    expect(screen.queryByText(/Payment Method/i)).toBeNull();
+  });
+
+  it('proactively detects approved beneficiary inline and displays APPROVED badge before any modal', async () => {
+    (beneficiaryApi.precheckPublic as any).mockResolvedValue({
+      network: 'MTN',
+      enforced: true,
+      results: [
+        {
+          phone: '0241234567',
+          normalized: '0241234567',
+          valid: true,
+          known: true,
+          orderable: true,
+          status: 'APPROVED',
+          accountName: 'Kwame Mensah',
+        },
+      ],
+    });
+
+    render(
+      <BrowserRouter>
+        <ToastProvider>
+          <PlatformStatusProvider>
+            <BuyDataPage />
+          </PlatformStatusProvider>
+        </ToastProvider>
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(catalogApi.getBundles).toHaveBeenCalled();
+    });
+
+    // Enter single recipient
+    const recipientInput = screen.getByPlaceholderText(/024 123 4567/i);
+    fireEvent.change(recipientInput, { target: { value: '0241234567' } });
+
+    // Proactive detection triggers
+    await waitFor(
+      () => {
+        expect(beneficiaryApi.precheckPublic).toHaveBeenCalledWith({
+          network: NetworkProvider.MTN,
+          phoneNumbers: ['0241234567'],
+        });
+      },
+      { timeout: 3000 },
+    );
+
+    // Inline APPROVED badge should display
+    await waitFor(() => {
+      expect(screen.getAllByText(/Approved MTN Beneficiary/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/APPROVED/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Modals must NOT be open yet
+    expect(screen.queryByRole('heading', { name: /New beneficiary number/i })).toBeNull();
+    expect(screen.queryByText(/Payment Method/i)).toBeNull();
+  });
 });
 

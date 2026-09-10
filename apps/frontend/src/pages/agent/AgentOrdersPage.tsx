@@ -44,7 +44,7 @@ export const AgentOrdersPage: React.FC = () => {
 
   // Pagination & Modal
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedOrder, setSelectedOrder] = useState<OrderRowData | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
