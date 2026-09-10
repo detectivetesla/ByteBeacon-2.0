@@ -9,7 +9,7 @@ import { IPaymentProvider } from '../../core/payments/payment-provider.interface
 import { OrderService } from '../../core/commerce/order.service.js';
 import { OrderStateMachine } from '../../core/commerce/order-state-machine.js';
 import { AgentWebhookDispatcherService } from '../../core/webhooks/agent-webhook-dispatcher.service.js';
-import { createAuthHooks } from '../../plugins/auth.plugin.js';
+import { createAuthHooks, extractApiKeyFromRequest } from '../../plugins/auth.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BadRequestError, NotFoundError, ConflictError, InvalidPhoneError, BeneficiaryNotValidatedError } from '../../core/errors/app-error.js';
@@ -201,7 +201,7 @@ export async function agentRoutes(
         throw new BadRequestError('idempotencyKey is required and must be a UUID v4');
       }
 
-      const apiKeyHeader = (req.headers['x-api-key'] as string) || '';
+      const apiKeyHeader = extractApiKeyFromRequest(req) || '';
       const isSandbox =
         Boolean((req as any).apiKey?.isSandbox) ||
         Boolean((req.user as any)?.isSandbox) ||
@@ -2810,7 +2810,7 @@ export async function agentRoutes(
   // Background Telemetry Logger Hook for API Key Invocations
   app.addHook('onResponse', async (req, reply) => {
     try {
-      const apiKeyHeader = (req.headers['x-api-key'] as string) || '';
+      const apiKeyHeader = extractApiKeyFromRequest(req) || '';
       const authHeader = req.headers.authorization || '';
       const hasKey = apiKeyHeader || authHeader.startsWith('Bearer ak_') || (req as any).apiKey;
       if (!hasKey) return;

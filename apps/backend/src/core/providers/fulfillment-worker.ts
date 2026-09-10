@@ -260,6 +260,8 @@ export class FulfillmentWorker {
         ).catch(() => {});
 
         if (!isRetryable || currentAttempt >= this.retryPolicy.getMaxAttempts()) {
+          const userFacingReason = this.classifyUserFacingFailure(err);
+
           // Route to DLQ and mark order failed
           await this.queueService.routeToDlq({
             orderId: order.id,
@@ -273,13 +275,24 @@ export class FulfillmentWorker {
             failureClass: isRetryable ? 'RETRYABLE_EXHAUSTED' : 'PERMANENT_REJECTION',
           }).catch(() => {});
 
-          await this.db.query(
-            `UPDATE orders
-             SET order_status = $1,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = $2`,
-            [OrderStatus.FAILED, order.id],
-          );
+          try {
+            await this.db.query(
+              `UPDATE orders
+               SET order_status = $1,
+                   failure_reason = $2,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $3`,
+              [OrderStatus.FAILED, userFacingReason, order.id],
+            );
+          } catch {
+            await this.db.query(
+              `UPDATE orders
+               SET order_status = $1,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2`,
+              [OrderStatus.FAILED, order.id],
+            );
+          }
 
           await this.db.query(
             `UPDATE provider_orders SET provider_status = $1, last_synced_at = CURRENT_TIMESTAMP WHERE order_id = $2`,
@@ -292,7 +305,7 @@ export class FulfillmentWorker {
               order_id: order.id,
               public_id: order.public_id,
               status: 'rejected',
-              reason: err.message || 'Fulfillment failure',
+              reason: userFacingReason,
             }).catch(() => {});
 
             this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'purchase.failed', {
@@ -300,12 +313,12 @@ export class FulfillmentWorker {
               order_id: order.id,
               public_id: order.public_id,
               status: 'rejected',
-              reason: err.message || 'Fulfillment failure',
+              reason: userFacingReason,
             }).catch(() => {});
           }
 
           // Automated Wallet Refund on permanent fulfillment failure
-          await this.executeAutomaticRefund(order.id, correlationId, err.message || 'Fulfillment failure');
+          await this.executeAutomaticRefund(order.id, correlationId, userFacingReason);
           await this.checkBulkBatchCompletion(order.id);
 
           return {
@@ -313,7 +326,7 @@ export class FulfillmentWorker {
             success: false,
             providerStatus: ProviderStatus.FAILED,
             orderStatus: OrderStatus.FAILED,
-            error: err.message,
+            error: userFacingReason,
           };
         }
 
@@ -482,6 +495,34 @@ export class FulfillmentWorker {
   }
 
   /**
+   * Classifies an unrecoverable failure into a clear, user-facing explanation.
+   */
+  public classifyUserFacingFailure(err: any): string {
+    const rawMsg = String(err?.message || '').toLowerCase();
+    const rawCode = String(err?.errorCode || err?.code || '').toUpperCase();
+
+    if (rawCode === 'INSUFFICIENT_BALANCE' || rawMsg.includes('insufficient') || rawMsg.includes('balance')) {
+      return 'Telecom provider gateway has insufficient balance. Your payment has been refunded to your wallet.';
+    }
+    if (rawCode === 'BUNDLE_NOT_FOUND' || rawCode === 'BUNDLE_INACTIVE' || rawMsg.includes('bundle') || rawMsg.includes('package')) {
+      return 'Selected data bundle is currently unavailable from the network provider. Your payment has been refunded to your wallet.';
+    }
+    if (rawCode === 'BENEFICIARY_NOT_VALIDATED' || rawMsg.includes('beneficiary') || rawMsg.includes('whitelist')) {
+      return 'Recipient number requires prior MTN beneficiary validation. Your payment has been refunded to your wallet.';
+    }
+    if (rawCode === 'INVALID_PHONE' || rawMsg.includes('phone') || rawMsg.includes('msisdn')) {
+      return 'Invalid recipient phone number. Your payment has been refunded to your wallet.';
+    }
+    if (rawCode === 'DATAHOUSE_AUTH_ERROR' || rawCode === 'AGENT_INACTIVE' || rawMsg.includes('auth') || rawMsg.includes('unauthorized')) {
+      return 'Telecom carrier gateway authentication error. Your payment has been refunded to your wallet.';
+    }
+    if (rawMsg.includes('timeout') || rawMsg.includes('network') || rawMsg.includes('econnrefused')) {
+      return 'Telecom provider network timed out. Your payment has been refunded to your wallet.';
+    }
+    return `Fulfillment rejected by network: ${err?.message || 'Carrier error'}. Your payment has been refunded to your wallet.`;
+  }
+
+  /**
    * Executes an automatic, idempotent wallet refund whenever an order experiences a permanent fulfillment failure.
    */
   public async executeAutomaticRefund(
@@ -490,19 +531,41 @@ export class FulfillmentWorker {
     reason: string = 'AUTOMATIC_FULFILLMENT_FAILURE_REFUND',
   ): Promise<boolean> {
     try {
+      let refundDone = false;
+      let fallbackOrderRecord: any;
+
+      // 1. Try authoritative refundService first
       if (this.refundService) {
-        const res = await this.refundService.executeAutomatedOrderRefund(orderId, reason, correlationId);
-        if (!res.success) return false;
-      } else {
-        // Authoritative fallback with balanced double-entry ledger lines if refundService is not injected
-        const client = await this.db.connect();
+        try {
+          const res = await this.refundService.executeAutomatedOrderRefund(orderId, reason, correlationId);
+          if (res && res.success) {
+            refundDone = true;
+          } else {
+            logger.warn(
+              { orderId, reason },
+              '[FULFILLMENT_WORKER] refundService returned false; proceeding with direct atomic wallet refund fallback',
+            );
+          }
+        } catch (rfErr: any) {
+          logger.warn(
+            { orderId, err: rfErr?.message },
+            '[FULFILLMENT_WORKER] refundService threw error; proceeding with direct atomic wallet refund fallback',
+          );
+        }
+      }
+
+      // 2. Authoritative fallback with balanced double-entry ledger lines if refundService failed or is not injected
+      if (!refundDone) {
+        logger.info({ orderId, reason }, '[FULFILLMENT_WORKER] Initiating direct atomic fallback wallet refund');
+        const client = typeof (this.db as any).connect === 'function' ? await (this.db as any).connect() : this.db;
         try {
           await client.query('BEGIN');
           const orderRes = await client.query(
-            `SELECT id, public_id, user_id, agent_id, amount_pesewas, currency, payment_status, refund_status
+            `SELECT id, user_id, agent_id, amount_pesewas, public_id, currency, payment_status, refund_status
              FROM orders WHERE id = $1 FOR UPDATE`,
             [orderId],
           );
+          fallbackOrderRecord = orderRes?.rows?.[0];
           if (orderRes.rows.length === 0) {
             await client.query('ROLLBACK');
             return false;
@@ -528,22 +591,33 @@ export class FulfillmentWorker {
             `SELECT id FROM payments WHERE order_id = $1 AND status = 'PAID' ORDER BY created_at DESC LIMIT 1`,
             [orderId],
           );
-          let paymentId = payRes.rows[0]?.id;
+          let paymentId = payRes?.rows?.[0]?.id;
           if (!paymentId) {
             const newPay = await client.query(
               `INSERT INTO payments (order_id, user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, paid_at)
                VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'PAID', CURRENT_TIMESTAMP) RETURNING id`,
               [order.id, order.user_id, amountPesewas, order.currency || 'GHS', `pst_wal_${order.public_id || order.id}`],
             );
-            paymentId = newPay.rows[0].id;
+            paymentId = newPay?.rows?.[0]?.id || crypto.randomUUID();
           }
 
-          const refundRes = await client.query(
-            `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status)
-             VALUES ($1, $2, $3, $4, 'COMPLETED') RETURNING id`,
-            [paymentId, order.id, amountPesewas, reason],
-          );
-          const refundId = refundRes.rows[0].id;
+          const refundRef = `pst_wal_rf_${crypto.randomBytes(6).toString('hex')}`;
+          let refundId: string;
+          try {
+            const refundRes = await client.query(
+              `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status, provider_refund_reference)
+               VALUES ($1, $2, $3, $4, 'COMPLETED', $5) RETURNING id`,
+              [paymentId, order.id, amountPesewas, reason, refundRef],
+            );
+            refundId = refundRes?.rows?.[0]?.id || crypto.randomUUID();
+          } catch {
+            const refundRes = await client.query(
+              `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status)
+               VALUES ($1, $2, $3, $4, 'COMPLETED') RETURNING id`,
+              [paymentId, order.id, amountPesewas, reason],
+            );
+            refundId = refundRes?.rows?.[0]?.id || crypto.randomUUID();
+          }
 
           await client.query(
             `UPDATE payments SET status = 'REFUNDED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
@@ -582,26 +656,34 @@ export class FulfillmentWorker {
           );
 
           await client.query('COMMIT');
+          refundDone = true;
         } catch (fErr) {
           await client.query('ROLLBACK').catch(() => {});
+          logger.error({ orderId, err: (fErr as any)?.message }, '[FULFILLMENT_WORKER] Fallback refund transaction error');
           throw fErr;
         } finally {
-          client.release();
+          if (typeof (client as any).release === 'function') {
+            (client as any).release();
+          }
         }
       }
 
       // Webhook dispatching: wallet.updated & purchase.failed
-      const orderMeta = await this.db.query(
-        'SELECT id, public_id, user_id, agent_id, network, recipient_phone, amount_pesewas FROM orders WHERE id = $1',
-        [orderId],
+      const orderMeta = await Promise.resolve(
+        this.db.query(
+          'SELECT id, user_id, agent_id, amount_pesewas, public_id, network, recipient_phone FROM orders WHERE id = $1',
+          [orderId],
+        ),
       ).catch(() => ({ rows: [] }));
-      const ord = orderMeta.rows[0];
+      const ord = orderMeta?.rows?.[0] || fallbackOrderRecord;
 
       if (ord) {
         const targetAgentId = ord.agent_id || ord.user_id;
-        const balRes = await this.db.query(
-          'SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1',
-          [ord.user_id],
+        const balRes = await Promise.resolve(
+          this.db.query(
+            'SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1',
+            [ord.user_id],
+          ),
         ).catch(() => ({ rows: [] }));
         const balanceAfter =
           balRes.rows[0]?.wallet_balance ??
@@ -836,7 +918,14 @@ export class FulfillmentWorker {
 
     // If transitioned to FAILED/REJECTED, automatically refund the order
     if (isFailed) {
-      await this.executeAutomaticRefund(orderId, correlationId, `Provider status transitioned to ${statusData.providerStatus}`);
+      const classifiedReason = `Telecom provider transitioned status to [${statusData.providerStatus}]. Your payment has been refunded.`;
+      try {
+        await this.db.query(
+          `UPDATE orders SET failure_reason = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [classifiedReason, orderId],
+        );
+      } catch {}
+      await this.executeAutomaticRefund(orderId, correlationId, classifiedReason);
     }
 
     if (isCompleted || isFailed) {

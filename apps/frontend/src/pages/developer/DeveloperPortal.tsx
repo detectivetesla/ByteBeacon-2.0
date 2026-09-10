@@ -22,9 +22,11 @@ import {
   CheckCircle2,
   AlertTriangle,
   Send,
-  Smartphone,
   CreditCard,
   Shield,
+  Trash2,
+  Zap,
+  ExternalLink,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 
@@ -37,18 +39,19 @@ interface SectionNavItem {
 
 const SECTIONS: SectionNavItem[] = [
   { id: 'sec-overview', title: '1. Overview & Architecture', category: 'Getting Started' },
-  { id: 'sec-auth', title: '2. Authentication', category: 'Getting Started', badge: 'Required' },
-  { id: 'sec-idempotency', title: '3. Idempotency Keys', category: 'Core Concepts' },
-  { id: 'sec-ratelimits', title: '4. Rate Limits & Headers', category: 'Core Concepts' },
-  { id: 'sec-bundles', title: '5. Networks & Packages', category: 'Endpoints', badge: 'GET' },
-  { id: 'sec-create-order', title: '6. Create Order (Dispatch)', category: 'Endpoints', badge: 'POST' },
-  { id: 'sec-query-order', title: '7. Query Order Status', category: 'Endpoints', badge: 'GET' },
-  { id: 'sec-wallet', title: '8. Wallet & Balance', category: 'Endpoints', badge: 'GET' },
-  { id: 'sec-validation', title: '9. Number Validation', category: 'Endpoints', badge: 'POST' },
+  { id: 'sec-auth', title: '2. Authentication & Keys', category: 'Getting Started', badge: 'Required' },
+  { id: 'sec-precheck', title: '3. MTN Up2U Precheck', category: 'Endpoints', badge: 'POST' },
+  { id: 'sec-verification-jobs', title: '4. Async Verification Jobs', category: 'Endpoints', badge: 'POST' },
+  { id: 'sec-approvals', title: '5. Pending Approvals & Clear', category: 'Endpoints', badge: 'DELETE' },
+  { id: 'sec-bundles', title: '6. Networks & Packages', category: 'Endpoints', badge: 'GET' },
+  { id: 'sec-create-order', title: '7. Create Order & Bulk', category: 'Endpoints', badge: 'POST' },
+  { id: 'sec-query-order', title: '8. Query Order Status', category: 'Endpoints', badge: 'GET' },
+  { id: 'sec-wallet', title: '9. Wallet & Usage Telemetry', category: 'Endpoints', badge: 'GET' },
   { id: 'sec-webhooks', title: '10. Webhooks & Events', category: 'Webhooks' },
   { id: 'sec-signatures', title: '11. Signature Verification', category: 'Webhooks', badge: 'HMAC' },
-  { id: 'sec-errors', title: '12. Error Codes & Envelopes', category: 'Reference' },
-  { id: 'sec-sdks', title: '13. Code Examples & SDKs', category: 'Reference' },
+  { id: 'sec-idempotency', title: '12. Idempotency & Rate Limits', category: 'Core Concepts' },
+  { id: 'sec-errors', title: '13. Error Codes & Envelopes', category: 'Reference' },
+  { id: 'sec-sdks', title: '14. Multi-Language Code Examples', category: 'Reference' },
 ];
 
 export const DeveloperPortal: React.FC = () => {
@@ -83,54 +86,93 @@ export const DeveloperPortal: React.FC = () => {
     );
   }, [searchQuery]);
 
-  // Code Snippets
+  // Code Snippets in 5 Languages featuring live key and base URLs
   const codeExamples = {
-    curl: `curl -X POST https://api.bytebeacon.com/api/v1/agent/orders \\
-  -H "Authorization: Bearer ak_live_99f82a71d0e415b3ca61" \\
-  -H "Idempotency-Key: idem_01J123456789" \\
+    curl: `# 1. Dispatch a Single Data Order
+curl -X POST https://bytebeacon-2-0.onrender.com/api/v1/agent/orders \\
+  -H "X-API-Key: ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4" \\
+  -H "Idempotency-Key: a1b2c3d4-e5f6-4a7b-8c9d-0123456789ab" \\
   -H "Content-Type: application/json" \\
   -d '{
     "bundleId": "mtn_10gb_promo",
     "phoneNumber": "0241112233",
     "network": "MTN"
+  }'
+
+# 2. Fast Recipient Up2U Eligibility Precheck
+curl -X POST https://bytebeacon-2-0.onrender.com/api/v1/beneficiaries/precheck \\
+  -H "X-API-Key: ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "network": "MTN",
+    "phoneNumbers": ["0241112233", "0554445566"],
+    "bypassCache": true
   }'`,
+
     nodejs: `import axios from 'axios';
 
-const response = await axios.post(
-  'https://api.bytebeacon.com/api/v1/agent/orders',
+const client = axios.create({
+  baseURL: 'https://bytebeacon-2-0.onrender.com/api/v1',
+  headers: {
+    'X-API-Key': 'ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4',
+    'Content-Type': 'application/json',
+  },
+});
+
+// 1. Check Recipient Eligibility
+const precheck = await client.post('/beneficiaries/precheck', {
+  network: 'MTN',
+  phoneNumbers: ['0241112233', '0554445566'],
+  bypassCache: true,
+});
+console.log('Precheck Summary:', precheck.data.data.summary);
+
+// 2. Dispatch Order with UUID Idempotency Key
+const order = await client.post(
+  '/agent/orders',
   {
     bundleId: 'mtn_10gb_promo',
     phoneNumber: '0241112233',
     network: 'MTN',
   },
   {
-    headers: {
-      'Authorization': 'Bearer ak_live_99f82a71d0e415b3ca61',
-      'Idempotency-Key': 'idem_' + Date.now(),
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
   }
 );
+console.log('Order Status:', order.data.data.status);`,
 
-console.log(response.data);`,
     python: `import requests
+import uuid
 
-url = "https://api.bytebeacon.com/api/v1/agent/orders"
-headers = {
-    "Authorization": "Bearer ak_live_99f82a71d0e415b3ca61",
-    "Idempotency-Key": "idem_unique_key_123",
+BASE_URL = "https://bytebeacon-2-0.onrender.com/api/v1"
+HEADERS = {
+    "X-API-Key": "ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4",
     "Content-Type": "application/json",
 }
-payload = {
-    "bundleId": "mtn_10gb_promo",
-    "phoneNumber": "0241112233",
-    "network": "MTN",
-}
 
-response = requests.post(url, json=payload, headers=headers)
-print(response.json())`,
+# 1. High-Speed Precheck
+precheck_resp = requests.post(
+    f"{BASE_URL}/beneficiaries/precheck",
+    json={"network": "MTN", "phoneNumbers": ["0241112233"], "bypassCache": True},
+    headers=HEADERS
+)
+print("Precheck:", precheck_resp.json())
+
+# 2. Dispatch Order
+order_headers = {**HEADERS, "Idempotency-Key": str(uuid.uuid4())}
+order_resp = requests.post(
+    f"{BASE_URL}/agent/orders",
+    json={"bundleId": "mtn_10gb_promo", "phoneNumber": "0241112233", "network": "MTN"},
+    headers=order_headers
+)
+print("Order Response:", order_resp.json())`,
+
     php: `<?php
-$ch = curl_init('https://api.bytebeacon.com/api/v1/agent/orders');
+$apiKey = 'ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4';
+$baseUrl = 'https://bytebeacon-2-0.onrender.com/api/v1';
+
+// Dispatch Order via cURL
+$ch = curl_init("$baseUrl/agent/orders");
 $payload = json_encode([
     'bundleId' => 'mtn_10gb_promo',
     'phoneNumber' => '0241112233',
@@ -141,15 +183,16 @@ curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
 curl_setopt($ch, CURLOPT_HTTPHEADER, [
-    'Authorization: Bearer ak_live_99f82a71d0e415b3ca61',
-    'Idempotency-Key: idem_' . uniqid(),
-    'Content-Type: application/json'
+    "X-API-Key: $apiKey",
+    "Idempotency-Key: " . vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex(random_bytes(16)), 4)),
+    "Content-Type: application/json"
 ]);
 
 $response = curl_exec($ch);
 curl_close($ch);
 echo $response;
 ?>`,
+
     go: `package main
 
 import (
@@ -160,22 +203,28 @@ import (
 )
 
 func main() {
-	payload, _ := json.Marshal(map[string]string{
+	baseUrl := "https://bytebeacon-2-0.onrender.com/api/v1"
+	apiKey := "ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4"
+
+	payload, _ := json.Marshal(map[string]interface{}{
 		"bundleId":    "mtn_10gb_promo",
 		"phoneNumber": "0241112233",
 		"network":     "MTN",
 	})
 
-	req, _ := http.NewRequest("POST", "https://api.bytebeacon.com/api/v1/agent/orders", bytes.NewBuffer(payload))
-	req.Header.Set("Authorization", "Bearer ak_live_99f82a71d0e415b3ca61")
-	req.Header.Set("Idempotency-Key", "idem_unique_key_123")
+	req, _ := http.NewRequest("POST", baseUrl+"/agent/orders", bytes.NewBuffer(payload))
+	req.Header.Set("X-API-Key", apiKey)
+	req.Header.Set("Idempotency-Key", "c8d20e79-52bb-4856-bb6b-a25e1bb60dc2")
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
-	resp, _ := client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
 	defer resp.Body.Close()
 
-	fmt.Println("Status:", resp.Status)
+	fmt.Println("HTTP Status:", resp.Status)
 }`,
   };
 
@@ -187,24 +236,32 @@ func main() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
             <TactileIcon icon={BookOpen} color="api" size="sm" />
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-              ByteBeacon Developer Portal
+              ByteBeacon Developer Documentation & API Specs
             </h1>
           </div>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
-            Official REST API documentation, webhook specifications, and integration guides for automated telecom fulfillment.
+            Authoritative REST API documentation, OpenAPI specifications, webhook protocols, and third-party integration guides.
           </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Badge variant="purple" size="md">REST API v1.0</Badge>
+          <Badge variant="purple" size="md">REST API v2.0</Badge>
           <Badge variant="success" dot size="md">Production Ready</Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open('/docs', '_blank')}
+            leftIcon={<ExternalLink size={14} />}
+          >
+            Open Swagger UI
+          </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => navigate('/agent/sandbox')}
             leftIcon={<Terminal size={14} />}
           >
-            Open Sandbox
+            Developer Sandbox
           </Button>
         </div>
       </div>
@@ -241,7 +298,7 @@ func main() {
         </div>
 
         <div
-          onClick={() => navigate('/agent/sandbox')}
+          onClick={() => window.open('/api/v1/openapi.json', '_blank')}
           style={{
             padding: 'var(--space-4)',
             borderRadius: 'var(--radius-xl)',
@@ -254,16 +311,16 @@ func main() {
             justifyContent: 'space-between',
             transition: 'all 120ms ease',
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-info)')}
+          onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#06B6D4')}
           onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(6, 182, 212, 0.15)', border: '1px solid rgba(6, 182, 212, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#06B6D4' }}>
-              <Terminal size={18} strokeWidth={2.4} />
+              <Code2 size={18} strokeWidth={2.4} />
             </div>
             <div>
-              <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>API Sandbox</div>
-              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Interactive endpoint tester</div>
+              <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>OpenAPI 3.1 Spec</div>
+              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Raw JSON definition</div>
             </div>
           </div>
           <ArrowRight size={14} color="var(--color-text-muted)" />
@@ -292,7 +349,7 @@ func main() {
             </div>
             <div>
               <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>Webhooks</div>
-              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Endpoints & HMAC signatures</div>
+              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Event callbacks & HMAC</div>
             </div>
           </div>
           <ArrowRight size={14} color="var(--color-text-muted)" />
@@ -321,24 +378,23 @@ func main() {
             </div>
             <div>
               <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>Usage & Logs</div>
-              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Telemetry & error diagnostics</div>
+              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Telemetry & diagnostics</div>
             </div>
           </div>
           <ArrowRight size={14} color="var(--color-text-muted)" />
         </div>
       </div>
 
-      {/* 3. Main Content: 2-Column Responsive Layout with Sticky Table of Contents */}
+      {/* 3. Main Content Layout */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 280px) 1fr', gap: 'var(--space-6)', alignItems: 'start' }}>
-        {/* Left Column: Navigation Sidebar */}
+        {/* Navigation Sidebar */}
         <div style={{ position: 'sticky', top: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <SearchInput
-            placeholder="Search 13 API sections..."
+            placeholder="Search API sections..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
 
-          {/* Section Links */}
           <Card style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0.35rem 0.5rem' }}>
               Documentation Index
@@ -372,8 +428,22 @@ func main() {
                       fontWeight: 800,
                       padding: '0.1rem 0.35rem',
                       borderRadius: 'var(--radius-xs)',
-                      backgroundColor: sec.badge === 'POST' ? 'rgba(16, 185, 129, 0.15)' : sec.badge === 'GET' ? 'rgba(6, 182, 212, 0.15)' : 'var(--color-bg-base)',
-                      color: sec.badge === 'POST' ? '#10B981' : sec.badge === 'GET' ? '#06B6D4' : 'var(--color-text-muted)',
+                      backgroundColor:
+                        sec.badge === 'POST'
+                          ? 'rgba(16, 185, 129, 0.15)'
+                          : sec.badge === 'GET'
+                            ? 'rgba(6, 182, 212, 0.15)'
+                            : sec.badge === 'DELETE'
+                              ? 'rgba(239, 68, 68, 0.15)'
+                              : 'var(--color-bg-base)',
+                      color:
+                        sec.badge === 'POST'
+                          ? '#10B981'
+                          : sec.badge === 'GET'
+                            ? '#06B6D4'
+                            : sec.badge === 'DELETE'
+                              ? '#EF4444'
+                              : 'var(--color-text-muted)',
                     }}
                   >
                     {sec.badge}
@@ -384,7 +454,7 @@ func main() {
           </Card>
         </div>
 
-        {/* Right Column: The 13 Complete Documentation Sections */}
+        {/* Right Column: Complete Documentation Sections */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           {/* SECTION 1: Overview & Architecture */}
           <Card id="sec-overview" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
@@ -395,141 +465,213 @@ func main() {
               </h2>
             </div>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-              The ByteBeacon REST API provides programmatic access to automated telecommunications data bundle dispatch, wallet balance queries, beneficiary number validation, and real-time webhook events across Ghanaian carriers (MTN, Telecel, AirtelTigo).
+              ByteBeacon provides a carrier-grade REST API for programmatic telecom data bundle fulfillment, high-speed Up2U beneficiary verification, double-entry float management, and instant webhook callbacks across MTN, Telecel, and AirtelTigo.
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
               <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>Production Base URL</span>
+                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: '#10B981', textTransform: 'uppercase' }}>Production Base URL (Live)</span>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                  https://api.bytebeacon.com/api/v1
+                  https://bytebeacon-2-0.onrender.com/api/v1
                 </div>
               </div>
               <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: '#06B6D4', textTransform: 'uppercase' }}>Sandbox Base URL</span>
+                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: '#06B6D4', textTransform: 'uppercase' }}>Custom Gateway URL</span>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                  https://sandbox.bytebeacon.com/api/v1
+                  https://api.bytebeacon.online/api/v1
                 </div>
               </div>
             </div>
 
             <div style={{ marginTop: 'var(--space-4)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              <strong>Standard JSON Envelope:</strong> All successful responses return HTTP 200/201 with standard envelope keys:
+              <strong>Interactive Documentation:</strong>
+              <div style={{ marginTop: 'var(--space-2)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <a href="/docs" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)', fontWeight: 700, textDecoration: 'underline' }}>
+                  Swagger UI (/docs)
+                </a>
+                <span style={{ color: 'var(--color-text-muted)' }}>•</span>
+                <a href="/api/v1/openapi.json" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)', fontWeight: 700, textDecoration: 'underline' }}>
+                  OpenAPI 3.1 JSON (/api/v1/openapi.json)
+                </a>
+              </div>
+            </div>
+          </Card>
+
+          {/* SECTION 2: Authentication & Third-Party Connection */}
+          <Card id="sec-auth" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
+              <Key size={18} color="#8B5CF6" />
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
+                2. Authentication & Third-Party Connection Guide
+              </h2>
+            </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+              ByteBeacon supports multiple standard authentication conventions so third-party ERPs, POS systems, ecommerce backends, and custom scripts can connect with zero friction.
+            </p>
+
+            <div style={{ marginTop: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>Supported Authentication Headers:</strong>
+              <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <div><span style={{ color: '#8B5CF6' }}>// 1. Standard API Key Header (Recommended):</span><br />X-API-Key: ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4</div>
+                <div><span style={{ color: '#8B5CF6' }}>// 2. Bearer Token Header:</span><br />Authorization: Bearer ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4</div>
+                <div><span style={{ color: '#8B5CF6' }}>// 3. ApiKey Scheme Header:</span><br />Authorization: ApiKey ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4</div>
+                <div><span style={{ color: '#8B5CF6' }}>// 4. Query Parameter (Webhooks/GET):</span><br />https://bytebeacon-2-0.onrender.com/api/v1/agent/bundles?api_key=ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4</div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 'var(--space-4)', padding: 'var(--space-3)', backgroundColor: 'rgba(16, 185, 129, 0.08)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#10B981', fontWeight: 800, fontSize: 'var(--font-size-xs)' }}>
+                <CheckCircle2 size={16} /> Authoritative Live API Key Verified
+              </div>
+              <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+                Your production master key <code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4</code> has unrestricted full-access privileges (<code style={{ fontFamily: 'var(--font-mono)' }}>TIER_UNLIMITED</code>) across all ordering, prechecking, and reporting endpoints.
+              </p>
+            </div>
+          </Card>
+
+          {/* SECTION 3: MTN Up2U Recipient Precheck */}
+          <Card id="sec-precheck" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Zap size={18} color="#F59E0B" />
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
+                  3. MTN Up2U Beneficiary Precheck
+                </h2>
+              </div>
+              <div style={{ display: 'flex', gap: '0.35rem' }}>
+                <Badge variant="warning" size="sm">Sub-second Speed</Badge>
+                <Badge variant="success" size="sm">POST /beneficiaries/precheck</Badge>
+              </div>
+            </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+              Pre-screens batches of recipient mobile numbers to verify Up2U eligibility before placing orders. Checks return <strong style={{ color: '#10B981' }}>APPROVED</strong> (ready for instant fulfillment), <strong style={{ color: '#F59E0B' }}>UNAPPROVED / NEW</strong> (requires agent approval), or <strong style={{ color: '#EF4444' }}>REJECTED</strong> (invalid or inactive MSISDN).
+            </p>
+
+            <div style={{ marginTop: 'var(--space-3)' }}>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>Request Payload:</strong>
+              <pre style={{ margin: 'var(--space-2) 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
+{`// POST /api/v1/beneficiaries/precheck
+{
+  "network": "MTN",
+  "phoneNumbers": ["0241112233", "0554445566", "0201234567"],
+  "record": false,
+  "bypassCache": true
+}`}
+              </pre>
+
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>Response Payload (200 OK):</strong>
               <pre style={{ margin: 'var(--space-2) 0 0 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
 {`{
-  "status": "SUCCESS",
-  "data": { ... },
-  "error": null,
-  "requestId": "req_01J123456789"
+  "success": true,
+  "statusCode": 200,
+  "data": {
+    "network": "MTN",
+    "enforced": true,
+    "summary": {
+      "total": 476,
+      "approved": 282,
+      "unapproved": 193,
+      "rejected": 1
+    },
+    "results": [
+      {
+        "phone": "0241112233",
+        "normalized": "+233241112233",
+        "status": "APPROVED",
+        "valid": true,
+        "known": true
+      }
+    ]
+  }
 }`}
               </pre>
             </div>
           </Card>
 
-          {/* SECTION 2: Authentication */}
-          <Card id="sec-auth" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
-              <Key size={18} color="#8B5CF6" />
-              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                2. Authentication
-              </h2>
-            </div>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-              Authenticate your API requests using a Bearer token in the HTTP <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-primary)' }}>Authorization</code> header. Obtain your keys from the <button type="button" onClick={() => navigate('/agent/api')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>API Keys console</button>.
-            </p>
-
-            <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Authorization: Bearer ak_live_99f82a71d0e415b3ca61</span>
-              <button type="button" onClick={() => handleCopy('Authorization: Bearer ak_live_99f82a71d0e415b3ca61', 'auth_hdr')} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer' }}>
-                {copiedSection === 'auth_hdr' ? <Check size={14} color="var(--color-success)" /> : <Copy size={14} />}
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-4)', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: '240px', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)' }}>
-                <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>Production Keys</strong>
-                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>Prefix: <code style={{ fontFamily: 'var(--font-mono)' }}>ak_live_...</code> (debited against live fulfillment balance)</span>
+          {/* SECTION 4: High-Speed Verification Jobs */}
+          <Card id="sec-verification-jobs" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Clock size={18} color="#06B6D4" />
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
+                  4. Asynchronous Verification Jobs (Up to 10,000 Numbers)
+                </h2>
               </div>
-              <div style={{ flex: 1, minWidth: '240px', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)' }}>
-                <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'block' }}>Sandbox Keys</strong>
-                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>Prefix: <code style={{ fontFamily: 'var(--font-mono)' }}>ak_test_...</code> (simulated fulfillment against test sandbox)</span>
+              <Badge variant="info" size="sm">HTTP 202 Accepted</Badge>
+            </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+              For large spreadsheet lists and bulk audits exceeding 500 recipients, submit an asynchronous verification job. The server accepts the payload immediately and processes 500-1,000 recipients per second in the background.
+            </p>
+
+            <div style={{ marginTop: 'var(--space-3)' }}>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>1. Submit Job: POST /api/v1/beneficiaries/verification-jobs</strong>
+              <pre style={{ margin: 'var(--space-2) 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
+{`// Returns 202 Accepted
+{
+  "network": "MTN",
+  "phoneNumbers": ["0241112233", "0554445566", ...],
+  "record": false
+}`}
+              </pre>
+
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>2. Poll Job Progress: GET /api/v1/beneficiaries/verification-jobs/:jobId</strong>
+              <pre style={{ margin: 'var(--space-2) 0 0 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
+{`{
+  "success": true,
+  "statusCode": 200,
+  "data": {
+    "id": "job_01J123456789",
+    "network": "MTN",
+    "status": "COMPLETED",
+    "totalRows": 476,
+    "processedRows": 476,
+    "percent": 100,
+    "approvedCount": 282,
+    "unapprovedCount": 193,
+    "rejectedCount": 1
+  }
+}`}
+              </pre>
+            </div>
+          </Card>
+
+          {/* SECTION 5: Pending Approvals & Clear */}
+          <Card id="sec-approvals" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Trash2 size={18} color="#EF4444" />
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
+                  5. Pending MTN Approvals & Bulk Clearance
+                </h2>
               </div>
-            </div>
-          </Card>
-
-          {/* SECTION 3: Idempotency Keys */}
-          <Card id="sec-idempotency" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
-              <ShieldCheck size={18} color="#10B981" />
-              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                3. Idempotency Keys
-              </h2>
+              <Badge variant="danger" size="sm">DELETE /beneficiaries/approvals</Badge>
             </div>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-              To prevent accidental duplicate orders or double billing caused by network retries, all mutating endpoints (e.g. <code style={{ fontFamily: 'var(--font-mono)' }}>POST /agent/orders</code>) accept an <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-primary)' }}>Idempotency-Key</code> header.
+              Manage recipients quarantined in the pending queue awaiting agent authorization or provider sync. Supports full bulk purge as well as single-record removal.
             </p>
 
-            <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Idempotency-Key: idem_01J123456789_unique</span>
-              <button type="button" onClick={() => handleCopy('Idempotency-Key: idem_01J123456789_unique', 'idem_hdr')} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer' }}>
-                {copiedSection === 'idem_hdr' ? <Check size={14} color="var(--color-success)" /> : <Copy size={14} />}
-              </button>
-            </div>
-
-            <div style={{ marginTop: 'var(--space-3)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-              Keys are cached for <strong>24 hours</strong>. If a request is replayed with an existing key, the original result is returned without executing a new fulfillment.
+            <div style={{ marginTop: 'var(--space-3)' }}>
+              <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>Purge All Pending Approvals:</strong>
+              <pre style={{ margin: 'var(--space-2) 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
+{`// DELETE /api/v1/beneficiaries/approvals?network=MTN
+// Response:
+{
+  "success": true,
+  "data": {
+    "deletedCount": 193
+  }
+}`}
+              </pre>
             </div>
           </Card>
 
-          {/* SECTION 4: Rate Limits & Headers */}
-          <Card id="sec-ratelimits" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
-              <Clock size={18} color="#F59E0B" />
-              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                4. Rate Limits & Headers
-              </h2>
-            </div>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-              Rate limits protect gateway throughput and are enforced on a per-API-key basis over a 1-minute sliding window.
-            </p>
-
-            <div style={{ overflowX: 'auto', marginTop: 'var(--space-3)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                    <th style={{ padding: 'var(--space-2) var(--space-3)', fontWeight: 800, color: 'var(--color-text-muted)' }}>Header</th>
-                    <th style={{ padding: 'var(--space-2) var(--space-3)', fontWeight: 800, color: 'var(--color-text-muted)' }}>Description</th>
-                    <th style={{ padding: 'var(--space-2) var(--space-3)', fontWeight: 800, color: 'var(--color-text-muted)' }}>Example</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>X-RateLimit-Limit</td>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>Maximum requests allowed per minute</td>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)' }}>100</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>X-RateLimit-Remaining</td>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>Remaining requests in current window</td>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)' }}>87</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>X-RateLimit-Reset</td>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>UTC timestamp when current window resets</td>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)' }}>1786934400</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          {/* SECTION 5: Networks & Packages */}
+          {/* SECTION 6: Networks & Packages */}
           <Card id="sec-bundles" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Layers size={18} color="#06B6D4" />
                 <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                  5. Networks & Packages
+                  6. Networks & Packages
                 </h2>
               </div>
               <Badge variant="info" size="sm">GET /agent/bundles</Badge>
@@ -539,7 +681,7 @@ func main() {
             </p>
 
             <pre style={{ margin: 'var(--space-3) 0 0 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
-{`// GET /agent/bundles?network=MTN
+{`// GET /api/v1/agent/bundles?network=MTN
 {
   "status": "SUCCESS",
   "data": [
@@ -564,13 +706,13 @@ func main() {
             </pre>
           </Card>
 
-          {/* SECTION 6: Create Order (Dispatch) */}
+          {/* SECTION 7: Create Order (Dispatch) */}
           <Card id="sec-create-order" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Send size={18} color="#10B981" />
                 <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                  6. Create Order (Data Bundle Dispatch)
+                  7. Create Order (Data Bundle Dispatch)
                 </h2>
               </div>
               <Badge variant="success" size="sm">POST /agent/orders</Badge>
@@ -600,19 +742,19 @@ func main() {
     "network": "MTN",
     "amountPesewas": 5700,
     "balanceAfterPesewas": 145000,
-    "createdAt": "2026-08-17T01:00:00Z"
+    "createdAt": "2026-09-10T01:00:00Z"
   }
 }`}
             </pre>
           </Card>
 
-          {/* SECTION 7: Query Order Status */}
+          {/* SECTION 8: Query Order Status */}
           <Card id="sec-query-order" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <CheckCircle2 size={18} color="#06B6D4" />
                 <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                  7. Query Order Status
+                  8. Query Order Status
                 </h2>
               </div>
               <Badge variant="info" size="sm">GET /agent/orders/:id</Badge>
@@ -622,7 +764,7 @@ func main() {
             </p>
 
             <pre style={{ margin: 'var(--space-3) 0 0 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
-{`// GET /agent/orders/ORD-99214
+{`// GET /api/v1/agent/orders/ORD-99214
 {
   "status": "SUCCESS",
   "data": {
@@ -632,29 +774,29 @@ func main() {
     "recipientPhone": "0241112233",
     "amountPesewas": 5700,
     "networkReference": "BB_TELCO_99410",
-    "completedAt": "2026-08-17T01:00:12Z"
+    "completedAt": "2026-09-10T01:00:12Z"
   }
 }`}
             </pre>
           </Card>
 
-          {/* SECTION 8: Wallet & Balance */}
+          {/* SECTION 9: Wallet & Balance */}
           <Card id="sec-wallet" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <CreditCard size={18} color="#0EA5E9" />
                 <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                  8. Wallet & Balance
+                  9. Wallet Balance & API Usage Telemetry
                 </h2>
               </div>
               <Badge variant="info" size="sm">GET /agent/wallet/balance</Badge>
             </div>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-              Programmatically query your active prepaid fulfillment float balance before initiating bulk order dispatch.
+              Programmatically query your active prepaid fulfillment float balance and telemetry metrics before initiating bulk order dispatch.
             </p>
 
             <pre style={{ margin: 'var(--space-3) 0 0 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
-{`// GET /agent/wallet/balance
+{`// GET /api/v1/agent/wallet/balance
 {
   "status": "SUCCESS",
   "data": {
@@ -662,36 +804,6 @@ func main() {
     "formattedBalance": "GH₵ 1,450.00",
     "currency": "GHS",
     "accountStatus": "ACTIVE"
-  }
-}`}
-            </pre>
-          </Card>
-
-          {/* SECTION 9: Beneficiary & Number Validation */}
-          <Card id="sec-validation" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Smartphone size={18} color="#8B5CF6" />
-                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                  9. Beneficiary & Number Validation
-                </h2>
-              </div>
-              <Badge variant="success" size="sm">POST /agent/validate-number</Badge>
-            </div>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-              Validate Ghanaian carrier formats (e.g. MTN prefixes: 024, 054, 055, 059; Telecel prefixes: 020, 050; AT prefixes: 027, 057, 026, 056) prior to submitting orders.
-            </p>
-
-            <pre style={{ margin: 'var(--space-3) 0 0 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
-{`// POST /agent/validate-number
-// Request: { "phoneNumber": "0241112233" }
-{
-  "status": "SUCCESS",
-  "data": {
-    "phoneNumber": "0241112233",
-    "isValid": true,
-    "detectedNetwork": "MTN",
-    "e164Format": "+233241112233"
   }
 }`}
             </pre>
@@ -706,7 +818,7 @@ func main() {
               </h2>
             </div>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-              Receive instantaneous HTTP POST webhook callbacks when order statuses update. Configure endpoints in your <button type="button" onClick={() => navigate('/agent/webhooks')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Webhooks console</button>.
+              Receive instantaneous HTTP POST callbacks when order statuses update. Configure endpoints in your <button type="button" onClick={() => navigate('/agent/webhooks')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Webhooks console</button>.
             </p>
 
             <div style={{ marginTop: 'var(--space-3)' }}>
@@ -714,7 +826,7 @@ func main() {
               <pre style={{ margin: 'var(--space-2) 0 0 0', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', overflowX: 'auto', border: '1px solid var(--color-border-subtle)' }}>
 {`{
   "event": "order.completed",
-  "timestamp": "2026-08-17T01:00:15Z",
+  "timestamp": "2026-09-10T01:00:15Z",
   "data": {
     "orderId": "ORD-99214",
     "bundleId": "mtn_10gb_promo",
@@ -751,12 +863,32 @@ function verifyWebhook(rawBody, signatureHeader, secret) {
             </pre>
           </Card>
 
-          {/* SECTION 12: Error Codes & Standard Envelope */}
+          {/* SECTION 12: Idempotency & Rate Limits */}
+          <Card id="sec-idempotency" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
+              <ShieldCheck size={18} color="#10B981" />
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
+                12. Idempotency Keys & Rate Limits
+              </h2>
+            </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+              To prevent accidental duplicate orders or double billing during network disconnects, all mutating endpoints require an <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-primary)' }}>Idempotency-Key</code> header containing a UUID v4. Keys are cached for 24 hours.
+            </p>
+
+            <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-base)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Idempotency-Key: a1b2c3d4-e5f6-4a7b-8c9d-0123456789ab</span>
+              <button type="button" onClick={() => handleCopy('Idempotency-Key: a1b2c3d4-e5f6-4a7b-8c9d-0123456789ab', 'idem_hdr')} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer' }}>
+                {copiedSection === 'idem_hdr' ? <Check size={14} color="var(--color-success)" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </Card>
+
+          {/* SECTION 13: Error Codes & Standard Envelope */}
           <Card id="sec-errors" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-2)' }}>
               <AlertTriangle size={18} color="var(--color-danger)" />
               <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                12. Error Codes & Standard Envelope
+                13. Error Codes & Standard Envelope
               </h2>
             </div>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
@@ -781,12 +913,12 @@ function verifyWebhook(rawBody, signatureHeader, secret) {
                   <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                     <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)' }}>401 Unauthorized</td>
                     <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-danger)' }}>UNAUTHORIZED</td>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>Missing, invalid, or revoked API key</td>
+                    <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>Missing, invalid, or unrecognized API key</td>
                   </tr>
                   <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                     <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)' }}>402 Payment Required</td>
                     <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-danger)' }}>INSUFFICIENT_BALANCE</td>
-                    <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>Fulfillment wallet balance is too low for this bundle</td>
+                    <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>Fulfillment float balance is too low for this bundle</td>
                   </tr>
                   <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                     <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)' }}>404 Not Found</td>
@@ -803,13 +935,13 @@ function verifyWebhook(rawBody, signatureHeader, secret) {
             </div>
           </Card>
 
-          {/* SECTION 13: SDKs & Code Examples */}
+          {/* SECTION 14: SDKs & Code Examples */}
           <Card id="sec-sdks" style={{ padding: 'var(--space-6)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: 'var(--space-3)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Code2 size={18} color="var(--color-primary)" />
                 <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
-                  13. Multi-Language SDKs & Code Examples
+                  14. Multi-Language Code Examples
                 </h2>
               </div>
 
@@ -858,6 +990,7 @@ function verifyWebhook(rawBody, signatureHeader, secret) {
                   fontSize: 'var(--font-size-2xs)',
                   fontWeight: 700,
                   cursor: 'pointer',
+                  zIndex: 2,
                 }}
               >
                 {copiedSection === `snippet_${activeLang}` ? <Check size={12} color="#10B981" /> : <Copy size={12} />}

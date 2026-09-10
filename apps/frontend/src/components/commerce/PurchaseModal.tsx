@@ -151,7 +151,13 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   const [buyerEmail, setBuyerEmail] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState<{ id: string; count?: number } | null>(null);
+  const [completedOrder, setCompletedOrder] = useState<{
+    id: string;
+    count?: number;
+    status?: string;
+    refundStatus?: string;
+    failureReason?: string | null;
+  } | null>(null);
   const [copied, setCopied] = useState(false);
   const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
   const [unapprovedPhone, setUnapprovedPhone] = useState('');
@@ -161,6 +167,56 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   const effectiveConfirmedPorted = useMemo(() => {
     return Array.from(new Set([...(initialConfirmedPorted || []), ...discoveredPorted]));
   }, [initialConfirmedPorted, discoveredPorted]);
+
+  // Live fulfillment and refund status poller for Step 3
+  useEffect(() => {
+    if (step !== 3 || !completedOrder?.id || isBulk) return;
+
+    let active = true;
+    let pollCount = 0;
+    const maxPolls = 8;
+
+    const poll = async () => {
+      try {
+        const orderData = await ordersApi.getOrder(completedOrder.id);
+        if (!active || !orderData) return;
+
+        setCompletedOrder((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: orderData.orderStatus,
+                refundStatus: orderData.refundStatus,
+                failureReason: orderData.failureReason || prev.failureReason,
+              }
+            : null,
+        );
+
+        if (
+          orderData.orderStatus === 'COMPLETED' ||
+          orderData.orderStatus === 'FAILED' ||
+          orderData.refundStatus === 'COMPLETED'
+        ) {
+          await refreshWalletBalance();
+          window.dispatchEvent(new CustomEvent('wallet-updated'));
+          return;
+        }
+      } catch {
+        // Non-fatal
+      }
+
+      pollCount++;
+      if (active && pollCount < maxPolls) {
+        setTimeout(poll, 1200);
+      }
+    };
+
+    const timer = setTimeout(poll, 800);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [step, completedOrder?.id, isBulk, refreshWalletBalance]);
 
   // Determine active channel: explicitly passed, or inferred from authenticated user role
   const isAgentRole = user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin';
@@ -756,7 +812,12 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         setIsProcessing(false);
         const orderRef =
           order.publicId || (order as any).orderNumber || order.id || 'Order Confirmed';
-        setCompletedOrder({ id: orderRef });
+        setCompletedOrder({
+          id: orderRef,
+          status: order.orderStatus,
+          refundStatus: order.refundStatus,
+          failureReason: order.failureReason,
+        });
         setStep(3);
         await refreshWalletBalance();
         window.dispatchEvent(new CustomEvent('wallet-updated'));
@@ -1522,32 +1583,57 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 gap: 'var(--space-4)',
               }}
             >
-              <div
-                style={{
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: '50%',
-                  backgroundColor: 'var(--color-success-surface)',
-                  border: '1px solid var(--color-success-border)',
-                  color: 'var(--color-success)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {isBulk ? <UsersRound size={32} /> : <CheckCircle2 size={32} />}
-              </div>
+              {completedOrder.status === 'FAILED' ? (
+                <div
+                  style={{
+                    width: '56px',
+                    height: '56px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    color: 'var(--color-danger, #ef4444)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <AlertTriangle size={32} />
+                </div>
+              ) : (
+                <div
+                  style={{
+                    width: '56px',
+                    height: '56px',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--color-success-surface)',
+                    border: '1px solid var(--color-success-border)',
+                    color: 'var(--color-success)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {isBulk ? <UsersRound size={32} /> : <CheckCircle2 size={32} />}
+                </div>
+              )}
 
               <div>
                 <h3
                   style={{
                     fontSize: 'var(--font-size-base)',
                     fontWeight: 900,
-                    color: 'var(--color-text-primary)',
+                    color:
+                      completedOrder.status === 'FAILED'
+                        ? 'var(--color-danger, #ef4444)'
+                        : 'var(--color-text-primary)',
                     margin: 0,
                   }}
                 >
-                  {isBulk ? 'Bulk Order Queued for Dispatch!' : 'Data Bundle Dispatched!'}
+                  {completedOrder.status === 'FAILED'
+                    ? 'Fulfillment Failed'
+                    : isBulk
+                    ? 'Bulk Order Queued for Dispatch!'
+                    : 'Data Bundle Dispatched!'}
                 </h3>
                 <p
                   style={{
@@ -1558,7 +1644,12 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                     lineHeight: 1.5,
                   }}
                 >
-                  {isBulk ? (
+                  {completedOrder.status === 'FAILED' ? (
+                    <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>
+                      {completedOrder.failureReason ||
+                        'The telecom network provider rejected the fulfillment request.'}
+                    </span>
+                  ) : isBulk ? (
                     <>
                       <strong style={{ color: 'var(--color-text-primary)' }}>
                         {completedOrder.count || bulkItems?.length} recipient orders
@@ -1583,6 +1674,48 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   )}
                 </p>
               </div>
+
+              {/* Automatic Immediate Wallet Refund Banner */}
+              {completedOrder.status === 'FAILED' && (
+                <div
+                  style={{
+                    width: '100%',
+                    padding: 'var(--space-3)',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                    textAlign: 'left',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <CheckCircle2 size={16} color="var(--color-success, #10b981)" />
+                    <span
+                      style={{
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 800,
+                        color: 'var(--color-success, #10b981)',
+                      }}
+                    >
+                      {completedOrder.refundStatus === 'COMPLETED'
+                        ? 'Wallet Refund Completed'
+                        : 'Immediate Refund Credited'}
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--color-text-secondary)',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    GH₵ {numericPrice.toFixed(2)} was automatically refunded to your wallet balance.
+                    Your funds are safe and available immediately.
+                  </span>
+                </div>
+              )}
 
               <div
                 style={{

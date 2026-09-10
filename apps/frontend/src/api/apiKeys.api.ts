@@ -26,9 +26,11 @@ export interface ApiKeyCreatedResponse {
 
 export const apiKeysApi = {
   listKeys: async (): Promise<ApiKeyItem[]> => {
-    const res = await apiClient.get<{ items: ApiKeyItem[] } | ApiKeyItem[]>('/developer/api-keys');
+    const res = await apiClient.get<any>('/developer/api-keys');
     if (Array.isArray(res)) return res;
-    if (res && Array.isArray((res as any).items)) return (res as any).items;
+    if (res && Array.isArray(res.items)) return res.items;
+    if (res && Array.isArray(res.data)) return res.data;
+    if (res && res.data && Array.isArray(res.data.items)) return res.data.items;
     return [];
   },
 

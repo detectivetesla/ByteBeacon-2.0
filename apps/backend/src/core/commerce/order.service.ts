@@ -534,6 +534,7 @@ export class OrderService {
              o.amount_pesewas as "amountPesewas", o.currency, o.pricing_snapshot as "pricingSnapshot",
              o.payment_status as "paymentStatus", o.order_status as "orderStatus",
              o.provider_status as "providerStatus", o.refund_status as "refundStatus",
+             o.failure_reason as "failureReason",
              o.created_at as "createdAt", o.updated_at as "updatedAt",
              po.provider_name as "poProviderName", po.provider_reference as "poProviderReference",
              po.provider_status as "poProviderStatus", po.last_synced_at as "poLastSyncedAt",
@@ -543,7 +544,27 @@ export class OrderService {
       WHERE ${isUuid ? 'o.id = $1' : 'o.public_id = $1'}
     `;
 
-    const result = await this.db.query(query, [orderIdOrPublicId]);
+    let result: any;
+    try {
+      result = await this.db.query(query, [orderIdOrPublicId]);
+    } catch {
+      const fallbackQuery = `
+        SELECT o.id, o.public_id as "publicId", o.user_id as "userId", o.agent_id as "agentId",
+               o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
+               o.amount_pesewas as "amountPesewas", o.currency, o.pricing_snapshot as "pricingSnapshot",
+               o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+               o.provider_status as "providerStatus", o.refund_status as "refundStatus",
+               NULL as "failureReason",
+               o.created_at as "createdAt", o.updated_at as "updatedAt",
+               po.provider_name as "poProviderName", po.provider_reference as "poProviderReference",
+               po.provider_status as "poProviderStatus", po.last_synced_at as "poLastSyncedAt",
+               po.last_provider_event_at as "poLastProviderEventAt", po.sync_version as "poSyncVersion"
+        FROM orders o
+        LEFT JOIN provider_orders po ON o.id = po.order_id
+        WHERE ${isUuid ? 'o.id = $1' : 'o.public_id = $1'}
+      `;
+      result = await this.db.query(fallbackQuery, [orderIdOrPublicId]);
+    }
     if (result.rows.length === 0) {
       throw new NotFoundError(`Order '${orderIdOrPublicId}' not found`);
     }
@@ -638,6 +659,7 @@ export class OrderService {
       orderStatus: row.orderStatus as OrderStatus,
       providerStatus: row.providerStatus as ProviderStatus,
       refundStatus: row.refundStatus as RefundStatus,
+      failureReason: row.failureReason || null,
       pricingSnapshot: row.pricingSnapshot,
       providerOrder: row.poProviderName
         ? {
@@ -680,25 +702,50 @@ export class OrderService {
       altPhone = `0${cleanRef.slice(4)}`;
     }
 
-    const res = await this.db.query(
-      `SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone", o.network,
-              o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas", o.currency,
-              o.payment_status as "paymentStatus", o.order_status as "orderStatus",
-              o.pricing_snapshot as "pricingSnapshot",
-              o.created_at as "createdAt", o.updated_at as "updatedAt",
-              po.provider_reference as "poProviderReference", po.provider_status as "poProviderStatus",
-              po.last_synced_at as "poLastSyncedAt"
-       FROM orders o
-       LEFT JOIN provider_orders po ON o.id = po.order_id
-       WHERE LOWER(o.public_id) = LOWER($1)
-          OR o.id::text = $1
-          OR LOWER(o.id::text) = LOWER($1)
-          OR o.recipient_phone = $1
-          OR o.recipient_phone = $2
-       ORDER BY o.created_at DESC
-       LIMIT 1`,
-      [cleanRef, altPhone],
-    );
+    let res: any;
+    try {
+      res = await this.db.query(
+        `SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone", o.network,
+                o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas", o.currency,
+                o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+                o.failure_reason as "failureReason",
+                o.pricing_snapshot as "pricingSnapshot",
+                o.created_at as "createdAt", o.updated_at as "updatedAt",
+                po.provider_reference as "poProviderReference", po.provider_status as "poProviderStatus",
+                po.last_synced_at as "poLastSyncedAt"
+         FROM orders o
+         LEFT JOIN provider_orders po ON o.id = po.order_id
+         WHERE LOWER(o.public_id) = LOWER($1)
+            OR o.id::text = $1
+            OR LOWER(o.id::text) = LOWER($1)
+            OR o.recipient_phone = $1
+            OR o.recipient_phone = $2
+         ORDER BY o.created_at DESC
+         LIMIT 1`,
+        [cleanRef, altPhone],
+      );
+    } catch {
+      res = await this.db.query(
+        `SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone", o.network,
+                o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas", o.currency,
+                o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+                NULL as "failureReason",
+                o.pricing_snapshot as "pricingSnapshot",
+                o.created_at as "createdAt", o.updated_at as "updatedAt",
+                po.provider_reference as "poProviderReference", po.provider_status as "poProviderStatus",
+                po.last_synced_at as "poLastSyncedAt"
+         FROM orders o
+         LEFT JOIN provider_orders po ON o.id = po.order_id
+         WHERE LOWER(o.public_id) = LOWER($1)
+            OR o.id::text = $1
+            OR LOWER(o.id::text) = LOWER($1)
+            OR o.recipient_phone = $1
+            OR o.recipient_phone = $2
+         ORDER BY o.created_at DESC
+         LIMIT 1`,
+        [cleanRef, altPhone],
+      );
+    }
 
     if (res.rows.length === 0) {
       return null;
@@ -792,6 +839,7 @@ export class OrderService {
       amountPesewas,
       amountDisplay,
       currency: row.currency as Currency,
+      failureReason: row.failureReason || null,
       createdAt: new Date(row.createdAt).toISOString(),
       updatedAt: new Date(row.updatedAt).toISOString(),
       completedAt: row.orderStatus === OrderStatus.COMPLETED ? new Date(row.updatedAt).toISOString() : null,
@@ -875,6 +923,7 @@ export class OrderService {
              amount_pesewas as "amountPesewas", currency,
              payment_status as "paymentStatus", order_status as "orderStatus",
              provider_status as "providerStatus", refund_status as "refundStatus",
+             failure_reason as "failureReason",
              created_at as "createdAt", updated_at as "updatedAt"
       FROM orders
       ${whereClause}
@@ -883,14 +932,32 @@ export class OrderService {
     `;
     const queryParams = [...params, limit, offset];
 
-    const result = await this.db.query(query, queryParams);
+    let result: any;
+    try {
+      result = await this.db.query(query, queryParams);
+    } catch {
+      const fallbackQuery = `
+        SELECT id, public_id as "publicId", user_id as "userId", agent_id as "agentId",
+               recipient_phone as "recipientPhone", network, data_amount_mb as "dataAmountMb",
+               amount_pesewas as "amountPesewas", currency,
+               payment_status as "paymentStatus", order_status as "orderStatus",
+               provider_status as "providerStatus", refund_status as "refundStatus",
+               NULL as "failureReason",
+               created_at as "createdAt", updated_at as "updatedAt"
+        FROM orders
+        ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT $${paramIdx - 2} OFFSET $${paramIdx - 1}
+      `;
+      result = await this.db.query(fallbackQuery, queryParams);
+    }
 
     const countQuery = `SELECT COUNT(*) as total FROM orders ${whereClause}`;
     const countRes = await this.db.query<{ total: string }>(countQuery, params);
     const total = parseInt(countRes.rows[0]?.total || '0', 10);
 
     return {
-      items: result.rows.map((r) => ({
+      items: result.rows.map((r: any) => ({
         id: r.id,
         publicId: r.publicId,
         userId: r.userId,
@@ -904,6 +971,7 @@ export class OrderService {
         orderStatus: r.orderStatus as OrderStatus,
         providerStatus: r.providerStatus as ProviderStatus,
         refundStatus: r.refundStatus as RefundStatus,
+        failureReason: r.failureReason || null,
         createdAt: new Date(r.createdAt).toISOString(),
         updatedAt: new Date(r.updatedAt).toISOString(),
       })),

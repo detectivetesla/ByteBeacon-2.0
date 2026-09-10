@@ -236,6 +236,9 @@ export function createApp(options: AppOptions = {}) {
       'Authorization',
       'x-request-id',
       'x-api-key',
+      'x-api-token',
+      'api-key',
+      'apikey',
       'idempotency-key',
       'x-gmpl-signature',
       'x-telecom-signature',
@@ -604,7 +607,7 @@ export function createApp(options: AppOptions = {}) {
         });
       });
 
-      await catalogRoutes(commerceSubApp, { catalogService, tokenService });
+      await catalogRoutes(commerceSubApp, { catalogService, tokenService, apiKeyService });
       await orderRoutes(commerceSubApp, {
         db: dbPool!,
         orderService,

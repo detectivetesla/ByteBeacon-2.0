@@ -531,6 +531,7 @@ export interface OrderSummaryDto {
   orderStatus: OrderStatus;
   providerStatus: ProviderStatus;
   refundStatus: RefundStatus;
+  failureReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -568,6 +569,7 @@ export interface CustomerOrderDto {
   amountPesewas: number;
   amountDisplay: string;
   currency: Currency;
+  failureReason?: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt?: string | null;

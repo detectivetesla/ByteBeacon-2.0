@@ -6,7 +6,7 @@ import { BeneficiaryVerificationJobService } from '../../core/commerce/beneficia
 import { TokenService } from '../../core/security/token.service.js';
 import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
-import { createAuthHooks } from '../../plugins/auth.plugin.js';
+import { createAuthHooks, extractApiKeyFromRequest } from '../../plugins/auth.plugin.js';
 import { BadRequestError, NotFoundError } from '../../core/errors/app-error.js';
 import { RateLimiterService } from '../../core/security/rate-limiter.service.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
@@ -39,6 +39,36 @@ export async function beneficiaryRoutes(
   const publicPrecheckRateLimit = rateLimiter
     ? createRateLimitHook(rateLimiter, { limit: 30, windowSeconds: 60 })
     : undefined;
+
+  const resolveAuthenticatedCaller = async (req: FastifyRequest) => {
+    let userId = (req.user as any)?.sub;
+    let role = (req.user as any)?.role;
+
+    if (userId) return { userId, role };
+
+    const apiKey = extractApiKeyFromRequest(req);
+    if (apiKey) {
+      try {
+        const validated = await apiKeyService.validateApiKey(apiKey);
+        return { userId: validated.agentId, role: 'agent' };
+      } catch {
+        // invalid key
+      }
+    }
+
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
+      try {
+        const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
+        req.user = payload as any;
+        return { userId: payload.sub, role: payload.role };
+      } catch {
+        // invalid token
+      }
+    }
+
+    return { userId: undefined, role: undefined };
+  };
 
   // 1. VALIDATE BENEFICIARY
   app.post<{ Body: ValidateBeneficiaryRequest }>(
@@ -110,28 +140,7 @@ export async function beneficiaryRoutes(
       }
     }
 
-    let authenticatedUserId: string | undefined = (req.user as any)?.sub;
-    const authHeader = req.headers.authorization;
-    const apiKeyHeader = req.headers['x-api-key'];
-
-    if (!authenticatedUserId) {
-      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
-        try {
-          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
-          authenticatedUserId = payload.sub;
-        } catch {
-          // fallback
-        }
-      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
-        try {
-          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
-          const key = await apiKeyService.validateApiKey(rawKey);
-          authenticatedUserId = key.agentId;
-        } catch {
-          // fallback
-        }
-      }
-    }
+    const { userId: authenticatedUserId } = await resolveAuthenticatedCaller(req);
 
     const result = await beneficiaryService.precheckPublicBeneficiaries({
       network: network as NetworkProvider,
@@ -188,26 +197,7 @@ export async function beneficiaryRoutes(
       }
 
       // Check optional authentication for higher rate/batch limits
-      let authenticatedUserId: string | undefined;
-      const authHeader = req.headers.authorization;
-      const apiKeyHeader = req.headers['x-api-key'];
-
-      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
-        try {
-          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
-          authenticatedUserId = payload.sub;
-        } catch {
-          // unauthenticated fallback
-        }
-      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
-        try {
-          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
-          const key = await apiKeyService.validateApiKey(rawKey);
-          authenticatedUserId = key.agentId;
-        } catch {
-          // unauthenticated fallback
-        }
-      }
+      const { userId: authenticatedUserId } = await resolveAuthenticatedCaller(req);
 
       const maxLimit = 1000;
       if (phoneNumbers.length > maxLimit) {
@@ -278,26 +268,7 @@ export async function beneficiaryRoutes(
       // Deduplicate before background dispatch
       const uniquePhones = Array.from(new Set(sanitizedPhones));
 
-      let authenticatedUserId: string | undefined;
-      const authHeader = req.headers.authorization;
-      const apiKeyHeader = req.headers['x-api-key'];
-
-      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
-        try {
-          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
-          authenticatedUserId = payload.sub;
-        } catch {
-          // fallback
-        }
-      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
-        try {
-          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
-          const key = await apiKeyService.validateApiKey(rawKey);
-          authenticatedUserId = key.agentId;
-        } catch {
-          // fallback
-        }
-      }
+      const { userId: authenticatedUserId } = await resolveAuthenticatedCaller(req);
 
       // Calculate deterministic idempotency key if not provided by client
       const headerIdemp = req.headers['idempotency-key'] as string | undefined;
@@ -387,26 +358,7 @@ export async function beneficiaryRoutes(
       }
 
       // Check optional authentication for agent / customer attribution
-      let authenticatedUserId: string | undefined;
-      const authHeader = req.headers.authorization;
-      const apiKeyHeader = req.headers['x-api-key'];
-
-      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
-        try {
-          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
-          authenticatedUserId = payload.sub;
-        } catch {
-          // unauthenticated fallback
-        }
-      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
-        try {
-          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
-          const key = await apiKeyService.validateApiKey(rawKey);
-          authenticatedUserId = key.agentId;
-        } catch {
-          // unauthenticated fallback
-        }
-      }
+      const { userId: authenticatedUserId } = await resolveAuthenticatedCaller(req);
 
       const effectiveUserId = authenticatedUserId || userId;
 
@@ -448,10 +400,10 @@ export async function beneficiaryRoutes(
         throw new BadRequestError('Up to 1000 phone numbers allowed per agent precheck call');
       }
 
-      const apiKeyHeader = (req.headers['x-api-key'] as string) || '';
+      const apiKey = extractApiKeyFromRequest(req);
       const isSandbox =
         Boolean((req as any).apiKey?.isSandbox) ||
-        apiKeyHeader.startsWith('ak_test_') ||
+        Boolean(apiKey?.startsWith('ak_test_')) ||
         (req as any).apiKey?.keyPrefix?.startsWith('ak_test');
 
       const result = await beneficiaryService.precheckAgentBeneficiaries({
@@ -525,31 +477,7 @@ export async function beneficiaryRoutes(
     '/beneficiaries/approvals',
     async (req, reply) => {
       // Optional customer/agent authentication check
-      let authenticatedUserId: string | undefined;
-      let authenticatedRole: string | undefined;
-
-      const authHeader = req.headers.authorization;
-      const apiKeyHeader = req.headers['x-api-key'];
-
-      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
-        try {
-          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
-          req.user = payload as any;
-          authenticatedUserId = payload.sub;
-          authenticatedRole = payload.role;
-        } catch {
-          // unauthenticated fallback
-        }
-      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
-        try {
-          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
-          const key = await apiKeyService.validateApiKey(rawKey);
-          authenticatedUserId = key.agentId;
-          authenticatedRole = 'agent';
-        } catch {
-          // unauthenticated fallback
-        }
-      }
+      const { userId: authenticatedUserId, role: authenticatedRole } = await resolveAuthenticatedCaller(req);
 
       const { network, status, page, limit, userId } = req.query as any;
       const pageNum = page ? parseInt(page, 10) : 1;
@@ -631,31 +559,7 @@ export async function beneficiaryRoutes(
   }>(
     '/beneficiaries/approvals',
     async (req, reply) => {
-      let authenticatedUserId: string | undefined;
-      let authenticatedRole: string | undefined;
-
-      const authHeader = req.headers.authorization;
-      const apiKeyHeader = req.headers['x-api-key'];
-
-      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
-        try {
-          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
-          req.user = payload as any;
-          authenticatedUserId = payload.sub;
-          authenticatedRole = payload.role;
-        } catch {
-          // unauthenticated
-        }
-      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
-        try {
-          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
-          const key = await apiKeyService.validateApiKey(rawKey);
-          authenticatedUserId = key.agentId;
-          authenticatedRole = 'agent';
-        } catch {
-          // unauthenticated
-        }
-      }
+      const { userId: authenticatedUserId, role: authenticatedRole } = await resolveAuthenticatedCaller(req);
 
       const { network, status, userId } = req.query as any;
       const effectiveRole = authenticatedRole?.toUpperCase();
@@ -690,31 +594,7 @@ export async function beneficiaryRoutes(
   app.delete<{ Params: { id: string } }>(
     '/beneficiaries/approvals/:id',
     async (req, reply) => {
-      let authenticatedUserId: string | undefined;
-      let authenticatedRole: string | undefined;
-
-      const authHeader = req.headers.authorization;
-      const apiKeyHeader = req.headers['x-api-key'];
-
-      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
-        try {
-          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
-          req.user = payload as any;
-          authenticatedUserId = payload.sub;
-          authenticatedRole = payload.role;
-        } catch {
-          // unauthenticated
-        }
-      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
-        try {
-          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
-          const key = await apiKeyService.validateApiKey(rawKey);
-          authenticatedUserId = key.agentId;
-          authenticatedRole = 'agent';
-        } catch {
-          // unauthenticated
-        }
-      }
+      const { userId: authenticatedUserId, role: authenticatedRole } = await resolveAuthenticatedCaller(req);
 
       const effectiveRole = authenticatedRole?.toUpperCase();
       const isAdmin = effectiveRole === 'ADMIN' || effectiveRole === 'SUPER_ADMIN';

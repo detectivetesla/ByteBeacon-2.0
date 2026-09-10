@@ -7,7 +7,7 @@ import { Input } from '../../components/ui/index.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
 import { apiKeysApi } from '../../api/apiKeys.api.js';
-import { Key, Copy, Check, Eye, EyeOff, RefreshCw, Plus, Trash2, ShieldAlert } from 'lucide-react';
+import { Key, Copy, Check, Eye, EyeOff, RefreshCw, Plus, Trash2, ShieldAlert, AlertTriangle } from 'lucide-react';
 
 interface ApiKeyItem {
   id: string;
@@ -27,6 +27,7 @@ export const AgentApiPage: React.FC = () => {
   const [generatedSecret, setGeneratedSecret] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [revealedKeyIds, setRevealedKeyIds] = useState<Record<string, boolean>>({});
@@ -34,6 +35,7 @@ export const AgentApiPage: React.FC = () => {
 
   const fetchKeys = useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
       const items = await apiKeysApi.listKeys();
       const mapped: ApiKeyItem[] = (items || []).map((k) => ({
@@ -46,7 +48,8 @@ export const AgentApiPage: React.FC = () => {
         status: k.status,
       }));
       setApiKeys(mapped);
-    } catch {
+    } catch (err: any) {
+      setLoadError(err.message || 'Unable to load API keys. Please verify your permissions or retry.');
       setApiKeys([]);
     } finally {
       setIsLoading(false);
@@ -149,6 +152,19 @@ export const AgentApiPage: React.FC = () => {
         {isLoading ? (
           <Card style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
             Loading API keys...
+          </Card>
+        ) : loadError ? (
+          <Card style={{ padding: 'var(--space-6)', textAlign: 'center', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-danger-subtle, rgba(239, 68, 68, 0.2))', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-danger)' }}>
+              <AlertTriangle size={18} />
+              <strong style={{ fontSize: 'var(--font-size-sm)' }}>Failed to load API keys</strong>
+            </div>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0, maxWidth: '500px' }}>
+              {loadError}
+            </p>
+            <Button variant="outline" size="sm" onClick={fetchKeys} leftIcon={<RefreshCw size={14} />}>
+              Retry Loading Keys
+            </Button>
           </Card>
         ) : apiKeys.length === 0 ? (
           <Card style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>

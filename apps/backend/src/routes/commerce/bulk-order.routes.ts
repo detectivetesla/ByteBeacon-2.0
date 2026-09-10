@@ -5,7 +5,7 @@ import { TokenService } from '../../core/security/token.service.js';
 import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { RateLimiterService } from '../../core/security/rate-limiter.service.js';
-import { createAuthHooks } from '../../plugins/auth.plugin.js';
+import { createAuthHooks, extractApiKeyFromRequest } from '../../plugins/auth.plugin.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
@@ -111,7 +111,7 @@ export async function bulkOrderRoutes(
       ],
     },
     async (req: FastifyRequest<{ Body: AgentBulkOrderRequest }>, reply: FastifyReply) => {
-      const apiKeyHeader = (req.headers['x-api-key'] as string) || '';
+      const apiKeyHeader = extractApiKeyFromRequest(req) || '';
       const isSandbox =
         Boolean((req as any).apiKey?.isSandbox) ||
         Boolean((req.user as any)?.isSandbox) ||

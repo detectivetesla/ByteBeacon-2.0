@@ -352,45 +352,47 @@ export class RbacService {
     role: UserRole,
     subRole?: AdminSubRole,
   ): Promise<Set<Permission>> {
-    const cacheKey = `${role}:${subRole || 'default'}`;
+    const normRole = (role || '').toString().toLowerCase().trim() as UserRole;
+    const cacheKey = `${normRole}:${subRole || 'default'}`;
     if (this.rolePermissionsCache.has(cacheKey)) {
       return this.rolePermissionsCache.get(cacheKey)!;
     }
 
     // 1. If Admin with specific sub-role
-    if (role === UserRole.ADMIN && subRole && ADMIN_ROLE_PERMISSIONS[subRole]) {
+    if (normRole === UserRole.ADMIN && subRole && ADMIN_ROLE_PERMISSIONS[subRole]) {
       const subRoleSet = new Set<Permission>(ADMIN_ROLE_PERMISSIONS[subRole]);
       this.rolePermissionsCache.set(cacheKey, subRoleSet);
       return subRoleSet;
     }
 
     // 2. If Super Admin
-    if (role === UserRole.SUPER_ADMIN) {
+    if (normRole === UserRole.SUPER_ADMIN) {
       const superAdminSet = new Set<Permission>(Object.values(Permission));
       this.rolePermissionsCache.set(cacheKey, superAdminSet);
       return superAdminSet;
     }
 
-    // 3. Database custom role permissions if configured
+    const effectiveSet = new Set<Permission>(DEFAULT_ROLE_PERMISSIONS[normRole] || []);
+
+    // 3. Database custom role permissions if configured - merge with role defaults
     try {
       const query = `
         SELECT permission_id as "permissionId"
         FROM role_permissions
-        WHERE role = $1
+        WHERE LOWER(role) = $1
       `;
-      const result = await this.db.query<{ permissionId: Permission }>(query, [role]);
+      const result = await this.db.query<{ permissionId: Permission }>(query, [normRole]);
       if (result.rows && result.rows.length > 0) {
-        const permissionSet = new Set<Permission>(result.rows.map((r) => r.permissionId));
-        this.rolePermissionsCache.set(cacheKey, permissionSet);
-        return permissionSet;
+        for (const r of result.rows) {
+          effectiveSet.add(r.permissionId);
+        }
       }
     } catch {
       // Fallback to static in-memory permissions
     }
 
-    const fallbackSet = DEFAULT_ROLE_PERMISSIONS[role] || new Set<Permission>();
-    this.rolePermissionsCache.set(cacheKey, fallbackSet);
-    return fallbackSet;
+    this.rolePermissionsCache.set(cacheKey, effectiveSet);
+    return effectiveSet;
   }
 
   /**

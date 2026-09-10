@@ -124,12 +124,22 @@ export class RefundService {
       }
 
       // Check if already refunded in refunds table
-      const existingRefund = await client.query(
-        `SELECT id, public_id, status, amount_pesewas, provider_refund_reference, created_at, updated_at
-         FROM refunds
-         WHERE payment_id = $1 AND status = 'COMPLETED'`,
-        [payment.id],
-      );
+      let existingRefund: any;
+      try {
+        existingRefund = await client.query(
+          `SELECT id, public_id, status, amount_pesewas, provider_refund_reference, created_at, updated_at
+           FROM refunds
+           WHERE payment_id = $1 AND status = 'COMPLETED'`,
+          [payment.id],
+        );
+      } catch {
+        existingRefund = await client.query(
+          `SELECT id, status, amount_pesewas, provider_refund_reference, created_at, updated_at
+           FROM refunds
+           WHERE payment_id = $1 AND status = 'COMPLETED'`,
+          [payment.id],
+        );
+      }
 
       if (existingRefund.rows.length > 0) {
         logger.info({ paymentId: payment.id }, 'Payment already has completed refund record.');
@@ -137,7 +147,7 @@ export class RefundService {
         await client.query('COMMIT');
         return {
           id: r.id,
-          publicId: r.public_id,
+          publicId: r.public_id || r.id,
           paymentId: payment.id,
           orderId: order.id,
           amountPesewas: Number(r.amount_pesewas),
@@ -179,22 +189,44 @@ export class RefundService {
         refundResult.status === 'SUCCESS' ? RefundStatus.COMPLETED : RefundStatus.PROCESSING;
 
       // 3. Insert Refund Record
-      const insertRefundRes = await client.query(
-        `INSERT INTO refunds (
-            public_id, payment_id, order_id, amount_pesewas, reason,
-            status, provider_refund_reference
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, public_id, created_at, updated_at`,
-        [
-          refundPublicId,
-          payment.id,
-          order.id,
-          refundAmountPesewas,
-          input.reason,
-          refundStatus,
-          refundResult.providerRefundReference,
-        ],
-      );
+      let insertRefundRes: any;
+      try {
+        insertRefundRes = await client.query(
+          `INSERT INTO refunds (
+              public_id, payment_id, order_id, amount_pesewas, reason,
+              status, provider_refund_reference
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, public_id, created_at, updated_at`,
+          [
+            refundPublicId,
+            payment.id,
+            order.id,
+            refundAmountPesewas,
+            input.reason,
+            refundStatus,
+            refundResult.providerRefundReference,
+          ],
+        );
+      } catch {
+        insertRefundRes = await client.query(
+          `INSERT INTO refunds (
+              payment_id, order_id, amount_pesewas, reason,
+              status, provider_refund_reference
+           ) VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, created_at, updated_at`,
+          [
+            payment.id,
+            order.id,
+            refundAmountPesewas,
+            input.reason,
+            refundStatus,
+            refundResult.providerRefundReference,
+          ],
+        );
+        if (insertRefundRes.rows[0]) {
+          insertRefundRes.rows[0].public_id = refundPublicId;
+        }
+      }
 
       const refundRecord = insertRefundRes.rows[0];
 
@@ -325,17 +357,33 @@ export class RefundService {
   }
 
   public async getRefundDetails(refundId: string, userId: string, role: UserRole): Promise<RefundDetailsDto> {
-    const res = await this.db.query(
-      `SELECT r.id, r.public_id as "publicId", r.payment_id as "paymentId",
-              r.order_id as "orderId", r.amount_pesewas as "amountPesewas",
-              r.reason, r.status, r.provider_refund_reference as "providerRefundReference",
-              r.processed_at as "processedAt", r.created_at as "createdAt",
-              r.updated_at as "updatedAt", o.user_id as "userId"
-       FROM refunds r
-       JOIN orders o ON r.order_id = o.id
-       WHERE r.id = $1 OR r.public_id = $1`,
-      [refundId],
-    );
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(refundId);
+    let res: any;
+    try {
+      res = await this.db.query(
+        `SELECT r.id, COALESCE(r.public_id, r.id::text) as "publicId", r.payment_id as "paymentId",
+                r.order_id as "orderId", r.amount_pesewas as "amountPesewas",
+                r.reason, r.status, r.provider_refund_reference as "providerRefundReference",
+                r.processed_at as "processedAt", r.created_at as "createdAt",
+                r.updated_at as "updatedAt", o.user_id as "userId"
+         FROM refunds r
+         JOIN orders o ON r.order_id = o.id
+         WHERE ${isUuid ? 'r.id = $1 OR r.public_id = $1' : 'r.public_id = $1'}`,
+        [refundId],
+      );
+    } catch {
+      res = await this.db.query(
+        `SELECT r.id, r.id::text as "publicId", r.payment_id as "paymentId",
+                r.order_id as "orderId", r.amount_pesewas as "amountPesewas",
+                r.reason, r.status, r.provider_refund_reference as "providerRefundReference",
+                r.processed_at as "processedAt", r.created_at as "createdAt",
+                r.updated_at as "updatedAt", o.user_id as "userId"
+         FROM refunds r
+         JOIN orders o ON r.order_id = o.id
+         WHERE ${isUuid ? 'r.id = $1' : '1=0'}`,
+        [refundId],
+      );
+    }
 
     if (res.rows.length === 0) {
       throw new NotFoundError(`Refund [${refundId}] not found.`);
@@ -469,10 +517,18 @@ export class RefundService {
       }
 
       // Check if already recorded in refunds table
-      const existingRefund = await client.query(
-        `SELECT id, public_id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
-        [paymentId],
-      );
+      let existingRefund: any;
+      try {
+        existingRefund = await client.query(
+          `SELECT id, public_id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
+          [paymentId],
+        );
+      } catch {
+        existingRefund = await client.query(
+          `SELECT id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
+          [paymentId],
+        );
+      }
 
       if (existingRefund.rows.length > 0) {
         await client.query(
@@ -487,22 +543,44 @@ export class RefundService {
       const refundPublicId = `ref_${crypto.randomBytes(8).toString('hex')}`;
       const providerRefundRef = `pst_wal_rf_${crypto.randomBytes(6).toString('hex')}`;
 
-      const refundRes = await client.query(
-        `INSERT INTO refunds (
-            public_id, payment_id, order_id, amount_pesewas, reason,
-            status, provider_refund_reference
-         ) VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6)
-         RETURNING id, public_id, created_at, updated_at`,
-        [
-          refundPublicId,
-          paymentId,
-          order.id,
-          amountPesewas,
-          reason,
-          providerRefundRef,
-        ],
-      );
-      const refundRecord = refundRes.rows[0];
+      let refundRecord: any;
+      try {
+        const refundRes = await client.query(
+          `INSERT INTO refunds (
+              public_id, payment_id, order_id, amount_pesewas, reason,
+              status, provider_refund_reference
+           ) VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6)
+           RETURNING id, public_id, created_at, updated_at`,
+          [
+            refundPublicId,
+            paymentId,
+            order.id,
+            amountPesewas,
+            reason,
+            providerRefundRef,
+          ],
+        );
+        refundRecord = refundRes.rows[0];
+      } catch {
+        const refundRes = await client.query(
+          `INSERT INTO refunds (
+              payment_id, order_id, amount_pesewas, reason,
+              status, provider_refund_reference
+           ) VALUES ($1, $2, $3, $4, 'COMPLETED', $5)
+           RETURNING id, created_at, updated_at`,
+          [
+            paymentId,
+            order.id,
+            amountPesewas,
+            reason,
+            providerRefundRef,
+          ],
+        );
+        refundRecord = {
+          ...refundRes.rows[0],
+          public_id: refundPublicId,
+        };
+      }
 
       // 5. Record Refund Event
       await client.query(

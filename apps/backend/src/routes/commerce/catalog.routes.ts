@@ -1,22 +1,37 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CatalogService } from '../../core/commerce/catalog.service.js';
 import { TokenService } from '../../core/security/token.service.js';
+import { ApiKeyService } from '../../core/security/api-key.service.js';
+import { extractApiKeyFromRequest } from '../../plugins/auth.plugin.js';
 import { NetworkProvider, ApiResponse, CatalogProductDto } from '@bytebeacon/shared';
 
 export interface CatalogRouteDependencies {
   catalogService: CatalogService;
   tokenService?: TokenService;
+  apiKeyService?: ApiKeyService;
 }
 
 export async function catalogRoutes(
   app: FastifyInstance,
   deps: CatalogRouteDependencies,
 ) {
-  const { catalogService, tokenService } = deps;
+  const { catalogService, tokenService, apiKeyService } = deps;
 
-  const extractAuthContext = (req: FastifyRequest) => {
-    let userId: string | undefined;
-    let role: string | undefined;
+  const extractAuthContext = async (req: FastifyRequest) => {
+    let userId: string | undefined = (req.user as any)?.sub;
+    let role: string | undefined = (req.user as any)?.role;
+
+    if (userId) return { userId, role };
+
+    const apiKey = extractApiKeyFromRequest(req);
+    if (apiKey && apiKeyService) {
+      try {
+        const validated = await apiKeyService.validateApiKey(apiKey);
+        return { userId: validated.agentId, role: 'agent' };
+      } catch {
+        // Continue fallback
+      }
+    }
 
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ') && tokenService) {
@@ -37,7 +52,7 @@ export async function catalogRoutes(
     req: FastifyRequest<{ Querystring: { network?: string; channel?: string; userId?: string } }>,
     reply: FastifyReply,
   ) => {
-    const auth = extractAuthContext(req);
+    const auth = await extractAuthContext(req);
     const effectiveUserId = auth.userId || req.query.userId;
     const network = req.query.network as NetworkProvider | undefined;
     const channel = req.query.channel as 'CUSTOMER' | 'AGENT' | 'STORE' | 'API' | undefined;
@@ -61,7 +76,7 @@ export async function catalogRoutes(
     req: FastifyRequest<{ Params: { id: string }; Querystring: { userId?: string } }>,
     reply: FastifyReply,
   ) => {
-    const auth = extractAuthContext(req);
+    const auth = await extractAuthContext(req);
     const effectiveUserId = auth.userId || req.query.userId;
     const product = await catalogService.getProductById(req.params.id, {
       userId: effectiveUserId,
