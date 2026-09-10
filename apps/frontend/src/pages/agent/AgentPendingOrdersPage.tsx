@@ -153,6 +153,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         limit: 5000,
+        userId: user?.id,
       })) as any;
 
       if (response?.counts || response?.data?.counts) {
@@ -195,7 +196,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [networkFilter, statusFilter]);
+  }, [networkFilter, statusFilter, user?.id]);
 
   useEffect(() => {
     fetchApprovals();

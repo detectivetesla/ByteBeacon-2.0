@@ -110,11 +110,34 @@ export async function beneficiaryRoutes(
       }
     }
 
+    let authenticatedUserId: string | undefined = (req.user as any)?.sub;
+    const authHeader = req.headers.authorization;
+    const apiKeyHeader = req.headers['x-api-key'];
+
+    if (!authenticatedUserId) {
+      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
+        try {
+          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
+          authenticatedUserId = payload.sub;
+        } catch {
+          // fallback
+        }
+      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        try {
+          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
+          const key = await apiKeyService.validateApiKey(rawKey);
+          authenticatedUserId = key.agentId;
+        } catch {
+          // fallback
+        }
+      }
+    }
+
     const result = await beneficiaryService.precheckPublicBeneficiaries({
       network: network as NetworkProvider,
       phoneNumbers,
       record: record !== false,
-      userId: (req.user as any)?.sub,
+      userId: authenticatedUserId,
     });
 
     const isEnforced = result.enforced !== false;
@@ -351,11 +374,12 @@ export async function beneficiaryRoutes(
         pricePesewas?: number;
         detectedFrom?: string;
       }>;
+      userId?: string;
     };
   }>(
     '/beneficiaries/record-unapproved',
     async (req, reply) => {
-      const { items } = req.body || {};
+      const { items, userId } = req.body || {};
       if (!items || !Array.isArray(items) || items.length === 0) {
         throw new BadRequestError('items array is required and cannot be empty');
       }
@@ -382,9 +406,11 @@ export async function beneficiaryRoutes(
         }
       }
 
+      const effectiveUserId = authenticatedUserId || userId;
+
       const result = await beneficiaryService.recordUnapprovedBeneficiaries({
         items,
-        userId: authenticatedUserId,
+        userId: effectiveUserId,
       });
 
       return reply.status(200).send({
@@ -446,13 +472,24 @@ export async function beneficiaryRoutes(
   app.get(
     '/beneficiaries/pending-count',
     { preHandler: [authHooks.authenticateCustomer] },
-    async (_req: FastifyRequest, reply: FastifyReply) => {
+    async (req: FastifyRequest, reply: FastifyReply) => {
       try {
-        const countRes = await db.query(`
-          SELECT COUNT(*) as "pendingCount"
-          FROM beneficiary_validation
-          WHERE validation_status IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL')
-        `);
+        const userId = req.user?.sub;
+        const role = (req.user?.role || '').toUpperCase();
+        let countRes;
+        if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+          countRes = await db.query(`
+            SELECT COUNT(*) as "pendingCount"
+            FROM beneficiary_validation
+            WHERE validation_status IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL')
+          `);
+        } else {
+          countRes = await db.query(`
+            SELECT COUNT(*) as "pendingCount"
+            FROM pending_beneficiary_approvals
+            WHERE agent_id = $1 AND status IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL')
+          `, [userId]);
+        }
         const pendingCount = parseInt(countRes.rows[0]?.pendingCount || '0', 10);
         return reply.send({
           success: true,
@@ -478,29 +515,57 @@ export async function beneficiaryRoutes(
       status?: string;
       page?: string;
       limit?: string;
+      userId?: string;
     };
   }>(
     '/beneficiaries/approvals',
     async (req, reply) => {
       // Optional customer/agent authentication check
+      let authenticatedUserId: string | undefined;
+      let authenticatedRole: string | undefined;
+
       const authHeader = req.headers.authorization;
+      const apiKeyHeader = req.headers['x-api-key'];
+
       if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
         try {
           const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
           req.user = payload as any;
+          authenticatedUserId = payload.sub;
+          authenticatedRole = payload.role;
+        } catch {
+          // unauthenticated fallback
+        }
+      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        try {
+          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
+          const key = await apiKeyService.validateApiKey(rawKey);
+          authenticatedUserId = key.agentId;
+          authenticatedRole = 'agent';
         } catch {
           // unauthenticated fallback
         }
       }
-      const { network, status, page, limit } = req.query;
+
+      const { network, status, page, limit, userId } = req.query as any;
       const pageNum = page ? parseInt(page, 10) : 1;
       const limitNum = limit ? parseInt(limit, 10) : 20;
+
+      const effectiveRole = authenticatedRole?.toUpperCase();
+      const isAdmin = effectiveRole === 'ADMIN' || effectiveRole === 'SUPER_ADMIN';
+
+      // Strict user isolation: admins can inspect any userId or all; customers/agents are restricted to their own userId
+      const effectiveUserId = isAdmin
+        ? (userId || authenticatedUserId)
+        : (authenticatedUserId || (process.env.NODE_ENV !== 'production' ? userId : undefined));
 
       const result = await beneficiaryService.listBeneficiaryApprovals({
         network: network as NetworkProvider,
         status,
         page: pageNum,
         limit: limitNum,
+        userId: effectiveUserId,
+        role: authenticatedRole,
       });
 
       return reply.send({
@@ -573,6 +638,7 @@ export async function beneficiaryRoutes(
         status,
         page: pageNum,
         limit: limitNum,
+        role: (req.user as any)?.role || 'ADMIN',
       });
 
       return reply.send({

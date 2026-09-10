@@ -410,6 +410,7 @@ export const BuyDataPage: React.FC = () => {
               detectedFrom: 'Single Order',
             },
           ],
+          userId: user?.id,
         })
         ?.then(() => {
           if (typeof window !== 'undefined') {
@@ -420,7 +421,7 @@ export const BuyDataPage: React.FC = () => {
           console.warn('[SingleOrder] Could not record unapproved beneficiary:', err);
         });
     },
-    [currentSingleBundle],
+    [currentSingleBundle, user?.id],
   );
 
   // Proactive real-time beneficiary approval check for single order

@@ -647,13 +647,7 @@ export class BeneficiaryService {
     if (params.record && unknownList.length > 0) {
       recorded = true;
       try {
-        let effectiveAgentId = params.userId;
-        if (!effectiveAgentId) {
-          const userRes = await this.db.query(
-            `SELECT id FROM users WHERE role IN ('ADMIN', 'AGENT', 'SUPER_ADMIN') ORDER BY created_at ASC LIMIT 1`,
-          ).catch(() => null);
-          effectiveAgentId = userRes?.rows?.[0]?.id;
-        }
+        const effectiveAgentId = params.userId;
 
         if (effectiveAgentId) {
           await this.db.query(
@@ -1413,15 +1407,9 @@ export class BeneficiaryService {
     }
 
     let recordedCount = 0;
-    let effectiveAgentId = userId;
-    if (!effectiveAgentId) {
-      const userRes = await this.db.query(
-        `SELECT id FROM users WHERE role IN ('ADMIN', 'AGENT', 'SUPER_ADMIN') ORDER BY created_at ASC LIMIT 1`,
-      ).catch(() => null);
-      effectiveAgentId = userRes?.rows?.[0]?.id;
-    }
+    const effectiveAgentId = userId;
 
-    const validItemsMap = new Map<string, { phone: string; net: string; sizeGb: number | null; metadata: string }>();
+    const validItemsMap = new Map<string, { phone: string; net: string; sizeGb: number | null; metadata: string; detectedFrom: string }>();
 
     for (const item of items) {
       const norm = this.normalizeGhanaPhone(item.phoneNumber);
@@ -1442,9 +1430,10 @@ export class BeneficiaryService {
         }
       }
 
+      const detectedFrom = item.detectedFrom || 'Excel Upload';
       const metadata = JSON.stringify({
-        detectedFrom: item.detectedFrom || 'Excel Upload',
-        channel: item.detectedFrom || 'Excel Upload',
+        detectedFrom,
+        channel: detectedFrom,
         dataSize: item.dataSize || (sizeGb ? `${sizeGb} GB` : null),
         dataAmountMb: item.dataAmountMb || (sizeGb ? Math.round(sizeGb * 1024) : null),
         pricePesewas: item.pricePesewas || null,
@@ -1453,7 +1442,7 @@ export class BeneficiaryService {
       });
 
       const key = `${phone}_${net}`;
-      validItemsMap.set(key, { phone, net, sizeGb, metadata });
+      validItemsMap.set(key, { phone, net, sizeGb, metadata, detectedFrom });
     }
 
     const uniqueItems = Array.from(validItemsMap.values());
@@ -1465,6 +1454,7 @@ export class BeneficiaryService {
     const networks = uniqueItems.map((u) => u.net);
     const sizesGb = uniqueItems.map((u) => u.sizeGb);
     const metadatas = uniqueItems.map((u) => u.metadata);
+    const detectedFromList = uniqueItems.map((u) => u.detectedFrom);
 
     try {
       // 1. Ensure unique index exists on beneficiary_validation for ON CONFLICT (phone_number, network)
@@ -1485,6 +1475,11 @@ export class BeneficiaryService {
                 NULL;
               END;
             END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'pending_beneficiary_approvals') THEN
+              ALTER TABLE pending_beneficiary_approvals ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}';
+              ALTER TABLE pending_beneficiary_approvals ADD COLUMN IF NOT EXISTS detected_from VARCHAR(50);
+              ALTER TABLE pending_beneficiary_approvals ADD COLUMN IF NOT EXISTS provider_reference VARCHAR(255);
+            END IF;
           END $$;`,
         )
         .catch(() => {});
@@ -1493,16 +1488,18 @@ export class BeneficiaryService {
         await this.db.query(
           `INSERT INTO pending_beneficiary_approvals (
             phone_number, network, agent_id, status, attempt_count,
-            last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
+            last_bundle_size_gb, metadata, detected_from, first_detected_at, last_detected_at, created_at, updated_at
           )
-          SELECT t.phone, t.net, $4, 'PENDING', 1, t.size_gb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-          FROM unnest($1::text[], $2::text[], $3::numeric[]) AS t(phone, net, size_gb)
+          SELECT t.phone, t.net, $6, 'PENDING', 1, t.size_gb, t.meta::jsonb, t.det_from, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          FROM unnest($1::text[], $2::text[], $3::numeric[], $4::text[], $5::text[]) AS t(phone, net, size_gb, meta, det_from)
           ON CONFLICT (agent_id, phone_number, network) DO UPDATE
           SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
               last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
+              metadata = EXCLUDED.metadata,
+              detected_from = COALESCE(EXCLUDED.detected_from, pending_beneficiary_approvals.detected_from),
               last_detected_at = CURRENT_TIMESTAMP,
               updated_at = CURRENT_TIMESTAMP`,
-          [phones, networks, sizesGb, effectiveAgentId],
+          [phones, networks, sizesGb, metadatas, detectedFromList, effectiveAgentId],
         ).catch(() => {});
       }
 
@@ -1571,38 +1568,164 @@ export class BeneficiaryService {
     status?: string;
     page?: number;
     limit?: number;
+    userId?: string;
+    role?: string;
   } = {}) {
     const page = Math.max(1, params.page || 1);
     const limit = Math.min(10000, Math.max(1, params.limit || 50));
     const offset = (page - 1) * limit;
 
-    const conditions: string[] = [];
-    const queryParams: any[] = [];
-    let idx = 1;
+    const userRole = params.role?.toUpperCase();
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+
+    // If non-admin and no userId, return empty isolated result
+    if (!isAdmin && !params.userId) {
+      return {
+        items: [],
+        total: 0,
+        counts: {
+          total: 0,
+          pending: 0,
+          approved: 0,
+          rejected: 0,
+          processing: 0,
+        },
+        page,
+        limit,
+        totalPages: 0,
+      };
+    }
+
+    if (isAdmin && !params.userId) {
+      // Administrator view: platform-wide records from beneficiary_validation
+      const conditions: string[] = [];
+      const queryParams: any[] = [];
+      let idx = 1;
+
+      if (params.network) {
+        conditions.push(`network = $${idx}`);
+        queryParams.push(params.network);
+        idx++;
+      }
+
+      if (params.status) {
+        conditions.push(`validation_status = $${idx}`);
+        queryParams.push(params.status);
+        idx++;
+      }
+
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const countRes = await this.db.query(
+        `SELECT 
+          COUNT(*) as total,
+          COUNT(CASE WHEN validation_status IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL') THEN 1 END) as pending,
+          COUNT(CASE WHEN validation_status IN ('VALID', 'APPROVED') THEN 1 END) as approved,
+          COUNT(CASE WHEN validation_status IN ('INVALID', 'REJECTED') THEN 1 END) as rejected,
+          COUNT(CASE WHEN validation_status = 'PROCESSING' THEN 1 END) as processing
+         FROM beneficiary_validation ${where}`,
+        queryParams,
+      );
+      const summaryRow = countRes.rows[0] || {};
+      const total = parseInt(summaryRow.total || '0', 10);
+      const pending = parseInt(summaryRow.pending || '0', 10);
+      const approved = parseInt(summaryRow.approved || '0', 10);
+      const rejected = parseInt(summaryRow.rejected || '0', 10);
+      const processing = parseInt(summaryRow.processing || '0', 10);
+
+      const selectQuery = `
+        SELECT id, phone_number as "phoneNumber", network, validation_status as "status",
+               provider_reference as "providerReference", validated_at as "validatedAt",
+               expires_at as "expiresAt", created_at as "createdAt",
+               last_bundle_size_gb as "lastBundleSizeGb",
+               provider_response_metadata as "metadata",
+               COALESCE(attempt_count, 1) as "occurrences"
+        FROM beneficiary_validation
+        ${where}
+        ORDER BY created_at DESC
+        LIMIT $${idx} OFFSET $${idx + 1}
+      `;
+      queryParams.push(limit, offset);
+
+      const itemsRes = await this.db.query(selectQuery, queryParams);
+
+      return {
+        items: itemsRes.rows.map((r: any) => {
+          const meta = r.metadata || {};
+          let dataSize = meta.dataSize;
+          if (!dataSize && r.lastBundleSizeGb) {
+            dataSize = `${r.lastBundleSizeGb} GB`;
+          }
+
+          return {
+            id: r.id,
+            phoneNumber: r.phoneNumber,
+            network: r.network as NetworkProvider,
+            status: r.status as BeneficiaryValidationStatus,
+            providerReference: r.providerReference || 'DH-AUTO',
+            dataSize: dataSize || '5 GB',
+            detectedFrom: meta.detectedFrom || meta.channel || 'Excel Upload',
+            validatedAt: r.validatedAt ? new Date(r.validatedAt).toISOString() : null,
+            expiresAt: r.expiresAt ? new Date(r.expiresAt).toISOString() : null,
+            createdAt: new Date(r.createdAt).toISOString(),
+            occurrences: Math.max(1, Number(r.occurrences || 1)),
+          };
+        }),
+        total,
+        counts: {
+          total,
+          pending,
+          approved,
+          rejected,
+          processing,
+        },
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      };
+    }
+
+    // User view (Customer or Agent): strict isolation by agent_id (user's UUID)
+    const conditions: string[] = ['p.agent_id = $1'];
+    const queryParams: any[] = [params.userId];
+    let idx = 2;
 
     if (params.network) {
-      conditions.push(`network = $${idx}`);
+      conditions.push(`p.network = $${idx}`);
       queryParams.push(params.network);
       idx++;
     }
 
     if (params.status) {
-      conditions.push(`validation_status = $${idx}`);
-      queryParams.push(params.status);
-      idx++;
+      if (params.status === 'APPROVED' || params.status === 'VALID') {
+        conditions.push(`COALESCE(b.validation_status, p.status) IN ('APPROVED', 'VALID')`);
+      } else if (params.status === 'REJECTED' || params.status === 'INVALID') {
+        conditions.push(`COALESCE(b.validation_status, p.status) IN ('REJECTED', 'INVALID')`);
+      } else if (params.status === 'PROCESSING' || params.status === 'VALIDATING') {
+        conditions.push(`COALESCE(b.validation_status, p.status) IN ('PROCESSING', 'VALIDATING')`);
+      } else if (params.status === 'PENDING') {
+        conditions.push(`COALESCE(b.validation_status, p.status) IN ('PENDING', 'SUBMITTED', 'PENDING_APPROVAL')`);
+      } else {
+        conditions.push(`COALESCE(b.validation_status, p.status) = $${idx}`);
+        queryParams.push(params.status);
+        idx++;
+      }
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
 
+    // Count summaries for this specific user
     const countRes = await this.db.query(
       `SELECT 
         COUNT(*) as total,
-        COUNT(CASE WHEN validation_status IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL') THEN 1 END) as pending,
-        COUNT(CASE WHEN validation_status IN ('VALID', 'APPROVED') THEN 1 END) as approved,
-        COUNT(CASE WHEN validation_status IN ('INVALID', 'REJECTED') THEN 1 END) as rejected,
-        COUNT(CASE WHEN validation_status = 'PROCESSING' THEN 1 END) as processing
-       FROM beneficiary_validation ${where}`,
-      queryParams,
+        COUNT(CASE WHEN COALESCE(b.validation_status, p.status) IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL', 'SUBMITTED') THEN 1 END) as pending,
+        COUNT(CASE WHEN COALESCE(b.validation_status, p.status) IN ('VALID', 'APPROVED') THEN 1 END) as approved,
+        COUNT(CASE WHEN COALESCE(b.validation_status, p.status) IN ('INVALID', 'REJECTED') THEN 1 END) as rejected,
+        COUNT(CASE WHEN COALESCE(b.validation_status, p.status) = 'PROCESSING' THEN 1 END) as processing
+       FROM pending_beneficiary_approvals p
+       LEFT JOIN beneficiary_validation b ON p.phone_number = b.phone_number AND p.network = b.network
+       WHERE p.agent_id = $1`,
+      [params.userId],
     );
     const summaryRow = countRes.rows[0] || {};
     const total = parseInt(summaryRow.total || '0', 10);
@@ -1612,15 +1735,20 @@ export class BeneficiaryService {
     const processing = parseInt(summaryRow.processing || '0', 10);
 
     const selectQuery = `
-      SELECT id, phone_number as "phoneNumber", network, validation_status as "status",
-             provider_reference as "providerReference", validated_at as "validatedAt",
-             expires_at as "expiresAt", created_at as "createdAt",
-             last_bundle_size_gb as "lastBundleSizeGb",
-             provider_response_metadata as "metadata",
-             COALESCE(attempt_count, 1) as "occurrences"
-      FROM beneficiary_validation
+      SELECT p.id, p.phone_number as "phoneNumber", p.network,
+             COALESCE(b.validation_status, p.status) as "status",
+             COALESCE(b.provider_reference, p.provider_reference, 'DH-AUTO') as "providerReference",
+             COALESCE(b.validated_at, p.resolved_at) as "validatedAt",
+             b.expires_at as "expiresAt",
+             p.created_at as "createdAt",
+             COALESCE(p.last_bundle_size_gb, b.last_bundle_size_gb) as "lastBundleSizeGb",
+             COALESCE(p.metadata, b.provider_response_metadata, '{}'::jsonb) as "metadata",
+             COALESCE(p.detected_from, b.provider_response_metadata->>'detectedFrom', b.provider_response_metadata->>'channel', 'Excel Upload') as "detectedFrom",
+             COALESCE(p.attempt_count, b.attempt_count, 1) as "occurrences"
+      FROM pending_beneficiary_approvals p
+      LEFT JOIN beneficiary_validation b ON p.phone_number = b.phone_number AND p.network = b.network
       ${where}
-      ORDER BY created_at DESC
+      ORDER BY p.created_at DESC
       LIMIT $${idx} OFFSET $${idx + 1}
     `;
     queryParams.push(limit, offset);
@@ -1642,7 +1770,7 @@ export class BeneficiaryService {
           status: r.status as BeneficiaryValidationStatus,
           providerReference: r.providerReference || 'DH-AUTO',
           dataSize: dataSize || '5 GB',
-          detectedFrom: meta.detectedFrom || meta.channel || 'Excel Upload',
+          detectedFrom: r.detectedFrom || meta.detectedFrom || meta.channel || 'Excel Upload',
           validatedAt: r.validatedAt ? new Date(r.validatedAt).toISOString() : null,
           expiresAt: r.expiresAt ? new Date(r.expiresAt).toISOString() : null,
           createdAt: new Date(r.createdAt).toISOString(),
@@ -1668,7 +1796,7 @@ export class BeneficiaryService {
    */
   public async approveBeneficiary(id: string) {
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    const res = await this.db.query(
+    let res = await this.db.query(
       `UPDATE beneficiary_validation
        SET validation_status = 'VALID',
            validated_at = CURRENT_TIMESTAMP,
@@ -1678,18 +1806,54 @@ export class BeneficiaryService {
       [expiresAt, id],
     );
 
-    if (res.rows.length === 0) {
-      throw new NotFoundError(`Beneficiary record with ID [${id}] not found`);
+    if (res.rows.length > 0) {
+      const phone = res.rows[0].phoneNumber;
+      const net = res.rows[0].network;
+      await this.db.query(
+        `UPDATE pending_beneficiary_approvals
+         SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE phone_number = $1 AND network = $2`,
+        [phone, net],
+      ).catch(() => {});
+      return res.rows[0];
     }
 
-    return res.rows[0];
+    // Try finding by id in pending_beneficiary_approvals
+    const pendingRes = await this.db.query(
+      `UPDATE pending_beneficiary_approvals
+       SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING id, phone_number as "phoneNumber", network, status`,
+      [id],
+    );
+
+    if (pendingRes.rows.length > 0) {
+      const phone = pendingRes.rows[0].phoneNumber;
+      const net = pendingRes.rows[0].network;
+      await this.db.query(
+        `UPDATE beneficiary_validation
+         SET validation_status = 'VALID',
+             validated_at = CURRENT_TIMESTAMP,
+             expires_at = $1
+         WHERE phone_number = $2 AND network = $3`,
+        [expiresAt, phone, net],
+      ).catch(() => {});
+      return {
+        id: pendingRes.rows[0].id,
+        phoneNumber: phone,
+        network: net,
+        status: 'VALID',
+      };
+    }
+
+    throw new NotFoundError(`Beneficiary record with ID [${id}] not found`);
   }
 
   /**
    * Rejects a pending beneficiary record.
    */
   public async rejectBeneficiary(id: string) {
-    const res = await this.db.query(
+    let res = await this.db.query(
       `UPDATE beneficiary_validation
        SET validation_status = 'INVALID'
        WHERE id = $1
@@ -1697,11 +1861,44 @@ export class BeneficiaryService {
       [id],
     );
 
-    if (res.rows.length === 0) {
-      throw new NotFoundError(`Beneficiary record with ID [${id}] not found`);
+    if (res.rows.length > 0) {
+      const phone = res.rows[0].phoneNumber;
+      const net = res.rows[0].network;
+      await this.db.query(
+        `UPDATE pending_beneficiary_approvals
+         SET status = 'REJECTED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE phone_number = $1 AND network = $2`,
+        [phone, net],
+      ).catch(() => {});
+      return res.rows[0];
     }
 
-    return res.rows[0];
+    const pendingRes = await this.db.query(
+      `UPDATE pending_beneficiary_approvals
+       SET status = 'REJECTED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING id, phone_number as "phoneNumber", network, status`,
+      [id],
+    );
+
+    if (pendingRes.rows.length > 0) {
+      const phone = pendingRes.rows[0].phoneNumber;
+      const net = pendingRes.rows[0].network;
+      await this.db.query(
+        `UPDATE beneficiary_validation
+         SET validation_status = 'INVALID'
+         WHERE phone_number = $1 AND network = $2`,
+        [phone, net],
+      ).catch(() => {});
+      return {
+        id: pendingRes.rows[0].id,
+        phoneNumber: phone,
+        network: net,
+        status: 'INVALID',
+      };
+    }
+
+    throw new NotFoundError(`Beneficiary record with ID [${id}] not found`);
   }
 
   /**

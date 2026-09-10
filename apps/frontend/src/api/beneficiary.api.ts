@@ -176,8 +176,24 @@ export const beneficiaryApi = {
       pricePesewas?: number;
       detectedFrom?: string;
     }>;
+    userId?: string;
   }): Promise<{ recorded: number }> => {
-    const res = await apiClient.post<{ recorded: number }>('/beneficiaries/record-unapproved', params);
+    let effectiveUserId = params.userId;
+    if (!effectiveUserId && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('bytebeacon_auth_user');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          effectiveUserId = parsed.id || parsed.userId || parsed.sub;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const res = await apiClient.post<{ recorded: number }>('/beneficiaries/record-unapproved', {
+      ...params,
+      userId: effectiveUserId,
+    });
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
     }
@@ -190,8 +206,24 @@ export const beneficiaryApi = {
     });
   },
 
-  listApprovals: async (params?: { network?: string; status?: string; page?: number; limit?: number }): Promise<{ items: any[]; total?: number }> => {
-    return apiClient.get('/beneficiaries/approvals', { params });
+  listApprovals: async (params?: { network?: string; status?: string; page?: number; limit?: number; userId?: string }): Promise<{ items: any[]; total?: number; counts?: any }> => {
+    let effectiveUserId = params?.userId;
+    if (!effectiveUserId && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('bytebeacon_auth_user');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          effectiveUserId = parsed.id || parsed.userId || parsed.sub;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const queryParams = {
+      ...params,
+      userId: effectiveUserId,
+    };
+    return apiClient.get('/beneficiaries/approvals', { params: queryParams });
   },
 
   approveBeneficiary: async (id: string): Promise<any> => {

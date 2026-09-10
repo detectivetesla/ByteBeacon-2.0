@@ -21,6 +21,7 @@ import { migration00000000000018 } from './migrations/00000000000018_enhance_pro
 import { migration00000000000019 } from './migrations/00000000000019_enhance_agent_telecom_and_beneficiary_approvals_schema.js';
 import { migration00000000000020 } from './migrations/00000000000020_enhance_wallet_deposits_and_topup_schema.js';
 import { migration00000000000021 } from './migrations/00000000000021_ensure_beneficiary_validation_unique_index.js';
+import { migration00000000000022 } from './migrations/00000000000022_add_metadata_to_pending_beneficiary_approvals.js';
 
 export const allMigrations: MigrationFile[] = [
   migration00000000000000,
@@ -45,5 +46,6 @@ export const allMigrations: MigrationFile[] = [
   migration00000000000019,
   migration00000000000020,
   migration00000000000021,
+  migration00000000000022,
 ];
 

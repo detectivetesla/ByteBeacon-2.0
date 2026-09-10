@@ -30,6 +30,7 @@ import {
   ShoppingCart,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { useAuth } from '../../context/AuthContext.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { ordersApi } from '../../api/orders.api.js';
 
@@ -100,6 +101,7 @@ export const DetectedFromIndicator: React.FC<{ source: DetectedChannel }> = ({ s
 
 export const CustomerPendingApprovalsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
 
   // Data State
@@ -149,6 +151,7 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         limit: 5000,
+        userId: user?.id,
       })) as any;
 
       if (response?.counts || response?.data?.counts) {
@@ -191,7 +194,7 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [networkFilter, statusFilter]);
+  }, [networkFilter, statusFilter, user?.id]);
 
   useEffect(() => {
     fetchApprovals();

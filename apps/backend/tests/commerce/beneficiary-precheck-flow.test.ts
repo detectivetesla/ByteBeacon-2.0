@@ -527,4 +527,123 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       expect(json.data.pendingCount).toBe(3);
     });
   });
+
+  describe('Customer & Agent User Isolation for Pending MTN Approvals', () => {
+    it('GET /beneficiaries/approvals should return empty list and zero counts when unauthenticated', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/beneficiaries/approvals',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.items).toEqual([]);
+      expect(json.data.total).toBe(0);
+      expect(json.data.counts.total).toBe(0);
+    });
+
+    it('GET /beneficiaries/approvals should isolate records to the authenticated customer', async () => {
+      // Mock customer token
+      mockTokenService.verifyAccessToken = vi.fn().mockReturnValue({
+        sub: 'usr_customer_42',
+        email: 'customer42@bytebeacon.com',
+        role: UserRole.CUSTOMER,
+        domain: SecurityDomain.CUSTOMER,
+        status: 'ACTIVE',
+        sessionId: 'sess_cust_42',
+      });
+
+      vi.spyOn(mockDb, 'query').mockImplementation((query: string, params: any) => {
+        if (query.includes('FROM users')) {
+          return Promise.resolve({
+            rows: [{ id: params?.[0] || 'usr_customer_42', status: 'ACTIVE', role: 'customer' }],
+          });
+        }
+        if (query.includes('COUNT(*) as total')) {
+          expect(params[0]).toBe('usr_customer_42');
+          return Promise.resolve({
+            rows: [{ total: '1', pending: '1', approved: '0', rejected: '0', processing: '0' }],
+          });
+        }
+        if (query.includes('SELECT p.id')) {
+          expect(params[0]).toBe('usr_customer_42');
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'pba_cust_1',
+                phoneNumber: '0241234567',
+                network: 'MTN',
+                status: 'PENDING',
+                providerReference: 'DH-AUTO',
+                validatedAt: null,
+                expiresAt: null,
+                createdAt: new Date().toISOString(),
+                lastBundleSizeGb: 5,
+                metadata: { detectedFrom: 'Single Order' },
+                detectedFrom: 'Single Order',
+                occurrences: 2,
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/beneficiaries/approvals',
+        headers: {
+          authorization: 'Bearer valid_customer_token',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.items).toHaveLength(1);
+      expect(json.data.items[0].phoneNumber).toBe('0241234567');
+      expect(json.data.items[0].occurrences).toBe(2);
+      expect(json.data.counts.pending).toBe(1);
+    });
+
+    it('GET /beneficiaries/pending-count should query pending_beneficiary_approvals for customers', async () => {
+      mockTokenService.verifyAccessToken = vi.fn().mockReturnValue({
+        sub: 'usr_customer_99',
+        email: 'customer99@bytebeacon.com',
+        role: UserRole.CUSTOMER,
+        domain: SecurityDomain.CUSTOMER,
+        status: 'ACTIVE',
+        sessionId: 'sess_cust_99',
+      });
+
+      vi.spyOn(mockDb, 'query').mockImplementation((query: string, params: any) => {
+        if (query.includes('FROM users')) {
+          return Promise.resolve({
+            rows: [{ id: params?.[0] || 'usr_customer_99', status: 'ACTIVE', role: 'customer' }],
+          });
+        }
+        if (query.includes('FROM pending_beneficiary_approvals') && query.includes('agent_id = $1')) {
+          expect(params[0]).toBe('usr_customer_99');
+          return Promise.resolve({
+            rows: [{ pendingCount: '5' }],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/beneficiaries/pending-count',
+        headers: {
+          authorization: 'Bearer valid_customer_token',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.pendingCount).toBe(5);
+    });
+  });
 });
