@@ -162,6 +162,7 @@ export const BuyDataPage: React.FC = () => {
       }
     >
   >({});
+  const recordedUnapprovedPhonesRef = useRef<Set<string>>(new Set());
 
   const mapProductsToBundles = useCallback((items: any[]): BundleItem[] => {
     return items.map((p) => {
@@ -504,6 +505,27 @@ export const BuyDataPage: React.FC = () => {
         setSingleAccountName(result?.accountName || '');
         setSingleIsPortedCandidate(isPorted);
         setSingleVerifiedPhone(cleaned);
+
+        // Immediately record detected unapproved number to Pending MTN Approvals
+        if (status === 'UNAPPROVED') {
+          if (!recordedUnapprovedPhonesRef.current.has(cleaned)) {
+            recordedUnapprovedPhonesRef.current.add(cleaned);
+            beneficiaryApi
+              .recordUnapproved?.({
+                items: [
+                  {
+                    phoneNumber: cleaned,
+                    network: NetworkProvider.MTN,
+                    dataSize: currentSingleBundle?.dataDisplay,
+                    dataAmountMb: currentSingleBundle?.dataAmountMb,
+                    pricePesewas: currentSingleBundle?.pricePesewas,
+                    detectedFrom: 'Single Order',
+                  },
+                ],
+              })
+              ?.catch?.(() => {});
+          }
+        }
       } catch (err: any) {
         if (isCancelled) return;
         const isUnapprovedErr =
@@ -526,6 +548,27 @@ export const BuyDataPage: React.FC = () => {
         setSingleApprovalStatus(status);
         setSingleApprovalMessage(msg);
         setSingleVerifiedPhone(cleaned);
+
+        // Immediately record detected unapproved number to Pending MTN Approvals
+        if (status === 'UNAPPROVED') {
+          if (!recordedUnapprovedPhonesRef.current.has(cleaned)) {
+            recordedUnapprovedPhonesRef.current.add(cleaned);
+            beneficiaryApi
+              .recordUnapproved?.({
+                items: [
+                  {
+                    phoneNumber: cleaned,
+                    network: NetworkProvider.MTN,
+                    dataSize: currentSingleBundle?.dataDisplay,
+                    dataAmountMb: currentSingleBundle?.dataAmountMb,
+                    pricePesewas: currentSingleBundle?.pricePesewas,
+                    detectedFrom: 'Single Order',
+                  },
+                ],
+              })
+              ?.catch?.(() => {});
+          }
+        }
       }
     }, 400);
 
@@ -871,6 +914,81 @@ export const BuyDataPage: React.FC = () => {
     setPurchaseModalOpen(true);
   };
 
+  // Proactive real-time detection & recording for Bulk Normal entries
+  useEffect(() => {
+    if (orderMode !== 'bulk' || bulkSubMode !== 'normal') return;
+    const isMtn = selectedNetwork === NetworkProvider.MTN;
+    if (!isMtn) return;
+
+    const validMtnPhones = bulkRecipients
+      .map((r) => normalizeGhanaPhoneNumber(r.phone))
+      .filter((p) => /^(0|\+?233)[25][0-9]{8}$/.test(p) && p.length === 10);
+
+    const uninspectedPhones = Array.from(new Set(validMtnPhones)).filter(
+      (p) => !recordedUnapprovedPhonesRef.current.has(p),
+    );
+
+    if (uninspectedPhones.length === 0) return;
+
+    let isCancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await beneficiaryApi.precheckPublic({
+          network: NetworkProvider.MTN,
+          phoneNumbers: uninspectedPhones,
+        });
+        if (isCancelled || !res?.results) return;
+
+        const unapprovedToRecord: string[] = [];
+        for (const item of res.results) {
+          const ph = item.normalized || item.phone || item.phoneNumber || '';
+          const isOrderable =
+            item.orderable !== undefined
+              ? item.orderable
+              : Boolean(item.known && item.valid);
+          const isUnapproved =
+            !isOrderable ||
+            !item.known ||
+            item.status === 'UNAPPROVED' ||
+            item.status === 'PENDING';
+
+          if (isUnapproved && ph && !recordedUnapprovedPhonesRef.current.has(ph)) {
+            recordedUnapprovedPhonesRef.current.add(ph);
+            unapprovedToRecord.push(ph);
+          }
+        }
+
+        if (unapprovedToRecord.length > 0) {
+          beneficiaryApi
+            .recordUnapproved?.({
+              items: unapprovedToRecord.map((ph) => {
+                const recipient = bulkRecipients.find((r) => normalizeGhanaPhoneNumber(r.phone) === ph);
+                const bundle = recipient
+                  ? availableBundles.find((pkg) => pkg.id === recipient.bundleId) || currentSingleBundle
+                  : currentSingleBundle;
+                return {
+                  phoneNumber: ph,
+                  network: NetworkProvider.MTN,
+                  dataSize: bundle.dataDisplay,
+                  dataAmountMb: bundle.dataAmountMb,
+                  pricePesewas: bundle.pricePesewas,
+                  detectedFrom: 'Bulk Order',
+                };
+              }),
+            })
+            ?.catch?.(() => {});
+        }
+      } catch {
+        // ignore background detection errors
+      }
+    }, 600);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [bulkRecipients, orderMode, bulkSubMode, selectedNetwork, availableBundles, currentSingleBundle]);
+
   // Parse Bulk Free Text Area
   const parsedFreeEntries = useMemo(() => {
     const lines = freePasteText.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -1036,6 +1154,78 @@ export const BuyDataPage: React.FC = () => {
     });
     setPurchaseModalOpen(true);
   };
+
+  // Proactive real-time detection & recording for Bulk Free Paste entries
+  useEffect(() => {
+    if (orderMode !== 'bulk' || bulkSubMode !== 'free') return;
+    const isMtn = selectedNetwork === NetworkProvider.MTN;
+    if (!isMtn) return;
+
+    const validPhones = parsedFreeEntries.entries
+      .filter((e) => e.isValid)
+      .map((e) => normalizeGhanaPhoneNumber(e.phone))
+      .filter((p) => /^(0|\+?233)[25][0-9]{8}$/.test(p) && p.length === 10);
+
+    const uninspectedPhones = Array.from(new Set(validPhones)).filter(
+      (p) => !recordedUnapprovedPhonesRef.current.has(p),
+    );
+
+    if (uninspectedPhones.length === 0) return;
+
+    let isCancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await beneficiaryApi.precheckPublic({
+          network: NetworkProvider.MTN,
+          phoneNumbers: uninspectedPhones,
+        });
+        if (isCancelled || !res?.results) return;
+
+        const unapprovedToRecord: string[] = [];
+        for (const item of res.results) {
+          const ph = item.normalized || item.phone || item.phoneNumber || '';
+          const isOrderable =
+            item.orderable !== undefined
+              ? item.orderable
+              : Boolean(item.known && item.valid);
+          const isUnapproved =
+            !isOrderable ||
+            !item.known ||
+            item.status === 'UNAPPROVED' ||
+            item.status === 'PENDING';
+
+          if (isUnapproved && ph && !recordedUnapprovedPhonesRef.current.has(ph)) {
+            recordedUnapprovedPhonesRef.current.add(ph);
+            unapprovedToRecord.push(ph);
+          }
+        }
+
+        if (unapprovedToRecord.length > 0) {
+          beneficiaryApi
+            .recordUnapproved?.({
+              items: unapprovedToRecord.map((ph) => {
+                const entry = parsedFreeEntries.entries.find((e) => normalizeGhanaPhoneNumber(e.phone) === ph);
+                return {
+                  phoneNumber: ph,
+                  network: NetworkProvider.MTN,
+                  dataSize: entry?.sizeStr,
+                  pricePesewas: entry?.pricePesewas,
+                  detectedFrom: 'Bulk Order',
+                };
+              }),
+            })
+            ?.catch?.(() => {});
+        }
+      } catch {
+        // ignore background detection errors
+      }
+    }, 600);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [freePasteText, parsedFreeEntries, orderMode, bulkSubMode, selectedNetwork]);
 
   // Excel Template Downloads
   const handleDownloadTemplate = (format: 'xlsx' | 'csv', type: 'simple' | 'full') => {
@@ -1459,6 +1649,23 @@ export const BuyDataPage: React.FC = () => {
       setExcelParsedRows(rechecked);
       const approvedCount = rechecked.filter((r) => r.status === 'APPROVED').length;
       const unapprovedCount = rechecked.filter((r) => r.status === 'UNAPPROVED').length;
+
+      const unapprovedItems = rechecked.filter((r) => r.status === 'UNAPPROVED');
+      if (unapprovedItems.length > 0) {
+        beneficiaryApi
+          .recordUnapproved?.({
+            items: unapprovedItems.map((r) => ({
+              phoneNumber: r.phone,
+              network: r.network || NetworkProvider.MTN,
+              dataSize: r.data,
+              dataAmountMb: r.dataAmountMb,
+              pricePesewas: r.pricePesewas,
+              detectedFrom: 'Excel Upload',
+            })),
+          })
+          ?.catch?.(() => {});
+      }
+
       toastSuccess('Approvals Refreshed', `${approvedCount} approved, ${unapprovedCount} pending approval.`);
     } catch (err: any) {
       toastError('Refresh Failed', err?.message || 'Could not refresh approvals.');
@@ -2218,6 +2425,20 @@ export const BuyDataPage: React.FC = () => {
                         type="button"
                         onClick={() => {
                           const cleaned = singleVerifiedPhone || normalizeGhanaPhoneNumber(singlePhone);
+                          beneficiaryApi
+                            .recordUnapproved?.({
+                              items: [
+                                {
+                                  phoneNumber: cleaned,
+                                  network: NetworkProvider.MTN,
+                                  dataSize: currentSingleBundle?.dataDisplay,
+                                  dataAmountMb: currentSingleBundle?.dataAmountMb,
+                                  pricePesewas: currentSingleBundle?.pricePesewas,
+                                  detectedFrom: 'Single Order',
+                                },
+                              ],
+                            })
+                            ?.catch?.(() => {});
                           setUnapprovedPhone(cleaned);
                           setUnapprovedPhones([cleaned]);
                           setUnapprovedModalOpen(true);
