@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { createHash } from 'crypto';
 import type pg from 'pg';
 import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
 import { BeneficiaryVerificationJobService } from '../../core/commerce/beneficiary-verification-job.service.js';
@@ -216,11 +217,12 @@ export async function beneficiaryRoutes(
       network: NetworkProvider | string;
       phoneNumbers: string[];
       record?: boolean;
+      idempotencyKey?: string;
     };
   }>(
     '/beneficiaries/verification-jobs',
     async (req, reply) => {
-      const { network, phoneNumbers, record = false } = req.body || {};
+      const { network, phoneNumbers, record = false, idempotencyKey } = req.body || {};
 
       if (!network) {
         throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
@@ -233,6 +235,23 @@ export async function beneficiaryRoutes(
       if (phoneNumbers.length > maxLimit) {
         throw new BadRequestError(`Up to ${maxLimit} phone numbers allowed per verification job`);
       }
+
+      // Input validation: sanitize and validate each phone string
+      const sanitizedPhones: string[] = [];
+      for (let i = 0; i < phoneNumbers.length; i++) {
+        const phone = phoneNumbers[i];
+        if (typeof phone !== 'string') {
+          throw new BadRequestError(`Item at index ${i} is not a valid phone string`);
+        }
+        const trimmed = phone.trim();
+        if (trimmed.length === 0 || trimmed.length > 25) {
+          throw new BadRequestError(`Phone number at index ${i} must be 1-25 characters`);
+        }
+        sanitizedPhones.push(trimmed);
+      }
+
+      // Deduplicate before background dispatch
+      const uniquePhones = Array.from(new Set(sanitizedPhones));
 
       let authenticatedUserId: string | undefined;
       const authHeader = req.headers.authorization;
@@ -255,17 +274,29 @@ export async function beneficiaryRoutes(
         }
       }
 
+      // Calculate deterministic idempotency key if not provided by client
+      const headerIdemp = req.headers['idempotency-key'] as string | undefined;
+      const effectiveIdempKey =
+        idempotencyKey ||
+        headerIdemp ||
+        createHash('sha256')
+          .update(`${network}:${Boolean(record)}:${[...uniquePhones].sort().join(',')}`)
+          .digest('hex');
+
       const jobState = await verificationJobService.startJob({
         network: network as NetworkProvider,
-        phoneNumbers,
+        phoneNumbers: uniquePhones,
         record: Boolean(record),
         userId: authenticatedUserId,
+        idempotencyKey: effectiveIdempKey,
       });
 
-      return reply.status(202).send({
+      const statusCode = jobState.processedRows > 0 || jobState.status === 'COMPLETED' ? 200 : 202;
+
+      return reply.status(statusCode).send({
         success: true,
-        statusCode: 202,
-        message: 'Verification job initiated',
+        statusCode,
+        message: statusCode === 200 ? 'Existing verification job returned' : 'Verification job initiated',
         data: jobState,
       });
     },

@@ -18,7 +18,7 @@ export interface VerificationJobItemResult {
   known: boolean;
   isKnown: boolean;
   orderable: boolean;
-  status: 'APPROVED' | 'UNAPPROVED' | 'REJECTED';
+  status: 'APPROVED' | 'UNAPPROVED' | 'REJECTED' | 'PENDING_VERIFICATION' | 'PROVIDER_ERROR';
   message: string;
   accountName?: string;
 }
@@ -32,12 +32,14 @@ export interface VerificationJobState {
   approvedCount: number;
   unapprovedCount: number;
   rejectedCount: number;
+  pendingCount: number;
   progressPercent: number;
   portedCandidates: string[];
   results: VerificationJobItemResult[];
   error?: string;
   isCancelled?: boolean;
   userId?: string;
+  idempotencyKey?: string;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -48,6 +50,7 @@ export interface StartVerificationJobParams {
   phoneNumbers: string[];
   record?: boolean;
   userId?: string;
+  idempotencyKey?: string;
 }
 
 export class BeneficiaryVerificationJobService {
@@ -56,10 +59,12 @@ export class BeneficiaryVerificationJobService {
   private readonly queueManager: QueueManager | null;
   private readonly bullQueue: Queue | null = null;
   private readonly inMemoryJobs = new Map<string, VerificationJobState>();
+  private readonly inMemoryIdempotency = new Map<string, { jobId: string; expiresAt: number }>();
 
   public static readonly CHUNK_SIZE = 500;
   public static readonly STATE_TTL_SECONDS = 3600; // 1 hour retention
   private static readonly REDIS_PREFIX = 'bb:beneficiary:job:';
+  private static readonly IDEMP_PREFIX = 'bb:beneficiary:idemp:';
 
   constructor(
     beneficiaryService: BeneficiaryService,
@@ -127,16 +132,42 @@ export class BeneficiaryVerificationJobService {
   /**
    * Starts an asynchronous beneficiary verification job.
    * Immediately returns HTTP 202-ready job status while processing chunks in the background.
+   * Supports idempotency: identical idempotencyKey within 10 minutes returns the existing active/completed job.
    */
-  public async startJob(params: {
-    network: NetworkProvider | string;
-    phoneNumbers: string[];
-    record?: boolean;
-    userId?: string;
-  }): Promise<VerificationJobState> {
-    const { network, phoneNumbers, record = false, userId } = params;
+  public async startJob(params: StartVerificationJobParams): Promise<VerificationJobState> {
+    const { network, phoneNumbers, record = false, userId, idempotencyKey } = params;
+
+    // Idempotency check: if identical verification payload was submitted recently, return existing job
+    if (idempotencyKey) {
+      const now = Date.now();
+      let existingJobId: string | null = null;
+
+      if (this.redis && this.redis.status === 'ready') {
+        try {
+          existingJobId = await this.redis.get(`${BeneficiaryVerificationJobService.IDEMP_PREFIX}${idempotencyKey}`);
+        } catch {
+          // ignore redis error
+        }
+      }
+
+      if (!existingJobId) {
+        const mem = this.inMemoryIdempotency.get(idempotencyKey);
+        if (mem && mem.expiresAt > now) {
+          existingJobId = mem.jobId;
+        }
+      }
+
+      if (existingJobId) {
+        const existingState = await this.getJob(existingJobId);
+        if (existingState && existingState.status !== 'FAILED') {
+          logger.info({ jobId: existingJobId, idempotencyKey }, '[BeneficiaryJob] Returning existing idempotent verification job');
+          return existingState;
+        }
+      }
+    }
+
     const jobId = `vjob_${Date.now()}_${randomBytes(4).toString('hex')}`;
-    const now = new Date().toISOString();
+    const nowStr = new Date().toISOString();
 
     const initialState: VerificationJobState = {
       jobId,
@@ -147,22 +178,44 @@ export class BeneficiaryVerificationJobService {
       approvedCount: 0,
       unapprovedCount: 0,
       rejectedCount: 0,
+      pendingCount: 0,
       progressPercent: 0,
       portedCandidates: [],
       results: [],
       userId,
-      createdAt: now,
-      updatedAt: now,
+      idempotencyKey,
+      createdAt: nowStr,
+      updatedAt: nowStr,
     };
 
     await this.saveJobState(initialState);
+
+    // Record idempotency mapping (10 minutes retention)
+    if (idempotencyKey) {
+      this.inMemoryIdempotency.set(idempotencyKey, {
+        jobId,
+        expiresAt: Date.now() + 600 * 1000,
+      });
+
+      if (this.redis && this.redis.status === 'ready') {
+        try {
+          await this.redis.setex(
+            `${BeneficiaryVerificationJobService.IDEMP_PREFIX}${idempotencyKey}`,
+            600,
+            jobId,
+          );
+        } catch {
+          // ignore
+        }
+      }
+    }
 
     // If BullMQ is configured, push to BullMQ queue
     if (this.bullQueue) {
       try {
         await this.bullQueue.add(
           'verify_batch',
-          { jobId, network, phoneNumbers, record, userId },
+          { jobId, network, phoneNumbers, record, userId, idempotencyKey },
           { jobId },
         );
         logger.info({ jobId, totalRows: phoneNumbers.length }, '[BeneficiaryJob] Enqueued job in BullMQ');
@@ -174,7 +227,7 @@ export class BeneficiaryVerificationJobService {
 
     // In-process async background runner fallback
     setImmediate(async () => {
-      await this.processJob(jobId, { network, phoneNumbers, record, userId });
+      await this.processJob(jobId, { network, phoneNumbers, record, userId, idempotencyKey });
     });
 
     return initialState;
@@ -199,7 +252,7 @@ export class BeneficiaryVerificationJobService {
   }
 
   /**
-   * Executes verification chunks sequentially or in controlled parallel batches.
+   * Executes verification chunks with progress persistence, pending state tracking, and resumability.
    */
   public async processJob(
     jobId: string,
@@ -208,6 +261,7 @@ export class BeneficiaryVerificationJobService {
       phoneNumbers: string[];
       record?: boolean;
       userId?: string;
+      idempotencyKey?: string;
     },
   ): Promise<VerificationJobState> {
     const state = (await this.getJob(jobId)) || {
@@ -219,10 +273,12 @@ export class BeneficiaryVerificationJobService {
       approvedCount: 0,
       unapprovedCount: 0,
       rejectedCount: 0,
+      pendingCount: 0,
       progressPercent: 0,
       portedCandidates: [],
       results: [],
       userId: params.userId,
+      idempotencyKey: params.idempotencyKey,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -231,8 +287,11 @@ export class BeneficiaryVerificationJobService {
     const phoneNumbers = params.phoneNumbers;
     const total = phoneNumbers.length;
 
+    // Resumability: if the job already processed some rows before interruption, resume from next chunk
+    const startIdx = state.processedRows > 0 && state.processedRows < total ? state.processedRows : 0;
+
     try {
-      for (let i = 0; i < total; i += chunkSize) {
+      for (let i = startIdx; i < total; i += chunkSize) {
         // Check for cancellation before processing each chunk
         const currentState = await this.getJob(jobId);
         if (currentState?.isCancelled || currentState?.status === 'CANCELLED') {
@@ -262,10 +321,13 @@ export class BeneficiaryVerificationJobService {
             const isApproved = item.status === 'APPROVED';
             const isUnapproved = item.status === 'UNAPPROVED';
             const isRejected = item.status === 'REJECTED';
+            const isPending = item.status === 'PENDING_VERIFICATION' || item.status === 'PROVIDER_ERROR';
 
             if (isApproved) state.approvedCount++;
             else if (isUnapproved) state.unapprovedCount++;
             else if (isRejected) state.rejectedCount++;
+            else if (isPending) state.pendingCount = (state.pendingCount || 0) + 1;
+            else state.unapprovedCount++;
 
             state.results.push({
               phone: item.phone,
@@ -276,7 +338,7 @@ export class BeneficiaryVerificationJobService {
               known: item.known,
               isKnown: item.isKnown,
               orderable: item.orderable,
-              status: item.status as 'APPROVED' | 'UNAPPROVED' | 'REJECTED',
+              status: item.status as any,
               message: item.message,
               accountName: (item as any).accountName,
             });
@@ -301,6 +363,7 @@ export class BeneficiaryVerificationJobService {
           approved: state.approvedCount,
           unapproved: state.unapprovedCount,
           rejected: state.rejectedCount,
+          pending: state.pendingCount,
         },
         '[BeneficiaryJob] Verification job completed successfully',
       );

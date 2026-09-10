@@ -64,7 +64,7 @@ export interface VerificationJobItemResultDto {
   known: boolean;
   isKnown?: boolean;
   orderable?: boolean;
-  status: 'APPROVED' | 'UNAPPROVED' | 'REJECTED';
+  status: 'APPROVED' | 'UNAPPROVED' | 'REJECTED' | 'PENDING_VERIFICATION' | 'PROVIDER_ERROR';
   message: string;
   accountName?: string;
 }
@@ -78,6 +78,7 @@ export interface VerificationJobStatusResponse {
   approvedCount: number;
   unapprovedCount: number;
   rejectedCount: number;
+  pendingCount?: number;
   progressPercent: number;
   portedCandidates?: string[];
   results: VerificationJobItemResultDto[];
@@ -96,6 +97,7 @@ export const beneficiaryApi = {
     network: NetworkProvider | string;
     phoneNumbers: string[];
     record?: boolean;
+    idempotencyKey?: string;
   }): Promise<VerificationJobStatusResponse> => {
     return apiClient.post('/beneficiaries/verification-jobs', params);
   },

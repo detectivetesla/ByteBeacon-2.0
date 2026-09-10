@@ -254,6 +254,7 @@ export const BuyDataPage: React.FC = () => {
     approved: number;
     unapproved: number;
     rejected: number;
+    pending?: number;
     progressPercent: number;
   } | null>(null);
   const [activeVerificationJobId, setActiveVerificationJobId] = useState<string | null>(null);
@@ -261,8 +262,50 @@ export const BuyDataPage: React.FC = () => {
   const [excelFilter, setExcelFilter] = useState<RecipientRowStatus | 'ALL'>('ALL');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Resume active verification job from localStorage on initial page load
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('bb_active_verification_job');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.jobId && Date.now() - (parsed.timestamp || 0) < 3600 * 1000) {
+          beneficiaryApi
+            .getVerificationJobStatus(parsed.jobId)
+            .then((res) => {
+              if (res && (res.status === 'PROCESSING' || res.status === 'COMPLETED')) {
+                setActiveVerificationJobId(parsed.jobId);
+                setVerificationStats({
+                  total: res.totalRows,
+                  processed: res.processedRows,
+                  approved: res.approvedCount,
+                  unapproved: res.unapprovedCount,
+                  rejected: res.rejectedCount,
+                  pending: res.pendingCount || 0,
+                  progressPercent: res.progressPercent,
+                });
+              } else {
+                localStorage.removeItem('bb_active_verification_job');
+              }
+            })
+            .catch(() => {
+              localStorage.removeItem('bb_active_verification_job');
+            });
+        } else {
+          localStorage.removeItem('bb_active_verification_job');
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const handleCancelVerification = async () => {
     cancelVerificationRef.current = true;
+    try {
+      localStorage.removeItem('bb_active_verification_job');
+    } catch {
+      // ignore
+    }
     if (activeVerificationJobId) {
       try {
         await beneficiaryApi.cancelVerificationJob(activeVerificationJobId);
@@ -693,6 +736,7 @@ export const BuyDataPage: React.FC = () => {
           approved: 0,
           unapproved: 0,
           rejected: 0,
+          pending: 0,
           progressPercent: 0,
         });
         cancelVerificationRef.current = false;
@@ -707,6 +751,15 @@ export const BuyDataPage: React.FC = () => {
           jobUsed = true;
           const jobId = jobInit.jobId;
           setActiveVerificationJobId(jobId);
+
+          try {
+            localStorage.setItem(
+              'bb_active_verification_job',
+              JSON.stringify({ jobId, network: selectedNetwork, timestamp: Date.now() }),
+            );
+          } catch {
+            // ignore
+          }
 
           let isDone = false;
           let pollCount = 0;
@@ -726,6 +779,7 @@ export const BuyDataPage: React.FC = () => {
               approved: pollRes.approvedCount || 0,
               unapproved: pollRes.unapprovedCount || 0,
               rejected: pollRes.rejectedCount || 0,
+              pending: pollRes.pendingCount || 0,
               progressPercent: pollRes.progressPercent || 0,
             });
 
@@ -773,6 +827,11 @@ export const BuyDataPage: React.FC = () => {
 
             if (pollRes.status === 'COMPLETED' || pollRes.status === 'FAILED' || pollRes.status === 'CANCELLED') {
               isDone = true;
+              try {
+                localStorage.removeItem('bb_active_verification_job');
+              } catch {
+                // ignore
+              }
             }
           }
           setActiveVerificationJobId(null);
@@ -780,6 +839,11 @@ export const BuyDataPage: React.FC = () => {
       } catch {
         jobUsed = false;
         setActiveVerificationJobId(null);
+        try {
+          localStorage.removeItem('bb_active_verification_job');
+        } catch {
+          // ignore
+        }
       }
     }
 
@@ -2447,6 +2511,11 @@ export const BuyDataPage: React.FC = () => {
                           <span style={{ color: 'var(--color-danger)', fontWeight: 700 }}>
                             ✗ Rejected: {verificationStats.rejected}
                           </span>
+                          {Boolean(verificationStats.pending && verificationStats.pending > 0) && (
+                            <span style={{ color: '#3b82f6', fontWeight: 700 }}>
+                              🔄 Pending Verification: {verificationStats.pending}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
