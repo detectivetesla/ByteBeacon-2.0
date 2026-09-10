@@ -134,11 +134,12 @@ describe('CustomerPendingApprovalsPage — Customer MTN Approvals Operations', (
       expect(screen.getByText('Total Registered')).toBeDefined();
     });
 
-    // Check beneficiary numbers rendered in table
+    // Check beneficiary numbers rendered in table and verify no Actions column header
     await waitFor(() => {
       expect(screen.getByText('0244123456')).toBeDefined();
       expect(screen.getByText('0555987654')).toBeDefined();
       expect(screen.getByText('0200112233')).toBeDefined();
+      expect(screen.queryByText('Actions')).toBeNull();
     });
   });
 
@@ -208,39 +209,53 @@ describe('CustomerPendingApprovalsPage — Customer MTN Approvals Operations', (
     });
   });
 
-  it('handles carrier sync action with toast feedback', async () => {
+  it('handles carrier sync action with toast feedback via dossier modal', async () => {
     renderComponent();
 
     await waitFor(() => {
       expect(screen.getByText('0244123456')).toBeDefined();
     });
 
-    const syncButtons = screen.getAllByTitle('Re-verify / Sync with Carrier');
-    fireEvent.click(syncButtons[0]);
+    // Open dossier modal
+    fireEvent.click(screen.getByText('0244123456'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Beneficiary Dossier — 0244123456/i)).toBeDefined();
+    });
+
+    const syncButton = screen.getByRole('button', { name: /Carrier Sync/i });
+    fireEvent.click(syncButton);
 
     await waitFor(() => {
       expect(beneficiaryApi.syncBeneficiary).toHaveBeenCalledWith('0244123456', NetworkProvider.MTN);
     });
   });
 
-  it('handles approve and reject actions with toast feedback', async () => {
+  it('handles approve and reject actions with toast feedback via dossier modal', async () => {
     renderComponent();
 
     await waitFor(() => {
       expect(screen.getByText('0244123456')).toBeDefined();
     });
 
-    // Whitelist / Approve button for pending row (0244123456)
-    const approveButtons = screen.getAllByTitle('Approve / Whitelist');
-    fireEvent.click(approveButtons[0]);
+    // Open dossier modal
+    fireEvent.click(screen.getByText('0244123456'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Beneficiary Dossier — 0244123456/i)).toBeDefined();
+    });
+
+    // Whitelist / Approve button
+    const approveButton = screen.getByRole('button', { name: /^Approve$/i });
+    fireEvent.click(approveButton);
 
     await waitFor(() => {
       expect(beneficiaryApi.approveBeneficiary).toHaveBeenCalledWith('ben-1');
     });
 
-    // Reject button for non-rejected row
-    const rejectButtons = screen.getAllByTitle('Reject Number');
-    fireEvent.click(rejectButtons[0]);
+    // Reject button
+    const rejectButton = screen.getByRole('button', { name: /^Reject$/i });
+    fireEvent.click(rejectButton);
 
     await waitFor(() => {
       expect(beneficiaryApi.rejectBeneficiary).toHaveBeenCalledWith('ben-1');

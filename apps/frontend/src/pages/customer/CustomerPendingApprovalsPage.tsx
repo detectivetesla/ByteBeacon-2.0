@@ -849,7 +849,6 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Detected Source</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Added Date</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Validity / Expiry</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -926,52 +925,6 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
                         {item.expiresAt ? new Date(item.expiresAt).toLocaleDateString() : 'Active (30d cache)'}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.35rem' }}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Re-verify / Sync with Carrier"
-                            onClick={() => handleSyncSingle(item)}
-                            disabled={syncingId === item.id}
-                          >
-                            <Zap size={13} className={syncingId === item.id ? 'animate-spin' : ''} color="var(--color-speed-bright)" />
-                          </Button>
-
-                          {item.status !== 'APPROVED' && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              title="Approve / Whitelist"
-                              onClick={() => handleApprove(item.id, item.phoneNumber)}
-                              style={{ color: 'var(--color-success)', borderColor: 'rgba(34, 197, 94, 0.4)' }}
-                            >
-                              <CheckCircle2 size={13} />
-                            </Button>
-                          )}
-
-                          {item.status !== 'REJECTED' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title="Reject Number"
-                              onClick={() => handleReject(item.id, item.phoneNumber)}
-                              style={{ color: 'var(--color-danger)' }}
-                            >
-                              <AlertOctagon size={13} />
-                            </Button>
-                          )}
-
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setSelectedRecord(item)}
-                            title="View History & Dossier"
-                          >
-                            <ChevronRight size={13} />
-                          </Button>
-                        </div>
                       </td>
                     </tr>
                   ))}
