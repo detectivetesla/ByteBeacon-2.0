@@ -646,7 +646,44 @@ export const BuyDataPage: React.FC = () => {
     const rejectedMap = new Map<string, string>();
     const discoveredPorted: string[] = [];
 
-    // 0. Primary High-Speed Async Pipeline (HTTP 202 + BullMQ Background Worker)
+    // Unified classifier: handles both status field (from verification jobs) and known boolean (from precheck/precheckPublic)
+    const classifyResult = (item: any) => {
+      const rawP = item.phone || item.phoneNumber || item.normalized;
+      const normP = normalizeGhanaPhoneNumber(rawP);
+      const variations = [
+        normP,
+        `+233${normP.slice(1)}`,
+        `233${normP.slice(1)}`,
+        rawP,
+        item.phone,
+        item.phoneNumber,
+        item.normalized,
+      ].filter(Boolean);
+
+      const status = String(item.status || '').toUpperCase();
+      const isInvalid = status === 'REJECTED' || item.valid === false;
+      const isExplicitApproved = status === 'APPROVED';
+      const isKnown = item.known === true || item.isKnown === true;
+      const isOrderable = item.orderable !== false;
+      const isExplicitUnapproved =
+        status === 'UNAPPROVED' ||
+        status === 'PENDING' ||
+        item.known === false ||
+        item.isKnown === false ||
+        item.orderable === false;
+
+      if (isInvalid) {
+        const reason = item.message || 'Invalid recipient number';
+        variations.forEach((v) => rejectedMap.set(v, reason));
+      } else if ((isExplicitApproved || isKnown) && !isExplicitUnapproved && isOrderable) {
+        variations.forEach((v) => knownSet.add(v));
+      } else {
+        // UNAPPROVED, PENDING_VERIFICATION, PROVIDER_ERROR, or unknown → unapproved
+        variations.forEach((v) => unapprovedSet.add(v));
+      }
+    };
+
+    // Primary path: Async verification job (HTTP 202 + background worker)
     let jobUsed = false;
     if (typeof beneficiaryApi.startVerificationJob === 'function') {
       try {
@@ -672,8 +709,12 @@ export const BuyDataPage: React.FC = () => {
           setActiveVerificationJobId(jobId);
 
           let isDone = false;
+          let pollCount = 0;
           while (!isDone && !cancelVerificationRef.current) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            // Adaptive poll interval: 200ms for first 10, 1s for next 20, then 3s
+            const pollDelay = pollCount < 10 ? 200 : pollCount < 30 ? 1000 : 3000;
+            await new Promise((resolve) => setTimeout(resolve, pollDelay));
+            pollCount++;
             if (cancelVerificationRef.current) break;
 
             const pollRes = await beneficiaryApi.getVerificationJobStatus(jobId);
@@ -689,49 +730,13 @@ export const BuyDataPage: React.FC = () => {
             });
 
             if (Array.isArray(pollRes.results)) {
-              pollRes.results.forEach((item) => {
-                const rawP = item.phone || item.phoneNumber || item.normalized;
-                const normP = normalizeGhanaPhoneNumber(rawP);
-                const variations = [
-                  normP,
-                  `+233${normP.slice(1)}`,
-                  `233${normP.slice(1)}`,
-                  rawP,
-                  item.phone,
-                  item.phoneNumber,
-                  item.normalized,
-                ].filter(Boolean);
-
-                const isInvalid = item.valid === false || item.status === 'REJECTED';
-                const isUnapproved =
-                  !isInvalid &&
-                  isMtnOrder &&
-                  (item.status === 'UNAPPROVED' ||
-                    item.status === 'PENDING' ||
-                    item.known === false ||
-                    item.isKnown === false ||
-                    item.orderable === false);
-                const isApproved =
-                  !isInvalid &&
-                  !isUnapproved &&
-                  (item.status === 'APPROVED' ||
-                    (!isMtnOrder && item.valid !== false) ||
-                    ((item.known === true || item.isKnown === true) && item.orderable !== false));
-
-                if (isInvalid) {
-                  variations.forEach((v) => rejectedMap.set(v, item.message || 'Invalid recipient number'));
-                } else if (isUnapproved) {
-                  variations.forEach((v) => unapprovedSet.add(v));
-                } else if (isApproved) {
-                  variations.forEach((v) => knownSet.add(v));
-                }
-              });
+              pollRes.results.forEach(classifyResult);
 
               if (pollRes.portedCandidates && Array.isArray(pollRes.portedCandidates)) {
                 discoveredPorted.push(...pollRes.portedCandidates);
               }
 
-              // Incrementally update UI status of parsed rows as each micro-batch finishes
+              // Incrementally update UI status of parsed rows as each chunk finishes
               setExcelParsedRows((prevRows) => {
                 return prevRows.map((r) => {
                   if (!r.isValid || r.network === 'TELECEL' || r.network === 'AIRTELTIGO') return r;
@@ -778,163 +783,68 @@ export const BuyDataPage: React.FC = () => {
       }
     }
 
-    // Secondary synchronous fallback for unit tests and environments without async job endpoint
+    // Fallback: If job endpoint unavailable, use sync precheck or chunked precheckPublic
     if (!jobUsed) {
-      const batchSize = 1000;
-      const batches: string[][] = [];
-      for (let i = 0; i < uniqueMtnPhones.length; i += batchSize) {
-        batches.push(uniqueMtnPhones.slice(i, i + batchSize));
+      let hasResults = false;
+      try {
+        const res: any = await beneficiaryApi.precheck({
+          network: NetworkProvider.MTN,
+          phoneNumbers: uniqueMtnPhones,
+          record: false,
+        });
+
+        if (res?.portedCandidates && Array.isArray(res.portedCandidates)) {
+          discoveredPorted.push(...res.portedCandidates);
+        }
+
+        const results = res?.results || res?.data?.results;
+        if (Array.isArray(results) && results.length > 0) {
+          hasResults = true;
+          results.forEach(classifyResult);
+        }
+      } catch {
+        hasResults = false;
       }
 
-      for (const batch of batches) {
-        let hasResults = false;
-
-        // 1. Try bulk precheck without recording (record: false)
-        try {
-          const res: any = await beneficiaryApi.precheck({
-            network: NetworkProvider.MTN,
-            phoneNumbers: batch,
-            record: false,
-          });
-
-          if (res?.portedCandidates && Array.isArray(res.portedCandidates)) {
-            discoveredPorted.push(...res.portedCandidates);
-          }
-
-          const results = res?.results || res?.data?.results;
-          if (Array.isArray(results) && results.length > 0) {
-            hasResults = true;
-            const isEnforced = res?.enforced !== false;
-            results.forEach((item: any) => {
-              const rawP = item.phone || item.phoneNumber || item.normalized;
-              const normP = normalizeGhanaPhoneNumber(rawP);
-              const variations = [
-                normP,
-                `+233${normP.slice(1)}`,
-                `233${normP.slice(1)}`,
-                rawP,
-                item.phone,
-                item.phoneNumber,
-                item.normalized,
-              ].filter(Boolean);
-
-              const isInvalid = item.valid === false || item.status === 'REJECTED';
-              const isUnapproved =
-                !isInvalid &&
-                isMtnOrder &&
-                (item.status === 'UNAPPROVED' ||
-                  item.status === 'PENDING' ||
-                  item.orderable === false ||
-                  item.known === false ||
-                  item.isKnown === false);
-
-              const isApproved =
-                !isInvalid &&
-                !isUnapproved &&
-                (item.status === 'APPROVED' ||
-                  (!isMtnOrder && item.valid !== false) ||
-                  ((item.known === true || item.isKnown === true) && item.orderable !== false));
-
-              if (isInvalid) {
-                const reason = item.message || 'Invalid recipient number';
-                variations.forEach((v) => rejectedMap.set(v, reason));
-              } else if (isUnapproved) {
-                variations.forEach((v) => unapprovedSet.add(v));
-              } else if (isApproved) {
-                variations.forEach((v) => knownSet.add(v));
-              }
-            });
-          }
-        } catch {
-          // Bulk precheck failed — check which numbers weren't resolved yet
-          // and mark them as unapproved to be safe
-          hasResults = false;
+      // Secondary fallback to precheckPublic in chunks of 10 if precheck failed
+      if (!hasResults && typeof beneficiaryApi.precheckPublic === 'function') {
+        const CHUNK_SIZE = 10;
+        const subChunks: string[][] = [];
+        for (let j = 0; j < uniqueMtnPhones.length; j += CHUNK_SIZE) {
+          subChunks.push(uniqueMtnPhones.slice(j, j + CHUNK_SIZE));
         }
 
-        // 2. Fallback to public precheck in chunks of up to 10 ONLY if bulk precheck failed
-        if (!hasResults) {
-          const CHUNK_SIZE = 10;
-          const subChunks: string[][] = [];
-          for (let j = 0; j < batch.length; j += CHUNK_SIZE) {
-            subChunks.push(batch.slice(j, j + CHUNK_SIZE));
-          }
-
-          const subConcurrency = 8;
-          for (let c = 0; c < subChunks.length; c += subConcurrency) {
-            const subBatch = subChunks.slice(c, c + subConcurrency);
-            await Promise.all(
-              subBatch.map(async (subChunk) => {
-                try {
-                  const pubRes = await beneficiaryApi.precheckPublic({
-                    network: NetworkProvider.MTN,
-                    phoneNumbers: subChunk,
-                  });
-                  if (pubRes?.portedCandidates && Array.isArray(pubRes.portedCandidates)) {
-                    discoveredPorted.push(...pubRes.portedCandidates);
-                  }
-                  const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
-                  if (Array.isArray(pubResults)) {
-                    const isEnforced = pubRes?.enforced !== false;
-                    pubResults.forEach((item: any) => {
-                      const rawP = item.phone || item.phoneNumber || item.normalized;
-                      const normP = normalizeGhanaPhoneNumber(rawP);
-                      const variations = [
-                        normP,
-                        `+233${normP.slice(1)}`,
-                        `233${normP.slice(1)}`,
-                        rawP,
-                        item.phone,
-                        item.phoneNumber,
-                        item.normalized,
-                      ].filter(Boolean);
-
-                      const isInvalid = item.valid === false || item.status === 'REJECTED';
-                      const isUnapproved =
-                        !isInvalid &&
-                        isMtnOrder &&
-                        (item.status === 'UNAPPROVED' ||
-                          item.status === 'PENDING' ||
-                          item.orderable === false ||
-                          item.known === false ||
-                          item.isKnown === false);
-
-                      const isApproved =
-                        !isInvalid &&
-                        !isUnapproved &&
-                        (item.status === 'APPROVED' ||
-                          (!isMtnOrder && item.valid !== false) ||
-                          ((item.known === true || item.isKnown === true) && item.orderable !== false));
-
-                      if (isInvalid) {
-                        const reason = item.message || 'Invalid recipient number';
-                        variations.forEach((v) => rejectedMap.set(v, reason));
-                      } else if (isUnapproved) {
-                        variations.forEach((v) => unapprovedSet.add(v));
-                      } else if (isApproved) {
-                        variations.forEach((v) => knownSet.add(v));
-                      }
-                    });
-                  }
-                } catch {
-                  // Fallback for subchunk failure (if 5 minutes timeout hit or severe network error)
-                  // Mark as unapproved so we don't drop them
-                  subChunk.forEach((num) => {
-                    const normP = normalizeGhanaPhoneNumber(num);
-                    if (normP) {
-                      unapprovedSet.add(normP);
-                      unapprovedSet.add(`+233${normP.slice(1)}`);
-                      unapprovedSet.add(`233${normP.slice(1)}`);
-                    }
-                  });
+        const subConcurrency = 8;
+        for (let c = 0; c < subChunks.length; c += subConcurrency) {
+          const subBatch = subChunks.slice(c, c + subConcurrency);
+          await Promise.all(
+            subBatch.map(async (subChunk) => {
+              try {
+                const pubRes = await beneficiaryApi.precheckPublic({
+                  network: NetworkProvider.MTN,
+                  phoneNumbers: subChunk,
+                });
+                if (pubRes?.portedCandidates && Array.isArray(pubRes.portedCandidates)) {
+                  discoveredPorted.push(...pubRes.portedCandidates);
                 }
-              }),
-            );
-            
-            if (c + subConcurrency < subChunks.length) {
-              await new Promise((resolve) => setTimeout(resolve, 250));
-            }
-          }
+                const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
+                if (Array.isArray(pubResults)) {
+                  pubResults.forEach(classifyResult);
+                }
+              } catch {
+                subChunk.forEach((num) => {
+                  const normP = normalizeGhanaPhoneNumber(num);
+                  if (normP) unapprovedSet.add(normP);
+                });
+              }
+            }),
+          );
         }
+      } else if (!hasResults) {
+        uniqueMtnPhones.forEach((num) => {
+          const normP = normalizeGhanaPhoneNumber(num);
+          if (normP) unapprovedSet.add(normP);
+        });
       }
     }
 

@@ -221,8 +221,33 @@ export class DataHouseAdapter implements ITelecomProvider {
       }
 
       const concurrency = 6;
+      let consecutiveFailures = 0;
+      const CIRCUIT_BREAKER_THRESHOLD = 3;
 
       for (let i = 0; i < chunks.length; i += concurrency) {
+        // Circuit breaker: stop sending if provider appears down
+        if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+          // Mark remaining chunks as provider error results
+          for (let j = i; j < chunks.length; j++) {
+            for (const phone of chunks[j]) {
+              const norm = DataHouseMapper.normalizePhone(phone);
+              const local = norm.startsWith('233') ? '0' + norm.slice(3) : norm;
+              const errorResult = {
+                phoneNumber: phone,
+                phone: local,
+                normalized: local,
+                isKnown: false,
+                isValid: true,
+                orderable: false,
+                status: 'PENDING_VERIFICATION',
+                message: 'Provider temporarily unavailable - verification pending',
+              };
+              // Do NOT cache provider errors
+              validChunkResults.push({ network, results: [errorResult], unknown: [phone] } as any);
+            }
+          }
+          break;
+        }
         const batch = chunks.slice(i, i + concurrency);
         const batchResults = await Promise.all(
           batch.map(async (chunk, batchIdx) => {
@@ -260,6 +285,13 @@ export class DataHouseAdapter implements ITelecomProvider {
             return null;
           }),
         );
+
+        const successCount = batchResults.filter(Boolean).length;
+        if (successCount > 0) {
+          consecutiveFailures = 0; // Reset circuit breaker on any success
+        } else {
+          consecutiveFailures++;
+        }
 
         for (const res of batchResults) {
           if (res) validChunkResults.push(res);
