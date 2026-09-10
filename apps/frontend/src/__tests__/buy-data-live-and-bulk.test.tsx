@@ -9,6 +9,7 @@ import { ToastProvider } from '../context/ToastContext.js';
 import { PlatformStatusProvider } from '../context/PlatformStatusContext.js';
 import { catalogApi } from '../api/catalog.api.js';
 import { ordersApi } from '../api/orders.api.js';
+import { beneficiaryApi } from '../api/beneficiary.api.js';
 
 // Mock catalogApi
 vi.mock('../api/catalog.api.js', () => ({
@@ -16,6 +17,15 @@ vi.mock('../api/catalog.api.js', () => ({
     getBundles: vi.fn(),
     getPublicPackages: vi.fn(),
     getCachedPublicPackages: vi.fn(),
+  },
+}));
+
+// Mock beneficiaryApi
+vi.mock('../api/beneficiary.api.js', () => ({
+  beneficiaryApi: {
+    precheck: vi.fn(),
+    precheckPublic: vi.fn(),
+    recordUnapproved: vi.fn().mockResolvedValue({ recorded: 1 }),
   },
 }));
 
@@ -74,6 +84,29 @@ describe('BuyDataPage and PurchaseModal Live Dynamic Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (catalogApi.getBundles as any).mockResolvedValue(mockMtnBundles);
+    const mockPrecheckHandler = (input: any) => {
+      const phones = input?.phoneNumbers || [];
+      return Promise.resolve({
+        network: NetworkProvider.MTN,
+        enforced: true,
+        results: phones.map((p: string) => {
+          const isKnown = p !== '0240000000' && p !== '12345';
+          const isValid = p !== '12345';
+          return {
+            phone: p,
+            normalized: p,
+            valid: isValid,
+            known: isKnown,
+            isKnown,
+            isValid,
+            status: !isValid ? 'REJECTED' : isKnown ? 'APPROVED' : 'UNAPPROVED',
+            orderable: isKnown && isValid,
+          };
+        }),
+      });
+    };
+    (beneficiaryApi.precheckPublic as any).mockImplementation(mockPrecheckHandler);
+    (beneficiaryApi.precheck as any).mockImplementation(mockPrecheckHandler);
   });
 
   it('loads live catalog bundles and displays them in GB format', async () => {

@@ -458,17 +458,20 @@ export const BuyDataPage: React.FC = () => {
           (precheckRes?.portedCandidates && precheckRes.portedCandidates.includes(cleaned)) ||
           result?.isPorted,
         );
+        // The public precheck endpoint returns { phone, normalized, valid, known }.
+        // If enforced, a recipient is only approved/orderable if strictly valid AND confirmed known by telecom provider.
+        const isKnownApproved = Boolean(result?.known && result?.valid);
         const isOrderable =
           result?.orderable !== undefined
             ? result.orderable
             : isEnforced
-            ? Boolean(result?.known && result?.valid)
+            ? isKnownApproved
             : Boolean(result?.valid);
 
         const isApproved = Boolean(
           result &&
           isOrderable &&
-          result.known &&
+          isKnownApproved &&
           result.status !== 'UNAPPROVED' &&
           result.status !== 'PENDING',
         );
