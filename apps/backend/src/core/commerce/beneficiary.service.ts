@@ -302,47 +302,8 @@ export class BeneficiaryService {
       const newlyApprovedPhones: string[] = [];
       const newlyUnapprovedPhones: string[] = [];
 
-      // For large batches (> 20 numbers) when fast precheckBeneficiaries is not available,
-      // pre-resolve numbers that were authoritatively verified by DataHouse within the last 2h to avoid hitting public rate limits.
-      // If bypassCache is true or precheckBeneficiaries is available, 100% live telecom check is always performed.
-      let phonesToQueryLive = uncachedPhones;
-      if (!bypassCache && !this.telecomProvider.precheckBeneficiaries && uncachedPhones.length > 20) {
-        try {
-          const queryPhones = Array.from(
-            new Set(
-              uncachedPhones.flatMap((p) => [
-                p,
-                `+233${p.startsWith('0') ? p.slice(1) : p}`,
-                `233${p.startsWith('0') ? p.slice(1) : p}`,
-              ]),
-            ),
-          );
-          const recentApprovedRes = await this.db.query(
-            `SELECT phone_number as "phoneNumber"
-             FROM beneficiary_validation
-             WHERE phone_number = ANY($1)
-               AND network = 'MTN'
-               AND validation_status IN ('VALID', 'APPROVED')
-               AND provider_reference = 'DH-PRECHECK'
-               AND validated_at > CURRENT_TIMESTAMP - INTERVAL '2 hours'`,
-            [queryPhones],
-          );
-          recentApprovedRes.rows.forEach((r: any) => {
-            if (r.phoneNumber) {
-              const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-              if (norm) {
-                knownPhonesSet.add(norm);
-                knownPhonesSet.add(r.phoneNumber);
-                knownPhonesSet.add(`+233${norm.slice(1)}`);
-                knownPhonesSet.add(`233${norm.slice(1)}`);
-              }
-            }
-          });
-          phonesToQueryLive = uncachedPhones.filter((p) => !knownPhonesSet.has(p));
-        } catch {
-          phonesToQueryLive = uncachedPhones;
-        }
-      }
+      // Always query live telecom provider for all uncached phones
+      const phonesToQueryLive = uncachedPhones;
 
       const chunkSize = this.telecomProvider.precheckBeneficiaries ? 500 : 10;
       const chunks: string[][] = [];
@@ -559,20 +520,19 @@ export class BeneficiaryService {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
             // Live telecom precheck is authoritative: never re-approve if live check reported unapproved
+            const wasQueriedLive = providerQueriedSet.has(norm) || providerQueriedSet.has(r.phoneNumber);
             const isLiveUnapproved =
               liveUnapprovedSet.has(norm) ||
               liveUnapprovedSet.has(r.phoneNumber) ||
               upstreamOrderableMap.get(norm) === false ||
-              (providerQueriedSet.has(norm) && !knownPhonesSet.has(norm)) ||
+              (wasQueriedLive && !knownPhonesSet.has(norm)) ||
               bypassCache;
 
             if (isLiveUnapproved) {
               knownPhonesSet.delete(norm);
               knownPhonesSet.delete(r.phoneNumber);
-            } else if (!isSmallInteractiveBatch) {
-              // Only allow database cache fallback for large offline batches (> 10 numbers) where DB pre-resolution was intentional.
-              // For small interactive sets (<= 10 numbers, e.g. Single Orders), live telecom precheck is strictly mandatory;
-              // stale DB records MUST NEVER falsely approve an MTN number that was not confirmed live by the carrier!
+            } else if (!wasQueriedLive && !bypassCache && !isSmallInteractiveBatch) {
+              // Only allow database cache fallback for numbers that were NOT queried live to the provider
               knownPhonesSet.add(norm);
               knownPhonesSet.add(r.phoneNumber);
             }
@@ -1224,14 +1184,15 @@ export class BeneficiaryService {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
             // Live telecom precheck is authoritative: never re-approve if live check reported unapproved
+            const wasQueriedLive = providerQueriedSet.has(norm) || providerQueriedSet.has(r.phoneNumber);
             const isLiveUnapproved =
               liveUnapprovedSet.has(norm) ||
               liveUnapprovedSet.has(r.phoneNumber) ||
               upstreamOrderableMap.get(norm) === false ||
-              (providerQueriedSet.has(norm) && !knownPhonesSet.has(norm)) ||
+              (wasQueriedLive && !knownPhonesSet.has(norm)) ||
               bypassCache;
 
-            if (!isLiveUnapproved) {
+            if (!wasQueriedLive && !isLiveUnapproved && !bypassCache) {
               knownPhonesSet.add(norm);
               knownPhonesSet.add(r.phoneNumber);
             }
