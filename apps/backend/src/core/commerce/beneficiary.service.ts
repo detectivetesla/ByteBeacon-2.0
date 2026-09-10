@@ -262,8 +262,11 @@ export class BeneficiaryService {
     const liveUnapprovedSet = new Set<string>();
 
     // 0. Query Redis Cache first (Sub-millisecond lookup for previously verified numbers)
+    // For small interactive sets (<= 10 numbers, e.g. Single Orders), live telecom precheck
+    // must ALWAYS be performed to guarantee 100% real-time whitelist accuracy against carrier changes.
     const uncachedPhones: string[] = [];
-    if (this.cacheService && validNormalizedPhones.length > 0) {
+    const isSmallInteractiveBatch = validNormalizedPhones.length <= 10;
+    if (!isSmallInteractiveBatch && this.cacheService && validNormalizedPhones.length > 0) {
       try {
         const cachedMap = await this.cacheService.getCachedResults(String(net), validNormalizedPhones);
         for (const p of validNormalizedPhones) {
@@ -509,6 +512,11 @@ export class BeneficiaryService {
            WHERE phone_number = ANY($1) AND network = 'MTN'`,
           [allVariations],
         ).catch(() => {});
+
+        // Invalidate stale approved cache in Redis/in-memory immediately
+        if (this.cacheService) {
+          this.cacheService.deleteCachedResults(String(net), uniqueNewlyUnapproved).catch(() => {});
+        }
       }
     }
 
@@ -550,7 +558,13 @@ export class BeneficiaryService {
               liveUnapprovedSet.has(r.phoneNumber) ||
               upstreamOrderableMap.get(norm) === false;
 
-            if (!isLiveUnapproved) {
+            if (isLiveUnapproved) {
+              knownPhonesSet.delete(norm);
+              knownPhonesSet.delete(r.phoneNumber);
+            } else if (!isSmallInteractiveBatch) {
+              // Only allow database cache fallback for large offline batches (> 10 numbers) where DB pre-resolution was intentional.
+              // For small interactive sets (<= 10 numbers, e.g. Single Orders), live telecom precheck is strictly mandatory;
+              // stale DB records MUST NEVER falsely approve an MTN number that was not confirmed live by the carrier!
               knownPhonesSet.add(norm);
               knownPhonesSet.add(r.phoneNumber);
             }

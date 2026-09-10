@@ -43,6 +43,7 @@ export interface DynamicHttpProviderConfig {
     orderStatus?: string;
     validateBeneficiary?: string;
     precheck?: string;
+    publicPrecheck?: string;
     healthCheck?: string;
     balance?: string;
     catalog?: string;
@@ -828,6 +829,70 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async precheckPublicBeneficiaries(input: DataHousePublicPrecheckInput): Promise<DataHousePrecheckResult> {
+    const isMtn = input.network === NetworkProvider.MTN;
+    const path = this.config.endpointPaths?.publicPrecheck || '/orders/beneficiaries/precheck';
+    const url = this.buildUrl(path);
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          network: input.network,
+          phoneNumbers: input.phoneNumbers.map((p) => this.normalizePhone(p)),
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const dataObj = (body as any).data || body;
+        const rawResults = Array.isArray(dataObj.results)
+          ? dataObj.results
+          : Array.isArray(dataObj.rows)
+          ? dataObj.rows
+          : [];
+        if (rawResults.length > 0) {
+          const results = rawResults.map((r: any) => {
+            const isKnown = r.isKnown !== undefined ? Boolean(r.isKnown) : r.known !== undefined ? Boolean(r.known) : !isMtn;
+            const isValid = r.isValid !== undefined ? Boolean(r.isValid) : r.valid !== undefined ? Boolean(r.valid) : true;
+            return {
+              phoneNumber: r.phoneNumber || r.phone || r.normalized,
+              phone: r.phone || r.phoneNumber,
+              normalized: r.normalized || r.phone,
+              isKnown,
+              isValid,
+              orderable: isKnown && isValid,
+              status: !isValid ? 'REJECTED' : isKnown ? 'APPROVED' : 'UNAPPROVED',
+              message: r.message || (isKnown ? 'Validated MTN recipient' : 'First-time MTN recipient - pending approval'),
+            };
+          });
+          const knownCount = results.filter((r: any) => r.isKnown).length;
+          const unknownCount = results.length - knownCount;
+          return {
+            network: input.network,
+            enforced: Boolean(dataObj.enforced ?? isMtn),
+            sandbox: Boolean(dataObj.sandbox),
+            recorded: false,
+            summary: {
+              total: input.phoneNumbers.length,
+              known: knownCount,
+              unknown: unknownCount,
+              valid: results.filter((r: any) => r.isValid).length,
+              invalid: results.filter((r: any) => !r.isValid).length,
+            },
+            unknown: results.filter((r: any) => !r.isKnown).map((r: any) => r.phoneNumber),
+            results,
+          };
+        }
+      }
+    } catch {
+      // Fall through to fallback
+    }
+
     return this.precheckBeneficiaries(input);
   }
 
