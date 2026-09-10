@@ -34,6 +34,7 @@ export interface PendingMtnApprovalItem {
   detectedFrom: DetectedChannel;
   timestamp: string;
   rawDate: string;
+  occurrences?: number;
 }
 
 export const DetectedFromIndicator: React.FC<{ source: DetectedChannel }> = ({ source }) => {
@@ -70,7 +71,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [dateFilter, setDateFilter] = useState<string>('30d');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest' | 'status' | 'data_desc' | 'data_asc'>('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest' | 'status' | 'data_desc' | 'data_asc' | 'occurrences'>('newest');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -136,6 +137,9 @@ export const AgentPendingOrdersPage: React.FC = () => {
       if (sortBy === 'lowest' || (sortBy as string) === 'data_asc') {
         return parseDataSizeMb(a.dataSize) - parseDataSizeMb(b.dataSize);
       }
+      if (sortBy === 'occurrences') {
+        return (b.occurrences || 1) - (a.occurrences || 1);
+      }
       if (sortBy === 'status') {
         const statusOrder: Record<ApprovalStatus, number> = {
           PENDING: 1,
@@ -163,10 +167,13 @@ export const AgentPendingOrdersPage: React.FC = () => {
       const response = await beneficiaryApi.listApprovals({
         network: 'MTN',
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        limit: 5000,
       }) as any;
 
-      if (response?.items && Array.isArray(response.items)) {
-        const mapped: PendingMtnApprovalItem[] = response.items.map((item: any, idx: number) => ({
+      const rawItems = response?.items || response?.data?.items || (Array.isArray(response) ? response : []);
+
+      if (Array.isArray(rawItems) && rawItems.length > 0) {
+        const mapped: PendingMtnApprovalItem[] = rawItems.map((item: any, idx: number) => ({
           id: item.id || String(idx + 1),
           beneficiary: item.phoneNumber || item.beneficiary || '—',
           network: NetworkProvider.MTN,
@@ -175,6 +182,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
           detectedFrom: (item.detectedFrom as DetectedChannel) || 'Excel Upload',
           timestamp: item.createdAt ? new Date(item.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recently',
           rawDate: item.createdAt || new Date().toISOString(),
+          occurrences: Math.max(1, Number(item.occurrences || item.attemptCount || 1)),
         }));
         setRecords(mapped);
       } else {
@@ -391,6 +399,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
               options={[
                 { label: 'Newest First', value: 'newest' },
                 { label: 'Oldest First', value: 'oldest' },
+                { label: 'Most Occurrences', value: 'occurrences' },
                 { label: 'Data Size (High to Low)', value: 'data_desc' },
                 { label: 'Data Size (Low to High)', value: 'data_asc' },
                 { label: 'Status', value: 'status' },
@@ -427,6 +436,7 @@ export const AgentPendingOrdersPage: React.FC = () => {
                   <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Beneficiary</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Network</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Occurrences</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Data Size</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Detected From</th>
@@ -450,6 +460,27 @@ export const AgentPendingOrdersPage: React.FC = () => {
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                         <NetworkBadge network={item.network} size="sm" />
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: 'var(--radius-full)',
+                            fontSize: 'var(--font-size-3xs)',
+                            fontWeight: 800,
+                            fontFamily: 'var(--font-mono)',
+                            backgroundColor: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
+                            color: (item.occurrences || 1) > 1 ? '#FFCC00' : 'var(--color-text-secondary)',
+                            border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
+                          }}
+                          title={`Recorded ${item.occurrences || 1} time(s)`}
+                        >
+                          <Layers size={11} />
+                          {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
+                        </span>
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
                         {item.dataSize}

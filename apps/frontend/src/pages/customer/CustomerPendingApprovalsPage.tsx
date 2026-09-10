@@ -113,9 +113,16 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [networkFilter, setNetworkFilter] = useState<string>('ALL');
   const [dateFilter, setDateFilter] = useState<string>('30d');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'phone' | 'status'>('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'phone' | 'status' | 'occurrences'>('newest');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [backendCounts, setBackendCounts] = useState<{
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+    processing: number;
+  } | null>(null);
 
   // Details Modal State
   const [selectedRecord, setSelectedRecord] = useState<CustomerPendingApprovalItem | null>(null);
@@ -141,8 +148,12 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
       const response = (await beneficiaryApi.listApprovals({
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
-        limit: 500,
+        limit: 5000,
       })) as any;
+
+      if (response?.counts || response?.data?.counts) {
+        setBackendCounts(response?.counts || response?.data?.counts);
+      }
 
       const rawItems =
         response?.items ||
@@ -167,7 +178,7 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
             createdAt: item.createdAt || new Date().toISOString(),
             expiresAt: item.expiresAt,
             validatedAt: item.validatedAt,
-            occurrences: item.occurrences || 1,
+            occurrences: Math.max(1, Number(item.occurrences || item.attemptCount || 1)),
           };
         });
         setRecords(mapped);
@@ -245,6 +256,17 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
 
   // Compute live KPI metrics
   const stats = useMemo(() => {
+    // If no specific filters applied and authoritative backend counts exist, use backend counts
+    if (networkFilter === 'ALL' && statusFilter === 'ALL' && dateFilter === 'all' && !searchQuery.trim() && backendCounts) {
+      return {
+        awaitingApproval: backendCounts.pending,
+        approvedCount: backendCounts.approved,
+        rejectedCount: backendCounts.rejected,
+        processingCount: backendCounts.processing,
+        totalBeneficiaries: backendCounts.total,
+      };
+    }
+
     let awaitingApproval = 0;
     let approvedCount = 0;
     let rejectedCount = 0;
@@ -264,7 +286,7 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
       processingCount,
       totalBeneficiaries: records.length,
     };
-  }, [records]);
+  }, [records, backendCounts, networkFilter, statusFilter, dateFilter, searchQuery]);
 
   // Filter & Sort logic
   const filteredRecords = useMemo(() => {
@@ -303,6 +325,9 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
       }
       if (sortBy === 'oldest') {
         return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      }
+      if (sortBy === 'occurrences') {
+        return (b.occurrences || 1) - (a.occurrences || 1);
       }
       if (sortBy === 'phone') {
         return a.phoneNumber.localeCompare(b.phoneNumber);
@@ -742,6 +767,7 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
               options={[
                 { label: 'Newest First', value: 'newest' },
                 { label: 'Oldest First', value: 'oldest' },
+                { label: 'Most Occurrences', value: 'occurrences' },
                 { label: 'Beneficiary Number', value: 'phone' },
                 { label: 'Status', value: 'status' },
               ]}
@@ -817,6 +843,7 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
                   <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Beneficiary Number</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Network</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Occurrences</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Data Size</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Detected Source</th>
@@ -857,6 +884,27 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                         <NetworkBadge network={item.network} size="sm" />
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: 'var(--radius-full)',
+                            fontSize: 'var(--font-size-3xs)',
+                            fontWeight: 800,
+                            fontFamily: 'var(--font-mono)',
+                            backgroundColor: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
+                            color: (item.occurrences || 1) > 1 ? '#FFCC00' : 'var(--color-text-secondary)',
+                            border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
+                          }}
+                          title={`Recorded ${item.occurrences || 1} time(s) across order prechecks`}
+                        >
+                          <Layers size={11} />
+                          {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
+                        </span>
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
                         {item.dataSize || '—'}
@@ -1109,6 +1157,15 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
                 </span>
                 <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, marginTop: '0.2rem' }}>
                   {selectedRecord.expiresAt ? new Date(selectedRecord.expiresAt).toLocaleDateString() : 'Valid for 30 Days'}
+                </div>
+              </div>
+
+              <div style={{ padding: 'var(--space-3)', background: 'var(--color-bg-surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>
+                  Recorded Occurrences
+                </span>
+                <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, marginTop: '0.2rem', fontSize: 'var(--font-size-xs)', color: (selectedRecord.occurrences || 1) > 1 ? '#FFCC00' : 'var(--color-text-primary)' }}>
+                  {selectedRecord.occurrences || 1} {selectedRecord.occurrences === 1 ? 'time recorded' : 'times recorded'}
                 </div>
               </div>
             </div>

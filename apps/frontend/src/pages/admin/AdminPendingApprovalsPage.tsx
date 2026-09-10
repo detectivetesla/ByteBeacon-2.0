@@ -19,6 +19,7 @@ import {
   ExternalLink,
   ChevronRight,
   Zap,
+  Layers,
 } from 'lucide-react';
 import { adminApi, AdminPendingApprovalItem, AdminPendingApprovalStats, AdminPendingApprovalDetail } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -441,8 +442,23 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                 {renderStatusBadge(item.status)}
               </td>
               <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-                <span style={{ padding: '0.15rem 0.5rem', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border-subtle)' }}>
-                  {item.occurrences || 0} Orders
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.3rem',
+                    padding: '0.15rem 0.55rem',
+                    background: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
+                    color: (item.occurrences || 1) > 1 ? '#FFCC00' : 'var(--color-text-secondary)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 800,
+                  }}
+                  title={`Recorded ${item.occurrences || 1} time(s)`}
+                >
+                  <Layers size={11} />
+                  {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
                 </span>
               </td>
               <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>

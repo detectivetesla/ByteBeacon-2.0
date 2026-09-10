@@ -1573,7 +1573,7 @@ export class BeneficiaryService {
     limit?: number;
   } = {}) {
     const page = Math.max(1, params.page || 1);
-    const limit = Math.min(100, Math.max(1, params.limit || 20));
+    const limit = Math.min(10000, Math.max(1, params.limit || 50));
     const offset = (page - 1) * limit;
 
     const conditions: string[] = [];
@@ -1594,15 +1594,30 @@ export class BeneficiaryService {
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countRes = await this.db.query(`SELECT COUNT(*) as total FROM beneficiary_validation ${where}`, queryParams);
-    const total = parseInt(countRes.rows[0]?.total || '0', 10);
+    const countRes = await this.db.query(
+      `SELECT 
+        COUNT(*) as total,
+        COUNT(CASE WHEN validation_status IN ('PENDING', 'VALIDATING', 'PENDING_APPROVAL') THEN 1 END) as pending,
+        COUNT(CASE WHEN validation_status IN ('VALID', 'APPROVED') THEN 1 END) as approved,
+        COUNT(CASE WHEN validation_status IN ('INVALID', 'REJECTED') THEN 1 END) as rejected,
+        COUNT(CASE WHEN validation_status = 'PROCESSING' THEN 1 END) as processing
+       FROM beneficiary_validation ${where}`,
+      queryParams,
+    );
+    const summaryRow = countRes.rows[0] || {};
+    const total = parseInt(summaryRow.total || '0', 10);
+    const pending = parseInt(summaryRow.pending || '0', 10);
+    const approved = parseInt(summaryRow.approved || '0', 10);
+    const rejected = parseInt(summaryRow.rejected || '0', 10);
+    const processing = parseInt(summaryRow.processing || '0', 10);
 
     const selectQuery = `
       SELECT id, phone_number as "phoneNumber", network, validation_status as "status",
              provider_reference as "providerReference", validated_at as "validatedAt",
              expires_at as "expiresAt", created_at as "createdAt",
              last_bundle_size_gb as "lastBundleSizeGb",
-             provider_response_metadata as "metadata"
+             provider_response_metadata as "metadata",
+             COALESCE(attempt_count, 1) as "occurrences"
       FROM beneficiary_validation
       ${where}
       ORDER BY created_at DESC
@@ -1631,9 +1646,17 @@ export class BeneficiaryService {
           validatedAt: r.validatedAt ? new Date(r.validatedAt).toISOString() : null,
           expiresAt: r.expiresAt ? new Date(r.expiresAt).toISOString() : null,
           createdAt: new Date(r.createdAt).toISOString(),
+          occurrences: Math.max(1, Number(r.occurrences || 1)),
         };
       }),
       total,
+      counts: {
+        total,
+        pending,
+        approved,
+        rejected,
+        processing,
+      },
       page,
       limit,
       totalPages: Math.ceil(total / limit) || 1,

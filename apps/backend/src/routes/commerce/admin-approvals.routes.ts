@@ -117,7 +117,7 @@ export async function adminApprovalsRoutes(
       const { page = '1', limit = '25', search, status, network } = req.query || {};
 
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
+      const limitNum = Math.min(10000, Math.max(1, parseInt(limit, 10) || 25));
       const offset = (pageNum - 1) * limitNum;
 
       const whereConditions: string[] = [];
@@ -164,7 +164,7 @@ export async function adminApprovalsRoutes(
                u.full_name as "agentName",
                u.email as "agentEmail",
                u.role as "agentRole",
-               (SELECT COUNT(*) FROM orders o WHERE o.recipient_phone = b.phone_number) as "occurrences"
+               GREATEST(COALESCE(b.attempt_count, 1), (SELECT COUNT(*) FROM orders o WHERE o.recipient_phone = b.phone_number)) as "occurrences"
         FROM beneficiary_validation b
         LEFT JOIN users u ON b.agent_id = u.id
         ${whereSql}
@@ -197,7 +197,7 @@ export async function adminApprovalsRoutes(
           validatedAt: r.validatedAt,
           expiresAt: r.expiresAt,
           createdAt: r.createdAt,
-          occurrences: Number(r.occurrences || 0),
+          occurrences: Math.max(1, Number(r.occurrences || 1)),
           dataSize,
           detectedFrom,
           sourceRole,
