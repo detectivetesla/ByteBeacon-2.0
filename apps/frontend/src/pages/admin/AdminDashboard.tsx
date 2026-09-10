@@ -76,15 +76,12 @@ export const AdminDashboard: React.FC = () => {
     setIsLoading(true);
     let fetchError: Error | null = null;
     try {
-      const [overviewRes, healthRes, auditRes] = await Promise.all([
-        adminApi.getAnalyticsOverview(range).catch((err) => {
-          console.error('Failed to fetch analytics overview:', err);
-          fetchError = err;
-          return null;
-        }),
-        apiClient.get<any>('/health/integrations').catch(() => null),
-        adminApi.getAudit({ limit: 6 }).catch(() => null),
-      ]);
+      // 1. Fetch primary analytics metrics first so dashboard renders immediately
+      const overviewRes = await adminApi.getAnalyticsOverview(range).catch((err) => {
+        console.error('Failed to fetch analytics overview:', err);
+        fetchError = err;
+        return null;
+      });
 
       const analyticsData = (overviewRes as any)?.data || overviewRes;
       if (analyticsData) {
@@ -93,6 +90,18 @@ export const AdminDashboard: React.FC = () => {
       } else if (fetchError) {
         toastError('Data Fetch Error', (fetchError as any)?.message || 'Unable to retrieve overview metrics from server.');
       }
+    } catch (err: any) {
+      toastError('Data Fetch Error', err.message || 'Unable to retrieve overview metrics.');
+    } finally {
+      setIsLoading(false);
+    }
+
+    // 2. Fetch service telemetry and live audit stream in parallel without blocking main metrics
+    try {
+      const [healthRes, auditRes] = await Promise.all([
+        apiClient.get<any>('/health/integrations').catch(() => null),
+        adminApi.getAudit({ limit: 6 }).catch(() => null),
+      ]);
 
       const rawIntegrations = healthRes?.integrations || healthRes?.services;
       if (rawIntegrations) {
@@ -117,10 +126,8 @@ export const AdminDashboard: React.FC = () => {
           }))
         );
       }
-    } catch (err: any) {
-      toastError('Data Fetch Error', err.message || 'Unable to retrieve overview metrics.');
-    } finally {
-      setIsLoading(false);
+    } catch {
+      // Telemetry error failsafe
     }
   }, [range, toastError]);
 
@@ -280,8 +287,16 @@ export const AdminDashboard: React.FC = () => {
       <Card
         style={{
           padding: 'var(--space-4)',
-          backgroundColor: maintenanceMode ? 'rgba(239, 68, 68, 0.08)' : 'var(--color-surface)',
-          border: maintenanceMode ? '1px solid #EF4444' : '1px solid var(--color-border-subtle)',
+          backgroundColor: maintenanceMode
+            ? 'rgba(239, 68, 68, 0.08)'
+            : data?.isDatabaseConnected === false
+            ? 'rgba(245, 158, 11, 0.08)'
+            : 'var(--color-surface)',
+          border: maintenanceMode
+            ? '1px solid #EF4444'
+            : data?.isDatabaseConnected === false
+            ? '1px solid rgba(245, 158, 11, 0.4)'
+            : '1px solid var(--color-border-subtle)',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
@@ -291,22 +306,28 @@ export const AdminDashboard: React.FC = () => {
                 width: '10px',
                 height: '10px',
                 borderRadius: '50%',
-                backgroundColor: maintenanceMode ? '#EF4444' : '#10B981',
-                boxShadow: maintenanceMode ? '0 0 8px #EF4444' : '0 0 8px #10B981',
+                backgroundColor: maintenanceMode ? '#EF4444' : data?.isDatabaseConnected === false ? '#F59E0B' : '#10B981',
+                boxShadow: maintenanceMode ? '0 0 8px #EF4444' : data?.isDatabaseConnected === false ? '0 0 8px #F59E0B' : '0 0 8px #10B981',
               }}
             />
             <div>
               <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                {maintenanceMode ? 'System Maintenance Mode Active' : 'All Core Systems Operational'}
+                {maintenanceMode
+                  ? 'System Maintenance Mode Active'
+                  : data?.isDatabaseConnected === false
+                  ? 'Local PostgreSQL Database Offline (Port 5432 Refused) — Synthetic Development Preview'
+                  : 'All Core Systems Operational'}
               </span>
               <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', marginLeft: '0.5rem' }}>
-                API • DB • Redis • Workers • Paystack Gateway • Direct Telecom Rails
+                {data?.isDatabaseConnected === false
+                  ? 'Local database service is not running. Showing simulated platform transactions for testing.'
+                  : 'API • Database • Redis • Workers • Paystack Gateway • Direct Telecom Rails'}
               </span>
             </div>
           </div>
 
-          <Badge variant={maintenanceMode ? 'danger' : 'success'} size="sm">
-            {maintenanceMode ? 'MAINTENANCE ON' : 'HEALTHY'}
+          <Badge variant={maintenanceMode ? 'danger' : data?.isDatabaseConnected === false ? 'warning' : 'success'} size="sm">
+            {maintenanceMode ? 'MAINTENANCE ON' : data?.isDatabaseConnected === false ? 'DEV PREVIEW' : 'HEALTHY'}
           </Badge>
         </div>
       </Card>

@@ -572,6 +572,27 @@ export interface AdminAnalyticsOverview {
     processingOrders: number;
   };
   systemStatus?: Record<string, string>;
+  isDatabaseConnected?: boolean;
+  dataSource?: 'DATABASE' | 'SYNTHETIC_DEV_PREVIEW';
+  tiers?: {
+    customer?: {
+      dailyRevenuePesewas?: number;
+      monthlyRevenuePesewas?: number;
+      totalOrders?: number;
+    };
+    agent?: {
+      dailyRevenuePesewas?: number;
+      monthlyRevenuePesewas?: number;
+      totalOrders?: number;
+    };
+  };
+  providers?: Array<{
+    name: string;
+    isAuthoritative?: boolean;
+    status?: string;
+    latencyMs?: number;
+    lastSync?: string;
+  }>;
   alerts?: Array<{
     id: string;
     severity: 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO';

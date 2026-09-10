@@ -4,6 +4,7 @@ import { TokenService } from '../../core/security/token.service.js';
 import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
+import { SyntheticDataGenerator } from '../../infrastructure/testing/synthetic-data-generator.js';
 
 export interface AdminAnalyticsRouteDependencies {
   db: pg.Pool;
@@ -35,6 +36,7 @@ export async function adminAnalyticsRoutes(
       else if (range === 'today') days = 1;
 
       // 1. User metrics (Case-insensitive matching with status fallback)
+      let isDatabaseConnected = true;
       const userStatsRes = await db.query(`
         SELECT 
           COUNT(*) as "totalUsers",
@@ -46,7 +48,8 @@ export async function adminAnalyticsRoutes(
           COUNT(CASE WHEN mfa_enabled = true THEN 1 END) as "mfaUsers"
         FROM users
       `).catch((err) => {
-        app.log.error({ err }, '[ADMIN_ANALYTICS] Error calculating userStats');
+        isDatabaseConnected = false;
+        app.log.warn({ err: err?.message }, '[ADMIN_ANALYTICS] PostgreSQL unavailable; engaging resilient fallback');
         return { rows: [{ totalUsers: 0, totalCustomers: 0, totalAgents: 0, totalAdmins: 0, totalSuperAdmins: 0, activeUsers: 0, mfaUsers: 0 }] };
       });
 
@@ -273,6 +276,90 @@ export async function adminAnalyticsRoutes(
             { name: authoritativeProviderName, isAuthoritative: true, status: 'OPERATIONAL', latencyMs: 38, lastSync: 'Live' },
           ];
 
+      // Generate synthetic development preview dataset if local database is offline or unseeded in dev
+      const useSyntheticPreview =
+        (!isDatabaseConnected || (totalUsersCount === 0 && totalOrdersCount === 0)) &&
+        (process.env.NODE_ENV !== 'production' || process.env.ALLOW_MOCK_PROVIDERS === 'true');
+
+      let synData: any = null;
+      if (useSyntheticPreview) {
+        const gen = new SyntheticDataGenerator();
+        const synUsers = gen.generateUsers(32);
+        const { orders: synOrders } = gen.generateOrdersWithLedger(75, synUsers);
+        const now = Date.now();
+        const filteredOrders = synOrders.filter((o) => {
+          if (days === 0) return true;
+          const diffDays = (now - o.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+          return diffDays <= days;
+        });
+
+        const completedOrders = filteredOrders.filter((o) => o.orderStatus === 'COMPLETED');
+        const processingOrders = filteredOrders.filter((o) => o.orderStatus === 'PROCESSING');
+        const failedOrders = filteredOrders.filter((o) => o.orderStatus === 'FAILED');
+        const periodVol = completedOrders.reduce((acc, o) => acc + Number(o.amountPesewas), 0);
+        const lifetimeVol = synOrders.filter((o) => o.orderStatus === 'COMPLETED').reduce((acc, o) => acc + Number(o.amountPesewas), 0);
+
+        synData = {
+          users: {
+            total: synUsers.length,
+            customers: synUsers.filter((u) => u.role === 'customer').length,
+            agents: synUsers.filter((u) => u.role === 'agent').length,
+            admins: synUsers.filter((u) => u.role === 'admin').length,
+            superAdmins: synUsers.filter((u) => u.role === 'super_admin').length,
+            active: synUsers.filter((u) => u.isActive).length,
+          },
+          orders: {
+            total: filteredOrders.length,
+            lifetimeTotal: synOrders.length,
+            periodTotal: filteredOrders.length,
+            completed: completedOrders.length,
+            processing: processingOrders.length,
+            failed: failedOrders.length,
+            refunded: 0,
+            completionRate: filteredOrders.length > 0 ? Math.round((completedOrders.length / filteredOrders.length) * 100) : 100,
+          },
+          revenue: {
+            periodPesewas: periodVol,
+            lifetimePesewas: lifetimeVol,
+            todayPesewas: Math.round(periodVol * 0.12),
+            monthPesewas: periodVol,
+            platformMarginPesewas: Math.round(periodVol * 0.18),
+          },
+          tiers: {
+            customer: {
+              dailyRevenuePesewas: Math.round(periodVol * 0.05),
+              monthlyRevenuePesewas: Math.round(periodVol * 0.42),
+              totalOrders: Math.round(filteredOrders.length * 0.58),
+            },
+            agent: {
+              dailyRevenuePesewas: Math.round(periodVol * 0.07),
+              monthlyRevenuePesewas: Math.round(periodVol * 0.58),
+              totalOrders: Math.round(filteredOrders.length * 0.42),
+            },
+          },
+          recentOrders: synOrders.slice(0, 6).map((o) => ({
+            id: o.id,
+            recipientPhone: o.recipientPhone,
+            network: o.network,
+            dataAmountMb: o.dataAmountMb,
+            amountPesewas: Number(o.amountPesewas),
+            orderStatus: o.orderStatus,
+            paymentStatus: o.paymentStatus,
+            createdAt: o.createdAt.toISOString(),
+            userEmail: 'agent-partner@bytebeacon.com',
+            userName: 'Partner Reseller',
+          })),
+          recentUsers: synUsers.slice(0, 5).map((u) => ({
+            id: u.id,
+            name: u.fullName,
+            email: u.email,
+            role: u.role,
+            status: 'ACTIVE',
+            createdAt: u.createdAt.toISOString(),
+          })),
+        };
+      }
+
       // Construct Attention Required alerts
       const alerts: Array<{
         id: string;
@@ -282,6 +369,17 @@ export async function adminAnalyticsRoutes(
         source: string;
         actionPath?: string;
       }> = [];
+
+      if (!isDatabaseConnected) {
+        alerts.push({
+          id: 'alt_db_offline',
+          severity: 'WARNING',
+          title: 'PostgreSQL Database Disconnected',
+          description: 'Local PostgreSQL instance (port 5432) is offline. Displaying development preview metrics.',
+          source: 'Database Cluster',
+          actionPath: '/admin/settings',
+        });
+      }
 
       if (dlqCount > 0) {
         alerts.push({
@@ -301,7 +399,7 @@ export async function adminAnalyticsRoutes(
           title: `${mtnPending} MTN Beneficiary Approvals Pending`,
           description: 'Whitelisted agent MSISDN records awaiting verification.',
           source: 'Carrier Interface',
-          actionPath: '/admin/pending-orders',
+          actionPath: '/admin/pending-approvals',
         });
       }
 
@@ -318,7 +416,9 @@ export async function adminAnalyticsRoutes(
         success: true,
         data: {
           range,
-          users: {
+          isDatabaseConnected,
+          dataSource: isDatabaseConnected && (totalUsersCount > 0 || totalOrdersCount > 0) ? 'DATABASE' : 'SYNTHETIC_DEV_PREVIEW',
+          users: synData?.users || {
             total: parseInt(userStats.totalUsers || '0', 10),
             customers: parseInt(userStats.totalCustomers || '0', 10),
             agents: parseInt(userStats.totalAgents || '0', 10),
@@ -326,7 +426,7 @@ export async function adminAnalyticsRoutes(
             superAdmins: parseInt(userStats.totalSuperAdmins || '0', 10),
             active: parseInt(userStats.activeUsers || '0', 10),
           },
-          orders: {
+          orders: synData?.orders || {
             total: totalOrdersCount,
             lifetimeTotal: lifetimeOrdersCount,
             periodTotal: totalOrdersCount,
@@ -338,7 +438,7 @@ export async function adminAnalyticsRoutes(
               ? Math.round((parseInt(orderStats.completedOrders || '0', 10) / totalOrdersCount) * 100)
               : 100,
           },
-          revenue: {
+          revenue: synData?.revenue || {
             periodPesewas: periodRevenuePesewas,
             lifetimePesewas: parseInt(orderStats.lifetimeVolumePesewas || '0', 10),
             todayPesewas: parseInt(orderStats.todayVolumePesewas || '0', 10),
@@ -352,7 +452,7 @@ export async function adminAnalyticsRoutes(
             customerWalletPesewas: parseInt(walletStats.customerWalletPesewas || '0', 10),
             unreconciledDiscrepancies: 0,
           },
-          networks: networkStatsRes.rows.map((r: any) => {
+          networks: networkStatsRes.rows.length > 0 ? networkStatsRes.rows.map((r: any) => {
             const vol = parseInt(r.volumePesewas || '0', 10);
             const totalVol = periodRevenuePesewas || parseInt(orderStats.lifetimeVolumePesewas || '1', 10);
             return {
@@ -361,8 +461,12 @@ export async function adminAnalyticsRoutes(
               volumePesewas: vol,
               sharePct: totalVol > 0 ? Math.round((vol / totalVol) * 100) : 0,
             };
-          }),
-          tiers: {
+          }) : [
+            { network: 'MTN', orderCount: synData ? Math.round(synData.orders.total * 0.7) : 0, volumePesewas: synData ? Math.round(synData.revenue.periodPesewas * 0.7) : 0, sharePct: 70 },
+            { network: 'TELECEL', orderCount: synData ? Math.round(synData.orders.total * 0.2) : 0, volumePesewas: synData ? Math.round(synData.revenue.periodPesewas * 0.2) : 0, sharePct: 20 },
+            { network: 'AIRTELTIGO', orderCount: synData ? Math.round(synData.orders.total * 0.1) : 0, volumePesewas: synData ? Math.round(synData.revenue.periodPesewas * 0.1) : 0, sharePct: 10 },
+          ],
+          tiers: synData?.tiers || {
             customer: {
               dailyRevenuePesewas: parseInt(customerTierRow.todayVolumePesewas || '0', 10),
               monthlyRevenuePesewas: parseInt(customerTierRow.monthVolumePesewas || '0', 10),
@@ -394,7 +498,7 @@ export async function adminAnalyticsRoutes(
           providers: providersList,
           systemStatus: {
             api: 'OPERATIONAL',
-            database: 'OPERATIONAL',
+            database: isDatabaseConnected ? 'OPERATIONAL' : 'OFFLINE',
             redis: 'OPERATIONAL',
             workers: 'OPERATIONAL',
             payments: 'OPERATIONAL',
@@ -402,12 +506,12 @@ export async function adminAnalyticsRoutes(
             webhooks: 'OPERATIONAL',
           },
           alerts,
-          recentOrders: recentOrdersRes.rows.map((r: any) => ({
+          recentOrders: synData?.recentOrders || recentOrdersRes.rows.map((r: any) => ({
             ...r,
             amountPesewas: parseInt(r.amountPesewas || '0', 10),
             dataAmountMb: parseInt(r.dataAmountMb || '0', 10),
           })),
-          recentUsers: recentUsersRes.rows,
+          recentUsers: synData?.recentUsers || recentUsersRes.rows,
         },
       });
     },
