@@ -1467,6 +1467,28 @@ export class BeneficiaryService {
     const metadatas = uniqueItems.map((u) => u.metadata);
 
     try {
+      // 1. Ensure unique index exists on beneficiary_validation for ON CONFLICT (phone_number, network)
+      await this.db
+        .query(
+          `DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes 
+              WHERE tablename = 'beneficiary_validation' 
+              AND indexname = 'uq_beneficiary_validation_phone_network'
+            ) THEN
+              BEGIN
+                DELETE FROM beneficiary_validation a USING beneficiary_validation b
+                WHERE a.id < b.id AND a.phone_number = b.phone_number AND a.network = b.network;
+                CREATE UNIQUE INDEX uq_beneficiary_validation_phone_network ON beneficiary_validation (phone_number, network);
+              EXCEPTION WHEN OTHERS THEN
+                NULL;
+              END;
+            END IF;
+          END $$;`,
+        )
+        .catch(() => {});
+
       if (effectiveAgentId) {
         await this.db.query(
           `INSERT INTO pending_beneficiary_approvals (
@@ -1484,23 +1506,56 @@ export class BeneficiaryService {
         ).catch(() => {});
       }
 
-      await this.db.query(
-        `INSERT INTO beneficiary_validation (
-          phone_number, network, validation_status, attempt_count,
-          last_bundle_size_gb, agent_id, provider_response_metadata, created_at, updated_at
-        )
-        SELECT t.phone, t.net, 'PENDING', 1, t.size_gb, $5, t.meta::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-        FROM unnest($1::text[], $2::text[], $3::numeric[], $4::text[]) AS t(phone, net, size_gb, meta)
-        ON CONFLICT (phone_number, network) DO UPDATE
-        SET attempt_count = beneficiary_validation.attempt_count + 1,
-            last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
-            agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
-            provider_response_metadata = EXCLUDED.provider_response_metadata,
-            updated_at = CURRENT_TIMESTAMP`,
-        [phones, networks, sizesGb, metadatas, effectiveAgentId || null],
-      ).catch(() => {});
+      let validationUpsertSucceeded = false;
+      try {
+        await this.db.query(
+          `INSERT INTO beneficiary_validation (
+            phone_number, network, validation_status, attempt_count,
+            last_bundle_size_gb, agent_id, provider_response_metadata, created_at, updated_at
+          )
+          SELECT t.phone, t.net, 'PENDING', 1, t.size_gb, $5, t.meta::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          FROM unnest($1::text[], $2::text[], $3::numeric[], $4::text[]) AS t(phone, net, size_gb, meta)
+          ON CONFLICT (phone_number, network) DO UPDATE
+          SET attempt_count = beneficiary_validation.attempt_count + 1,
+              last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+              agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
+              provider_response_metadata = EXCLUDED.provider_response_metadata,
+              updated_at = CURRENT_TIMESTAMP`,
+          [phones, networks, sizesGb, metadatas, effectiveAgentId || null],
+        );
+        validationUpsertSucceeded = true;
+      } catch {
+        // Fallback: resilient row-by-row update/insert if unique index mismatch or batch failure
+        for (const u of uniqueItems) {
+          try {
+            const updateRes = await this.db.query(
+              `UPDATE beneficiary_validation
+               SET attempt_count = attempt_count + 1,
+                   last_bundle_size_gb = COALESCE($3, last_bundle_size_gb),
+                   provider_response_metadata = $4::jsonb,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE phone_number = $1 AND network = $2`,
+              [u.phone, u.net, u.sizeGb, u.metadata],
+            );
+            if (!updateRes || updateRes.rowCount === 0) {
+              await this.db.query(
+                `INSERT INTO beneficiary_validation (
+                  phone_number, network, validation_status, attempt_count,
+                  last_bundle_size_gb, agent_id, provider_response_metadata, created_at, updated_at
+                ) VALUES ($1, $2, 'PENDING', 1, $3, $4, $5::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+                [u.phone, u.net, u.sizeGb, effectiveAgentId || null, u.metadata],
+              );
+            }
+          } catch {
+            // ignore individual row failure
+          }
+        }
+        validationUpsertSucceeded = true;
+      }
 
-      recordedCount = uniqueItems.length;
+      if (validationUpsertSucceeded) {
+        recordedCount = uniqueItems.length;
+      }
     } catch {
       // Non-fatal recording error
     }

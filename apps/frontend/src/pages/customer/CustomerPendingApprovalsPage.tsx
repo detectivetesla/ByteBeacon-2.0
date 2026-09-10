@@ -141,10 +141,16 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
       const response = (await beneficiaryApi.listApprovals({
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        limit: 500,
       })) as any;
 
-      if (response && response.items && Array.isArray(response.items)) {
-        const mapped: CustomerPendingApprovalItem[] = response.items.map((item: any, idx: number) => {
+      const rawItems =
+        response?.items ||
+        response?.data?.items ||
+        (Array.isArray(response) ? response : []);
+
+      if (Array.isArray(rawItems) && rawItems.length > 0) {
+        const mapped: CustomerPendingApprovalItem[] = rawItems.map((item: any, idx: number) => {
           let mappedStatus: ApprovalStatus = 'PENDING';
           if (item.status === 'VALID' || item.status === 'APPROVED') mappedStatus = 'APPROVED';
           else if (item.status === 'INVALID' || item.status === 'REJECTED') mappedStatus = 'REJECTED';
@@ -168,8 +174,8 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
       } else {
         setRecords([]);
       }
-    } catch {
-      // Fallback
+    } catch (fetchErr) {
+      console.warn('[PendingApprovals] Could not fetch approvals:', fetchErr);
       setRecords([]);
     } finally {
       setIsLoading(false);

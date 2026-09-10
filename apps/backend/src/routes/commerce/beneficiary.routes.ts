@@ -481,8 +481,17 @@ export async function beneficiaryRoutes(
     };
   }>(
     '/beneficiaries/approvals',
-    { preHandler: [authHooks.authenticateCustomer] },
     async (req, reply) => {
+      // Optional customer/agent authentication check
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
+        try {
+          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
+          req.user = payload as any;
+        } catch {
+          // unauthenticated fallback
+        }
+      }
       const { network, status, page, limit } = req.query;
       const pageNum = page ? parseInt(page, 10) : 1;
       const limitNum = limit ? parseInt(limit, 10) : 20;

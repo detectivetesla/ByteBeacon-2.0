@@ -394,6 +394,35 @@ export const BuyDataPage: React.FC = () => {
     );
   }, [availableBundles, singleBundleId, selectedNetwork]);
 
+  // Reliable helper to record single order unapproved beneficiary
+  const recordSingleUnapproved = useCallback(
+    (phoneToRecord: string) => {
+      if (!phoneToRecord) return;
+      beneficiaryApi
+        .recordUnapproved?.({
+          items: [
+            {
+              phoneNumber: phoneToRecord,
+              network: NetworkProvider.MTN,
+              dataSize: currentSingleBundle?.dataDisplay,
+              dataAmountMb: currentSingleBundle?.dataAmountMb,
+              pricePesewas: currentSingleBundle?.pricePesewas,
+              detectedFrom: 'Single Order',
+            },
+          ],
+        })
+        ?.then(() => {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+          }
+        })
+        ?.catch?.((err) => {
+          console.warn('[SingleOrder] Could not record unapproved beneficiary:', err);
+        });
+    },
+    [currentSingleBundle],
+  );
+
   // Proactive real-time beneficiary approval check for single order
   useEffect(() => {
     if (orderMode !== 'single') return;
@@ -437,6 +466,9 @@ export const BuyDataPage: React.FC = () => {
       setSingleAccountName(cached.accountName || '');
       setSingleIsPortedCandidate(Boolean(cached.isPorted));
       setSingleVerifiedPhone(cleaned);
+      if (cached.status === 'UNAPPROVED') {
+        recordSingleUnapproved(cleaned);
+      }
       return;
     }
 
@@ -508,23 +540,7 @@ export const BuyDataPage: React.FC = () => {
 
         // Immediately record detected unapproved number to Pending MTN Approvals
         if (status === 'UNAPPROVED') {
-          if (!recordedUnapprovedPhonesRef.current.has(cleaned)) {
-            recordedUnapprovedPhonesRef.current.add(cleaned);
-            beneficiaryApi
-              .recordUnapproved?.({
-                items: [
-                  {
-                    phoneNumber: cleaned,
-                    network: NetworkProvider.MTN,
-                    dataSize: currentSingleBundle?.dataDisplay,
-                    dataAmountMb: currentSingleBundle?.dataAmountMb,
-                    pricePesewas: currentSingleBundle?.pricePesewas,
-                    detectedFrom: 'Single Order',
-                  },
-                ],
-              })
-              ?.catch?.(() => {});
-          }
+          recordSingleUnapproved(cleaned);
         }
       } catch (err: any) {
         if (isCancelled) return;
@@ -551,23 +567,7 @@ export const BuyDataPage: React.FC = () => {
 
         // Immediately record detected unapproved number to Pending MTN Approvals
         if (status === 'UNAPPROVED') {
-          if (!recordedUnapprovedPhonesRef.current.has(cleaned)) {
-            recordedUnapprovedPhonesRef.current.add(cleaned);
-            beneficiaryApi
-              .recordUnapproved?.({
-                items: [
-                  {
-                    phoneNumber: cleaned,
-                    network: NetworkProvider.MTN,
-                    dataSize: currentSingleBundle?.dataDisplay,
-                    dataAmountMb: currentSingleBundle?.dataAmountMb,
-                    pricePesewas: currentSingleBundle?.pricePesewas,
-                    detectedFrom: 'Single Order',
-                  },
-                ],
-              })
-              ?.catch?.(() => {});
-          }
+          recordSingleUnapproved(cleaned);
         }
       }
     }, 400);
@@ -688,16 +688,7 @@ export const BuyDataPage: React.FC = () => {
 
         if (isUnapproved && isEnforced) {
           // Record to admin MTN Pending Approvals immediately
-          beneficiaryApi.recordUnapproved?.({
-            items: [{
-              phoneNumber: cleaned,
-              network: NetworkProvider.MTN,
-              dataSize: currentSingleBundle?.dataDisplay,
-              dataAmountMb: currentSingleBundle?.dataAmountMb,
-              pricePesewas: currentSingleBundle?.pricePesewas,
-              detectedFrom: 'Single Order',
-            }],
-          })?.catch?.(() => {});
+          recordSingleUnapproved(cleaned);
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
@@ -715,16 +706,7 @@ export const BuyDataPage: React.FC = () => {
           setSingleApprovalMessage('Number is not added to our MTN beneficiary list.');
           setSingleVerifiedPhone(cleaned);
           // Record to admin MTN Pending Approvals immediately
-          beneficiaryApi.recordUnapproved?.({
-            items: [{
-              phoneNumber: cleaned,
-              network: NetworkProvider.MTN,
-              dataSize: currentSingleBundle?.dataDisplay,
-              dataAmountMb: currentSingleBundle?.dataAmountMb,
-              pricePesewas: currentSingleBundle?.pricePesewas,
-              detectedFrom: 'Single Order',
-            }],
-          })?.catch?.(() => {});
+          recordSingleUnapproved(cleaned);
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
