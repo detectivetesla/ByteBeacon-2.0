@@ -162,8 +162,54 @@ export class DataHouseAdapter implements ITelecomProvider {
   public async precheckBeneficiaries(input: DataHousePrecheckInput): Promise<DataHousePrecheckResult> {
     const correlationId = `dh_precheck_${Date.now()}`;
     try {
-      const dhResp = await this.client.precheckBeneficiaries(input, correlationId);
-      return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network, input.phoneNumbers);
+      if (input.phoneNumbers.length <= 500) {
+        const dhResp = await this.client.precheckBeneficiaries(input, correlationId);
+        return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network, input.phoneNumbers);
+      }
+
+      // For larger lists (e.g. > 500), chunk into 500-number batches and execute in parallel
+      const CHUNK_SIZE = 500;
+      const chunks: string[][] = [];
+      for (let i = 0; i < input.phoneNumbers.length; i += CHUNK_SIZE) {
+        chunks.push(input.phoneNumbers.slice(i, i + CHUNK_SIZE));
+      }
+
+      const chunkResults = await Promise.all(
+        chunks.map(async (chunk, idx) => {
+          const subCorr = `${correlationId}_p${idx}`;
+          const subResp = await this.client.precheckBeneficiaries(
+            { ...input, phoneNumbers: chunk },
+            subCorr,
+          );
+          return DataHouseMapper.toDataHousePrecheckResult(subResp, input.network, chunk);
+        }),
+      );
+
+      // Merge results seamlessly
+      const mergedResults = chunkResults.flatMap((cr) => cr.results || []);
+      const mergedUnknown = chunkResults.flatMap((cr) => cr.unknown || []);
+      const mergedPorted = Array.from(new Set(chunkResults.flatMap((cr) => cr.portedCandidates || [])));
+      const mergedFlagged = chunkResults.flatMap((cr) => (cr as any).flaggedPorted || []);
+
+      return {
+        network: input.network,
+        enforced: chunkResults[0]?.enforced ?? true,
+        sandbox: chunkResults[0]?.sandbox ?? false,
+        recorded: chunkResults[0]?.recorded ?? Boolean(input.record),
+        summary: {
+          requested: input.phoneNumbers.length,
+          unique: mergedResults.length,
+          valid: mergedResults.filter((r) => r.isValid).length,
+          invalid: mergedResults.filter((r) => !r.isValid).length,
+          known: mergedResults.filter((r) => r.isKnown).length,
+          unknown: mergedUnknown.length,
+          orderable: mergedResults.filter((r) => r.orderable).length,
+        },
+        unknown: mergedUnknown,
+        portedCandidates: mergedPorted,
+        flaggedPorted: mergedFlagged,
+        results: mergedResults,
+      } as any;
     } catch (err) {
       // If agent precheck fails (e.g. invalid API key, 401, endpoint unavailable),
       // gracefully fall back to chunked public precheck in batches of up to 10

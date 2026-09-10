@@ -1481,6 +1481,7 @@ export const BuyDataPage: React.FC = () => {
           network: NetworkProvider.MTN,
           phoneNumbers: uniqueMtnPhones,
           record: false,
+          bypassCache: true,
         });
 
         if (res?.portedCandidates && Array.isArray(res.portedCandidates)) {

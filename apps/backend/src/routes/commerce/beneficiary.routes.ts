@@ -173,11 +173,12 @@ export async function beneficiaryRoutes(
       network: NetworkProvider | string;
       phoneNumbers: string[];
       record?: boolean;
+      bypassCache?: boolean;
     };
   }>(
     '/beneficiaries/precheck',
     async (req, reply) => {
-      const { network, phoneNumbers, record = false } = req.body || {};
+      const { network, phoneNumbers, record = false, bypassCache = false } = req.body || {};
 
       if (!network) {
         throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
@@ -223,6 +224,7 @@ export async function beneficiaryRoutes(
         phoneNumbers,
         record: Boolean(record),
         userId: authenticatedUserId,
+        bypassCache: Boolean(bypassCache),
       });
 
       return reply.status(200).send({
@@ -428,12 +430,13 @@ export async function beneficiaryRoutes(
       network: NetworkProvider | string;
       phoneNumbers: string[];
       record?: boolean;
+      bypassCache?: boolean;
     };
   }>(
     '/agent/beneficiaries/precheck',
     { preHandler: [authHooks.authenticate(Permission.PENDING_MTN_MANAGE)] },
     async (req, reply) => {
-      const { network, phoneNumbers, record = false } = req.body || {};
+      const { network, phoneNumbers, record = false, bypassCache = false } = req.body || {};
 
       if (!network) {
         throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
@@ -457,6 +460,7 @@ export async function beneficiaryRoutes(
         record,
         isSandbox,
         userId: req.user?.sub,
+        bypassCache: Boolean(bypassCache),
       });
 
       return reply.status(200).send({

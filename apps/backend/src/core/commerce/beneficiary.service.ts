@@ -181,6 +181,7 @@ export class BeneficiaryService {
     phoneNumbers: string[];
     record?: boolean;
     userId?: string;
+    bypassCache?: boolean;
   }): Promise<{
     network: NetworkProvider | string;
     enforced?: boolean;
@@ -212,7 +213,7 @@ export class BeneficiaryService {
       accountName?: string;
     }>;
   }> {
-    const { network, phoneNumbers } = params;
+    const { network, phoneNumbers, bypassCache = false } = params;
     const net = (typeof network === 'string' ? network.toUpperCase() : network) as NetworkProvider;
 
     const parsedItems = phoneNumbers.map((p) => this.normalizeGhanaPhone(p));
@@ -260,13 +261,14 @@ export class BeneficiaryService {
     const portedCandidatesSet = new Set<string>();
     const upstreamOrderableMap = new Map<string, boolean>();
     const liveUnapprovedSet = new Set<string>();
+    const providerQueriedSet = new Set<string>();
 
     // 0. Query Redis Cache first (Sub-millisecond lookup for previously verified numbers)
     // For small interactive sets (<= 10 numbers, e.g. Single Orders), live telecom precheck
     // must ALWAYS be performed to guarantee 100% real-time whitelist accuracy against carrier changes.
     const uncachedPhones: string[] = [];
     const isSmallInteractiveBatch = validNormalizedPhones.length <= 10;
-    if (!isSmallInteractiveBatch && this.cacheService && validNormalizedPhones.length > 0) {
+    if (!bypassCache && !isSmallInteractiveBatch && this.cacheService && validNormalizedPhones.length > 0) {
       try {
         const cachedMap = await this.cacheService.getCachedResults(String(net), validNormalizedPhones);
         for (const p of validNormalizedPhones) {
@@ -300,11 +302,11 @@ export class BeneficiaryService {
       const newlyApprovedPhones: string[] = [];
       const newlyUnapprovedPhones: string[] = [];
 
-      // For large batches (> 20 numbers, e.g. Excel uploads), pre-resolve numbers that were
-      // authoritatively verified by DataHouse within the last 24h to avoid hitting public rate limits.
-      // For small sets (<= 20) or single orders, 100% live telecom check is always performed.
+      // For large batches (> 20 numbers) when fast precheckBeneficiaries is not available,
+      // pre-resolve numbers that were authoritatively verified by DataHouse within the last 2h to avoid hitting public rate limits.
+      // If bypassCache is true or precheckBeneficiaries is available, 100% live telecom check is always performed.
       let phonesToQueryLive = uncachedPhones;
-      if (uncachedPhones.length > 20) {
+      if (!bypassCache && !this.telecomProvider.precheckBeneficiaries && uncachedPhones.length > 20) {
         try {
           const queryPhones = Array.from(
             new Set(
@@ -386,6 +388,9 @@ export class BeneficiaryService {
 
             providerRes.results.forEach((r: any) => {
               const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
+              if (norm && r.status !== 'PENDING_VERIFICATION' && r.status !== 'PROVIDER_ERROR') {
+                providerQueriedSet.add(norm);
+              }
               if (norm && r.orderable !== undefined) {
                 upstreamOrderableMap.set(norm, Boolean(r.orderable));
               }
@@ -447,6 +452,7 @@ export class BeneficiaryService {
               if (p) {
                 const norm = this.normalizeGhanaPhone(p).normalized;
                 if (norm) {
+                  providerQueriedSet.add(norm);
                   knownPhonesSet.delete(norm);
                   knownPhonesSet.delete(`+233${norm.slice(1)}`);
                   knownPhonesSet.delete(`233${norm.slice(1)}`);
@@ -556,7 +562,9 @@ export class BeneficiaryService {
             const isLiveUnapproved =
               liveUnapprovedSet.has(norm) ||
               liveUnapprovedSet.has(r.phoneNumber) ||
-              upstreamOrderableMap.get(norm) === false;
+              upstreamOrderableMap.get(norm) === false ||
+              (providerQueriedSet.has(norm) && !knownPhonesSet.has(norm)) ||
+              bypassCache;
 
             if (isLiveUnapproved) {
               knownPhonesSet.delete(norm);
@@ -740,6 +748,7 @@ export class BeneficiaryService {
     record?: boolean;
     isSandbox?: boolean;
     userId?: string;
+    bypassCache?: boolean;
   }): Promise<{
     network: NetworkProvider | string;
     enforced: boolean;
@@ -770,7 +779,7 @@ export class BeneficiaryService {
       message: string;
     }>;
   }> {
-    const { network, phoneNumbers, record = false, isSandbox = false, userId: _userId } = params;
+    const { network, phoneNumbers, record = false, isSandbox = false, userId: _userId, bypassCache = false } = params;
     const net = (typeof network === 'string' ? network.toUpperCase() : network) as NetworkProvider;
 
     const requestedCount = phoneNumbers.length;
@@ -914,7 +923,7 @@ export class BeneficiaryService {
 
     // 0. Query Redis Cache first (Sub-millisecond lookup for previously verified numbers)
     const uncachedPhones: string[] = [];
-    if (this.cacheService && validNormalizedPhones.length > 0) {
+    if (!bypassCache && this.cacheService && validNormalizedPhones.length > 0) {
       try {
         const cachedMap = await this.cacheService.getCachedResults(String(net), validNormalizedPhones);
         for (const p of validNormalizedPhones) {
@@ -962,7 +971,7 @@ export class BeneficiaryService {
           let providerRes: any = null;
           if (provider.precheckBeneficiaries) {
             try {
-              const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 120000));
+              const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 30000));
               const call = provider.precheckBeneficiaries({
                 network: net,
                 phoneNumbers: chunk,
@@ -1097,6 +1106,7 @@ export class BeneficiaryService {
               if (p) {
                 const norm = this.normalizeGhanaPhone(p).normalized;
                 if (norm) {
+                  providerQueriedSet.add(norm);
                   knownPhonesSet.delete(norm);
                   knownPhonesSet.delete(`+233${norm.slice(1)}`);
                   knownPhonesSet.delete(`233${norm.slice(1)}`);
@@ -1217,7 +1227,9 @@ export class BeneficiaryService {
             const isLiveUnapproved =
               liveUnapprovedSet.has(norm) ||
               liveUnapprovedSet.has(r.phoneNumber) ||
-              upstreamOrderableMap.get(norm) === false;
+              upstreamOrderableMap.get(norm) === false ||
+              (providerQueriedSet.has(norm) && !knownPhonesSet.has(norm)) ||
+              bypassCache;
 
             if (!isLiveUnapproved) {
               knownPhonesSet.add(norm);

@@ -508,7 +508,6 @@ export class DataHouseClient {
 
         if (includeApiKey && this.apiKey) {
           headers['x-api-key'] = this.apiKey;
-          headers['X-API-Key'] = this.apiKey;
           // Only send Bearer if the key is formatted as a JWT (3 dot-separated parts)
           if (this.apiKey.startsWith('ey') && this.apiKey.split('.').length === 3) {
             headers['Authorization'] = `Bearer ${this.apiKey}`;

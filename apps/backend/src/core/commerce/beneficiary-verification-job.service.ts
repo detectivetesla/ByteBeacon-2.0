@@ -309,6 +309,7 @@ export class BeneficiaryVerificationJobService {
           phoneNumbers: chunk,
           record: Boolean(params.record),
           userId: params.userId,
+          bypassCache: true,
         });
 
         if (precheckRes.portedCandidates && Array.isArray(precheckRes.portedCandidates)) {

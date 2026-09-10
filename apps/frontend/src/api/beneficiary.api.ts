@@ -148,6 +148,7 @@ export const beneficiaryApi = {
     network: NetworkProvider;
     phoneNumbers: string[];
     record?: boolean;
+    bypassCache?: boolean;
   }): Promise<AgentBeneficiaryPrecheckResultDto> => {
     return apiClient.post('/agent/beneficiaries/precheck', params, { timeoutMs: 300000 });
   },
@@ -156,6 +157,7 @@ export const beneficiaryApi = {
     phoneNumbers: string[];
     network: NetworkProvider;
     record?: boolean;
+    bypassCache?: boolean;
   }): Promise<{
     network: NetworkProvider;
     enforced: boolean;
