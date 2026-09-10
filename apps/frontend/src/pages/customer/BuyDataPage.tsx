@@ -564,6 +564,17 @@ export const BuyDataPage: React.FC = () => {
       // 1. Fast path: If already verified in real-time
       if (singleVerifiedPhone === cleaned) {
         if (singleApprovalStatus === 'UNAPPROVED') {
+          // Record to admin MTN Pending Approvals immediately
+          beneficiaryApi.recordUnapproved?.({
+            items: [{
+              phoneNumber: cleaned,
+              network: NetworkProvider.MTN,
+              dataSize: currentSingleBundle?.dataDisplay,
+              dataAmountMb: currentSingleBundle?.dataAmountMb,
+              pricePesewas: currentSingleBundle?.pricePesewas,
+              detectedFrom: 'Single Order',
+            }],
+          })?.catch?.(() => {});
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
@@ -633,6 +644,17 @@ export const BuyDataPage: React.FC = () => {
         setSingleVerifiedPhone(cleaned);
 
         if (isUnapproved && isEnforced) {
+          // Record to admin MTN Pending Approvals immediately
+          beneficiaryApi.recordUnapproved?.({
+            items: [{
+              phoneNumber: cleaned,
+              network: NetworkProvider.MTN,
+              dataSize: currentSingleBundle?.dataDisplay,
+              dataAmountMb: currentSingleBundle?.dataAmountMb,
+              pricePesewas: currentSingleBundle?.pricePesewas,
+              detectedFrom: 'Single Order',
+            }],
+          })?.catch?.(() => {});
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
@@ -649,6 +671,17 @@ export const BuyDataPage: React.FC = () => {
           setSingleApprovalStatus('UNAPPROVED');
           setSingleApprovalMessage('Number is not added to our MTN beneficiary list.');
           setSingleVerifiedPhone(cleaned);
+          // Record to admin MTN Pending Approvals immediately
+          beneficiaryApi.recordUnapproved?.({
+            items: [{
+              phoneNumber: cleaned,
+              network: NetworkProvider.MTN,
+              dataSize: currentSingleBundle?.dataDisplay,
+              dataAmountMb: currentSingleBundle?.dataAmountMb,
+              pricePesewas: currentSingleBundle?.pricePesewas,
+              detectedFrom: 'Single Order',
+            }],
+          })?.catch?.(() => {});
           setUnapprovedPhone(cleaned);
           setUnapprovedPhones([cleaned]);
           setUnapprovedModalOpen(true);
@@ -706,7 +739,7 @@ export const BuyDataPage: React.FC = () => {
     return (total / 100).toFixed(2);
   }, [bulkRecipients, availableBundles, currentSingleBundle]);
 
-  const handleBulkNormalSubmit = () => {
+  const handleBulkNormalSubmit = async () => {
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
@@ -729,7 +762,86 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
 
-    const bulkItems: BulkOrderItem[] = cleanedRecipients.map((r) => {
+    // MTN beneficiary precheck for bulk recipients
+    const isMtnBulk = selectedNetwork === NetworkProvider.MTN;
+    let approvedPhones = new Set<string>(cleanedRecipients.map((r) => r.cleanPhone));
+    const unapprovedBulkNumbers: string[] = [];
+
+    if (isMtnBulk) {
+      try {
+        setIsCheckingBeneficiary(true);
+        const phones = cleanedRecipients.map((r) => r.cleanPhone);
+        const precheckRes = await beneficiaryApi.precheckPublic({
+          network: NetworkProvider.MTN,
+          phoneNumbers: phones,
+        });
+        const isEnforced = precheckRes?.enforced !== false;
+
+        if (isEnforced && precheckRes?.results) {
+          approvedPhones = new Set<string>();
+          for (const result of precheckRes.results) {
+            const phone = result.normalized || result.phone || result.phoneNumber || '';
+            const isOrderable =
+              result.orderable !== undefined
+                ? result.orderable
+                : Boolean(result.known && result.valid);
+            const isUnapproved =
+              !isOrderable ||
+              !result.known ||
+              result.status === 'UNAPPROVED' ||
+              result.status === 'PENDING';
+
+            if (isUnapproved) {
+              unapprovedBulkNumbers.push(phone);
+            } else {
+              approvedPhones.add(phone);
+            }
+          }
+
+          // Record unapproved numbers to admin MTN Pending Approvals
+          if (unapprovedBulkNumbers.length > 0) {
+            beneficiaryApi.recordUnapproved?.({
+              items: unapprovedBulkNumbers.map((phone) => {
+                const recipient = cleanedRecipients.find((r) => r.cleanPhone === phone);
+                const bundle = recipient
+                  ? availableBundles.find((pkg) => pkg.id === recipient.bundleId) || currentSingleBundle
+                  : currentSingleBundle;
+                return {
+                  phoneNumber: phone,
+                  network: NetworkProvider.MTN,
+                  dataSize: bundle.dataDisplay,
+                  dataAmountMb: bundle.dataAmountMb,
+                  pricePesewas: bundle.pricePesewas,
+                  detectedFrom: 'Bulk Order',
+                };
+              }),
+            })?.catch?.(() => {});
+          }
+
+          // If ALL recipients are unapproved, block checkout
+          if (approvedPhones.size === 0 && unapprovedBulkNumbers.length > 0) {
+            setUnapprovedPhone(unapprovedBulkNumbers[0] || '');
+            setUnapprovedPhones(unapprovedBulkNumbers);
+            setUnapprovedModalOpen(true);
+            toastError(
+              'MTN Approval Required',
+              `${unapprovedBulkNumbers.length} MTN recipient(s) must be approved before purchasing. They have been recorded in the Pending MTN Approvals page.`,
+            );
+            return;
+          }
+        }
+      } catch {
+        // Non-fatal: proceed with all recipients if precheck fails
+        approvedPhones = new Set<string>(cleanedRecipients.map((r) => r.cleanPhone));
+      } finally {
+        setIsCheckingBeneficiary(false);
+      }
+    }
+
+    // Filter to only approved recipients
+    const approvedRecipients = cleanedRecipients.filter((r) => approvedPhones.has(r.cleanPhone));
+
+    const bulkItems: BulkOrderItem[] = approvedRecipients.map((r) => {
       const b = availableBundles.find((pkg) => pkg.id === r.bundleId) || currentSingleBundle;
       return {
         recipientPhone: r.cleanPhone,
@@ -739,11 +851,20 @@ export const BuyDataPage: React.FC = () => {
       };
     });
 
+    if (unapprovedBulkNumbers.length > 0 && approvedRecipients.length > 0) {
+      toastInfo(
+        'Partial Batch',
+        `Proceeding with ${approvedRecipients.length} approved recipient(s). ${unapprovedBulkNumbers.length} unapproved MTN recipient(s) were excluded and recorded in the Pending MTN Approvals page.`,
+      );
+    }
+
+    const approvedTotal = bulkItems.reduce((sum, item) => sum + (item.pricePesewas || 0), 0);
+
     setModalPayload({
       title: 'Bulk Order Purchase',
-      packageSummary: `${bulkRecipients.length} Packages (${selectedNetwork})`,
-      recipientSummary: `${bulkRecipients.length} Mobile Recipients`,
-      amountDisplay: `GH₵ ${bulkNormalTotal}`,
+      packageSummary: `${approvedRecipients.length} Packages (${selectedNetwork})`,
+      recipientSummary: `${approvedRecipients.length} Mobile Recipients`,
+      amountDisplay: `GH₵ ${(approvedTotal / 100).toFixed(2)}`,
       bundleId: currentSingleBundle.id,
       bulkItems,
     });
@@ -800,7 +921,7 @@ export const BuyDataPage: React.FC = () => {
     };
   }, [freePasteText, availableBundles]);
 
-  const handleBulkFreeSubmit = () => {
+  const handleBulkFreeSubmit = async () => {
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
@@ -814,18 +935,102 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
 
-    const bulkItems: BulkOrderItem[] = parsedFreeEntries.entries.map((e) => ({
+    // MTN beneficiary precheck for free-paste recipients
+    const isMtnBulk = selectedNetwork === NetworkProvider.MTN;
+    let approvedPhones = new Set<string>(parsedFreeEntries.entries.map((e) => e.phone));
+    const unapprovedFreeNumbers: string[] = [];
+
+    if (isMtnBulk) {
+      try {
+        setIsCheckingBeneficiary(true);
+        const phones = parsedFreeEntries.entries.map((e) => e.phone);
+        const precheckRes = await beneficiaryApi.precheckPublic({
+          network: NetworkProvider.MTN,
+          phoneNumbers: phones,
+        });
+        const isEnforced = precheckRes?.enforced !== false;
+
+        if (isEnforced && precheckRes?.results) {
+          approvedPhones = new Set<string>();
+          for (const result of precheckRes.results) {
+            const phone = result.normalized || result.phone || result.phoneNumber || '';
+            const isOrderable =
+              result.orderable !== undefined
+                ? result.orderable
+                : Boolean(result.known && result.valid);
+            const isUnapproved =
+              !isOrderable ||
+              !result.known ||
+              result.status === 'UNAPPROVED' ||
+              result.status === 'PENDING';
+
+            if (isUnapproved) {
+              unapprovedFreeNumbers.push(phone);
+            } else {
+              approvedPhones.add(phone);
+            }
+          }
+
+          // Record unapproved numbers to admin MTN Pending Approvals
+          if (unapprovedFreeNumbers.length > 0) {
+            beneficiaryApi.recordUnapproved?.({
+              items: unapprovedFreeNumbers.map((phone) => {
+                const entry = parsedFreeEntries.entries.find((e) => e.phone === phone);
+                return {
+                  phoneNumber: phone,
+                  network: NetworkProvider.MTN,
+                  dataSize: entry?.sizeStr,
+                  pricePesewas: entry?.pricePesewas,
+                  detectedFrom: 'Bulk Order',
+                };
+              }),
+            })?.catch?.(() => {});
+          }
+
+          // If ALL recipients are unapproved, block checkout
+          if (approvedPhones.size === 0 && unapprovedFreeNumbers.length > 0) {
+            setUnapprovedPhone(unapprovedFreeNumbers[0] || '');
+            setUnapprovedPhones(unapprovedFreeNumbers);
+            setUnapprovedModalOpen(true);
+            toastError(
+              'MTN Approval Required',
+              `${unapprovedFreeNumbers.length} MTN recipient(s) must be approved before purchasing. They have been recorded in the Pending MTN Approvals page.`,
+            );
+            return;
+          }
+        }
+      } catch {
+        // Non-fatal: proceed with all recipients if precheck fails
+        approvedPhones = new Set<string>(parsedFreeEntries.entries.map((e) => e.phone));
+      } finally {
+        setIsCheckingBeneficiary(false);
+      }
+    }
+
+    // Filter to only approved entries
+    const approvedEntries = parsedFreeEntries.entries.filter((e) => approvedPhones.has(e.phone));
+
+    const bulkItems: BulkOrderItem[] = approvedEntries.map((e) => ({
       recipientPhone: e.phone,
       productId: e.bundleId,
       dataDisplay: e.sizeStr,
       pricePesewas: e.pricePesewas,
     }));
 
+    if (unapprovedFreeNumbers.length > 0 && approvedEntries.length > 0) {
+      toastInfo(
+        'Partial Batch',
+        `Proceeding with ${approvedEntries.length} approved recipient(s). ${unapprovedFreeNumbers.length} unapproved MTN recipient(s) were excluded and recorded in the Pending MTN Approvals page.`,
+      );
+    }
+
+    const approvedTotal = bulkItems.reduce((sum, item) => sum + (item.pricePesewas || 0), 0);
+
     setModalPayload({
       title: 'Bulk Free Order',
-      packageSummary: `${parsedFreeEntries.entries.length} Packages (${selectedNetwork})`,
-      recipientSummary: `${parsedFreeEntries.entries.length} Recipients (Free Paste)`,
-      amountDisplay: `GH₵ ${(parsedFreeEntries.totalPesewas / 100).toFixed(2)}`,
+      packageSummary: `${approvedEntries.length} Packages (${selectedNetwork})`,
+      recipientSummary: `${approvedEntries.length} Recipients (Free Paste)`,
+      amountDisplay: `GH₵ ${(approvedTotal / 100).toFixed(2)}`,
       bundleId: currentSingleBundle.id,
       bulkItems,
     });
