@@ -327,7 +327,7 @@ export class BeneficiaryVerificationJobService {
             else if (isUnapproved) state.unapprovedCount++;
             else if (isRejected) state.rejectedCount++;
             else if (isPending) state.pendingCount = (state.pendingCount || 0) + 1;
-            else state.unapprovedCount++;
+            else state.pendingCount = (state.pendingCount || 0) + 1; // Unknown status → pending, not unapproved
 
             state.results.push({
               phone: item.phone,

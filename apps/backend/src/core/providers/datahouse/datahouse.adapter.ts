@@ -196,7 +196,7 @@ export class DataHouseAdapter implements ITelecomProvider {
     const cachedResults: any[] = [];
     const now = Date.now();
     const APPROVED_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours for approved numbers
-    const UNAPPROVED_TTL_MS = 3 * 60 * 1000;     // 3 minutes for unapproved numbers
+    const UNAPPROVED_TTL_MS = 5 * 60 * 1000;     // 5 minutes for unapproved numbers (aligned with Redis BeneficiaryCacheService)
 
     for (const phone of phoneNumbers) {
       const norm = DataHouseMapper.normalizePhone(phone);

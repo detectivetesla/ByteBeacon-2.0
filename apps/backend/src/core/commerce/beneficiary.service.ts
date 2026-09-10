@@ -910,6 +910,7 @@ export class BeneficiaryService {
     const portedCandidatesSet = new Set<string>();
     const upstreamOrderableMap = new Map<string, boolean>();
     const liveUnapprovedSet = new Set<string>();
+    const providerQueriedSet = new Set<string>(); // Track numbers that got a live provider response
 
     // 0. Query Redis Cache first (Sub-millisecond lookup for previously verified numbers)
     const uncachedPhones: string[] = [];
@@ -1027,11 +1028,20 @@ export class BeneficiaryService {
 
             providerRes.results.forEach((r: any) => {
               const norm = this.normalizeGhanaPhone(r.phoneNumber || (r as any).phone || (r as any).normalized || '').normalized;
+              // Track numbers that got a genuine provider response (not circuit-breaker placeholders)
+              if (norm && r.status !== 'PENDING_VERIFICATION' && r.status !== 'PROVIDER_ERROR') {
+                providerQueriedSet.add(norm);
+              }
               if (norm && r.orderable !== undefined) {
                 upstreamOrderableMap.set(norm, Boolean(r.orderable));
               }
               if ((r as any).isPorted || r.status === 'REJECTED') {
                 if (norm) portedCandidatesSet.add(norm);
+              }
+
+              // Skip circuit-breaker placeholders — provider never evaluated these numbers
+              if (r.status === 'PENDING_VERIFICATION' || r.status === 'PROVIDER_ERROR') {
+                return; // Don't classify as approved or unapproved
               }
 
               const isApproved = Boolean(
@@ -1247,11 +1257,21 @@ export class BeneficiaryService {
         isOrderable = item.valid && isKnown && !isPortedCandidate;
       }
 
-      const status = !item.valid ? 'REJECTED' : isKnown ? 'APPROVED' : 'UNAPPROVED';
+      // Distinguish between provider-confirmed unapproved and unqueried (timeout/circuit-break)
+      const wasProviderQueried = providerQueriedSet.has(item.normalized) || providerQueriedSet.has(item.phone);
+      const status = !item.valid
+        ? 'REJECTED'
+        : isKnown
+        ? 'APPROVED'
+        : (wasProviderQueried || isLiveUnapproved)
+        ? 'UNAPPROVED'
+        : 'PENDING_VERIFICATION';
       const message = !item.valid
         ? 'Invalid Ghanaian phone number format'
         : isKnown
         ? 'Validated MTN recipient'
+        : status === 'PENDING_VERIFICATION'
+        ? 'Verification pending - provider did not respond'
         : 'First-time MTN recipient - pending approval';
       return {
         phone: item.phone,
