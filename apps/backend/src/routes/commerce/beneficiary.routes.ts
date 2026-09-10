@@ -617,6 +617,124 @@ export async function beneficiaryRoutes(
     },
   );
 
+  // 4c. DELETE ALL BENEFICIARY APPROVALS (CUSTOMER / AGENT / ADMIN)
+  app.delete<{
+    Querystring: {
+      network?: string;
+      status?: string;
+      userId?: string;
+    };
+  }>(
+    '/beneficiaries/approvals',
+    async (req, reply) => {
+      let authenticatedUserId: string | undefined;
+      let authenticatedRole: string | undefined;
+
+      const authHeader = req.headers.authorization;
+      const apiKeyHeader = req.headers['x-api-key'];
+
+      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
+        try {
+          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
+          req.user = payload as any;
+          authenticatedUserId = payload.sub;
+          authenticatedRole = payload.role;
+        } catch {
+          // unauthenticated
+        }
+      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        try {
+          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
+          const key = await apiKeyService.validateApiKey(rawKey);
+          authenticatedUserId = key.agentId;
+          authenticatedRole = 'agent';
+        } catch {
+          // unauthenticated
+        }
+      }
+
+      const { network, status, userId } = req.query as any;
+      const effectiveRole = authenticatedRole?.toUpperCase();
+      const isAdmin = effectiveRole === 'ADMIN' || effectiveRole === 'SUPER_ADMIN';
+
+      const effectiveUserId = isAdmin
+        ? (userId || authenticatedUserId)
+        : (authenticatedUserId || (process.env.NODE_ENV !== 'production' ? userId : undefined));
+
+      if (!isAdmin && !effectiveUserId) {
+        return reply.status(401).send({
+          success: false,
+          error: { message: 'Authentication required to delete pending approval records' },
+        });
+      }
+
+      const result = await beneficiaryService.deleteAllBeneficiaryApprovals({
+        network,
+        status,
+        userId: effectiveUserId,
+        role: authenticatedRole,
+      });
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
+  // 4d. DELETE SINGLE BENEFICIARY APPROVAL
+  app.delete<{ Params: { id: string } }>(
+    '/beneficiaries/approvals/:id',
+    async (req, reply) => {
+      let authenticatedUserId: string | undefined;
+      let authenticatedRole: string | undefined;
+
+      const authHeader = req.headers.authorization;
+      const apiKeyHeader = req.headers['x-api-key'];
+
+      if (authHeader?.startsWith('Bearer ') && !authHeader.startsWith('Bearer ak_')) {
+        try {
+          const payload = tokenService.verifyAccessToken(authHeader.substring(7).trim());
+          req.user = payload as any;
+          authenticatedUserId = payload.sub;
+          authenticatedRole = payload.role;
+        } catch {
+          // unauthenticated
+        }
+      } else if (apiKeyHeader || authHeader?.startsWith('Bearer ak_')) {
+        try {
+          const rawKey = (apiKeyHeader as string) || authHeader!.substring(7).trim();
+          const key = await apiKeyService.validateApiKey(rawKey);
+          authenticatedUserId = key.agentId;
+          authenticatedRole = 'agent';
+        } catch {
+          // unauthenticated
+        }
+      }
+
+      const effectiveRole = authenticatedRole?.toUpperCase();
+      const isAdmin = effectiveRole === 'ADMIN' || effectiveRole === 'SUPER_ADMIN';
+
+      if (!isAdmin && !authenticatedUserId) {
+        return reply.status(401).send({
+          success: false,
+          error: { message: 'Authentication required to delete pending approval record' },
+        });
+      }
+
+      const result = await beneficiaryService.deleteBeneficiaryApproval(
+        req.params.id,
+        authenticatedUserId,
+        authenticatedRole,
+      );
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
   // 5. ADMIN: LIST MTN BENEFICIARY APPROVALS
   app.get<{
     Querystring: {

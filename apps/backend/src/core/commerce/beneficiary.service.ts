@@ -1922,6 +1922,159 @@ export class BeneficiaryService {
   }
 
   /**
+   * Deletes all pending beneficiary approval records.
+   * If userId is provided (Customer/Agent), only deletes records owned by that user in pending_beneficiary_approvals.
+   * If user is Admin and no userId is provided, deletes records platform-wide from pending_beneficiary_approvals and beneficiary_validation.
+   */
+  public async deleteAllBeneficiaryApprovals(params: {
+    userId?: string;
+    role?: string;
+    network?: string;
+    status?: string;
+  } = {}): Promise<{ count: number; message: string }> {
+    const userRole = params.role?.toUpperCase();
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+
+    let deletedCount = 0;
+
+    if (isAdmin && !params.userId) {
+      // Administrator view: platform-wide deletion
+      const conditionsVal: string[] = [];
+      const queryParamsVal: any[] = [];
+      let idxVal = 1;
+
+      if (params.network && params.network !== 'ALL') {
+        conditionsVal.push(`network = $${idxVal}`);
+        queryParamsVal.push(params.network);
+        idxVal++;
+      }
+
+      if (params.status && params.status !== 'ALL') {
+        conditionsVal.push(`validation_status = $${idxVal}`);
+        queryParamsVal.push(params.status);
+        idxVal++;
+      }
+
+      const whereVal = conditionsVal.length > 0 ? `WHERE ${conditionsVal.join(' AND ')}` : '';
+      const delValRes = await this.db.query(
+        `DELETE FROM beneficiary_validation ${whereVal} RETURNING phone_number`,
+        queryParamsVal,
+      );
+
+      const conditionsPba: string[] = [];
+      const queryParamsPba: any[] = [];
+      let idxPba = 1;
+
+      if (params.network && params.network !== 'ALL') {
+        conditionsPba.push(`network = $${idxPba}`);
+        queryParamsPba.push(params.network);
+        idxPba++;
+      }
+
+      if (params.status && params.status !== 'ALL') {
+        conditionsPba.push(`status = $${idxPba}`);
+        queryParamsPba.push(params.status);
+        idxPba++;
+      }
+
+      const wherePba = conditionsPba.length > 0 ? `WHERE ${conditionsPba.join(' AND ')}` : '';
+      const delPbaRes = await this.db.query(
+        `DELETE FROM pending_beneficiary_approvals ${wherePba} RETURNING phone_number`,
+        queryParamsPba,
+      );
+
+      deletedCount = (delValRes.rowCount || 0) + (delPbaRes.rowCount || 0);
+
+      if (this.cacheService && params.network && params.network !== 'ALL') {
+        const deletedPhones = Array.from(
+          new Set([
+            ...delValRes.rows.map((r: any) => r.phone_number),
+            ...delPbaRes.rows.map((r: any) => r.phone_number),
+          ]),
+        );
+        if (deletedPhones.length > 0) {
+          this.cacheService.deleteCachedResults(params.network, deletedPhones).catch(() => {});
+        }
+      }
+
+      return {
+        count: deletedCount,
+        message: `Successfully deleted ${deletedCount} beneficiary approval record(s) platform-wide.`,
+      };
+    }
+
+    // Customer or Agent: strict isolation by agent_id (userId)
+    if (!params.userId) {
+      throw new BadRequestError('User ID is required to delete user-scoped pending approval records');
+    }
+
+    const conditions: string[] = ['agent_id = $1'];
+    const queryParams: any[] = [params.userId];
+    let idx = 2;
+
+    if (params.network && params.network !== 'ALL') {
+      conditions.push(`network = $${idx}`);
+      queryParams.push(params.network);
+      idx++;
+    }
+
+    if (params.status && params.status !== 'ALL') {
+      conditions.push(`status = $${idx}`);
+      queryParams.push(params.status);
+      idx++;
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const delRes = await this.db.query(
+      `DELETE FROM pending_beneficiary_approvals ${where} RETURNING phone_number`,
+      queryParams,
+    );
+
+    // Also delete any rows in beneficiary_validation created specifically by this user
+    await this.db.query(
+      `DELETE FROM beneficiary_validation WHERE agent_id = $1 ${params.network && params.network !== 'ALL' ? `AND network = '${params.network}'` : ''}`,
+      [params.userId],
+    ).catch(() => {});
+
+    deletedCount = delRes.rowCount || 0;
+
+    return {
+      count: deletedCount,
+      message: `Successfully deleted ${deletedCount} pending approval record(s).`,
+    };
+  }
+
+  /**
+   * Deletes a single beneficiary approval record by ID.
+   */
+  public async deleteBeneficiaryApproval(id: string, userId?: string, role?: string) {
+    const userRole = role?.toUpperCase();
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+
+    if (isAdmin && !userId) {
+      const resVal = await this.db.query(`DELETE FROM beneficiary_validation WHERE id = $1 RETURNING *`, [id]);
+      const resPba = await this.db.query(`DELETE FROM pending_beneficiary_approvals WHERE id = $1 RETURNING *`, [id]);
+      if ((resVal.rowCount || 0) === 0 && (resPba.rowCount || 0) === 0) {
+        throw new NotFoundError(`Beneficiary record with ID [${id}] not found`);
+      }
+      return { id, success: true };
+    }
+
+    if (!userId) {
+      throw new BadRequestError('User ID is required to delete pending approval record');
+    }
+
+    const res = await this.db.query(
+      `DELETE FROM pending_beneficiary_approvals WHERE id = $1 AND agent_id = $2 RETURNING *`,
+      [id, userId],
+    );
+    if ((res.rowCount || 0) === 0) {
+      throw new NotFoundError(`Beneficiary record with ID [${id}] not found or access denied`);
+    }
+    return { id, success: true };
+  }
+
+  /**
    * Synchronizes MTN beneficiaries approval statuses from upstream telecom provider (DataHouse/GMPL)
    * into local beneficiary_validation and pending_beneficiary_approvals tables.
    */

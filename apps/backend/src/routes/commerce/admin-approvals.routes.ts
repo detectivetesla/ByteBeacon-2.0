@@ -515,4 +515,73 @@ export async function adminApprovalsRoutes(
         .send(csvRows);
     },
   );
+
+  // 8. DELETE /admin/pending-approvals — Delete All Beneficiary Approvals Platform-Wide
+  app.delete<{
+    Querystring: {
+      network?: string;
+      status?: string;
+    };
+  }>(
+    '/admin/pending-approvals',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { network, status } = req.query as any;
+
+      const result = await beneficiaryService.deleteAllBeneficiaryApprovals({
+        network,
+        status,
+        role: (req.user as any)?.role || 'ADMIN',
+      });
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'DELETE_ALL_BENEFICIARIES',
+          resourceType: 'beneficiary_validation',
+          resourceId: 'all',
+          metadata: { deletedCount: result.count, network, status },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
+  // 9. DELETE /admin/pending-approvals/:id — Delete Single Beneficiary Approval Record
+  app.delete<{ Params: { id: string } }>(
+    '/admin/pending-approvals/:id',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { id } = req.params as any;
+
+      const result = await beneficiaryService.deleteBeneficiaryApproval(
+        id,
+        undefined,
+        (req.user as any)?.role || 'ADMIN',
+      );
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'DELETE_BENEFICIARY',
+          resourceType: 'beneficiary_validation',
+          resourceId: id,
+          metadata: { id },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
 }

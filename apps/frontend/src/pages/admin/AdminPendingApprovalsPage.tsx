@@ -20,6 +20,8 @@ import {
   ChevronRight,
   Zap,
   Layers,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { adminApi, AdminPendingApprovalItem, AdminPendingApprovalStats, AdminPendingApprovalDetail } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -66,6 +68,8 @@ export const AdminPendingApprovalsPage: React.FC = () => {
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   // Fetch summary stats
   const fetchStats = useCallback(async () => {
@@ -230,6 +234,27 @@ export const AdminPendingApprovalsPage: React.FC = () => {
     }
   };
 
+  const handleDeleteAll = async () => {
+    setIsDeletingAll(true);
+    try {
+      const res = await adminApi.deleteAllPendingApprovals({
+        network: networkFilter !== 'ALL' ? networkFilter : undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+      });
+      toastSuccess(res?.message || 'All pending beneficiary approval records deleted successfully.');
+      setIsDeleteModalOpen(false);
+      fetchApprovals();
+      fetchStats();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to delete pending approval records.');
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
+
   const renderStatusBadge = (status: string) => {
     switch (status) {
       case 'VALID':
@@ -284,6 +309,15 @@ export const AdminPendingApprovalsPage: React.FC = () => {
           <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
             <Download size={14} />
             <span>Export CSV</span>
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => setIsDeleteModalOpen(true)}
+            disabled={items.length === 0 && (!stats.totalRegistered || stats.totalRegistered === 0)}
+          >
+            <Trash2 size={14} />
+            <span>Clear All Records</span>
           </Button>
         </div>
       </div>
@@ -676,6 +710,57 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                 disabled={isRejecting}
               >
                 {isRejecting ? 'Rejecting...' : 'Confirm Rejection'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Delete All Pending Approvals Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <Modal
+          isOpen={isDeleteModalOpen}
+          onClose={() => !isDeletingAll && setIsDeleteModalOpen(false)}
+          title="Delete All Pending MTN Records (Platform-Wide)?"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.75rem',
+                padding: '0.85rem',
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+              }}
+            >
+              <AlertTriangle size={22} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                <strong style={{ color: 'var(--color-danger)', display: 'block', marginBottom: '0.25rem' }}>
+                  Warning: Platform-Wide Permanent Deletion
+                </strong>
+                Are you sure you want to delete all beneficiary validation and pending approval records across the platform? This will clear all recorded beneficiaries for all customers and agents.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={isDeletingAll}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleDeleteAll}
+                disabled={isDeletingAll}
+              >
+                <Trash2 size={14} />
+                <span>{isDeletingAll ? 'Deleting All...' : 'Yes, Delete All Platform Records'}</span>
               </Button>
             </div>
           </div>

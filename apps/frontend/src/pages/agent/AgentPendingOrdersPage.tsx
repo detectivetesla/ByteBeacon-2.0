@@ -29,6 +29,8 @@ import {
   Activity,
   ShoppingCart,
   UserX,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
@@ -144,6 +146,30 @@ export const AgentPendingOrdersPage: React.FC = () => {
     accountName?: string;
     message?: string;
   } | null>(null);
+
+  // Delete All Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  const handleDeleteAll = async () => {
+    setIsDeletingAll(true);
+    try {
+      await beneficiaryApi.deleteAllApprovals({
+        network: networkFilter !== 'ALL' ? networkFilter : undefined,
+        userId: user?.id,
+      });
+      toastSuccess('All pending MTN approval records have been deleted successfully.');
+      setIsDeleteModalOpen(false);
+      fetchApprovals();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to delete pending approval records.');
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
 
   // Fetch approvals list
   const fetchApprovals = useCallback(async () => {
@@ -653,6 +679,16 @@ export const AgentPendingOrdersPage: React.FC = () => {
             leftIcon={<Download size={14} />}
           >
             Export (MTN Format)
+          </Button>
+
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => setIsDeleteModalOpen(true)}
+            disabled={records.length === 0 && (!backendCounts || backendCounts.total === 0)}
+            leftIcon={<Trash2 size={14} />}
+          >
+            Clear All Records
           </Button>
         </div>
       </div>
@@ -1312,6 +1348,57 @@ export const AgentPendingOrdersPage: React.FC = () => {
                 leftIcon={<Zap size={13} />}
               >
                 Run Validation Check
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 5. Delete All Pending Approvals Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <Modal
+          isOpen={isDeleteModalOpen}
+          onClose={() => !isDeletingAll && setIsDeleteModalOpen(false)}
+          title="Delete All Pending MTN Records?"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.75rem',
+                padding: '0.85rem',
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+              }}
+            >
+              <AlertTriangle size={22} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                <strong style={{ color: 'var(--color-danger)', display: 'block', marginBottom: '0.25rem' }}>
+                  This action is permanent and cannot be undone.
+                </strong>
+                Are you sure you want to delete all recorded pending MTN approval numbers from your list? All your excluded or pending numbers will be permanently cleared.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={isDeletingAll}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleDeleteAll}
+                isLoading={isDeletingAll}
+                leftIcon={<Trash2 size={14} />}
+              >
+                Yes, Delete All
               </Button>
             </div>
           </div>

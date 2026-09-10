@@ -234,6 +234,30 @@ export const beneficiaryApi = {
     return apiClient.post(`/beneficiaries/approvals/${id}/reject`);
   },
 
+  deleteAllApprovals: async (params?: { network?: string; status?: string; userId?: string }): Promise<{ count: number; message: string }> => {
+    let effectiveUserId = params?.userId;
+    if (!effectiveUserId && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('bytebeacon_auth_user');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          effectiveUserId = parsed.id || parsed.userId || parsed.sub;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const queryParams = {
+      ...params,
+      userId: effectiveUserId,
+    };
+    return apiClient.delete('/beneficiaries/approvals', { params: queryParams });
+  },
+
+  deleteApproval: async (id: string): Promise<any> => {
+    return apiClient.delete(`/beneficiaries/approvals/${id}`);
+  },
+
   validatePhoneNumber: async (params: { phoneNumber: string; network: NetworkProvider }): Promise<any> => {
     return apiClient.post('/beneficiaries/validate', params, { timeoutMs: 30000 });
   },

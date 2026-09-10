@@ -974,6 +974,14 @@ export const adminApi = {
     return apiClient.post('/admin/pending-approvals/export');
   },
 
+  deleteAllPendingApprovals: async (params?: { network?: string; status?: string }) => {
+    return apiClient.delete<{ count: number; message: string }>('/admin/pending-approvals', { params });
+  },
+
+  deletePendingApproval: async (id: string) => {
+    return apiClient.delete(`/admin/pending-approvals/${id}`);
+  },
+
   // Ledger & Payments
   getLedger: async (params: { page?: number; limit?: number; entryType?: string; accountType?: string } = {}) => {
     return apiClient.get<{ items: AdminLedgerLine[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/admin/ledger', { params });

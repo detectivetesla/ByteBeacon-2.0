@@ -645,5 +645,92 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       expect(json.success).toBe(true);
       expect(json.data.pendingCount).toBe(5);
     });
+
+    it('DELETE /beneficiaries/approvals should reject unauthenticated requests', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/beneficiaries/approvals',
+      });
+
+      expect(res.statusCode).toBe(401);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(false);
+    });
+
+    it('DELETE /beneficiaries/approvals should delete all records for the authenticated customer', async () => {
+      mockTokenService.verifyAccessToken = vi.fn().mockReturnValue({
+        sub: 'usr_customer_42',
+        email: 'customer42@bytebeacon.com',
+        role: UserRole.CUSTOMER,
+        domain: SecurityDomain.CUSTOMER,
+        status: 'ACTIVE',
+        sessionId: 'sess_cust_42',
+      });
+
+      let deleteAgentIdPassed: string | null = null;
+      vi.spyOn(mockDb, 'query').mockImplementation((query: string, params: any) => {
+        if (query.includes('DELETE FROM pending_beneficiary_approvals')) {
+          deleteAgentIdPassed = params?.[0];
+          return Promise.resolve({
+            rowCount: 3,
+            rows: [{ phone_number: '0241112233' }, { phone_number: '0242223344' }, { phone_number: '0243334455' }],
+          });
+        }
+        if (query.includes('DELETE FROM beneficiary_validation WHERE agent_id')) {
+          return Promise.resolve({ rowCount: 1, rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/beneficiaries/approvals',
+        headers: {
+          authorization: 'Bearer valid_customer_token',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.count).toBe(3);
+      expect(deleteAgentIdPassed).toBe('usr_customer_42');
+    });
+
+    it('DELETE /beneficiaries/approvals/:id should delete single record for authenticated customer', async () => {
+      mockTokenService.verifyAccessToken = vi.fn().mockReturnValue({
+        sub: 'usr_customer_42',
+        email: 'customer42@bytebeacon.com',
+        role: UserRole.CUSTOMER,
+        domain: SecurityDomain.CUSTOMER,
+        status: 'ACTIVE',
+        sessionId: 'sess_cust_42',
+      });
+
+      vi.spyOn(mockDb, 'query').mockImplementation((query: string, params: any) => {
+        if (query.includes('DELETE FROM pending_beneficiary_approvals WHERE id = $1 AND agent_id = $2')) {
+          expect(params[0]).toBe('pba_cust_1');
+          expect(params[1]).toBe('usr_customer_42');
+          return Promise.resolve({
+            rowCount: 1,
+            rows: [{ id: 'pba_cust_1' }],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/beneficiaries/approvals/pba_cust_1',
+        headers: {
+          authorization: 'Bearer valid_customer_token',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.id).toBe('pba_cust_1');
+    });
   });
 });
