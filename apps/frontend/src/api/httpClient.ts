@@ -246,7 +246,7 @@ export class HttpClient {
 
         if (
           typeof window !== 'undefined' &&
-          (response.status === 503 || errorCode === 'MAINTENANCE_MODE_ACTIVE')
+          errorCode === 'MAINTENANCE_MODE_ACTIVE'
         ) {
           window.dispatchEvent(
             new CustomEvent('platform-maintenance-active', {

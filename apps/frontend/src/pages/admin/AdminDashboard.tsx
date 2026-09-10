@@ -94,24 +94,26 @@ export const AdminDashboard: React.FC = () => {
         toastError('Data Fetch Error', (fetchError as any)?.message || 'Unable to retrieve overview metrics from server.');
       }
 
-      if (healthRes?.services) {
-        const rows: SystemHealthRow[] = Object.entries(healthRes.services).map(([key, val]: [string, any]) => ({
-          service: key.charAt(0).toUpperCase() + key.slice(1),
-          type: val.type || 'Core Subsystem',
-          status: val.status === 'healthy' ? 'UP' : 'DEGRADED',
+      const rawIntegrations = healthRes?.integrations || healthRes?.services;
+      if (rawIntegrations) {
+        const rows: SystemHealthRow[] = Object.entries(rawIntegrations).map(([key, val]: [string, any]) => ({
+          service: val.providerName || (key.charAt(0).toUpperCase() + key.slice(1)),
+          type: val.type || (key === 'telecom' || key.toLowerCase().includes('beacon') ? 'Telecom Adapter' : key === 'paystack' ? 'Paystack Gateway' : key === 'redis' ? 'BullMQ / Workers' : key === 'database' ? 'PostgreSQL Pool' : 'Core Subsystem'),
+          status: val.status === 'UP' || val.status === 'healthy' ? 'UP' : 'DEGRADED',
           latencyMs: val.latencyMs || 20,
           lastChecked: 'Live',
         }));
         if (rows.length > 0) setHealthData(rows);
       }
 
-      if (auditRes?.items && Array.isArray(auditRes.items) && auditRes.items.length > 0) {
+      const rawAuditItems = auditRes?.items || (auditRes as any)?.data?.items;
+      if (rawAuditItems && Array.isArray(rawAuditItems) && rawAuditItems.length > 0) {
         setAuditLogs(
-          auditRes.items.slice(0, 5).map((log) => ({
+          rawAuditItems.slice(0, 5).map((log: any) => ({
             id: log.id,
             action: log.action,
             color: log.action.includes('FAIL') ? '#EF4444' : log.action.includes('ADMIN') ? '#8B5CF6' : '#10B981',
-            time: log.createdAt ? new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent',
+            time: log.timestamp || log.createdAt ? new Date(log.timestamp || log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent',
           }))
         );
       }
@@ -121,6 +123,13 @@ export const AdminDashboard: React.FC = () => {
       setIsLoading(false);
     }
   }, [range, toastError]);
+
+  // Automatically fetch metrics on component mount, on time-range change, and poll every 30s
+  useEffect(() => {
+    fetchOverviewData();
+    const interval = setInterval(fetchOverviewData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchOverviewData]);
 
   const handleToggleMaintenance = async () => {
     setIsTogglingMaintenance(true);
@@ -362,7 +371,7 @@ export const AdminDashboard: React.FC = () => {
 
       {/* 11.2.6 Operational KPI Cards (Row 2) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
-        <div onClick={() => navigate('/admin/pending-orders')} style={{ cursor: 'pointer' }}>
+        <div onClick={() => navigate('/admin/pending-approvals')} style={{ cursor: 'pointer' }}>
           <MetricCard
             title="Pending MTN Approvals"
             value={(data?.queues?.pendingMtnApprovals || 0).toString()}
@@ -486,7 +495,7 @@ export const AdminDashboard: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => navigate('/admin/communications')} leftIcon={<Mail size={14} />}>
             Broadcast Email
           </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/admin/pending-orders')} leftIcon={<Clock size={14} />}>
+          <Button variant="outline" size="sm" onClick={() => navigate('/admin/pending-approvals')} leftIcon={<Clock size={14} />}>
             Review MTN Approvals
           </Button>
           <Button variant="outline" size="sm" onClick={() => navigate('/admin/dlq')} leftIcon={<AlertOctagon size={14} />}>
