@@ -477,86 +477,48 @@ export class BeneficiaryService {
           ),
         );
 
-        // Check local approved records: ByteBeacon database approvals (admin approvals and valid entries)
-        // are authoritative for commercial orderability.
-        // Differentiate authoritative Admin approvals (pending_beneficiary_approvals) from automated cache (beneficiary_validation).
+        // Check local approved records: local DB cache provides fallback when live provider is not queried
         const approvedRes = await this.db.query(
-          `SELECT phone_number as "phoneNumber", 'ADMIN' as "source"
-           FROM pending_beneficiary_approvals
-           WHERE phone_number = ANY($1)
-             AND network = 'MTN'
-             AND status = 'APPROVED'
-           UNION ALL
-           SELECT phone_number as "phoneNumber", 'CACHE' as "source"
+          `SELECT phone_number as "phoneNumber"
            FROM beneficiary_validation
            WHERE phone_number = ANY($1)
              AND network = 'MTN'
              AND validation_status IN ('VALID', 'APPROVED')
-             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+           UNION
+           SELECT phone_number as "phoneNumber"
+           FROM pending_beneficiary_approvals
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND status = 'APPROVED'`,
           [queryPhones],
         );
-
-        const adminApprovedSet = new Set<string>();
-        const cachedApprovedSet = new Set<string>();
 
         approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            if (r.source === 'ADMIN') {
-              adminApprovedSet.add(norm);
-              adminApprovedSet.add(r.phoneNumber);
+            const isExplicitlyLiveUnapproved =
+              (norm && liveUnapprovedSet.has(norm)) ||
+              liveUnapprovedSet.has(r.phoneNumber) ||
+              (norm && upstreamOrderableMap.get(norm) === false);
+
+            if (isExplicitlyLiveUnapproved) {
+              if (norm) {
+                knownPhonesSet.delete(norm);
+                knownPhonesSet.delete(`+233${norm.slice(1)}`);
+                knownPhonesSet.delete(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, false);
+              }
+              knownPhonesSet.delete(r.phoneNumber);
             } else {
-              cachedApprovedSet.add(norm);
-              cachedApprovedSet.add(r.phoneNumber);
+              if (norm) {
+                knownPhonesSet.add(norm);
+                knownPhonesSet.add(`+233${norm.slice(1)}`);
+                knownPhonesSet.add(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, true);
+              }
+              knownPhonesSet.add(r.phoneNumber);
             }
-          }
-        });
-
-        // 1. Authoritative Admin Approvals: Explicit admin approvals MUST NEVER be overridden by live provider unapproved
-        adminApprovedSet.forEach((phone) => {
-          const norm = this.normalizeGhanaPhone(phone).normalized;
-          if (norm) {
-            liveUnapprovedSet.delete(norm);
-            liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
-            liveUnapprovedSet.delete(`233${norm.slice(1)}`);
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(`+233${norm.slice(1)}`);
-            knownPhonesSet.add(`233${norm.slice(1)}`);
-            upstreamOrderableMap.set(norm, true);
-          }
-          liveUnapprovedSet.delete(phone);
-          knownPhonesSet.add(phone);
-        });
-
-        // 2. Automated Validation Cache: Stale database records in beneficiary_validation do NOT override
-        // live telecom unapproved responses if telecom provider explicitly reported unapproved.
-        cachedApprovedSet.forEach((phone) => {
-          const norm = this.normalizeGhanaPhone(phone).normalized;
-          const isLiveUnapproved = (norm && liveUnapprovedSet.has(norm)) || liveUnapprovedSet.has(phone);
-          const isAdminApproved = (norm && adminApprovedSet.has(norm)) || adminApprovedSet.has(phone);
-
-          if (isAdminApproved) {
-            // Already handled above with authoritative priority
-            return;
-          }
-
-          if (!isLiveUnapproved) {
-            if (norm) {
-              knownPhonesSet.add(norm);
-              knownPhonesSet.add(`+233${norm.slice(1)}`);
-              knownPhonesSet.add(`233${norm.slice(1)}`);
-              upstreamOrderableMap.set(norm, true);
-            }
-            knownPhonesSet.add(phone);
-          } else {
-            // Stale cache demoted by live telecom provider
-            if (norm) {
-              knownPhonesSet.delete(norm);
-              knownPhonesSet.delete(`+233${norm.slice(1)}`);
-              knownPhonesSet.delete(`233${norm.slice(1)}`);
-              upstreamOrderableMap.set(norm, false);
-            }
-            knownPhonesSet.delete(phone);
           }
         });
 
@@ -578,10 +540,7 @@ export class BeneficiaryService {
         pendingRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            const isApproved =
-              adminApprovedSet.has(norm) ||
-              adminApprovedSet.has(r.phoneNumber) ||
-              (knownPhonesSet.has(norm) && !liveUnapprovedSet.has(norm));
+            const isApproved = knownPhonesSet.has(norm) && !liveUnapprovedSet.has(norm);
             if (!isApproved) {
               knownPhonesSet.delete(norm);
               knownPhonesSet.delete(r.phoneNumber);
@@ -1154,18 +1113,18 @@ export class BeneficiaryService {
         // Run both queries in parallel for faster results
         const [approvedRes, pendingRes] = await Promise.all([
           this.db.query(
-            `SELECT phone_number as "phoneNumber", 'ADMIN' as "source"
-             FROM pending_beneficiary_approvals
-             WHERE phone_number = ANY($1)
-               AND network = 'MTN'
-               AND status = 'APPROVED'
-             UNION ALL
-             SELECT phone_number as "phoneNumber", 'CACHE' as "source"
+            `SELECT phone_number as "phoneNumber"
              FROM beneficiary_validation
              WHERE phone_number = ANY($1)
                AND network = 'MTN'
                AND validation_status IN ('VALID', 'APPROVED')
-               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+             UNION
+             SELECT phone_number as "phoneNumber"
+             FROM pending_beneficiary_approvals
+             WHERE phone_number = ANY($1)
+               AND network = 'MTN'
+               AND status = 'APPROVED'`,
             [queryPhones],
           ),
           this.db.query(
@@ -1184,75 +1143,38 @@ export class BeneficiaryService {
           ),
         ]);
 
-        const adminApprovedSet = new Set<string>();
-        const cachedApprovedSet = new Set<string>();
-
         approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            if (r.source === 'ADMIN') {
-              adminApprovedSet.add(norm);
-              adminApprovedSet.add(r.phoneNumber);
+            const isExplicitlyLiveUnapproved =
+              (norm && liveUnapprovedSet.has(norm)) ||
+              liveUnapprovedSet.has(r.phoneNumber) ||
+              (norm && upstreamOrderableMap.get(norm) === false);
+
+            if (isExplicitlyLiveUnapproved) {
+              if (norm) {
+                knownPhonesSet.delete(norm);
+                knownPhonesSet.delete(`+233${norm.slice(1)}`);
+                knownPhonesSet.delete(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, false);
+              }
+              knownPhonesSet.delete(r.phoneNumber);
             } else {
-              cachedApprovedSet.add(norm);
-              cachedApprovedSet.add(r.phoneNumber);
+              if (norm) {
+                knownPhonesSet.add(norm);
+                knownPhonesSet.add(`+233${norm.slice(1)}`);
+                knownPhonesSet.add(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, true);
+              }
+              knownPhonesSet.add(r.phoneNumber);
             }
-          }
-        });
-
-        // 1. Authoritative Admin Approvals: Explicit admin approvals MUST NEVER be overridden by live provider unapproved
-        adminApprovedSet.forEach((phone) => {
-          const norm = this.normalizeGhanaPhone(phone).normalized;
-          if (norm) {
-            liveUnapprovedSet.delete(norm);
-            liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
-            liveUnapprovedSet.delete(`233${norm.slice(1)}`);
-            knownPhonesSet.add(norm);
-            knownPhonesSet.add(`+233${norm.slice(1)}`);
-            knownPhonesSet.add(`233${norm.slice(1)}`);
-            upstreamOrderableMap.set(norm, true);
-          }
-          liveUnapprovedSet.delete(phone);
-          knownPhonesSet.add(phone);
-        });
-
-        // 2. Automated Validation Cache: Stale database records in beneficiary_validation do NOT override
-        // live telecom unapproved responses if telecom provider explicitly reported unapproved.
-        cachedApprovedSet.forEach((phone) => {
-          const norm = this.normalizeGhanaPhone(phone).normalized;
-          const isLiveUnapproved = (norm && liveUnapprovedSet.has(norm)) || liveUnapprovedSet.has(phone);
-          const isAdminApproved = (norm && adminApprovedSet.has(norm)) || adminApprovedSet.has(phone);
-
-          if (isAdminApproved) {
-            return;
-          }
-
-          if (!isLiveUnapproved) {
-            if (norm) {
-              knownPhonesSet.add(norm);
-              knownPhonesSet.add(`+233${norm.slice(1)}`);
-              knownPhonesSet.add(`233${norm.slice(1)}`);
-              upstreamOrderableMap.set(norm, true);
-            }
-            knownPhonesSet.add(phone);
-          } else {
-            if (norm) {
-              knownPhonesSet.delete(norm);
-              knownPhonesSet.delete(`+233${norm.slice(1)}`);
-              knownPhonesSet.delete(`233${norm.slice(1)}`);
-              upstreamOrderableMap.set(norm, false);
-            }
-            knownPhonesSet.delete(phone);
           }
         });
 
         pendingRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            const isApproved =
-              adminApprovedSet.has(norm) ||
-              adminApprovedSet.has(r.phoneNumber) ||
-              (knownPhonesSet.has(norm) && !liveUnapprovedSet.has(norm));
+            const isApproved = knownPhonesSet.has(norm) && !liveUnapprovedSet.has(norm);
             if (!isApproved) {
               knownPhonesSet.delete(norm);
               knownPhonesSet.delete(r.phoneNumber);

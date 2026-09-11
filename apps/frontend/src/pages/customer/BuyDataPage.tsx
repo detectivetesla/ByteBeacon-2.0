@@ -486,6 +486,9 @@ export const BuyDataPage: React.FC = () => {
         });
         if (isCancelled) return;
 
+        const result = precheckRes?.results?.[0];
+        const isEnforced = precheckRes?.enforced !== false;
+
         const detectedNet = detectGhanaianNetwork(cleaned);
         const isCarrierMismatch =
           (selectedNetwork === NetworkProvider.MTN || currentSingleBundle?.network === NetworkProvider.MTN) &&
