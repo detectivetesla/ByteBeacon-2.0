@@ -34,6 +34,13 @@ export class BeneficiaryCacheService {
     this.redis = redis;
   }
 
+  private isRedisReady(): boolean {
+    return Boolean(
+      this.redis &&
+      (!this.redis.status || this.redis.status === 'ready' || this.redis.status === 'connect')
+    );
+  }
+
   private buildKey(network: string, normalizedPhone: string): string {
     return `${this.keyPrefix}:${network.toUpperCase()}:${normalizedPhone}`;
   }
@@ -54,7 +61,7 @@ export class BeneficiaryCacheService {
     const now = Date.now();
 
     // 1. Try Redis first if available
-    if (this.redis && this.redis.status === 'ready') {
+    if (this.isRedisReady()) {
       try {
         const keys = phoneNumbers.map((p) => this.buildKey(network, p));
         const values: Array<string | null> = await (this.redis as any).mget(...keys);
@@ -144,7 +151,7 @@ export class BeneficiaryCacheService {
     }
 
     // Also persist to Redis if available
-    if (this.redis && this.redis.status === 'ready') {
+    if (this.isRedisReady()) {
       try {
         const pipeline = (this.redis as any).pipeline();
 
@@ -198,7 +205,7 @@ export class BeneficiaryCacheService {
       this.inMemoryCache.delete(this.buildKey(network, phone));
     }
 
-    if (this.redis && this.redis.status === 'ready') {
+    if (this.isRedisReady()) {
       try {
         const keys = phoneNumbers.map((p) => this.buildKey(network, p));
         await (this.redis as any).del(...keys);

@@ -732,5 +732,87 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       expect(json.success).toBe(true);
       expect(json.data.id).toBe('pba_cust_1');
     });
+
+    it('should correctly approve single number input from local database when live provider check does not have it', async () => {
+      // Mock live telecom provider returning empty / not found
+      mockTelecomProvider.precheckPublicBeneficiaries = vi.fn().mockResolvedValue({
+        network: NetworkProvider.MTN,
+        enforced: true,
+        results: [],
+      });
+
+      // Mock database having the number as VALID in beneficiary_validation
+      vi.spyOn(mockDb, 'query').mockImplementation((query: string) => {
+        if (query.includes('FROM beneficiary_validation') && query.includes("validation_status IN ('VALID', 'APPROVED')")) {
+          return Promise.resolve({
+            rows: [{ phoneNumber: '0245556677', accountName: 'Kofi Mensah' }],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/orders/beneficiaries/precheck',
+        payload: {
+          network: 'MTN',
+          phoneNumbers: ['0245556677'],
+          record: true,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      const item = json.data.results.find((r: any) => r.phone === '0245556677');
+      expect(item.valid).toBe(true);
+      expect(item.known).toBe(true);
+    });
+
+    it('should correctly preserve database approvals in bulk/Excel precheck even when bypassCache is true', async () => {
+      // Mock live telecom provider returning not found
+      mockTelecomProvider.precheckBeneficiaries = vi.fn().mockResolvedValue({
+        network: NetworkProvider.MTN,
+        enforced: true,
+        results: [],
+      });
+
+      // Mock database having 0247778899 as APPROVED in pending_beneficiary_approvals
+      vi.spyOn(mockDb, 'query').mockImplementation((query: string) => {
+        if (query.includes("validation_status IN ('VALID', 'APPROVED')") || query.includes("status = 'APPROVED'")) {
+          return Promise.resolve({
+            rows: [
+              { phoneNumber: '0247778899', accountName: null },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/beneficiaries/precheck',
+        payload: {
+          network: 'MTN',
+          phoneNumbers: ['0247778899', '0240001122'],
+          record: false,
+          bypassCache: true, // Excel verification job passes bypassCache: true
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+
+      const approvedItem = json.data.results.find((r: any) => r.phone === '0247778899');
+      expect(approvedItem.isKnown).toBe(true);
+      expect(approvedItem.status).toBe('APPROVED');
+      expect(approvedItem.orderable).toBe(true);
+
+      const unapprovedItem = json.data.results.find((r: any) => r.phone === '0240001122');
+      expect(unapprovedItem.isKnown).toBe(false);
+      expect(unapprovedItem.status).toBe('UNAPPROVED');
+      expect(unapprovedItem.orderable).toBe(false);
+    });
   });
 });

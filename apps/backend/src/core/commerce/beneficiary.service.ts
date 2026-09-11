@@ -264,11 +264,8 @@ export class BeneficiaryService {
     const providerQueriedSet = new Set<string>();
 
     // 0. Query Redis Cache first (Sub-millisecond lookup for previously verified numbers)
-    // For small interactive sets (<= 10 numbers, e.g. Single Orders), live telecom precheck
-    // must ALWAYS be performed to guarantee 100% real-time whitelist accuracy against carrier changes.
     const uncachedPhones: string[] = [];
-    const isSmallInteractiveBatch = validNormalizedPhones.length <= 10;
-    if (!bypassCache && !isSmallInteractiveBatch && this.cacheService && validNormalizedPhones.length > 0) {
+    if (!bypassCache && this.cacheService && validNormalizedPhones.length > 0) {
       try {
         const cachedMap = await this.cacheService.getCachedResults(String(net), validNormalizedPhones);
         for (const p of validNormalizedPhones) {
@@ -465,29 +462,9 @@ export class BeneficiaryService {
         ).catch(() => {});
       }
 
-      // Demote newly unapproved numbers so stale VALID rows are fixed across all phone variations
-      if (newlyUnapprovedPhones.length > 0) {
-        const uniqueNewlyUnapproved = Array.from(new Set(newlyUnapprovedPhones));
-        const allVariations = uniqueNewlyUnapproved.flatMap((p) => [
-          p,
-          `+233${p.startsWith('0') ? p.slice(1) : p}`,
-          `233${p.startsWith('0') ? p.slice(1) : p}`,
-        ]);
-        await this.db.query(
-          `UPDATE beneficiary_validation
-           SET validation_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
-           WHERE phone_number = ANY($1) AND network = 'MTN'`,
-          [allVariations],
-        ).catch(() => {});
-
-        // Invalidate stale approved cache in Redis/in-memory immediately
-        if (this.cacheService) {
-          this.cacheService.deleteCachedResults(String(net), uniqueNewlyUnapproved).catch(() => {});
-        }
-      }
     }
 
-    // 2. Database validation check: consult local beneficiary_validation and pending approvals (only if not unapproved by live check)
+    // 2. Database validation check: consult local beneficiary_validation and pending approvals
     if (validNormalizedPhones.length > 0) {
       try {
         const queryPhones = Array.from(
@@ -500,7 +477,8 @@ export class BeneficiaryService {
           ),
         );
 
-        // Check local approved records (Live telecom precheck is strictly authoritative over cache)
+        // Check local approved records: ByteBeacon database approvals (admin approvals and valid entries)
+        // are authoritative for commercial orderability.
         const approvedRes = await this.db.query(
           `SELECT phone_number as "phoneNumber", NULL as "accountName"
            FROM beneficiary_validation
@@ -516,25 +494,22 @@ export class BeneficiaryService {
              AND status = 'APPROVED'`,
           [queryPhones],
         );
+        const approvedPhonesFromDb = new Set<string>();
         approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            // Live telecom precheck is authoritative: never re-approve if live check reported unapproved
-            const wasQueriedLive = providerQueriedSet.has(norm) || providerQueriedSet.has(r.phoneNumber);
-            const isLiveUnapproved =
-              liveUnapprovedSet.has(norm) ||
-              liveUnapprovedSet.has(r.phoneNumber) ||
-              upstreamOrderableMap.get(norm) === false ||
-              (wasQueriedLive && !knownPhonesSet.has(norm)) ||
-              bypassCache;
+            const isLiveUnapproved = liveUnapprovedSet.has(norm) || liveUnapprovedSet.has(r.phoneNumber);
 
             if (isLiveUnapproved) {
               knownPhonesSet.delete(norm);
               knownPhonesSet.delete(r.phoneNumber);
-            } else if (!wasQueriedLive && !bypassCache && !isSmallInteractiveBatch) {
-              // Only allow database cache fallback for numbers that were NOT queried live to the provider
+              upstreamOrderableMap.set(norm, false);
+            } else {
+              approvedPhonesFromDb.add(norm);
+              approvedPhonesFromDb.add(r.phoneNumber);
               knownPhonesSet.add(norm);
               knownPhonesSet.add(r.phoneNumber);
+              upstreamOrderableMap.set(norm, true);
             }
           }
         });
@@ -557,15 +532,12 @@ export class BeneficiaryService {
         pendingRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            // If it's pending/rejected and not approved in approvedRes, ensure it is removed from known
-            const hasApproved = approvedRes.rows.some((ap: any) => {
-              const apNorm = this.normalizeGhanaPhone(ap.phoneNumber).normalized;
-              return apNorm === norm;
-            });
-            if (!hasApproved || liveUnapprovedSet.has(norm)) {
+            const isApproved = approvedPhonesFromDb.has(norm) || (knownPhonesSet.has(norm) && !liveUnapprovedSet.has(norm));
+            if (!isApproved) {
               knownPhonesSet.delete(norm);
               knownPhonesSet.delete(r.phoneNumber);
               upstreamOrderableMap.set(norm, false);
+              liveUnapprovedSet.add(norm);
             }
           }
         });
@@ -575,8 +547,7 @@ export class BeneficiaryService {
     }
 
     const results = parsedItems.map((item) => {
-      const isLiveUnapproved = liveUnapprovedSet.has(item.normalized) || liveUnapprovedSet.has(item.raw);
-      const isKnown = item.valid && !isLiveUnapproved ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.raw)) : false;
+      const isKnown = item.valid && !liveUnapprovedSet.has(item.normalized) && (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.raw));
       const isPortedCandidate = portedCandidatesSet.has(item.normalized) || portedCandidatesSet.has(item.raw);
 
       let isOrderable = false;
@@ -1113,22 +1084,6 @@ export class BeneficiaryService {
             [uniqueNewlyApproved],
           ).catch(() => {});
         }
-
-        // Demote unapproved numbers in local DB (fire-and-forget for speed)
-        if (newlyUnapprovedPhones.length > 0) {
-          const uniqueNewlyUnapproved = Array.from(new Set(newlyUnapprovedPhones));
-          const allVariations = uniqueNewlyUnapproved.flatMap((p) => [
-            p,
-            `+233${p.startsWith('0') ? p.slice(1) : p}`,
-            `233${p.startsWith('0') ? p.slice(1) : p}`,
-          ]);
-          this.db.query(
-            `UPDATE beneficiary_validation
-             SET validation_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
-             WHERE phone_number = ANY($1) AND network = 'MTN'`,
-            [allVariations],
-          ).catch(() => {});
-        }
       } catch {
         // Non-fatal provider error
       }
@@ -1180,21 +1135,22 @@ export class BeneficiaryService {
           ),
         ]);
 
+        const approvedPhonesFromDb = new Set<string>();
         approvedRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            // Live telecom precheck is authoritative: never re-approve if live check reported unapproved
-            const wasQueriedLive = providerQueriedSet.has(norm) || providerQueriedSet.has(r.phoneNumber);
-            const isLiveUnapproved =
-              liveUnapprovedSet.has(norm) ||
-              liveUnapprovedSet.has(r.phoneNumber) ||
-              upstreamOrderableMap.get(norm) === false ||
-              (wasQueriedLive && !knownPhonesSet.has(norm)) ||
-              bypassCache;
+            const isLiveUnapproved = liveUnapprovedSet.has(norm) || liveUnapprovedSet.has(r.phoneNumber);
 
-            if (!wasQueriedLive && !isLiveUnapproved && !bypassCache) {
+            if (isLiveUnapproved) {
+              knownPhonesSet.delete(norm);
+              knownPhonesSet.delete(r.phoneNumber);
+              upstreamOrderableMap.set(norm, false);
+            } else {
+              approvedPhonesFromDb.add(norm);
+              approvedPhonesFromDb.add(r.phoneNumber);
               knownPhonesSet.add(norm);
               knownPhonesSet.add(r.phoneNumber);
+              upstreamOrderableMap.set(norm, true);
             }
           }
         });
@@ -1202,14 +1158,12 @@ export class BeneficiaryService {
         pendingRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            const hasApproved = approvedRes.rows.some((ap: any) => {
-              const apNorm = this.normalizeGhanaPhone(ap.phoneNumber).normalized;
-              return apNorm === norm;
-            });
-            if (!hasApproved || liveUnapprovedSet.has(norm)) {
+            const isApproved = approvedPhonesFromDb.has(norm) || (knownPhonesSet.has(norm) && !liveUnapprovedSet.has(norm));
+            if (!isApproved) {
               knownPhonesSet.delete(norm);
               knownPhonesSet.delete(r.phoneNumber);
               upstreamOrderableMap.set(norm, false);
+              liveUnapprovedSet.add(norm);
             }
           }
         });
@@ -1219,32 +1173,25 @@ export class BeneficiaryService {
     }
 
     const results = uniqueItems.map((item) => {
-      const isLiveUnapproved = liveUnapprovedSet.has(item.normalized) || liveUnapprovedSet.has(item.phone);
-      const isKnown = item.valid && !isLiveUnapproved ? (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.phone)) : false;
+      const isKnown = item.valid && !liveUnapprovedSet.has(item.normalized) && (knownPhonesSet.has(item.normalized) || knownPhonesSet.has(item.phone));
       const isPortedCandidate = portedCandidatesSet.has(item.normalized) || portedCandidatesSet.has(item.phone);
 
       let isOrderable = false;
       if (upstreamOrderableMap.has(item.normalized)) {
-        isOrderable = Boolean(upstreamOrderableMap.get(item.normalized));
+        isOrderable = Boolean(upstreamOrderableMap.get(item.normalized)) && isKnown;
       } else {
         isOrderable = item.valid && isKnown && !isPortedCandidate;
       }
 
-      // Distinguish between provider-confirmed unapproved and unqueried (timeout/circuit-break)
-      const wasProviderQueried = providerQueriedSet.has(item.normalized) || providerQueriedSet.has(item.phone);
       const status = !item.valid
         ? 'REJECTED'
         : isKnown
         ? 'APPROVED'
-        : (wasProviderQueried || isLiveUnapproved)
-        ? 'UNAPPROVED'
-        : 'PENDING_VERIFICATION';
+        : 'UNAPPROVED';
       const message = !item.valid
         ? 'Invalid Ghanaian phone number format'
         : isKnown
         ? 'Validated MTN recipient'
-        : status === 'PENDING_VERIFICATION'
-        ? 'Verification pending - provider did not respond'
         : 'First-time MTN recipient - pending approval';
       return {
         phone: item.phone,
@@ -1808,6 +1755,9 @@ export class BeneficiaryService {
          WHERE phone_number = $1 AND network = $2`,
         [phone, net],
       ).catch(() => {});
+      if (this.cacheService) {
+        this.cacheService.deleteCachedResults(String(net), [phone]).catch(() => {});
+      }
       return res.rows[0];
     }
 
@@ -1824,13 +1774,20 @@ export class BeneficiaryService {
       const phone = pendingRes.rows[0].phoneNumber;
       const net = pendingRes.rows[0].network;
       await this.db.query(
-        `UPDATE beneficiary_validation
+        `INSERT INTO beneficiary_validation (
+           phone_number, network, validation_status, validated_at, expires_at, created_at, updated_at
+         )
+         VALUES ($1, $2, 'VALID', CURRENT_TIMESTAMP, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT (phone_number, network) DO UPDATE
          SET validation_status = 'VALID',
              validated_at = CURRENT_TIMESTAMP,
-             expires_at = $1
-         WHERE phone_number = $2 AND network = $3`,
-        [expiresAt, phone, net],
+             expires_at = $3,
+             updated_at = CURRENT_TIMESTAMP`,
+        [phone, net, expiresAt],
       ).catch(() => {});
+      if (this.cacheService) {
+        this.cacheService.deleteCachedResults(String(net), [phone]).catch(() => {});
+      }
       return {
         id: pendingRes.rows[0].id,
         phoneNumber: phone,

@@ -97,17 +97,17 @@ describe('BeneficiaryCacheService', () => {
     expect(mockRedis.pipeline).toHaveBeenCalled();
     expect(setexMock).toHaveBeenCalledWith(
       'bb:cache:beneficiary:MTN:0241111111',
-      86400,
+      BeneficiaryCacheService.TTL_APPROVED,
       expect.stringContaining('"status":"APPROVED"'),
     );
     expect(setexMock).toHaveBeenCalledWith(
       'bb:cache:beneficiary:MTN:0242222222',
-      3600,
+      BeneficiaryCacheService.TTL_UNAPPROVED,
       expect.stringContaining('"status":"UNAPPROVED"'),
     );
     expect(setexMock).toHaveBeenCalledWith(
       'bb:cache:beneficiary:MTN:0243333333',
-      86400,
+      BeneficiaryCacheService.TTL_REJECTED,
       expect.stringContaining('"status":"REJECTED"'),
     );
     expect(execMock).toHaveBeenCalled();
