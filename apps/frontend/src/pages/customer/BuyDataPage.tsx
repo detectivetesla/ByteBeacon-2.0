@@ -486,11 +486,14 @@ export const BuyDataPage: React.FC = () => {
         });
         if (isCancelled) return;
 
-        const result = precheckRes?.results?.[0];
-        const isEnforced = precheckRes?.enforced !== false;
+        const detectedNet = detectGhanaianNetwork(cleaned);
+        const isCarrierMismatch =
+          (selectedNetwork === NetworkProvider.MTN || currentSingleBundle?.network === NetworkProvider.MTN) &&
+          detectedNet !== 'MTN';
         const isPorted = Boolean(
           (precheckRes?.portedCandidates && precheckRes.portedCandidates.includes(cleaned)) ||
-          result?.isPorted,
+          result?.isPorted ||
+          isCarrierMismatch,
         );
         // The public precheck endpoint returns { phone, normalized, valid, known }.
         // If enforced, a recipient is only approved/orderable if strictly valid AND confirmed known by telecom provider.
@@ -513,12 +516,19 @@ export const BuyDataPage: React.FC = () => {
         let status: SingleApprovalStatus = 'UNAPPROVED';
         let msg = 'Number is not added to our MTN beneficiary list.';
 
-        if (isApproved) {
+        if (singleTreatAsPorted && isPorted) {
           status = 'APPROVED';
-          msg = 'Approved MTN Beneficiary. Ready for instant delivery.';
+          msg = `Ported recipient confirmed (${detectedNet} -> MTN). Ready for instant delivery.`;
+        } else if (isApproved) {
+          status = 'APPROVED';
+          msg = isCarrierMismatch
+            ? `Approved Ported MTN Beneficiary. Ready for instant delivery.`
+            : 'Approved MTN Beneficiary. Ready for instant delivery.';
         } else if (isPorted) {
           status = 'PORTED_CANDIDATE';
-          msg = 'Ported number detected. May require ported delivery route.';
+          msg = isCarrierMismatch
+            ? `Appears to be on ${detectedNet} rather than MTN. Tick if ported to MTN.`
+            : 'Ported number detected. May require ported delivery route.';
         } else {
           status = 'UNAPPROVED';
           msg = result?.message || 'Number is not added to our MTN beneficiary list.';
@@ -539,8 +549,8 @@ export const BuyDataPage: React.FC = () => {
         setSingleIsPortedCandidate(isPorted);
         setSingleVerifiedPhone(cleaned);
 
-        // Immediately record detected unapproved number to Pending MTN Approvals
-        if (status === 'UNAPPROVED') {
+        // Immediately record detected unapproved number to Pending MTN Approvals (exclude carrier mismatches awaiting ported confirmation)
+        if (status === 'UNAPPROVED' && !isCarrierMismatch) {
           recordSingleUnapproved(cleaned);
         }
       } catch (err: any) {
@@ -624,6 +634,13 @@ export const BuyDataPage: React.FC = () => {
           setUnapprovedModalOpen(true);
           return;
         }
+        if (singleApprovalStatus === 'PORTED_CANDIDATE') {
+          toastError(
+            'Carrier Mismatch / Ported Number',
+            `This number appears to be on ${detectedNet || 'another carrier'}. Tick "Process as Ported MTN" if it has been ported to MTN, or switch the network to ${detectedNet || 'the correct carrier'}.`,
+          );
+          return;
+        }
         if (singleApprovalStatus === 'APPROVED' || singleApprovalStatus === 'NON_MTN') {
           if (singleIsPortedCandidate && singleTreatAsPorted) {
             singleConfirmedPorted = [cleaned];
@@ -646,6 +663,22 @@ export const BuyDataPage: React.FC = () => {
       // 2. Synchronous fallback (if user clicked submit before debounce finished)
       try {
         setIsCheckingBeneficiary(true);
+
+        const isCarrierMismatch =
+          (selectedNetwork === NetworkProvider.MTN || currentSingleBundle.network === NetworkProvider.MTN) &&
+          detectedNet !== 'MTN';
+
+        if (isCarrierMismatch && !singleTreatAsPorted) {
+          setSingleApprovalStatus('PORTED_CANDIDATE');
+          setSingleApprovalMessage(`Appears to be on ${detectedNet} rather than MTN. Tick if ported to MTN.`);
+          setSingleIsPortedCandidate(true);
+          setSingleVerifiedPhone(cleaned);
+          toastError(
+            'Carrier Mismatch / Ported Number',
+            `This number appears to be on ${detectedNet || 'another carrier'}. Tick "Process as Ported MTN" if it has been ported to MTN, or switch the network to ${detectedNet || 'the correct carrier'}.`,
+          );
+          return;
+        }
         const precheckRes = await beneficiaryApi.precheckPublic({
           network: NetworkProvider.MTN,
           phoneNumbers: [cleaned],
@@ -1252,17 +1285,29 @@ export const BuyDataPage: React.FC = () => {
     const mtnRows = rows.filter((r) => {
       const isConfirmedPorted = r.isPorted || confirmedPortedNumbers.includes(r.phone);
       if (r.isCarrierMismatch && !isConfirmedPorted) return false;
+      if (isConfirmedPorted) return false;
       return r.isValid;
     });
 
     if (mtnRows.length === 0) {
       return rows.map((r) => {
         const isConfirmedPorted = r.isPorted || confirmedPortedNumbers.includes(r.phone);
-        if (r.isCarrierMismatch && !isConfirmedPorted) {
+        if (isConfirmedPorted) {
+          return {
+            ...r,
+            isValid: true,
+            isPorted: true,
+            status: 'APPROVED' as const,
+            statusReason: `Ported recipient confirmed (${r.detectedNetwork || 'Carrier'} -> ${selectedNetwork || 'MTN'})`,
+            isKnown: true,
+          };
+        }
+        if (r.isCarrierMismatch) {
           return {
             ...r,
             status: 'REJECTED' as const,
             statusReason: `Appears to be on ${r.detectedNetwork || 'different network'} rather than MTN. Tick if ported.`,
+            isKnown: false,
           };
         }
         if (!r.isValid) {
@@ -1545,12 +1590,22 @@ export const BuyDataPage: React.FC = () => {
 
     return rows.map((row) => {
       const isConfirmedPorted = row.isPorted || confirmedPortedNumbers.includes(row.phone);
-      if (row.isCarrierMismatch && !isConfirmedPorted) {
+      if (isConfirmedPorted) {
+        return {
+          ...row,
+          isValid: true,
+          isPorted: true,
+          status: 'APPROVED' as const,
+          statusReason: `Ported recipient confirmed (${row.detectedNetwork || 'Carrier'} -> ${selectedNetwork || 'MTN'})`,
+          isKnown: true,
+        };
+      }
+
+      if (row.isCarrierMismatch) {
         return {
           ...row,
           status: 'REJECTED' as const,
           statusReason: `Appears to be on ${row.detectedNetwork || 'different network'} rather than ${selectedNetwork}. Tick if ported.`,
-          isValid: false,
           isKnown: false,
         };
       }
@@ -1566,6 +1621,7 @@ export const BuyDataPage: React.FC = () => {
       if (!isMtnOrder) {
         return {
           ...row,
+          isValid: true,
           status: 'APPROVED' as const,
           statusReason: 'Direct carrier fulfillment',
           isKnown: true,
@@ -1779,8 +1835,10 @@ export const BuyDataPage: React.FC = () => {
   }, [excelParsedRows]);
 
   const carrierMismatchRows = useMemo(() => {
-    return excelParsedRows.filter((r) => r.isCarrierMismatch && !r.isPorted);
-  }, [excelParsedRows]);
+    return excelParsedRows.filter(
+      (r) => r.isCarrierMismatch && !r.isPorted && !confirmedPortedNumbers.includes(r.phone),
+    );
+  }, [excelParsedRows, confirmedPortedNumbers]);
 
   const handleToggleAllPorted = (checked: boolean) => {
     if (checked) {
@@ -1811,7 +1869,7 @@ export const BuyDataPage: React.FC = () => {
               ...r,
               isCarrierMismatch: true,
               isPorted: false,
-              isValid: false,
+              isValid: true,
               status: 'REJECTED',
               statusReason: `Appears to be on ${r.detectedNetwork || 'different network'} rather than ${selectedNetwork}. Tick if ported.`,
               isKnown: false,
@@ -1845,7 +1903,7 @@ export const BuyDataPage: React.FC = () => {
               ...r,
               isCarrierMismatch: true,
               isPorted: false,
-              isValid: false,
+              isValid: true,
               status: 'REJECTED',
               statusReason: `Appears to be on ${r.detectedNetwork || 'different network'} rather than ${selectedNetwork}. Tick if ported.`,
               isKnown: false,
@@ -2444,7 +2502,7 @@ export const BuyDataPage: React.FC = () => {
                   </div>
                 )}
 
-                {singleApprovalStatus === 'PORTED_CANDIDATE' && (
+                {(singleApprovalStatus === 'PORTED_CANDIDATE' || (singleIsPortedCandidate && singleTreatAsPorted)) && (
                   <div
                     style={{
                       padding: '0.625rem 0.75rem',
@@ -2461,14 +2519,26 @@ export const BuyDataPage: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <Info size={15} color="var(--color-brand)" />
                       <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        Ported Number Candidate
+                        {singleTreatAsPorted ? 'Ported MTN Recipient Confirmed' : 'Ported Number Candidate'}
                       </span>
                     </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: 'var(--font-size-3xs)', fontWeight: 700, cursor: 'pointer' }}>
                       <input
                         type="checkbox"
                         checked={singleTreatAsPorted}
-                        onChange={(e) => setSingleTreatAsPorted(e.target.checked)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setSingleTreatAsPorted(checked);
+                          const cleaned = singleVerifiedPhone || normalizeGhanaPhoneNumber(singlePhone);
+                          const detectedNet = detectGhanaianNetwork(cleaned);
+                          if (checked) {
+                            setSingleApprovalStatus('APPROVED');
+                            setSingleApprovalMessage(`Ported recipient confirmed (${detectedNet || 'Carrier'} -> MTN). Ready for instant delivery.`);
+                          } else {
+                            setSingleApprovalStatus('PORTED_CANDIDATE');
+                            setSingleApprovalMessage(`Appears to be on ${detectedNet || 'different network'} rather than MTN. Tick if ported to MTN.`);
+                          }
+                        }}
                       />
                       <span>Process as Ported MTN</span>
                     </label>

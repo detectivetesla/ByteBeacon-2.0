@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {
   NetworkProvider,
   ProviderStatus,
@@ -78,18 +79,33 @@ export class DataHouseMapper {
    */
   public static toDataHouseSubmitRequest(input: SubmitOrderInput): DataHouseSubmitOrderRequest {
     const bundleId = (input.metadata?.bundleId as string) || (input.metadata?.providerProductId as string) || input.orderId;
-    const volumeGb = Math.max(1, Math.round((input.dataAmountMb || 1024) / 1024));
-    const confirmedPorted = input.confirmedPorted || (input.metadata?.confirmedPorted as string[] | undefined);
-    return {
+
+    // DataHouse requires idempotencyKey to be a valid UUID v4
+    let idempotencyKey = input.idempotencyKey;
+    const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidV4Regex.test(idempotencyKey)) {
+      if (uuidV4Regex.test(input.orderId)) {
+        idempotencyKey = input.orderId;
+      } else {
+        const hash = crypto.createHash('md5').update(idempotencyKey || input.orderId).digest('hex');
+        idempotencyKey = `${hash.substring(0, 8)}-${hash.substring(8, 12)}-4${hash.substring(13, 16)}-a${hash.substring(17, 20)}-${hash.substring(20, 32)}`;
+      }
+    }
+
+    // DataHouse class-validator enforces strict whitelist on /agent/orders:
+    // Only bundleId, phoneNumber, idempotencyKey, and optional email are allowed.
+    // Fields like network, volume, dataAmountMb, confirmedPorted must not exist in this payload.
+    const req: DataHouseSubmitOrderRequest = {
       bundleId,
       phoneNumber: this.normalizePhone(input.recipientPhone),
-      idempotencyKey: input.idempotencyKey,
-      email: (input.metadata?.email as string) || undefined,
-      volume: volumeGb,
-      dataAmountMb: input.dataAmountMb,
-      network: input.network,
-      confirmedPorted: Array.isArray(confirmedPorted) ? confirmedPorted.map((p) => this.normalizePhone(p)) : undefined,
+      idempotencyKey,
     };
+
+    if (input.metadata?.email) {
+      req.email = input.metadata.email as string;
+    }
+
+    return req;
   }
 
   /**

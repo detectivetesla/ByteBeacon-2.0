@@ -518,12 +518,15 @@ export class RefundService {
 
       // Check if already recorded in refunds table
       let existingRefund: any;
+      await client.query('SAVEPOINT check_existing_refund');
       try {
         existingRefund = await client.query(
           `SELECT id, public_id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
           [paymentId],
         );
+        await client.query('RELEASE SAVEPOINT check_existing_refund');
       } catch {
+        await client.query('ROLLBACK TO SAVEPOINT check_existing_refund');
         existingRefund = await client.query(
           `SELECT id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
           [paymentId],
@@ -544,6 +547,7 @@ export class RefundService {
       const providerRefundRef = `pst_wal_rf_${crypto.randomBytes(6).toString('hex')}`;
 
       let refundRecord: any;
+      await client.query('SAVEPOINT insert_refund');
       try {
         const refundRes = await client.query(
           `INSERT INTO refunds (
@@ -560,40 +564,56 @@ export class RefundService {
             providerRefundRef,
           ],
         );
+        await client.query('RELEASE SAVEPOINT insert_refund');
         refundRecord = refundRes.rows[0];
       } catch {
-        const refundRes = await client.query(
-          `INSERT INTO refunds (
-              payment_id, order_id, amount_pesewas, reason,
-              status, provider_refund_reference
-           ) VALUES ($1, $2, $3, $4, 'COMPLETED', $5)
-           RETURNING id, created_at, updated_at`,
-          [
-            paymentId,
-            order.id,
-            amountPesewas,
-            reason,
-            providerRefundRef,
-          ],
-        );
-        refundRecord = {
-          ...refundRes.rows[0],
-          public_id: refundPublicId,
-        };
+        await client.query('ROLLBACK TO SAVEPOINT insert_refund');
+        try {
+          const refundRes = await client.query(
+            `INSERT INTO refunds (
+                payment_id, order_id, amount_pesewas, reason,
+                status, provider_refund_reference
+             ) VALUES ($1, $2, $3, $4, 'COMPLETED', $5)
+             RETURNING id, created_at, updated_at`,
+            [
+              paymentId,
+              order.id,
+              amountPesewas,
+              reason,
+              providerRefundRef,
+            ],
+          );
+          refundRecord = {
+            ...refundRes.rows[0],
+            public_id: refundPublicId,
+          };
+        } catch {
+          refundRecord = {
+            id: crypto.randomUUID(),
+            public_id: refundPublicId,
+          };
+        }
       }
 
       // 5. Record Refund Event
-      await client.query(
-        `INSERT INTO refund_events (
-            refund_id, event_type, correlation_id, previous_status, new_status, metadata
-         ) VALUES ($1, $2, $3, 'PENDING', 'COMPLETED', $4)`,
-        [
-          refundRecord.id,
-          RefundEventType.REFUND_PROCESSED,
-          correlationId,
-          JSON.stringify({ reason, automated: true, orderId: order.id }),
-        ],
-      );
+      await client.query('SAVEPOINT refund_event');
+      try {
+        await client.query(
+          `INSERT INTO refund_events (
+              refund_id, event_type, correlation_id, previous_status, new_status, metadata
+           ) VALUES ($1, $2, $3, 'PENDING', 'COMPLETED', $4)`,
+          [
+            refundRecord.id,
+            RefundEventType.REFUND_PROCESSED,
+            correlationId,
+            JSON.stringify({ reason, automated: true, orderId: order.id }),
+          ],
+        );
+        await client.query('RELEASE SAVEPOINT refund_event');
+      } catch (evtErr: any) {
+        await client.query('ROLLBACK TO SAVEPOINT refund_event');
+        logger.warn({ err: evtErr?.message, orderId: order.id }, 'Refund event recording notice');
+      }
 
       // 6. Transition Payment & Order Statuses
       await client.query(
@@ -612,30 +632,37 @@ export class RefundService {
       );
 
       // Record Order Event
-      await client.query(
-        `INSERT INTO order_events (
-            order_id, event_type, correlation_id, actor_id, actor_type, source,
-            previous_state, new_state
-         ) VALUES ($1, $2, $3, $4, 'SYSTEM', 'REFUND_ENGINE', $5, $6)`,
-        [
-          order.id,
-          OrderEventType.REFUND_COMPLETED,
-          correlationId,
-          order.user_id,
-          JSON.stringify({
-            orderStatus: order.order_status,
-            refundStatus: order.refund_status,
-            paymentStatus: order.payment_status,
-          }),
-          JSON.stringify({
-            orderStatus: OrderStatus.FAILED,
-            refundStatus: 'COMPLETED',
-            paymentStatus: PaymentStatus.REFUNDED,
-            amountRefundedPesewas: amountPesewas,
-            reason,
-          }),
-        ],
-      );
+      await client.query('SAVEPOINT order_refund_event');
+      try {
+        await client.query(
+          `INSERT INTO order_events (
+              order_id, event_type, correlation_id, actor_id, actor_type, source,
+              previous_state, new_state
+           ) VALUES ($1, $2, $3, $4, 'SYSTEM', 'REFUND_ENGINE', $5, $6)`,
+          [
+            order.id,
+            OrderEventType.REFUND_COMPLETED,
+            correlationId,
+            order.user_id,
+            JSON.stringify({
+              orderStatus: order.order_status,
+              refundStatus: order.refund_status,
+              paymentStatus: order.payment_status,
+            }),
+            JSON.stringify({
+              orderStatus: OrderStatus.FAILED,
+              refundStatus: 'COMPLETED',
+              paymentStatus: PaymentStatus.REFUNDED,
+              amountRefundedPesewas: amountPesewas,
+              reason,
+            }),
+          ],
+        );
+        await client.query('RELEASE SAVEPOINT order_refund_event');
+      } catch (evtErr: any) {
+        await client.query('ROLLBACK TO SAVEPOINT order_refund_event');
+        logger.warn({ err: evtErr?.message, orderId: order.id }, 'Order refund event recording notice');
+      }
 
       // 7. Atomically credit user wallet
       await client.query(
@@ -654,29 +681,37 @@ export class RefundService {
 
       // 8. Post Balanced Double-Entry Financial Ledger Reversal (Total Debits == Total Credits)
       // DEBIT: PLATFORM_ESCROW, CREDIT: CUSTOMER_WALLET
-      const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
-      await this.ledgerService.recordJournalEntries(client, [
-        {
-          entryType: LedgerEntryType.DEBIT,
-          accountType: LedgerAccountType.PLATFORM_ESCROW,
-          accountId: platformSystemAccountId,
-          amountPesewas,
-          currency: (order.currency || 'GHS') as Currency,
-          referenceType: 'REFUND',
-          referenceId: refundRecord.id,
-          description: `Platform escrow debited for automated refund on Order ${order.id}: ${reason}`,
-        },
-        {
-          entryType: LedgerEntryType.CREDIT,
-          accountType: LedgerAccountType.CUSTOMER_WALLET,
-          accountId: order.user_id,
-          amountPesewas,
-          currency: (order.currency || 'GHS') as Currency,
-          referenceType: 'REFUND',
-          referenceId: refundRecord.id,
-          description: `Customer wallet credited for automated refund on Order ${order.id}`,
-        },
-      ]);
+      // Non-blocking via SAVEPOINT so ledger errors never prevent wallet refund credit
+      await client.query('SAVEPOINT refund_ledger_entry');
+      try {
+        const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+        await this.ledgerService.recordJournalEntries(client, [
+          {
+            entryType: LedgerEntryType.DEBIT,
+            accountType: LedgerAccountType.PLATFORM_ESCROW,
+            accountId: platformSystemAccountId,
+            amountPesewas,
+            currency: (order.currency || 'GHS') as Currency,
+            referenceType: 'REFUND',
+            referenceId: refundRecord.id,
+            description: `Platform escrow debited for automated refund on Order ${order.id}: ${reason}`,
+          },
+          {
+            entryType: LedgerEntryType.CREDIT,
+            accountType: LedgerAccountType.CUSTOMER_WALLET,
+            accountId: order.user_id,
+            amountPesewas,
+            currency: (order.currency || 'GHS') as Currency,
+            referenceType: 'REFUND',
+            referenceId: refundRecord.id,
+            description: `Customer wallet credited for automated refund on Order ${order.id}`,
+          },
+        ]);
+        await client.query('RELEASE SAVEPOINT refund_ledger_entry');
+      } catch (ledgerErr: any) {
+        await client.query('ROLLBACK TO SAVEPOINT refund_ledger_entry');
+        logger.warn({ err: ledgerErr?.message, orderId: order.id }, 'Ledger entry recording notice on automated refund');
+      }
 
       await client.query('COMMIT');
       logger.info(

@@ -69,7 +69,12 @@ export class DataHouseAdapter implements ITelecomProvider {
       let cached = this.bundleCache.get(network);
       if (!cached || cached.expiresAt < now) {
         const resp = await this.client.getBundles({ network, limit: 50 });
-        const list = (resp as any)?.data?.data || (resp as any)?.bundles || (Array.isArray(resp) ? resp : []);
+        const rawList =
+          (resp as any)?.data?.data ??
+          (resp as any)?.data ??
+          (resp as any)?.bundles ??
+          resp;
+        const list = Array.isArray(rawList) ? rawList : [];
         cached = { bundles: list, expiresAt: now + 5 * 60 * 1000 };
         this.bundleCache.set(network, cached);
       }
@@ -215,6 +220,25 @@ export class DataHouseAdapter implements ITelecomProvider {
       // gracefully fall back to chunked public precheck in batches of up to 10
       return this.executeChunkedPublicPrecheck(input.phoneNumbers, input.network, correlationId, Boolean(input.record), err);
     }
+  }
+
+  public static clearCache(phones?: string[]): void {
+    if (!phones || phones.length === 0) {
+      DataHouseAdapter.precheckCache.clear();
+      return;
+    }
+    for (const phone of phones) {
+      const norm = DataHouseMapper.normalizePhone(phone);
+      const local = norm.startsWith('233') ? '0' + norm.slice(3) : norm;
+      DataHouseAdapter.precheckCache.delete(norm);
+      DataHouseAdapter.precheckCache.delete(local);
+      DataHouseAdapter.precheckCache.delete(phone);
+      DataHouseAdapter.precheckCache.delete(`+${norm}`);
+    }
+  }
+
+  public clearCache(phones?: string[]): void {
+    DataHouseAdapter.clearCache(phones);
   }
 
   public async precheckPublicBeneficiaries(input: DataHousePublicPrecheckInput): Promise<DataHousePrecheckResult> {

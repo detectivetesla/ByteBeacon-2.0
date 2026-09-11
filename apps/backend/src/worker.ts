@@ -14,6 +14,12 @@ import { RetryPolicy } from './core/providers/retry-policy.js';
 import { FulfillmentQueueService } from './core/providers/fulfillment-queue.service.js';
 import { FulfillmentWorker } from './core/providers/fulfillment-worker.js';
 import { ProviderReconciliationService } from './core/providers/provider-reconciliation.service.js';
+import { IPaymentProvider } from './core/payments/payment-provider.interface.js';
+import { PaystackAdapter } from './core/payments/paystack.adapter.js';
+import { MockPaymentProvider } from './providers/mocks/mock-payment.provider.js';
+import { FinancialLedgerService } from './core/payments/financial-ledger.service.js';
+import { RefundService } from './core/payments/refund.service.js';
+import { IdempotencyService } from './core/commerce/idempotency.service.js';
 import { Redis } from 'ioredis';
 import { logger } from './core/logging/logger.js';
 
@@ -98,12 +104,22 @@ export async function startWorkerProcess(): Promise<void> {
   const retryPolicy = new RetryPolicy();
 
   const fulfillmentQueue = new FulfillmentQueueService(db, redisClient, queueManager);
+
+  const paymentProvider: IPaymentProvider = process.env.PAYSTACK_SECRET_KEY
+    ? new PaystackAdapter({ secretKey: process.env.PAYSTACK_SECRET_KEY })
+    : (new MockPaymentProvider() as unknown as IPaymentProvider);
+  const ledgerService = new FinancialLedgerService(db);
+  const idempotencyService = new IdempotencyService(db);
+  const refundService = new RefundService(db, paymentProvider, ledgerService, idempotencyService);
+
   const fulfillmentWorker = new FulfillmentWorker(
     db,
     providerRegistry,
     circuitBreaker,
     retryPolicy,
     fulfillmentQueue,
+    undefined,
+    refundService,
   );
 
   const reconService = new ProviderReconciliationService(db, providerRegistry);

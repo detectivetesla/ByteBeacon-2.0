@@ -224,7 +224,7 @@ export class FulfillmentWorker {
             network: order.network,
             recipientPhone: order.recipient_phone,
             dataAmountMb: order.data_amount_mb,
-            idempotencyKey: deterministicReference,
+            idempotencyKey: order.id,
             confirmedPorted,
             metadata: {
               correlationId,
@@ -602,21 +602,28 @@ export class FulfillmentWorker {
           }
 
           const refundRef = `pst_wal_rf_${crypto.randomBytes(6).toString('hex')}`;
-          let refundId: string;
+          let refundId: string = crypto.randomUUID();
+          await client.query('SAVEPOINT fallback_refund_insert');
           try {
             const refundRes = await client.query(
               `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status, provider_refund_reference)
                VALUES ($1, $2, $3, $4, 'COMPLETED', $5) RETURNING id`,
               [paymentId, order.id, amountPesewas, reason, refundRef],
             );
-            refundId = refundRes?.rows?.[0]?.id || crypto.randomUUID();
+            await client.query('RELEASE SAVEPOINT fallback_refund_insert');
+            refundId = refundRes?.rows?.[0]?.id || refundId;
           } catch {
-            const refundRes = await client.query(
-              `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status)
-               VALUES ($1, $2, $3, $4, 'COMPLETED') RETURNING id`,
-              [paymentId, order.id, amountPesewas, reason],
-            );
-            refundId = refundRes?.rows?.[0]?.id || crypto.randomUUID();
+            await client.query('ROLLBACK TO SAVEPOINT fallback_refund_insert');
+            try {
+              const refundRes = await client.query(
+                `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status)
+                 VALUES ($1, $2, $3, $4, 'COMPLETED') RETURNING id`,
+                [paymentId, order.id, amountPesewas, reason],
+              );
+              refundId = refundRes?.rows?.[0]?.id || refundId;
+            } catch (fallbackInsertErr: any) {
+              logger.warn({ orderId, err: fallbackInsertErr?.message }, '[FULFILLMENT_WORKER] Fallback refund record insert notice');
+            }
           }
 
           await client.query(
@@ -637,23 +644,31 @@ export class FulfillmentWorker {
           );
 
           // Balanced double-entry financial ledger (Total Debits == Total Credits)
-          const transactionId = crypto.randomUUID();
-          const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
-          await client.query(
-            `INSERT INTO financial_ledger (transaction_id, entry_type, account_type, account_id, amount_pesewas, currency, reference_type, reference_id, description)
-             VALUES ($1, 'DEBIT', 'PLATFORM_ESCROW', $2, $3, $4, 'REFUND', $5, $6),
-                    ($1, 'CREDIT', 'CUSTOMER_WALLET', $7, $3, $4, 'REFUND', $5, $8)`,
-            [
-              transactionId,
-              platformSystemAccountId,
-              amountPesewas,
-              order.currency || 'GHS',
-              refundId,
-              `Platform escrow debited for automated refund on Order ${order.id}`,
-              order.user_id,
-              `Customer wallet credited for automated refund on Order ${order.id}`,
-            ],
-          );
+          // Non-blocking via SAVEPOINT so ledger errors never prevent wallet refund credit
+          await client.query('SAVEPOINT fallback_ledger_insert');
+          try {
+            const transactionId = crypto.randomUUID();
+            const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
+            await client.query(
+              `INSERT INTO financial_ledger (transaction_id, entry_type, account_type, account_id, amount_pesewas, currency, reference_type, reference_id, description)
+               VALUES ($1, 'DEBIT', 'PLATFORM_ESCROW', $2, $3, $4, 'REFUND', $5, $6),
+                      ($1, 'CREDIT', 'CUSTOMER_WALLET', $7, $3, $4, 'REFUND', $5, $8)`,
+              [
+                transactionId,
+                platformSystemAccountId,
+                amountPesewas,
+                order.currency || 'GHS',
+                refundId,
+                `Platform escrow debited for automated refund on Order ${order.id}`,
+                order.user_id,
+                `Customer wallet credited for automated refund on Order ${order.id}`,
+              ],
+            );
+            await client.query('RELEASE SAVEPOINT fallback_ledger_insert');
+          } catch (ledgerErr: any) {
+            await client.query('ROLLBACK TO SAVEPOINT fallback_ledger_insert');
+            logger.warn({ orderId, err: ledgerErr?.message }, '[FULFILLMENT_WORKER] Fallback financial ledger record notice');
+          }
 
           await client.query('COMMIT');
           refundDone = true;
