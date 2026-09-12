@@ -586,7 +586,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                 Generating a live key (<code>ak_live_...</code>) may require a one-time API access fee paid securely via Paystack. This fee gates only live-key creation — everything else works without it: placing orders, funding wallet, webhooks, and <code>ak_test_...</code> sandbox keys are always free.
               </p>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-                When active and unpaid, live-key creation returns 403 <code>live_access_not_paid</code>. Companion <code>POST /me/agent/api-access/initiate-payment</code> returns <code>{ access_granted }</code> or a Paystack <code>authorizationUrl</code>.
+                When active and unpaid, live-key creation returns 403 <code>live_access_not_paid</code>. Companion <code>POST /me/agent/api-access/initiate-payment</code> returns <code>{'{ access_granted }'}</code> or a Paystack <code>authorizationUrl</code>.
               </p>
               <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: '#10B981', marginTop: '0.75rem' }}>
 {`{
@@ -862,7 +862,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                         <td style={{ padding: '6px' }}><code>recipients</code></td>
                         <td style={{ padding: '6px' }}>array (1–1000)</td>
                         <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>Array of <code>{ phoneNumber, dataSizeGb }</code> objects</td>
+                        <td style={{ padding: '6px' }}>Array of <code>{'{ phoneNumber, dataSizeGb }'}</code> objects</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>idempotencyKey</code></td>
@@ -1167,7 +1167,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                 </h2>
               </div>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-                Inbound webhook requests include an <code>X-Telecom-Signature</code> header formatted as <code>t=&lt;unix-ts&gt;,v1=&lt;hex-sig&gt;</code>. Compute HMAC-SHA256 over <code>\${ts}.\${rawBody}</code> using your <code>whsec_...</code> secret and compare using a timing-safe equality check.
+                Inbound webhook requests include an <code>X-Telecom-Signature</code> header formatted as <code>t=&lt;unix-ts&gt;,v1=&lt;hex-sig&gt;</code>. Compute HMAC-SHA256 over <code>{'\${ts}.\${rawBody}'}</code> using your <code>whsec_...</code> secret and compare using a timing-safe equality check.
               </p>
               <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)', marginTop: '0.75rem' }}>
 {`import crypto from "node:crypto";
@@ -1202,7 +1202,7 @@ export function verifyWebhookSignature(rawBody: string, header: string, secret: 
                 </h2>
               </div>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-                The outbound webhook envelope is <code>{ id, type, created_at, data }</code>. Supported event types:
+                The outbound webhook envelope is <code>{'{ id, type, created_at, data }'}</code>. Supported event types:
               </p>
               <ul style={{ fontSize: '12px', color: 'var(--color-text-secondary)', lineHeight: 1.8 }}>
                 <li><code>order.received</code>, <code>order.processing</code>, <code>order.approved</code>, <code>order.partially_approved</code>, <code>order.rejected</code></li>
