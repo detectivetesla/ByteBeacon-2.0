@@ -80,6 +80,8 @@ export const DeveloperPortal: React.FC = () => {
   const [openapiModalOpen, setOpenapiModalOpen] = useState(false);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const isProgrammaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Authoritative Backend Base URL detection
   const backendBase = useMemo(() => {
@@ -104,12 +106,41 @@ export const DeveloperPortal: React.FC = () => {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
+  // Safely scroll ONLY the sidebar container without touching or locking window/page scroll
+  const scrollSidebarToActive = (sectionId: string) => {
+    const container = sidebarRef.current;
+    if (!container) return;
+    const activeBtn = container.querySelector(`[data-section-id="${sectionId}"]`) as HTMLElement | null;
+    if (!activeBtn) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+
+    if (btnRect.top < containerRect.top + 16) {
+      const delta = btnRect.top - containerRect.top - 20;
+      container.scrollBy({ top: delta, behavior: 'smooth' });
+    } else if (btnRect.bottom > containerRect.bottom - 16) {
+      const delta = btnRect.bottom - containerRect.bottom + 20;
+      container.scrollBy({ top: delta, behavior: 'smooth' });
+    }
+  };
+
   const scrollToSection = (id: string) => {
     setActiveSectionId(id);
     const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!element) return;
+
+    isProgrammaticScrollRef.current = true;
+    if (programmaticScrollTimerRef.current) {
+      clearTimeout(programmaticScrollTimerRef.current);
     }
+
+    scrollSidebarToActive(id);
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    programmaticScrollTimerRef.current = setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+    }, 850);
   };
 
   // Auto-scroll Documentation Index along with user scroll using IntersectionObserver
@@ -123,25 +154,26 @@ export const DeveloperPortal: React.FC = () => {
     const sectionElements = SECTIONS.map((s) => document.getElementById(s.id)).filter(Boolean) as HTMLElement[];
 
     const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          const matchedId = entry.target.id;
-          setActiveSectionId(matchedId);
+      if (isProgrammaticScrollRef.current) return;
 
-          // Smoothly auto-scroll the sidebar index button into view
-          if (sidebarRef.current) {
-            const activeBtn = sidebarRef.current.querySelector(`[data-section-id="${matchedId}"]`) as HTMLElement | null;
-            if (activeBtn) {
-              activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-          }
-        }
-      });
+      const intersecting = entries.filter((e) => e.isIntersecting);
+      if (intersecting.length > 0) {
+        // Find the section whose top boundary is closest to the 80px topbar margin
+        intersecting.sort(
+          (a, b) => Math.abs(a.boundingClientRect.top - 80) - Math.abs(b.boundingClientRect.top - 80)
+        );
+        const matchedId = intersecting[0].target.id;
+        setActiveSectionId(matchedId);
+        scrollSidebarToActive(matchedId);
+      }
     }, observerOptions);
 
     sectionElements.forEach((el) => observer.observe(el));
 
     return () => {
+      if (programmaticScrollTimerRef.current) {
+        clearTimeout(programmaticScrollTimerRef.current);
+      }
       sectionElements.forEach((el) => observer.unobserve(el));
       observer.disconnect();
     };
@@ -157,6 +189,11 @@ export const DeveloperPortal: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', padding: 'var(--space-4) var(--space-2)' }}>
+      <style>{`
+        section[id^="sec-"] {
+          scroll-margin-top: 84px;
+        }
+      `}</style>
       {/* 1. Header & Hero */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
         <div>

@@ -696,7 +696,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           display: 'flex',
           flexDirection: 'column',
           minWidth: 0,
-          overflowX: 'hidden',
+          overflowX: 'clip',
           background: 'var(--gradient-portal-mesh, var(--gradient-portal-bg, var(--color-bg-base)))',
           backgroundAttachment: 'fixed',
         }}
@@ -1210,7 +1210,6 @@ export const AppShell: React.FC<AppShellProps> = ({
           style={{
             flex: 1,
             padding: 'var(--space-page-y, var(--space-6)) var(--space-page-x, var(--space-6))',
-            overflowY: 'auto',
             background: 'transparent',
           }}
         >
