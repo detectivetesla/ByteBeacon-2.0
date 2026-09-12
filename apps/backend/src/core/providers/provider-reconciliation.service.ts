@@ -114,7 +114,7 @@ export class ProviderReconciliationService {
             );
             if (orderInfo.rows.length > 0) {
               const ord = orderInfo.rows[0];
-              if (ord.payment_status === 'PAID' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+              if (ord.payment_status === 'PAID' && ord.refund_status !== 'COMPLETED' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
                 const refundAmt = Number(ord.amount_pesewas);
                 await this.db.query(
                   `UPDATE users
@@ -161,8 +161,78 @@ export class ProviderReconciliationService {
             actionTaken: `Updated local status from ${row.providerStatus} to ${actualStatus.providerStatus} via ${orderProvider.providerName}`,
           });
         }
-      } catch (err) {
-        logger.error({ err, orderId: row.orderId, providerName: orderProvider.providerName }, 'Error polling provider during reconciliation');
+      } catch (err: any) {
+        if (
+          err?.statusCode === 404 ||
+          err?.code === 'NOT_FOUND' ||
+          err?.message?.toLowerCase().includes('not found') ||
+          err?.message?.toLowerCase().includes('does not exist')
+        ) {
+          logger.warn(
+            { orderId: row.orderId, providerReference: row.providerReference, providerName: orderProvider.providerName },
+            'Order not found at upstream provider during reconciliation; marking local record as FAILED and resolving refund if applicable',
+          );
+          await this.db.query(
+            `UPDATE provider_orders
+             SET provider_status = 'FAILED',
+                 last_synced_at = CURRENT_TIMESTAMP,
+                 sync_version = sync_version + 1
+             WHERE id = $1`,
+            [row.id],
+          );
+
+          await this.db.query(
+            `UPDATE orders
+             SET order_status = 'FAILED',
+                 provider_status = 'FAILED',
+                 failure_reason = COALESCE(failure_reason, 'Order not found at upstream provider during reconciliation'),
+                 refund_status = CASE WHEN payment_status = 'PAID' AND refund_status != 'COMPLETED' THEN 'COMPLETED' ELSE refund_status END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [row.orderId],
+          );
+
+          const orderInfo = await this.db.query(
+            `SELECT user_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
+            [row.orderId],
+          );
+          if (orderInfo.rows.length > 0) {
+            const ord = orderInfo.rows[0];
+            if (ord.payment_status === 'PAID' && ord.refund_status !== 'COMPLETED' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+              const refundAmt = Number(ord.amount_pesewas);
+              await this.db.query(
+                `UPDATE users
+                 SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+                     wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $2`,
+                [refundAmt, ord.user_id],
+              );
+              await this.db.query(
+                `INSERT INTO financial_ledger (
+                    transaction_id, entry_type, account_type, account_id,
+                    amount_pesewas, currency, reference_type, reference_id,
+                    description
+                 ) VALUES (
+                    uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
+                    $2, 'GHS', 'ORDER_REFUND', $3,
+                    $4
+                 )`,
+                [ord.user_id, refundAmt, row.orderId, `Automated refund on reconciliation 404 [${row.orderId}]`],
+              ).catch(() => {});
+            }
+          }
+
+          discrepancies.push({
+            orderId: row.orderId,
+            providerReference: row.providerReference,
+            localStatus: row.providerStatus,
+            actualProviderStatus: ProviderStatus.FAILED,
+            actionTaken: `Order not found on upstream provider; marked as FAILED and credited refund if eligible`,
+          });
+        } else {
+          logger.error({ err, orderId: row.orderId, providerName: orderProvider.providerName }, 'Error polling provider during reconciliation');
+        }
       }
     }
 
@@ -304,7 +374,7 @@ export class ProviderReconciliationService {
       );
       if (orderInfo.rows.length > 0) {
         const ord = orderInfo.rows[0];
-        if (ord.payment_status === 'PAID' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+        if (ord.payment_status === 'PAID' && ord.refund_status !== 'COMPLETED' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
           const refundAmt = Number(ord.amount_pesewas);
           await this.db.query(
             `UPDATE users

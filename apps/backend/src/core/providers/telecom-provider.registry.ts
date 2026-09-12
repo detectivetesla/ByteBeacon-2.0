@@ -322,10 +322,13 @@ export class TelecomProviderRegistry implements ITelecomProvider {
         }
       }
 
-      // If no provider had is_authoritative = TRUE in DB, fall back to first active DB provider or env var
-      if (!foundAuthoritativeInDb && provRes.rows.length > 0) {
-        const envAuthoritative = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
-        const fallbackName = envAuthoritative || provRes.rows[0].name;
+      // If AUTHORITATIVE_PROVIDER is explicitly set via environment variable, enforce it over database defaults
+      const envAuthoritative = (process.env.AUTHORITATIVE_PROVIDER || '').trim();
+      if (envAuthoritative) {
+        this.setActiveProvider(envAuthoritative);
+        logger.info({ activeProvider: this.activeProviderName }, '[TELECOM_REGISTRY] Authoritative provider enforced from AUTHORITATIVE_PROVIDER env var');
+      } else if (!foundAuthoritativeInDb && provRes.rows.length > 0) {
+        const fallbackName = provRes.rows[0].name;
         this.setActiveProvider(fallbackName);
       }
 
@@ -338,7 +341,11 @@ export class TelecomProviderRegistry implements ITelecomProvider {
 
       for (const r of routingRes.rows) {
         if (r.primaryProviderName) {
-          this.setNetworkRouting(r.networkCode, r.primaryProviderName, r.fallbackProviderName || undefined);
+          if (envAuthoritative) {
+            this.setNetworkRouting(r.networkCode, this.activeProviderName, r.fallbackProviderName || undefined);
+          } else {
+            this.setNetworkRouting(r.networkCode, r.primaryProviderName, r.fallbackProviderName || undefined);
+          }
         }
       }
 

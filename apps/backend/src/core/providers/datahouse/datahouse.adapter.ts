@@ -6,6 +6,7 @@ import {
   SubmitOrderResult,
   GetOrderStatusInput,
   ProviderOrderStatus,
+  ProviderStatus,
   ValidateBeneficiaryInput,
   BeneficiaryValidationResult,
   DataHouseAgentProfileDto,
@@ -31,6 +32,7 @@ import {
   SandboxTransactionTestResult,
 } from '@bytebeacon/shared';
 import { DataHouseClient } from './datahouse.client.js';
+import { DataHouseError } from './datahouse.errors.js';
 import { DataHouseMapper } from './datahouse.mapper.js';
 import {
   DataHouseApiAccessStatus,
@@ -169,14 +171,56 @@ export class DataHouseAdapter implements ITelecomProvider {
 
   public async getOrderStatus(input: GetOrderStatusInput): Promise<ProviderOrderStatus> {
     const correlationId = `dh_status_${input.providerReference}`;
-    const dhResp = await this.client.getOrderStatus(input.providerReference, correlationId);
-    return DataHouseMapper.toProviderOrderStatus(dhResp);
+    try {
+      const dhResp = await this.client.getOrderStatus(input.providerReference, correlationId);
+      return DataHouseMapper.toProviderOrderStatus(dhResp);
+    } catch (err: any) {
+      if (
+        (err instanceof DataHouseError && (err.statusCode === 404 || err.code === 'NOT_FOUND')) ||
+        err?.statusCode === 404 ||
+        err?.code === 'NOT_FOUND' ||
+        err?.message?.toLowerCase().includes('not found')
+      ) {
+        return {
+          providerOrderId: input.providerReference,
+          providerReference: input.providerReference,
+          providerStatus: ProviderStatus.FAILED,
+          completedAt: null,
+          errorMessage: 'Order not found at upstream provider',
+          rawResponse: { error: err?.message || 'Order not found', statusCode: 404, code: err?.code || 'NOT_FOUND' },
+        };
+      }
+      throw err;
+    }
   }
 
   public async getOrderDetails(orderIdOrReference: string): Promise<DataHouseOrderDetailsDto> {
     const correlationId = `dh_details_${orderIdOrReference}`;
-    const dhResp = await this.client.getOrderStatus(orderIdOrReference, correlationId);
-    return DataHouseMapper.toOrderDetailsDto(dhResp);
+    try {
+      const dhResp = await this.client.getOrderStatus(orderIdOrReference, correlationId);
+      return DataHouseMapper.toOrderDetailsDto(dhResp);
+    } catch (err: any) {
+      if (
+        (err instanceof DataHouseError && (err.statusCode === 404 || err.code === 'NOT_FOUND')) ||
+        err?.statusCode === 404 ||
+        err?.code === 'NOT_FOUND' ||
+        err?.message?.toLowerCase().includes('not found')
+      ) {
+        return {
+          id: orderIdOrReference,
+          publicId: orderIdOrReference,
+          status: 'failed',
+          beneficiaryCount: 1,
+          totalAmount: 0,
+          deliveredCount: 0,
+          pendingCount: 0,
+          failedCount: 1,
+          delivery: { approved: 0, pending: 0, failed: 1, total: 1 },
+          beneficiaries: [],
+        } as any;
+      }
+      throw err;
+    }
   }
 
   public async listOrders(params: any = {}): Promise<DataHouseOrdersListDto> {
