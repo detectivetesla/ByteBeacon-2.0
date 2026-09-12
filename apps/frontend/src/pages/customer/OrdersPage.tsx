@@ -115,6 +115,21 @@ export const OrdersPage: React.FC = () => {
     fetchOrders();
   }, [fetchOrders]);
 
+  // Real-time synchronization: refresh orders when orders or wallet are updated
+  useEffect(() => {
+    const handleUpdate = () => {
+      fetchOrders();
+    };
+    window.addEventListener('order-created', handleUpdate);
+    window.addEventListener('orders-updated', handleUpdate);
+    window.addEventListener('wallet-updated', handleUpdate);
+    return () => {
+      window.removeEventListener('order-created', handleUpdate);
+      window.removeEventListener('orders-updated', handleUpdate);
+      window.removeEventListener('wallet-updated', handleUpdate);
+    };
+  }, [fetchOrders]);
+
   // Reset to page 1 whenever filters change
   useEffect(() => {
     setCurrentPage(1);

@@ -212,33 +212,74 @@ export async function agentRoutes(
       const isMtn = /^(?:\+233|0)(?:24|25|54|55|59)\d{7}$/.test(cleanPhone);
 
       if (isMtn && !isSandbox) {
-        const validatedCheck = await db.query(
-          `SELECT 1 FROM beneficiary_validation
-           WHERE (phone_number = $1 OR phone_number = $2)
-             AND network = 'MTN'
-             AND validation_status = 'VALID'
-             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-           UNION
-           SELECT 1 FROM orders
-           WHERE (recipient_phone = $1 OR recipient_phone = $2)
-             AND network = 'MTN'
-             AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED')
-           LIMIT 1`,
-          [normalizedLocal, `+233${normalizedLocal.slice(1)}`],
+        const queryPhones = Array.from(
+          new Set([
+            normalizedLocal,
+            `+233${normalizedLocal.slice(1)}`,
+            `233${normalizedLocal.slice(1)}`,
+            cleanPhone,
+          ].filter(Boolean)),
         );
 
-        if (validatedCheck.rows.length === 0) {
-          let bundleSizeGb: number | null = null;
-          try {
-            const bundleRes = await db.query(
-              `SELECT data_amount_mb FROM catalog_products WHERE id = $1 LIMIT 1`,
-              [bundleId],
-            );
-            if (bundleRes.rows[0]?.data_amount_mb) {
-              bundleSizeGb = Math.round((bundleRes.rows[0].data_amount_mb / 1024) * 100) / 100;
-            }
-          } catch {}
+        let bundleSizeGb: number | null = null;
+        try {
+          const bundleRes = await db.query(
+            `SELECT data_amount_mb FROM catalog_products WHERE id = $1 LIMIT 1`,
+            [bundleId],
+          );
+          if (bundleRes.rows[0]?.data_amount_mb) {
+            bundleSizeGb = Math.round((bundleRes.rows[0].data_amount_mb / 1024) * 100) / 100;
+          }
+        } catch {}
 
+        const validatedCheck = await db.query(
+          `SELECT 1 FROM beneficiary_validation
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND validation_status IN ('VALID', 'APPROVED')
+             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+           UNION
+           SELECT 1 FROM pending_beneficiary_approvals
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND status = 'APPROVED'
+           UNION
+           SELECT 1 FROM orders
+           WHERE recipient_phone = ANY($1)
+             AND network = 'MTN'
+             AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
+           LIMIT 1`,
+          [queryPhones],
+        );
+
+        if (validatedCheck.rows.length === 0 && beneficiaryService) {
+          try {
+            const liveCheck = await beneficiaryService.precheckPublicBeneficiaries({
+              network: NetworkProvider.MTN,
+              phoneNumbers: [normalizedLocal],
+              record: false,
+              userId: req.user?.sub,
+            });
+            const firstResult = liveCheck.results?.[0];
+            if (firstResult && (firstResult.known || firstResult.isKnown || firstResult.status === 'APPROVED')) {
+              await db.query(
+                `INSERT INTO beneficiary_validation (
+                    phone_number, network, validation_status, attempt_count,
+                    last_bundle_size_gb, agent_id, created_at, updated_at
+                 ) VALUES ($1, 'MTN', 'VALID', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                 ON CONFLICT (phone_number, network) DO UPDATE
+                 SET validation_status = 'VALID',
+                     updated_at = CURRENT_TIMESTAMP`,
+                [normalizedLocal, bundleSizeGb, req.user?.sub],
+              ).catch(() => {});
+              validatedCheck.rows.push({ dummy: 1 } as any);
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        if (validatedCheck.rows.length === 0) {
           await db.query(
             `INSERT INTO pending_beneficiary_approvals (
                 phone_number, network, agent_id, status, attempt_count,

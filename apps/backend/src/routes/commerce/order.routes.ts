@@ -148,27 +148,66 @@ export async function orderRoutes(
       );
 
       if ((prodNetwork === 'MTN' || prodNetwork === NetworkProvider.MTN) && !isConfirmedPorted) {
+        const queryPhones = Array.from(
+          new Set([
+            normalizedLocal,
+            `+233${normalizedLocal.slice(1)}`,
+            `233${normalizedLocal.slice(1)}`,
+            cleanPhone,
+            recipientPhone,
+          ].filter(Boolean)),
+        );
+
         const validatedCheck = await Promise.resolve(
           db.query(
             `SELECT 1 FROM beneficiary_validation
-              WHERE phone_number = $1
+              WHERE phone_number = ANY($1)
                 AND network = 'MTN'
-                AND validation_status = 'VALID'
+                AND validation_status IN ('VALID', 'APPROVED')
                 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
               UNION
               SELECT 1 FROM pending_beneficiary_approvals
-              WHERE (phone_number = $1 OR phone_number = $2)
+              WHERE phone_number = ANY($1)
                 AND network = 'MTN'
                 AND status = 'APPROVED'
               UNION
               SELECT 1 FROM orders
-              WHERE (recipient_phone = $1 OR recipient_phone = $2)
+              WHERE recipient_phone = ANY($1)
                 AND network = 'MTN'
                 AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
               LIMIT 1`,
-            [normalizedLocal, `+233${normalizedLocal.slice(1)}`],
+            [queryPhones],
           ),
         ).catch(() => ({ rows: [{ dummy: 1 }] })); // fallback gracefully if query fails
+
+        if (validatedCheck.rows.length === 0 && beneficiaryService) {
+          try {
+            const liveCheck = await beneficiaryService.precheckPublicBeneficiaries({
+              network: NetworkProvider.MTN,
+              phoneNumbers: [normalizedLocal],
+              record: false,
+              userId: req.user?.sub,
+            });
+            const firstResult = liveCheck.results?.[0];
+            if (firstResult && (firstResult.known || firstResult.isKnown || firstResult.status === 'APPROVED')) {
+              await Promise.resolve(
+                db.query(
+                  `INSERT INTO beneficiary_validation (
+                      phone_number, network, validation_status, attempt_count,
+                      last_bundle_size_gb, agent_id, created_at, updated_at
+                   ) VALUES ($1, 'MTN', 'VALID', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                   ON CONFLICT (phone_number, network) DO UPDATE
+                   SET validation_status = 'VALID',
+                       updated_at = CURRENT_TIMESTAMP`,
+                  [normalizedLocal, bundleSizeGb, req.user?.sub],
+                ),
+              ).catch(() => {});
+              validatedCheck.rows.push({ dummy: 1 } as any);
+            }
+          } catch {
+            // ignore
+          }
+        }
 
         if (validatedCheck.rows.length === 0) {
           await Promise.resolve(

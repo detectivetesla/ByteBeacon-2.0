@@ -121,6 +121,20 @@ export const AdminOrdersPage: React.FC = () => {
     fetchOrders();
   }, [fetchOrders]);
 
+  // Real-time synchronization: refresh admin orders when orders are updated
+  useEffect(() => {
+    const handleUpdate = () => {
+      fetchOrders();
+      fetchStats();
+    };
+    window.addEventListener('order-created', handleUpdate);
+    window.addEventListener('orders-updated', handleUpdate);
+    return () => {
+      window.removeEventListener('order-created', handleUpdate);
+      window.removeEventListener('orders-updated', handleUpdate);
+    };
+  }, [fetchOrders, fetchStats]);
+
   // Fetch individual order detail
   const fetchOrderDetail = useCallback(async (id: string) => {
     setIsLoadingDetail(true);

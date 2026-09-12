@@ -500,20 +500,24 @@ export const BuyDataPage: React.FC = () => {
         );
         // The public precheck endpoint returns { phone, normalized, valid, known }.
         // If enforced, a recipient is only approved/orderable if strictly valid AND confirmed known by telecom provider.
-        const isKnownApproved = Boolean(result?.known && result?.valid);
+        const isKnownApproved = Boolean(
+          (result?.known || result?.isKnown || result?.status === 'APPROVED') &&
+          (result?.valid || result?.isValid !== false)
+        );
         const isOrderable =
-          result?.orderable !== undefined
+          result?.status === 'APPROVED'
+            ? true
+            : result?.orderable !== undefined
             ? result.orderable
             : isEnforced
             ? isKnownApproved
-            : Boolean(result?.valid);
+            : Boolean(result?.valid || result?.isValid !== false);
 
         const isApproved = Boolean(
           result &&
           isOrderable &&
           isKnownApproved &&
-          result.status !== 'UNAPPROVED' &&
-          result.status !== 'PENDING',
+          (result.status === 'APPROVED' || (result.status !== 'UNAPPROVED' && result.status !== 'PENDING')),
         );
 
         let status: SingleApprovalStatus = 'UNAPPROVED';
@@ -699,12 +703,15 @@ export const BuyDataPage: React.FC = () => {
           singleConfirmedPorted = precheckRes.portedCandidates;
         }
 
+        const isExplicitApproved = result?.status === 'APPROVED';
         const isUnapproved =
           !result ||
-          !isOrderable ||
-          !result.known ||
-          result.status === 'UNAPPROVED' ||
-          result.status === 'PENDING';
+          (!isExplicitApproved && (
+            !isOrderable ||
+            !(result.known || result.isKnown) ||
+            result.status === 'UNAPPROVED' ||
+            result.status === 'PENDING'
+          ));
 
         const cacheKey = `${selectedNetwork}:${cleaned}`;
         const finalStatus: SingleApprovalStatus = isUnapproved ? 'UNAPPROVED' : 'APPROVED';
@@ -843,15 +850,19 @@ export const BuyDataPage: React.FC = () => {
           approvedPhones = new Set<string>();
           for (const result of precheckRes.results) {
             const phone = result.normalized || result.phone || result.phoneNumber || '';
+            const isExplicitApproved = result.status === 'APPROVED';
             const isOrderable =
-              result.orderable !== undefined
+              isExplicitApproved
+                ? true
+                : result.orderable !== undefined
                 ? result.orderable
-                : Boolean(result.known && result.valid);
+                : Boolean((result.known || result.isKnown) && (result.valid || result.isValid !== false));
             const isUnapproved =
-              !isOrderable ||
-              !result.known ||
+              !isExplicitApproved &&
+              (!isOrderable ||
+              !(result.known || result.isKnown) ||
               result.status === 'UNAPPROVED' ||
-              result.status === 'PENDING';
+              result.status === 'PENDING');
 
             if (isUnapproved) {
               unapprovedBulkNumbers.push(phone);
@@ -1091,15 +1102,19 @@ export const BuyDataPage: React.FC = () => {
           approvedPhones = new Set<string>();
           for (const result of precheckRes.results) {
             const phone = result.normalized || result.phone || result.phoneNumber || '';
+            const isExplicitApproved = result.status === 'APPROVED';
             const isOrderable =
-              result.orderable !== undefined
+              isExplicitApproved
+                ? true
+                : result.orderable !== undefined
                 ? result.orderable
-                : Boolean(result.known && result.valid);
+                : Boolean((result.known || result.isKnown) && (result.valid || result.isValid !== false));
             const isUnapproved =
-              !isOrderable ||
-              !result.known ||
+              !isExplicitApproved &&
+              (!isOrderable ||
+              !(result.known || result.isKnown) ||
               result.status === 'UNAPPROVED' ||
-              result.status === 'PENDING';
+              result.status === 'PENDING');
 
             if (isUnapproved) {
               unapprovedFreeNumbers.push(phone);
@@ -1352,25 +1367,31 @@ export const BuyDataPage: React.FC = () => {
       ].filter(Boolean);
 
       const status = String(item.status || '').toUpperCase();
-      const isInvalid = status === 'REJECTED' || item.valid === false;
+      const isInvalid = status === 'REJECTED' || item.valid === false || item.isValid === false;
       const isExplicitApproved = status === 'APPROVED';
       const isKnown = item.known === true || item.isKnown === true;
       const isOrderable = item.orderable !== false;
       const isExplicitUnapproved =
         status === 'UNAPPROVED' ||
         status === 'PENDING' ||
-        item.known === false ||
-        item.isKnown === false ||
-        item.orderable === false;
+        item.orderable === false ||
+        (!isExplicitApproved && (item.known === false || item.isKnown === false));
 
       if (isInvalid) {
         const reason = item.message || 'Invalid recipient number';
         variations.forEach((v) => rejectedMap.set(v, reason));
-      } else if ((isExplicitApproved || isKnown) && !isExplicitUnapproved && isOrderable) {
-        variations.forEach((v) => knownSet.add(v));
+      } else if (isExplicitApproved || (isKnown && !isExplicitUnapproved && isOrderable)) {
+        variations.forEach((v) => {
+          knownSet.add(v);
+          unapprovedSet.delete(v);
+        });
       } else {
         // UNAPPROVED, PENDING_VERIFICATION, PROVIDER_ERROR, or unknown → unapproved
-        variations.forEach((v) => unapprovedSet.add(v));
+        variations.forEach((v) => {
+          if (!knownSet.has(v)) {
+            unapprovedSet.add(v);
+          }
+        });
       }
     };
 
@@ -1650,18 +1671,11 @@ export const BuyDataPage: React.FC = () => {
         };
       }
 
-      const isExplicitlyUnapproved =
-        unapprovedSet.has(normRowPhone) ||
-        unapprovedSet.has(row.phone) ||
-        unapprovedSet.has(`+233${normRowPhone.slice(1)}`) ||
-        unapprovedSet.has(`233${normRowPhone.slice(1)}`);
-
       const isKnown =
-        !isExplicitlyUnapproved &&
-        (knownSet.has(normRowPhone) ||
-          knownSet.has(row.phone) ||
-          knownSet.has(`+233${normRowPhone.slice(1)}`) ||
-          knownSet.has(`233${normRowPhone.slice(1)}`));
+        knownSet.has(normRowPhone) ||
+        knownSet.has(row.phone) ||
+        knownSet.has(`+233${normRowPhone.slice(1)}`) ||
+        knownSet.has(`233${normRowPhone.slice(1)}`);
 
       if (isKnown) {
         return {

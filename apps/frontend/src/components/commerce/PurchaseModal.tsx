@@ -421,9 +421,12 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
 
         const items: any[] = res?.results || res?.data?.results || [];
         for (const item of items) {
+          const isExplicitlyApproved = item.status === 'APPROVED';
           const isExplicitlyUnapproved =
-            item.status === 'UNAPPROVED' || item.status === 'PENDING';
-          const isOrderable = isExplicitlyUnapproved
+            !isExplicitlyApproved && (item.status === 'UNAPPROVED' || item.status === 'PENDING');
+          const isOrderable = isExplicitlyApproved
+            ? true
+            : isExplicitlyUnapproved
             ? false
             : item.orderable !== undefined
             ? item.orderable
