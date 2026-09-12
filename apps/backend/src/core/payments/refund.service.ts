@@ -487,7 +487,7 @@ export class RefundService {
       let payRes = await client.query(
         `SELECT id, provider_reference, amount_pesewas, currency, status, provider, payment_method
          FROM payments
-         WHERE order_id = $1 AND status = 'PAID'
+         WHERE order_id = $1
          ORDER BY created_at DESC
          LIMIT 1
          FOR UPDATE`,
@@ -496,22 +496,34 @@ export class RefundService {
 
       let paymentId: string;
       if (payRes.rows.length === 0) {
-        // Create an explicit internal payment record to link the refund
-        const fallbackPaymentRes = await client.query(
-          `INSERT INTO payments (
-              order_id, user_id, amount_pesewas, currency, provider,
-              provider_reference, payment_method, status, paid_at
-           ) VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'PAID', CURRENT_TIMESTAMP)
-           RETURNING id`,
-          [
-            order.id,
-            order.user_id,
-            amountPesewas,
-            order.currency || 'GHS',
-            `pst_wal_${order.public_id || order.id}`,
-          ],
-        );
-        paymentId = fallbackPaymentRes.rows[0].id;
+        // Create an explicit internal payment record to link the refund with unique reference
+        const uniqueProviderRef = `pst_wal_${order.public_id || order.id}_${crypto.randomBytes(4).toString('hex')}`;
+        await client.query('SAVEPOINT fallback_payment_insert');
+        try {
+          const fallbackPaymentRes = await client.query(
+            `INSERT INTO payments (
+                order_id, user_id, amount_pesewas, currency, provider,
+                provider_reference, payment_method, status, paid_at
+             ) VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'PAID', CURRENT_TIMESTAMP)
+             RETURNING id`,
+            [
+              order.id,
+              order.user_id,
+              amountPesewas,
+              order.currency || 'GHS',
+              uniqueProviderRef,
+            ],
+          );
+          await client.query('RELEASE SAVEPOINT fallback_payment_insert');
+          paymentId = fallbackPaymentRes.rows[0].id;
+        } catch {
+          await client.query('ROLLBACK TO SAVEPOINT fallback_payment_insert');
+          const anyPay = await client.query(
+            `SELECT id FROM payments WHERE order_id = $1 LIMIT 1`,
+            [order.id],
+          );
+          paymentId = anyPay.rows[0]?.id || crypto.randomUUID();
+        }
       } else {
         paymentId = payRes.rows[0].id;
       }
@@ -616,10 +628,16 @@ export class RefundService {
       }
 
       // 6. Transition Payment & Order Statuses
-      await client.query(
-        `UPDATE payments SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-        [PaymentStatus.REFUNDED, paymentId],
-      );
+      await client.query('SAVEPOINT payment_refund_status');
+      try {
+        await client.query(
+          `UPDATE payments SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [PaymentStatus.REFUNDED, paymentId],
+        );
+        await client.query('RELEASE SAVEPOINT payment_refund_status');
+      } catch {
+        await client.query('ROLLBACK TO SAVEPOINT payment_refund_status');
+      }
 
       await client.query(
         `UPDATE orders

@@ -1064,7 +1064,7 @@ export class OrderService {
       // Continue with provided ID
     }
 
-    const conditions: string[] = ['(o.agent_id = $1 OR o.user_id = $2)'];
+    const conditions: string[] = ['(o.agent_id = $1 OR o.user_id = $2 OR o.agent_id = $2 OR o.user_id = $1)'];
     const queryParams: any[] = [agentId, userId];
     let paramIdx = 3;
 
@@ -1242,7 +1242,7 @@ export class OrderService {
       LEFT JOIN provider_orders po ON o.id = po.order_id
       LEFT JOIN bulk_submission_items bsi ON o.id = bsi.order_id
       WHERE (${isUuid ? 'o.id = $1' : 'o.public_id = $1 OR po.provider_reference = $1'})
-        AND (o.agent_id = $2 OR o.user_id = $3)
+        AND (o.agent_id = $2 OR o.user_id = $3 OR o.agent_id = $3 OR o.user_id = $2)
       LIMIT 1
     `;
 

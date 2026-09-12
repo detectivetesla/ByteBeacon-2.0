@@ -55,14 +55,42 @@ export class DataHouseAdapter implements ITelecomProvider {
     return DataHouseMapper.toAgentProfileDto(profile);
   }
 
+  private static readonly STANDARD_BUNDLE_UUIDS: Record<string, Record<string, string>> = {
+    MTN: {
+      '1': '664d7895-c6aa-4a0a-b028-e0aa6ef26de1',
+      '2': '2fe79d77-818e-436c-b00f-24859f2a7c70',
+      '3': '381b4fb9-3d5e-4592-94e5-2cfdee3f50fe',
+      '4': 'bbd1a24e-6e58-4286-a99b-974275cae22f',
+      '5': 'c1358098-e638-4be4-880c-8c627918976d',
+      '6': '2bdb2c42-b4b7-4917-8f77-a55594a2e638',
+      '7': '6de289d0-1e48-42f0-bdee-4638c3a15226',
+      '8': 'bb1ef267-7f8e-490d-9f2d-0788ed340a1f',
+      '10': '19c56179-e4b3-4d9a-8a09-a6241b14452b',
+      '12': 'a7d637a2-deee-44ed-ba6d-a957a4567ce8',
+      '15': 'eed10737-44a4-4546-8be0-8738dc1bbe44',
+      '20': '2be42889-deac-4f8d-a3ea-e1ae368a0551',
+      '25': 'bfcabe60-c1fa-46fb-8ef3-ea6822a4dae3',
+      '30': 'e0604ffe-0c19-4e74-9091-60c5f4deddc1',
+      '40': 'd3e2deaf-31a1-4122-9f1b-da15b5e38637',
+      '50': 'feca870e-95e2-436a-8cfc-39375575717c',
+      '100': '06bd81ef-98bc-4b60-983b-9976f9eb7acd',
+    },
+  };
+
   private bundleCache: Map<string, { bundles: any[]; expiresAt: number }> = new Map();
   private static precheckCache: Map<string, { result: any; isKnown: boolean; timestamp: number }> = new Map();
 
   private async resolveBundleId(input: SubmitOrderInput): Promise<string | undefined> {
     const rawBundleId = (input.metadata?.bundleId as string) || (input.metadata?.providerProductId as string);
-    const network = input.network;
+    const network = String(input.network || 'MTN').toUpperCase();
     const targetMb = input.dataAmountMb || 1024;
     const targetGb = Math.max(1, Math.round(targetMb / 1024));
+
+    const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    // If already a valid UUID, use directly
+    if (rawBundleId && uuidV4Regex.test(rawBundleId)) {
+      return rawBundleId;
+    }
 
     try {
       const now = Date.now();
@@ -100,6 +128,12 @@ export class DataHouseAdapter implements ITelecomProvider {
       }
     } catch {
       // Fallback
+    }
+
+    // Static catalog fallback by network and volume
+    const staticMap = DataHouseAdapter.STANDARD_BUNDLE_UUIDS[network];
+    if (staticMap && staticMap[String(targetGb)]) {
+      return staticMap[String(targetGb)];
     }
 
     return rawBundleId;

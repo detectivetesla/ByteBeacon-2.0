@@ -35,7 +35,7 @@ export const AgentOrdersPage: React.FC = () => {
   // Filters State
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [paymentFilter, setPaymentFilter] = useState<string>('ALL');
-  const [dateRange, setDateRange] = useState<string>('30d');
+  const [dateRange, setDateRange] = useState<string>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -141,6 +141,21 @@ export const AgentOrdersPage: React.FC = () => {
 
   useEffect(() => {
     fetchAgentOrders();
+  }, [fetchAgentOrders]);
+
+  // Real-time synchronization: refresh orders when orders or wallet are updated
+  useEffect(() => {
+    const handleUpdate = () => {
+      fetchAgentOrders();
+    };
+    window.addEventListener('order-created', handleUpdate);
+    window.addEventListener('orders-updated', handleUpdate);
+    window.addEventListener('wallet-updated', handleUpdate);
+    return () => {
+      window.removeEventListener('order-created', handleUpdate);
+      window.removeEventListener('orders-updated', handleUpdate);
+      window.removeEventListener('wallet-updated', handleUpdate);
+    };
   }, [fetchAgentOrders]);
 
   // Reset to page 1 whenever filters change
@@ -252,7 +267,7 @@ export const AgentOrdersPage: React.FC = () => {
     let count = 0;
     if (statusFilter !== 'ALL') count++;
     if (paymentFilter !== 'ALL') count++;
-    if (dateRange !== '30d') count++;
+    if (dateRange !== 'all') count++;
     if (searchQuery.trim()) count++;
     return count;
   }, [statusFilter, paymentFilter, dateRange, searchQuery]);
@@ -263,12 +278,14 @@ export const AgentOrdersPage: React.FC = () => {
     return filteredOrders.slice(start, start + itemsPerPage);
   }, [filteredOrders, currentPage, itemsPerPage]);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
+    try {
+      await fetchAgentOrders();
       toastInfo('Updated', 'Order list refreshed with latest data.');
-    }, 600);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleExport = () => {
@@ -299,7 +316,7 @@ export const AgentOrdersPage: React.FC = () => {
   const handleClearFilters = () => {
     setStatusFilter('ALL');
     setPaymentFilter('ALL');
-    setDateRange('30d');
+    setDateRange('all');
     setCustomFrom('');
     setCustomTo('');
     setSearchQuery('');

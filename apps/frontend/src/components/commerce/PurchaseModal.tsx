@@ -647,6 +647,8 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
             setStep(3);
             await refreshWalletBalance();
             window.dispatchEvent(new CustomEvent('wallet-updated'));
+            window.dispatchEvent(new CustomEvent('orders-updated'));
+            window.dispatchEvent(new CustomEvent('order-created'));
             toastSuccess(
               'Payment Verified!',
               `Paid GH₵ ${numericPrice.toFixed(2)} via Paystack. Bundle is being dispatched.`,
@@ -686,6 +688,8 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         setStep(3);
         await refreshWalletBalance();
         window.dispatchEvent(new CustomEvent('wallet-updated'));
+        window.dispatchEvent(new CustomEvent('orders-updated'));
+        window.dispatchEvent(new CustomEvent('order-created'));
         toastSuccess(
           'Order Confirmed',
           `Paid GH₵ ${numericPrice.toFixed(2)}. Processing fulfillment.`,
@@ -821,6 +825,8 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         setStep(3);
         await refreshWalletBalance();
         window.dispatchEvent(new CustomEvent('wallet-updated'));
+        window.dispatchEvent(new CustomEvent('orders-updated'));
+        window.dispatchEvent(new CustomEvent('order-created'));
         toastSuccess(
           'Order Confirmed',
           `Paid GH₵ ${numericPrice.toFixed(2)} from wallet. Order reference: ${orderRef}.`,

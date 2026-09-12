@@ -501,22 +501,35 @@ export class FulfillmentWorker {
     const rawMsg = String(err?.message || '').toLowerCase();
     const rawCode = String(err?.errorCode || err?.code || '').toUpperCase();
 
-    if (rawCode === 'INSUFFICIENT_BALANCE' || rawMsg.includes('insufficient') || rawMsg.includes('balance')) {
+    const isGatewayBalanceError =
+      rawCode === 'INSUFFICIENT_BALANCE' ||
+      rawCode === 'GATEWAY_INSUFFICIENT_BALANCE' ||
+      rawMsg.includes('insufficient agent balance') ||
+      rawMsg.includes('insufficient gateway balance') ||
+      rawMsg.includes('insufficient provider balance') ||
+      rawMsg.includes('provider wallet has insufficient balance') ||
+      rawMsg.includes('insufficient telecom balance') ||
+      rawMsg.includes('telecom provider gateway has insufficient balance');
+
+    if (isGatewayBalanceError) {
       return 'Telecom provider gateway has insufficient balance. Your payment has been refunded to your wallet.';
     }
-    if (rawCode === 'BUNDLE_NOT_FOUND' || rawCode === 'BUNDLE_INACTIVE' || rawMsg.includes('bundle') || rawMsg.includes('package')) {
+    if (rawCode === 'VALIDATION_ERROR' || rawCode === 'DATAHOUSE_REJECTION' || rawMsg.includes('validation failed')) {
+      return `Fulfillment rejected by network: ${err?.message || 'Validation failed'}. Your payment has been refunded to your wallet.`;
+    }
+    if (rawCode === 'BUNDLE_NOT_FOUND' || rawCode === 'BUNDLE_INACTIVE' || rawMsg.includes('bundle not found') || rawMsg.includes('bundle inactive') || rawMsg.includes('package not found')) {
       return 'Selected data bundle is currently unavailable from the network provider. Your payment has been refunded to your wallet.';
     }
     if (rawCode === 'BENEFICIARY_NOT_VALIDATED' || rawMsg.includes('beneficiary') || rawMsg.includes('whitelist')) {
       return 'Recipient number requires prior MTN beneficiary validation. Your payment has been refunded to your wallet.';
     }
-    if (rawCode === 'INVALID_PHONE' || rawMsg.includes('phone') || rawMsg.includes('msisdn')) {
+    if (rawCode === 'INVALID_PHONE' || rawMsg.includes('invalid phone') || rawMsg.includes('invalid recipient') || rawMsg.includes('invalid msisdn')) {
       return 'Invalid recipient phone number. Your payment has been refunded to your wallet.';
     }
     if (rawCode === 'DATAHOUSE_AUTH_ERROR' || rawCode === 'AGENT_INACTIVE' || rawMsg.includes('auth') || rawMsg.includes('unauthorized')) {
       return 'Telecom carrier gateway authentication error. Your payment has been refunded to your wallet.';
     }
-    if (rawMsg.includes('timeout') || rawMsg.includes('network') || rawMsg.includes('econnrefused')) {
+    if (rawMsg.includes('timeout') || rawMsg.includes('econnrefused') || rawMsg.includes('network error')) {
       return 'Telecom provider network timed out. Your payment has been refunded to your wallet.';
     }
     return `Fulfillment rejected by network: ${err?.message || 'Carrier error'}. Your payment has been refunded to your wallet.`;
@@ -588,27 +601,37 @@ export class FulfillmentWorker {
 
           // Find or create payment
           const payRes = await client.query(
-            `SELECT id FROM payments WHERE order_id = $1 AND status = 'PAID' ORDER BY created_at DESC LIMIT 1`,
+            `SELECT id FROM payments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
             [orderId],
           );
           let paymentId = payRes?.rows?.[0]?.id;
           if (!paymentId) {
-            const newPay = await client.query(
-              `INSERT INTO payments (order_id, user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, paid_at)
-               VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'PAID', CURRENT_TIMESTAMP) RETURNING id`,
-              [order.id, order.user_id, amountPesewas, order.currency || 'GHS', `pst_wal_${order.public_id || order.id}`],
-            );
-            paymentId = newPay?.rows?.[0]?.id || crypto.randomUUID();
+            const uniqueRef = `pst_wal_${order.public_id || order.id}_${crypto.randomBytes(4).toString('hex')}`;
+            await client.query('SAVEPOINT worker_fallback_payment_insert');
+            try {
+              const newPay = await client.query(
+                `INSERT INTO payments (order_id, user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, paid_at)
+                 VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'PAID', CURRENT_TIMESTAMP) RETURNING id`,
+                [order.id, order.user_id, amountPesewas, order.currency || 'GHS', uniqueRef],
+              );
+              await client.query('RELEASE SAVEPOINT worker_fallback_payment_insert');
+              paymentId = newPay?.rows?.[0]?.id || crypto.randomUUID();
+            } catch {
+              await client.query('ROLLBACK TO SAVEPOINT worker_fallback_payment_insert');
+              const anyPay = await client.query(`SELECT id FROM payments WHERE order_id = $1 LIMIT 1`, [order.id]);
+              paymentId = anyPay?.rows?.[0]?.id || crypto.randomUUID();
+            }
           }
 
+          const refundPublicId = `ref_${crypto.randomBytes(8).toString('hex')}`;
           const refundRef = `pst_wal_rf_${crypto.randomBytes(6).toString('hex')}`;
           let refundId: string = crypto.randomUUID();
           await client.query('SAVEPOINT fallback_refund_insert');
           try {
             const refundRes = await client.query(
-              `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status, provider_refund_reference)
-               VALUES ($1, $2, $3, $4, 'COMPLETED', $5) RETURNING id`,
-              [paymentId, order.id, amountPesewas, reason, refundRef],
+              `INSERT INTO refunds (public_id, payment_id, order_id, amount_pesewas, reason, status, provider_refund_reference)
+               VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6) RETURNING id`,
+              [refundPublicId, paymentId, order.id, amountPesewas, reason, refundRef],
             );
             await client.query('RELEASE SAVEPOINT fallback_refund_insert');
             refundId = refundRes?.rows?.[0]?.id || refundId;
@@ -616,20 +639,35 @@ export class FulfillmentWorker {
             await client.query('ROLLBACK TO SAVEPOINT fallback_refund_insert');
             try {
               const refundRes = await client.query(
-                `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status)
-                 VALUES ($1, $2, $3, $4, 'COMPLETED') RETURNING id`,
-                [paymentId, order.id, amountPesewas, reason],
+                `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status, provider_refund_reference)
+                 VALUES ($1, $2, $3, $4, 'COMPLETED', $5) RETURNING id`,
+                [paymentId, order.id, amountPesewas, reason, refundRef],
               );
               refundId = refundRes?.rows?.[0]?.id || refundId;
-            } catch (fallbackInsertErr: any) {
-              logger.warn({ orderId, err: fallbackInsertErr?.message }, '[FULFILLMENT_WORKER] Fallback refund record insert notice');
+            } catch {
+              try {
+                const refundRes = await client.query(
+                  `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status)
+                   VALUES ($1, $2, $3, $4, 'COMPLETED') RETURNING id`,
+                  [paymentId, order.id, amountPesewas, reason],
+                );
+                refundId = refundRes?.rows?.[0]?.id || refundId;
+              } catch (fallbackInsertErr: any) {
+                logger.warn({ orderId, err: fallbackInsertErr?.message }, '[FULFILLMENT_WORKER] Fallback refund record insert notice');
+              }
             }
           }
 
-          await client.query(
-            `UPDATE payments SET status = 'REFUNDED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-            [paymentId],
-          );
+          await client.query('SAVEPOINT worker_payment_refund_status');
+          try {
+            await client.query(
+              `UPDATE payments SET status = 'REFUNDED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [paymentId],
+            );
+            await client.query('RELEASE SAVEPOINT worker_payment_refund_status');
+          } catch {
+            await client.query('ROLLBACK TO SAVEPOINT worker_payment_refund_status');
+          }
           await client.query(
             `UPDATE orders SET refund_status = 'COMPLETED', payment_status = 'REFUNDED', order_status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
             [order.id],

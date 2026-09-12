@@ -78,7 +78,7 @@ export async function orderRoutes(
       const recipientPhone =
         rawPhone !== undefined && rawPhone !== null ? String(rawPhone).trim() : '';
 
-      const agentId = rawBody.agentId || rawBody.agent_id;
+      let agentId = rawBody.agentId || rawBody.agent_id;
       const paymentMethod = rawBody.paymentMethod || rawBody.payment_method;
 
       if (!productId || !recipientPhone) {
@@ -97,6 +97,19 @@ export async function orderRoutes(
           : req.user!.role === UserRole.AGENT
             ? 'AGENT'
             : 'CUSTOMER';
+
+      if (actorType === 'AGENT' && !agentId && req.user?.sub) {
+        try {
+          const agentLookup = await db.query('SELECT id FROM agents WHERE user_id = $1 LIMIT 1', [req.user.sub]);
+          if (agentLookup.rows.length > 0) {
+            agentId = agentLookup.rows[0].id;
+          } else {
+            agentId = req.user.sub;
+          }
+        } catch {
+          agentId = req.user.sub;
+        }
+      }
 
       // Beneficiary validation enforcement for MTN individual orders (Up2U first-time rule)
       const prodRes = await Promise.resolve(
