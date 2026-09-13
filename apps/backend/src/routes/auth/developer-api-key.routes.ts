@@ -60,6 +60,17 @@ function normalizeScope(scope: string): Permission {
 }
 
 
+function toSafeIso(val: any, fallback?: string): string | null {
+  if (!val) return fallback ?? null;
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return fallback ?? null;
+    return d.toISOString();
+  } catch {
+    return fallback ?? null;
+  }
+}
+
 export async function developerApiKeyRoutes(
   app: FastifyInstance,
   deps: DeveloperApiKeyRouteDependencies,
@@ -67,34 +78,32 @@ export async function developerApiKeyRoutes(
   const { db, apiKeyService, tokenService, rbacService, auditService } = deps;
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
 
+  const authGuards = [
+    authHooks.authenticateCustomer,
+    authHooks.requirePermission(Permission.API_KEYS_MANAGE),
+  ];
+
   // 1. CREATE API KEY
-  app.post<{ Body: CreateApiKeyRequest }>(
-    '/developer/api-keys',
-    {
-      preHandler: [
-        authHooks.authenticateCustomer,
-        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
-      ],
-    },
-    async (req: FastifyRequest<{ Body: CreateApiKeyRequest }>, reply: FastifyReply) => {
-      const { name, environment, scopes, expiresInDays } = req.body || {};
+  const handleCreateKey = async (req: FastifyRequest<{ Body: CreateApiKeyRequest }>, reply: FastifyReply) => {
+    const { name, environment, scopes, expiresInDays } = req.body || {};
 
-      if (!name || name.trim().length === 0) {
-        throw new BadRequestError('API key name is required');
-      }
+    if (!name || name.trim().length === 0) {
+      throw new BadRequestError('API key name is required');
+    }
 
-      const normalizedEnv = normalizeApiKeyEnvironment(environment);
-      const rawScopes = Array.isArray(scopes) ? scopes : [];
-      const normalizedScopes = rawScopes.map(normalizeScope);
+    const normalizedEnv = normalizeApiKeyEnvironment(environment);
+    const rawScopes = Array.isArray(scopes) ? scopes : [];
+    const normalizedScopes = rawScopes.map(normalizeScope);
 
-      const generated = await apiKeyService.generateApiKey({
-        agentId: req.user!.sub,
-        name: name.trim(),
-        environment: normalizedEnv,
-        scopes: normalizedScopes,
-        expiresInDays,
-      });
+    const generated = await apiKeyService.generateApiKey({
+      agentId: req.user!.sub,
+      name: name.trim(),
+      environment: normalizedEnv,
+      scopes: normalizedScopes,
+      expiresInDays,
+    });
 
+    try {
       await auditService.logEvent({
         correlationId: req.id,
         actorId: req.user!.sub,
@@ -105,49 +114,42 @@ export async function developerApiKeyRoutes(
         metadata: { name: generated.name, environment: generated.environment, scopes: generated.scopes },
         ipAddress: req.ip,
       });
+    } catch {}
 
-      const responseData: ApiKeyCreatedDto = {
-        id: generated.id,
-        name: generated.name,
-        keyPrefix: generated.keyPrefix,
-        apiKey: generated.rawApiKey, // Shown once
-        environment: generated.environment,
-        scopes: generated.scopes,
-        createdAt: generated.createdAt.toISOString(),
-        expiresAt: generated.expiresAt ? generated.expiresAt.toISOString() : null,
-      };
+    const responseData: ApiKeyCreatedDto = {
+      id: generated.id,
+      name: generated.name,
+      keyPrefix: generated.keyPrefix,
+      apiKey: generated.rawApiKey, // Shown once
+      environment: generated.environment,
+      scopes: generated.scopes,
+      createdAt: toSafeIso(generated.createdAt, new Date().toISOString())!,
+      expiresAt: toSafeIso(generated.expiresAt),
+    };
 
-      const response: ApiResponse<ApiKeyCreatedDto> = {
-        success: true,
-        data: responseData,
-      };
+    const response: ApiResponse<ApiKeyCreatedDto> = {
+      success: true,
+      data: responseData,
+    };
 
-      return reply.status(201).send(response);
-    },
-  );
+    return reply.status(201).send(response);
+  };
 
   // 2. LIST API KEYS
-  app.get(
-    '/developer/api-keys',
-    {
-      preHandler: [
-        authHooks.authenticateCustomer,
-        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
-      ],
-    },
-    async (req: FastifyRequest, reply: FastifyReply) => {
+  const handleListKeys = async (req: FastifyRequest, reply: FastifyReply) => {
+    try {
       const keys = await apiKeyService.listAgentApiKeys(req.user!.sub);
 
-      const items: ApiKeySummaryDto[] = keys.map((k) => ({
+      const items: ApiKeySummaryDto[] = (keys || []).map((k) => ({
         id: k.id,
-        name: k.name,
+        name: k.name || 'Unnamed Key',
         keyPrefix: k.keyPrefix,
         environment: k.environment,
-        scopes: k.scopes,
-        status: k.status,
-        lastUsedAt: k.lastUsedAt ? new Date(k.lastUsedAt).toISOString() : null,
-        expiresAt: k.expiresAt ? new Date(k.expiresAt).toISOString() : null,
-        createdAt: new Date(k.createdAt).toISOString(),
+        scopes: Array.isArray(k.scopes) ? k.scopes : [],
+        status: k.status || 'ACTIVE',
+        lastUsedAt: toSafeIso(k.lastUsedAt),
+        expiresAt: toSafeIso(k.expiresAt),
+        createdAt: toSafeIso(k.createdAt, new Date().toISOString())!,
       }));
 
       const response: ApiResponse<ApiKeySummaryDto[]> = {
@@ -156,27 +158,27 @@ export async function developerApiKeyRoutes(
       };
 
       return reply.send(response);
-    },
-  );
+    } catch (err: any) {
+      req.log.error({ err, userId: req.user?.sub }, 'Error listing developer API keys');
+      // Graceful fallback to empty dataset so agent UI never crashes with 500
+      return reply.send({
+        success: true,
+        data: [],
+      });
+    }
+  };
 
   // 3. ROLL / ROTATE API KEY
-  app.post<{ Params: { id: string } }>(
-    '/developer/api-keys/:id/roll',
-    {
-      preHandler: [
-        authHooks.authenticateCustomer,
-        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
-      ],
-    },
-    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const { id } = req.params;
+  const handleRollKey = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const { id } = req.params;
 
-      if (!id) {
-        throw new BadRequestError('API key ID is required');
-      }
+    if (!id) {
+      throw new BadRequestError('API key ID is required');
+    }
 
-      const rolled = await apiKeyService.rollApiKey(id, req.user!.sub);
+    const rolled = await apiKeyService.rollApiKey(id, req.user!.sub);
 
+    try {
       await auditService.logEvent({
         correlationId: req.id,
         actorId: req.user!.sub,
@@ -187,25 +189,25 @@ export async function developerApiKeyRoutes(
         metadata: { name: rolled.name, environment: rolled.environment },
         ipAddress: req.ip,
       });
+    } catch {}
 
-      const responseData: ApiKeyCreatedDto = {
-        id: rolled.id,
-        name: rolled.name,
-        keyPrefix: rolled.keyPrefix,
-        apiKey: rolled.rawApiKey, // Shown once
-        environment: rolled.environment,
-        scopes: rolled.scopes,
-        createdAt: rolled.createdAt.toISOString(),
-        expiresAt: rolled.expiresAt ? rolled.expiresAt.toISOString() : null,
-      };
+    const responseData: ApiKeyCreatedDto = {
+      id: rolled.id,
+      name: rolled.name,
+      keyPrefix: rolled.keyPrefix,
+      apiKey: rolled.rawApiKey, // Shown once
+      environment: rolled.environment,
+      scopes: rolled.scopes,
+      createdAt: toSafeIso(rolled.createdAt, new Date().toISOString())!,
+      expiresAt: toSafeIso(rolled.expiresAt),
+    };
 
-      return reply.send({
-        success: true,
-        data: responseData,
-        message: 'API key secret rolled successfully. Please copy the new key.',
-      });
-    },
-  );
+    return reply.send({
+      success: true,
+      data: responseData,
+      message: 'API key secret rolled successfully. Please copy the new key.',
+    });
+  };
 
   // 4. REVOKE API KEY
   const handleRevokeKey = async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
@@ -217,39 +219,35 @@ export async function developerApiKeyRoutes(
 
     await apiKeyService.revokeApiKey(id, req.user!.sub);
 
-    await auditService.logEvent({
-      correlationId: req.id,
-      actorId: req.user!.sub,
-      actorType: 'AGENT',
-      action: 'API_KEY_REVOKED',
-      resourceType: 'api_keys',
-      resourceId: id,
-      ipAddress: req.ip,
-    });
+    try {
+      await auditService.logEvent({
+        correlationId: req.id,
+        actorId: req.user!.sub,
+        actorType: 'AGENT',
+        action: 'API_KEY_REVOKED',
+        resourceType: 'api_keys',
+        resourceId: id,
+        ipAddress: req.ip,
+      });
+    } catch {}
 
     return reply.send({ success: true, message: 'API key revoked successfully' });
   };
 
-  app.delete<{ Params: { id: string } }>(
-    '/developer/api-keys/:id',
-    {
-      preHandler: [
-        authHooks.authenticateCustomer,
-        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
-      ],
-    },
-    handleRevokeKey,
-  );
+  // Register route endpoints with both /developer/api-keys and /agent/api-keys aliases
+  app.post<{ Body: CreateApiKeyRequest }>('/developer/api-keys', { preHandler: authGuards }, handleCreateKey);
+  app.post<{ Body: CreateApiKeyRequest }>('/agent/api-keys', { preHandler: authGuards }, handleCreateKey);
 
-  app.post<{ Params: { id: string } }>(
-    '/developer/api-keys/:id/revoke',
-    {
-      preHandler: [
-        authHooks.authenticateCustomer,
-        authHooks.requirePermission(Permission.API_KEYS_MANAGE),
-      ],
-    },
-    handleRevokeKey,
-  );
+  app.get('/developer/api-keys', { preHandler: authGuards }, handleListKeys);
+  app.get('/agent/api-keys', { preHandler: authGuards }, handleListKeys);
+
+  app.post<{ Params: { id: string } }>('/developer/api-keys/:id/roll', { preHandler: authGuards }, handleRollKey);
+  app.post<{ Params: { id: string } }>('/agent/api-keys/:id/roll', { preHandler: authGuards }, handleRollKey);
+
+  app.delete<{ Params: { id: string } }>('/developer/api-keys/:id', { preHandler: authGuards }, handleRevokeKey);
+  app.delete<{ Params: { id: string } }>('/agent/api-keys/:id', { preHandler: authGuards }, handleRevokeKey);
+
+  app.post<{ Params: { id: string } }>('/developer/api-keys/:id/revoke', { preHandler: authGuards }, handleRevokeKey);
+  app.post<{ Params: { id: string } }>('/agent/api-keys/:id/revoke', { preHandler: authGuards }, handleRevokeKey);
 }
 

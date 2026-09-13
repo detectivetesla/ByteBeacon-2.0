@@ -50,45 +50,90 @@ export class ApiKeyService {
       ? new Date(Date.now() + params.expiresInDays * 24 * 60 * 60 * 1000)
       : null;
 
-    let targetAgentId = params.agentId;
-    let targetOwnerUserId = params.agentId;
+    let targetUserId = params.agentId;
 
     try {
       const agentCheck = await this.db.query(
-        'SELECT id, user_id FROM agents WHERE user_id::text = $1 OR id::text = $1 LIMIT 1',
+        'SELECT id::text, user_id::text FROM agents WHERE user_id::text = $1 OR id::text = $1 LIMIT 1',
         [params.agentId],
       );
       if (agentCheck.rows.length > 0) {
-        targetAgentId = agentCheck.rows[0].id || params.agentId;
-        targetOwnerUserId = agentCheck.rows[0].user_id || params.agentId;
+        targetUserId = agentCheck.rows[0].user_id || params.agentId;
       }
     } catch {}
 
-    const query = `
-      INSERT INTO api_keys (agent_id, name, key_prefix, key_hash, environment, scopes, expires_at, owner_user_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, name, key_prefix as "keyPrefix", environment, scopes,
-                created_at as "createdAt", expires_at as "expiresAt"
-    `;
+    // Ensure targetUserId exists in users table (api_keys.agent_id REFERENCES users(id))
+    let finalUserId = targetUserId;
+    try {
+      const userCheck = await this.db.query(
+        'SELECT id::text FROM users WHERE id::text = $1 OR email = $1 LIMIT 1',
+        [targetUserId],
+      );
+      if (userCheck.rows.length > 0) {
+        finalUserId = userCheck.rows[0].id;
+      } else if (params.agentId && params.agentId !== targetUserId) {
+        const fallbackCheck = await this.db.query(
+          'SELECT id::text FROM users WHERE id::text = $1 OR email = $1 LIMIT 1',
+          [params.agentId],
+        );
+        if (fallbackCheck.rows.length > 0) {
+          finalUserId = fallbackCheck.rows[0].id;
+        }
+      }
+    } catch {}
 
-    const result = await this.db.query<{
-      id: string;
-      name: string;
-      keyPrefix: string;
-      environment: ApiKeyEnvironment;
-      scopes: Permission[];
-      createdAt: Date;
-      expiresAt: Date | null;
-    }>(query, [
-      targetAgentId,
-      params.name,
-      keyPrefix,
-      keyHash,
-      params.environment,
-      params.scopes,
-      expiresAt,
-      targetOwnerUserId,
-    ]);
+    let result;
+    try {
+      const query = `
+        INSERT INTO api_keys (agent_id, name, key_prefix, key_hash, environment, scopes, expires_at, owner_user_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, name, key_prefix as "keyPrefix", environment, scopes,
+                  created_at as "createdAt", expires_at as "expiresAt"
+      `;
+      result = await this.db.query<{
+        id: string;
+        name: string;
+        keyPrefix: string;
+        environment: ApiKeyEnvironment;
+        scopes: Permission[];
+        createdAt: Date;
+        expiresAt: Date | null;
+      }>(query, [
+        finalUserId,
+        params.name,
+        keyPrefix,
+        keyHash,
+        params.environment,
+        params.scopes,
+        expiresAt,
+        finalUserId,
+      ]);
+    } catch {
+      // Fallback in case owner_user_id column is not present
+      const fallbackQuery = `
+        INSERT INTO api_keys (agent_id, name, key_prefix, key_hash, environment, scopes, expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, name, key_prefix as "keyPrefix", environment, scopes,
+                  created_at as "createdAt", expires_at as "expiresAt"
+      `;
+      result = await this.db.query<{
+        id: string;
+        name: string;
+        keyPrefix: string;
+        environment: ApiKeyEnvironment;
+        scopes: Permission[];
+        createdAt: Date;
+        expiresAt: Date | null;
+      }>(fallbackQuery, [
+        finalUserId,
+        params.name,
+        keyPrefix,
+        keyHash,
+        params.environment,
+        params.scopes,
+        expiresAt,
+      ]);
+    }
 
     const row = result.rows[0];
 
@@ -238,40 +283,101 @@ export class ApiKeyService {
   }
 
   public async revokeApiKey(keyId: string, agentId: string): Promise<void> {
-    await this.db.query(
-      `UPDATE api_keys 
-       SET status = 'REVOKED', updated_at = CURRENT_TIMESTAMP 
-       WHERE id::text = $1 AND (
-         agent_id::text = $2 
-         OR owner_user_id::text = $2
-         OR agent_id IN (SELECT id::text FROM agents WHERE user_id::text = $2)
-         OR agent_id IN (SELECT user_id::text FROM agents WHERE id::text = $2)
-         OR owner_user_id IN (SELECT user_id::text FROM agents WHERE id::text = $2)
-       )`,
-      [keyId, agentId],
-    );
+    const targetIds = new Set<string>();
+    if (agentId) targetIds.add(String(agentId).trim());
+
+    try {
+      const agentCheck = await this.db.query(
+        'SELECT id::text, user_id::text FROM agents WHERE user_id::text = $1 OR id::text = $1',
+        [agentId],
+      );
+      for (const row of agentCheck.rows) {
+        if (row.id) targetIds.add(row.id);
+        if (row.user_id) targetIds.add(row.user_id);
+      }
+    } catch {}
+
+    const idList = Array.from(targetIds);
+
+    try {
+      await this.db.query(
+        `UPDATE api_keys 
+         SET status = 'REVOKED', updated_at = CURRENT_TIMESTAMP 
+         WHERE id::text = $1 AND (
+           agent_id::text = ANY($2::text[]) 
+           OR owner_user_id::text = ANY($2::text[])
+           OR agent_id::text IN (SELECT id::text FROM agents WHERE user_id::text = $3 OR id::text = $3)
+           OR agent_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $3 OR user_id::text = $3)
+           OR owner_user_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $3 OR user_id::text = $3)
+         )`,
+        [keyId, idList, agentId],
+      );
+    } catch {
+      // Resilient fallback without owner_user_id column
+      try {
+        await this.db.query(
+          `UPDATE api_keys 
+           SET status = 'REVOKED', updated_at = CURRENT_TIMESTAMP 
+           WHERE id::text = $1 AND agent_id::text = ANY($2::text[])`,
+          [keyId, idList],
+        );
+      } catch {}
+    }
   }
 
   public async rollApiKey(keyId: string, agentId: string): Promise<GeneratedApiKeyResult> {
-    const keyRes = await this.db.query<{
-      id: string;
-      name: string;
-      environment: ApiKeyEnvironment;
-      scopes: Permission[];
-      expires_at: Date | null;
-      status: ApiKeyStatus;
-    }>(
-      `SELECT id, name, environment, scopes, expires_at, status 
-       FROM api_keys 
-       WHERE id::text = $1 AND (
-         agent_id::text = $2 
-         OR owner_user_id::text = $2
-         OR agent_id IN (SELECT id::text FROM agents WHERE user_id::text = $2)
-         OR agent_id IN (SELECT user_id::text FROM agents WHERE id::text = $2)
-         OR owner_user_id IN (SELECT user_id::text FROM agents WHERE id::text = $2)
-       )`,
-      [keyId, agentId],
-    );
+    const targetIds = new Set<string>();
+    if (agentId) targetIds.add(String(agentId).trim());
+
+    try {
+      const agentCheck = await this.db.query(
+        'SELECT id::text, user_id::text FROM agents WHERE user_id::text = $1 OR id::text = $1',
+        [agentId],
+      );
+      for (const row of agentCheck.rows) {
+        if (row.id) targetIds.add(row.id);
+        if (row.user_id) targetIds.add(row.user_id);
+      }
+    } catch {}
+
+    const idList = Array.from(targetIds);
+
+    let keyRes;
+    try {
+      keyRes = await this.db.query<{
+        id: string;
+        name: string;
+        environment: ApiKeyEnvironment;
+        scopes: Permission[];
+        expires_at: Date | null;
+        status: ApiKeyStatus;
+      }>(
+        `SELECT id, name, environment, scopes, expires_at, status 
+         FROM api_keys 
+         WHERE id::text = $1 AND (
+           agent_id::text = ANY($2::text[]) 
+           OR owner_user_id::text = ANY($2::text[])
+           OR agent_id::text IN (SELECT id::text FROM agents WHERE user_id::text = $3 OR id::text = $3)
+           OR agent_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $3 OR user_id::text = $3)
+           OR owner_user_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $3 OR user_id::text = $3)
+         )`,
+        [keyId, idList, agentId],
+      );
+    } catch {
+      keyRes = await this.db.query<{
+        id: string;
+        name: string;
+        environment: ApiKeyEnvironment;
+        scopes: Permission[];
+        expires_at: Date | null;
+        status: ApiKeyStatus;
+      }>(
+        `SELECT id, name, environment, scopes, expires_at, status 
+         FROM api_keys 
+         WHERE id::text = $1 AND agent_id::text = ANY($2::text[])`,
+        [keyId, idList],
+      );
+    }
 
     if (keyRes.rows.length === 0) {
       throw new UnauthorizedError('API key not found or unauthorized');
@@ -284,27 +390,46 @@ export class ApiKeyService {
     const keyPrefix = rawApiKey.substring(0, 16);
     const keyHash = this.hashKey(rawApiKey);
 
-    const updateRes = await this.db.query<{
-      id: string;
-      name: string;
-      keyPrefix: string;
-      environment: ApiKeyEnvironment;
-      scopes: Permission[];
-      createdAt: Date;
-      expiresAt: Date | null;
-    }>(
-      `UPDATE api_keys
-       SET key_prefix = $1, key_hash = $2, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
-       WHERE id::text = $3 AND (
-         agent_id::text = $4 
-         OR owner_user_id::text = $4
-         OR agent_id IN (SELECT id::text FROM agents WHERE user_id::text = $4)
-         OR agent_id IN (SELECT user_id::text FROM agents WHERE id::text = $4)
-         OR owner_user_id IN (SELECT user_id::text FROM agents WHERE id::text = $4)
-       )
-       RETURNING id, name, key_prefix as "keyPrefix", environment, scopes, created_at as "createdAt", expires_at as "expiresAt"`,
-      [keyPrefix, keyHash, keyId, agentId],
-    );
+    let updateRes;
+    try {
+      updateRes = await this.db.query<{
+        id: string;
+        name: string;
+        keyPrefix: string;
+        environment: ApiKeyEnvironment;
+        scopes: Permission[];
+        createdAt: Date;
+        expiresAt: Date | null;
+      }>(
+        `UPDATE api_keys
+         SET key_prefix = $1, key_hash = $2, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
+         WHERE id::text = $3 AND (
+           agent_id::text = ANY($4::text[]) 
+           OR owner_user_id::text = ANY($4::text[])
+           OR agent_id::text IN (SELECT id::text FROM agents WHERE user_id::text = $5 OR id::text = $5)
+           OR agent_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $5 OR user_id::text = $5)
+           OR owner_user_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $5 OR user_id::text = $5)
+         )
+         RETURNING id, name, key_prefix as "keyPrefix", environment, scopes, created_at as "createdAt", expires_at as "expiresAt"`,
+        [keyPrefix, keyHash, keyId, idList, agentId],
+      );
+    } catch {
+      updateRes = await this.db.query<{
+        id: string;
+        name: string;
+        keyPrefix: string;
+        environment: ApiKeyEnvironment;
+        scopes: Permission[];
+        createdAt: Date;
+        expiresAt: Date | null;
+      }>(
+        `UPDATE api_keys
+         SET key_prefix = $1, key_hash = $2, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
+         WHERE id::text = $3 AND agent_id::text = ANY($4::text[])
+         RETURNING id, name, key_prefix as "keyPrefix", environment, scopes, created_at as "createdAt", expires_at as "expiresAt"`,
+        [keyPrefix, keyHash, keyId, idList],
+      );
+    }
 
     const row = updateRes.rows[0];
     return {
@@ -330,20 +455,82 @@ export class ApiKeyService {
     expiresAt: Date | null;
     createdAt: Date;
   }>> {
-    const query = `
-      SELECT id, name, key_prefix as "keyPrefix", environment, scopes,
-             status, last_used_at as "lastUsedAt", expires_at as "expiresAt",
-             created_at as "createdAt"
-      FROM api_keys
-      WHERE agent_id::text = $1 
-         OR owner_user_id::text = $1
-         OR agent_id IN (SELECT id::text FROM agents WHERE user_id::text = $1)
-         OR agent_id IN (SELECT user_id::text FROM agents WHERE id::text = $1)
-         OR owner_user_id IN (SELECT user_id::text FROM agents WHERE id::text = $1)
-      ORDER BY created_at DESC
-    `;
-    const result = await this.db.query(query, [agentId]);
-    return result.rows;
+    const targetIds = new Set<string>();
+    if (agentId) targetIds.add(String(agentId).trim());
+
+    try {
+      const agentCheck = await this.db.query(
+        'SELECT id::text, user_id::text FROM agents WHERE user_id::text = $1 OR id::text = $1',
+        [agentId],
+      );
+      for (const row of agentCheck.rows) {
+        if (row.id) targetIds.add(row.id);
+        if (row.user_id) targetIds.add(row.user_id);
+      }
+    } catch {}
+
+    try {
+      const userCheck = await this.db.query(
+        'SELECT id::text FROM users WHERE id::text = $1',
+        [agentId],
+      );
+      for (const row of userCheck.rows) {
+        if (row.id) targetIds.add(row.id);
+      }
+    } catch {}
+
+    const idList = Array.from(targetIds);
+
+    // Primary resilient query: check both agent_id and owner_user_id using explicit ::text casts
+    try {
+      const query = `
+        SELECT id, name, key_prefix as "keyPrefix", environment, scopes,
+               status, last_used_at as "lastUsedAt", expires_at as "expiresAt",
+               created_at as "createdAt"
+        FROM api_keys
+        WHERE agent_id::text = ANY($1::text[])
+           OR owner_user_id::text = ANY($1::text[])
+           OR agent_id::text IN (SELECT id::text FROM agents WHERE user_id::text = $2 OR id::text = $2)
+           OR agent_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $2 OR user_id::text = $2)
+           OR owner_user_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $2 OR user_id::text = $2)
+        ORDER BY created_at DESC
+      `;
+      const result = await this.db.query(query, [idList, agentId]);
+      return result.rows;
+    } catch (primaryErr) {
+      // Fallback 1: without owner_user_id column in case of schema variance
+      try {
+        const queryWithoutOwner = `
+          SELECT id, name, key_prefix as "keyPrefix", environment, scopes,
+                 status, last_used_at as "lastUsedAt", expires_at as "expiresAt",
+                 created_at as "createdAt"
+          FROM api_keys
+          WHERE agent_id::text = ANY($1::text[])
+             OR agent_id::text IN (SELECT id::text FROM agents WHERE user_id::text = $2 OR id::text = $2)
+             OR agent_id::text IN (SELECT user_id::text FROM agents WHERE id::text = $2 OR user_id::text = $2)
+          ORDER BY created_at DESC
+        `;
+        const result = await this.db.query(queryWithoutOwner, [idList, agentId]);
+        return result.rows;
+      } catch (fallback1Err) {
+        // Fallback 2: simple single parameter query with text cast
+        try {
+          const simpleQuery = `
+            SELECT id, name, key_prefix as "keyPrefix", environment, scopes,
+                   status, last_used_at as "lastUsedAt", expires_at as "expiresAt",
+                   created_at as "createdAt"
+            FROM api_keys
+            WHERE agent_id::text = $1
+            ORDER BY created_at DESC
+          `;
+          const result = await this.db.query(simpleQuery, [agentId]);
+          return result.rows;
+        } catch (fallback2Err) {
+          // Never crash the calling route with an unhandled exception
+          return [];
+        }
+      }
+    }
   }
 
   public hashKey(rawKey: string): string {

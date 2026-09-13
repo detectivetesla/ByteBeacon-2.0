@@ -38,14 +38,24 @@ export const AgentApiPage: React.FC = () => {
     setLoadError(null);
     try {
       const items = await apiKeysApi.listKeys();
+      const safeFormatDate = (dStr: any, fallback: string) => {
+        if (!dStr) return fallback;
+        try {
+          const d = new Date(dStr);
+          return isNaN(d.getTime()) ? fallback : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch {
+          return fallback;
+        }
+      };
+
       const mapped: ApiKeyItem[] = (items || []).map((k) => ({
         id: k.id,
-        name: k.name,
-        prefix: k.keyPrefix,
-        environment: k.environment,
-        createdAt: k.createdAt ? new Date(k.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently',
-        lastUsed: k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Never',
-        status: k.status,
+        name: k.name || 'API Key',
+        prefix: k.keyPrefix || (k as any).prefix || '',
+        environment: k.environment || 'LIVE',
+        createdAt: safeFormatDate(k.createdAt, 'Recently'),
+        lastUsed: safeFormatDate(k.lastUsedAt, 'Never'),
+        status: k.status || 'ACTIVE',
       }));
       setApiKeys(mapped);
     } catch (err: any) {

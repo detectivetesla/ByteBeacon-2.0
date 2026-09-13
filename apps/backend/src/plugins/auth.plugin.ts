@@ -91,12 +91,19 @@ export function createAuthHooks(
         [payload.sub],
       );
     } catch (dbErr: any) {
-      // In development or during temporary database reconnection, trust cryptographically verified admin tokens
-      if (payload.role === UserRole.ADMIN || payload.role === UserRole.SUPER_ADMIN) {
-        req.user = { ...payload, status: UserStatus.ACTIVE };
-        return;
+      try {
+        userRes = await db.query<any>(
+          'SELECT * FROM users WHERE id::text = $1 OR email = $1',
+          [payload.sub],
+        );
+      } catch {
+        // In development or during temporary database reconnection, trust cryptographically verified admin tokens
+        if (payload.role === UserRole.ADMIN || payload.role === UserRole.SUPER_ADMIN) {
+          req.user = { ...payload, status: UserStatus.ACTIVE };
+          return;
+        }
+        throw dbErr;
       }
-      throw dbErr;
     }
 
     if (userRes.rows.length === 0) {
@@ -131,7 +138,12 @@ export function createAuthHooks(
     } else {
       // Check if user is registered in agents table
       try {
-        const agentCheck = await db.query('SELECT id FROM agents WHERE user_id = $1 LIMIT 1', [rawUser.id]);
+        let agentCheck;
+        try {
+          agentCheck = await db.query('SELECT id FROM agents WHERE user_id = $1 OR id = $1 LIMIT 1', [rawUser.id]);
+        } catch {
+          agentCheck = await db.query('SELECT id FROM agents WHERE user_id::text = $1 OR id::text = $1 LIMIT 1', [rawUser.id]);
+        }
         if (agentCheck.rows.length > 0) {
           authoritativeRole = UserRole.AGENT;
           authoritativeDomain = SecurityDomain.AGENT;
@@ -248,7 +260,7 @@ export function createAuthHooks(
           return;
         }
         try {
-          const agentCheck = await db.query('SELECT id FROM agents WHERE user_id = $1 LIMIT 1', [req.user.sub]);
+          const agentCheck = await db.query('SELECT id FROM agents WHERE user_id::text = $1 OR id::text = $1 LIMIT 1', [req.user.sub]);
           if (agentCheck.rows.length > 0) {
             req.user.role = UserRole.AGENT;
             return;

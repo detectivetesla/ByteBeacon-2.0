@@ -26,12 +26,26 @@ export interface ApiKeyCreatedResponse {
 
 export const apiKeysApi = {
   listKeys: async (): Promise<ApiKeyItem[]> => {
-    const res = await apiClient.get<any>('/developer/api-keys');
-    if (Array.isArray(res)) return res;
-    if (res && Array.isArray(res.items)) return res.items;
-    if (res && Array.isArray(res.data)) return res.data;
-    if (res && res.data && Array.isArray(res.data.items)) return res.data.items;
-    return [];
+    try {
+      const res = await apiClient.get<any>('/developer/api-keys');
+      if (Array.isArray(res)) return res;
+      if (res && Array.isArray(res.items)) return res.items;
+      if (res && Array.isArray(res.data)) return res.data;
+      if (res && res.data && Array.isArray(res.data.items)) return res.data.items;
+      return [];
+    } catch (primaryErr: any) {
+      // Fallback to /agent/api-keys endpoint
+      try {
+        const fallbackRes = await apiClient.get<any>('/agent/api-keys');
+        if (Array.isArray(fallbackRes)) return fallbackRes;
+        if (fallbackRes && Array.isArray(fallbackRes.items)) return fallbackRes.items;
+        if (fallbackRes && Array.isArray(fallbackRes.data)) return fallbackRes.data;
+        if (fallbackRes && fallbackRes.data && Array.isArray(fallbackRes.data.items)) return fallbackRes.data.items;
+        return [];
+      } catch {
+        throw primaryErr;
+      }
+    }
   },
 
   createKey: async (payload: {

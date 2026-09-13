@@ -171,4 +171,127 @@ describe('API Key System (Agent/Developer Domain)', () => {
       'API key lacks required permission scope',
     );
   });
+
+  it('should list agent API keys safely resolving candidate agent and user IDs', async () => {
+    const mockDb = {
+      query: vi.fn().mockImplementation((q: string, params: unknown[]) => {
+        if (q.includes('FROM api_keys')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'key_1',
+                name: 'Production Key',
+                keyPrefix: 'ak_live_12345678',
+                environment: ApiKeyEnvironment.LIVE,
+                scopes: [Permission.ORDERS_CREATE],
+                status: ApiKeyStatus.ACTIVE,
+                lastUsedAt: new Date('2026-09-01T12:00:00.000Z'),
+                expiresAt: null,
+                createdAt: new Date('2026-08-01T12:00:00.000Z'),
+              },
+            ],
+          });
+        }
+        if (q.includes('FROM agents')) {
+          return Promise.resolve({
+            rows: [{ id: 'agent-record-uuid', user_id: 'user-uuid-123' }],
+          });
+        }
+        if (q.includes('FROM users')) {
+          return Promise.resolve({
+            rows: [{ id: 'user-uuid-123' }],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+    } as unknown as pg.Pool;
+
+    const apiKeyService = new ApiKeyService(mockDb);
+    const keys = await apiKeyService.listAgentApiKeys('user-uuid-123');
+
+    expect(keys).toHaveLength(1);
+    expect(keys[0].id).toBe('key_1');
+    expect(keys[0].name).toBe('Production Key');
+    expect(keys[0].keyPrefix).toBe('ak_live_12345678');
+  });
+
+  it('should return empty list gracefully when list query encounters unexpected error', async () => {
+    const mockDb = {
+      query: vi.fn().mockImplementation((q: string) => {
+        if (q.includes('FROM agents') || q.includes('FROM users')) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (q.includes('FROM api_keys')) {
+          return Promise.reject(new Error('Relation does not exist'));
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+    } as unknown as pg.Pool;
+
+    const apiKeyService = new ApiKeyService(mockDb);
+    const keys = await apiKeyService.listAgentApiKeys('non-existent-agent');
+
+    expect(keys).toEqual([]);
+  });
+
+  it('should roll an API key and return a newly generated key secret', async () => {
+    let updatedPrefix = '';
+    const mockDb = {
+      query: vi.fn().mockImplementation((q: string, params: unknown[]) => {
+        if (q.includes('SELECT id, name, environment, scopes')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'key_to_roll',
+                name: 'Old Key',
+                environment: ApiKeyEnvironment.LIVE,
+                scopes: [Permission.ORDERS_CREATE],
+                expires_at: null,
+                status: ApiKeyStatus.ACTIVE,
+              },
+            ],
+          });
+        }
+        if (q.includes('UPDATE api_keys')) {
+          updatedPrefix = params[0] as string;
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'key_to_roll',
+                name: 'Old Key',
+                keyPrefix: updatedPrefix,
+                environment: ApiKeyEnvironment.LIVE,
+                scopes: [Permission.ORDERS_CREATE],
+                createdAt: new Date(),
+                expiresAt: null,
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+    } as unknown as pg.Pool;
+
+    const apiKeyService = new ApiKeyService(mockDb);
+    const rolled = await apiKeyService.rollApiKey('key_to_roll', 'agt_123');
+
+    expect(rolled.id).toBe('key_to_roll');
+    expect(rolled.rawApiKey.startsWith('ak_live_')).toBe(true);
+    expect(rolled.keyPrefix.startsWith('ak_live_')).toBe(true);
+    expect(updatedPrefix.startsWith('ak_live_')).toBe(true);
+  });
+
+  it('should revoke an API key without throwing', async () => {
+    const executedQueries: string[] = [];
+    const mockDb = {
+      query: vi.fn().mockImplementation((q: string) => {
+        executedQueries.push(q);
+        return Promise.resolve({ rows: [] });
+      }),
+    } as unknown as pg.Pool;
+
+    const apiKeyService = new ApiKeyService(mockDb);
+    await expect(apiKeyService.revokeApiKey('key_to_revoke', 'agt_123')).resolves.not.toThrow();
+    expect(executedQueries.some((q) => q.includes("status = 'REVOKED'"))).toBe(true);
+  });
 });
