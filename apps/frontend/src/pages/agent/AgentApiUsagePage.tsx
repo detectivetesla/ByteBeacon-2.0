@@ -29,20 +29,20 @@ export const AgentApiUsagePage: React.FC = () => {
 
   // Data State
   const [overview, setOverview] = useState<AgentApiUsageOverviewDto>({
-    totalCalls7d: 38920,
-    liveCalls7d: 38920,
+    totalCalls7d: 0,
+    liveCalls7d: 0,
     sandboxCalls7d: 0,
     successRatePercent: 100,
     failureRatePercent: 0,
-    p95LatencyMs: 245,
-    avgLatencyMs: 58,
+    p95LatencyMs: 0,
+    avgLatencyMs: 0,
   });
 
   const [dailyData, setDailyData] = useState<AgentApiDailyUsageItem[]>([]);
   const [topEndpoints, setTopEndpoints] = useState<AgentApiTopEndpointItem[]>([]);
   const [recentRequests, setRecentRequests] = useState<AgentApiRequestLogItem[]>([]);
-  const [totalRequests, setTotalRequests] = useState<number>(209111);
-  const [totalPages, setTotalPages] = useState<number>(10456);
+  const [totalRequests, setTotalRequests] = useState<number>(0);
+  const [totalPages, setTotalPages] = useState<number>(1);
 
   // Hovered bar in daily chart
   const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(null);
@@ -67,7 +67,7 @@ export const AgentApiUsagePage: React.FC = () => {
         setTotalPages(res.recentRequests?.totalPages || 1);
       }
     } catch {
-      // Retain fallback benchmark values on network error
+      // Retain clean zero state on network error
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -97,7 +97,7 @@ export const AgentApiUsagePage: React.FC = () => {
 
   // Compute maximum value for daily chart scaling
   const maxDailyTotal = Math.max(
-    12000,
+    1,
     ...dailyData.map((d) => d.total || 0),
   );
 

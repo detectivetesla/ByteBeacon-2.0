@@ -2894,199 +2894,196 @@ export async function agentRoutes(
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const offset = (pageNum - 1) * limitNum;
-    const userId = req.user!.sub;
+    const currentUserId = req.user!.sub;
 
-    let realMetricsCount = 0;
+    // 1. Resolve all candidate user and agent IDs for this authenticated session
+    const candidateUserIds: string[] = [currentUserId];
     try {
-      const countCheck = await db.query(
-        `SELECT COUNT(*) as count FROM api_usage_metrics WHERE user_id = $1`,
-        [userId],
+      const agentCheck = await db.query(
+        `SELECT id::text, user_id::text FROM agents WHERE user_id::text = $1 OR id::text = $1`,
+        [currentUserId],
       );
-      realMetricsCount = parseInt(countCheck.rows[0]?.count || '0', 10);
+      for (const row of agentCheck.rows) {
+        if (row.id && !candidateUserIds.includes(row.id)) candidateUserIds.push(row.id);
+        if (row.user_id && !candidateUserIds.includes(row.user_id)) candidateUserIds.push(row.user_id);
+      }
     } catch {
-      realMetricsCount = 0;
+      // Non-blocking fallback
     }
 
-    if (realMetricsCount > 10) {
-      const overviewRes = await db.query(`
-        SELECT
-          COUNT(*) as "totalCalls7d",
-          COUNT(CASE WHEN environment = 'LIVE' THEN 1 END) as "liveCalls7d",
-          COUNT(CASE WHEN environment = 'TEST' OR environment = 'SANDBOX' THEN 1 END) as "sandboxCalls7d",
-          COUNT(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 END) as "successCount",
-          COUNT(CASE WHEN status_code >= 400 THEN 1 END) as "failureCount",
-          COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY response_time_ms), 245) as "p95LatencyMs",
-          COALESCE(AVG(response_time_ms), 58) as "avgLatencyMs"
-        FROM api_usage_metrics
-        WHERE user_id = $1 AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
-      `, [userId]).catch(() => ({ rows: [] }));
+    // 2. Resolve all API key IDs owned by this agent
+    const candidateKeyIds: string[] = [];
+    try {
+      const keysCheck = await db.query(
+        `SELECT id::text FROM api_keys 
+         WHERE agent_id::text = ANY($1::text[]) 
+            OR owner_user_id::text = ANY($1::text[])`,
+        [candidateUserIds],
+      );
+      for (const row of keysCheck.rows) {
+        if (row.id && !candidateKeyIds.includes(row.id)) candidateKeyIds.push(row.id);
+      }
+    } catch {
+      // Non-blocking fallback
+    }
 
-      const ov = overviewRes.rows[0] || {};
-      const totalCalls7d = parseInt(ov.totalCalls7d || '0', 10);
-      const successCount = parseInt(ov.successCount || '0', 10);
-      const failureCount = parseInt(ov.failureCount || '0', 10);
-      const successRate = totalCalls7d > 0 ? Math.round((successCount / totalCalls7d) * 100) : 100;
-      const failureRate = totalCalls7d > 0 ? Math.round((failureCount / totalCalls7d) * 100) : 0;
+    // 3. Environment filter clause for recent requests
+    let envClause = '';
+    if (mode === 'live') {
+      envClause = "AND m.environment = 'LIVE'";
+    } else if (mode === 'sandbox') {
+      envClause = "AND (m.environment = 'TEST' OR m.environment = 'SANDBOX')";
+    }
 
-      const dailyRes = await db.query(`
-        SELECT
-          TO_CHAR(d.day, 'MM-DD') as date,
-          TO_CHAR(d.day, 'YYYY-MM-DD') as "fullDate",
-          COUNT(CASE WHEN m.status_code >= 200 AND m.status_code < 300 THEN 1 END) as successes,
-          COUNT(CASE WHEN m.status_code >= 400 THEN 1 END) as failures,
-          COUNT(m.id) as total,
-          COALESCE(ROUND(AVG(m.response_time_ms)), 0) as "avgLatencyMs"
-        FROM generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, '1 day'::interval) d(day)
-        LEFT JOIN api_usage_metrics m ON DATE(m.created_at) = DATE(d.day) AND m.user_id = $1
-        GROUP BY d.day
-        ORDER BY d.day ASC
-      `, [userId]).catch(() => ({ rows: [] }));
+    // 4. Query 7-day Overview
+    const overviewRes = await db.query(
+      `SELECT
+        COUNT(*) as "totalCalls7d",
+        COUNT(CASE WHEN m.environment = 'LIVE' THEN 1 END) as "liveCalls7d",
+        COUNT(CASE WHEN m.environment = 'TEST' OR m.environment = 'SANDBOX' THEN 1 END) as "sandboxCalls7d",
+        COUNT(CASE WHEN m.status_code >= 200 AND m.status_code < 400 THEN 1 END) as "successCount",
+        COUNT(CASE WHEN m.status_code >= 400 THEN 1 END) as "failureCount",
+        COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY m.response_time_ms), 0) as "p95LatencyMs",
+        COALESCE(AVG(m.response_time_ms), 0) as "avgLatencyMs"
+      FROM api_usage_metrics m
+      WHERE (
+        (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
+        OR
+        (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+      )
+      AND m.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`,
+      [candidateUserIds, candidateKeyIds],
+    ).catch(() => ({ rows: [] }));
 
-      const topEndpointsRes = await db.query(`
-        SELECT
-          method,
-          endpoint as path,
-          COUNT(*) as count
-        FROM api_usage_metrics
-        WHERE user_id = $1 AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
-        GROUP BY method, endpoint
-        ORDER BY count DESC
-        LIMIT 5
-      `, [userId]).catch(() => ({ rows: [] }));
+    const ov = overviewRes.rows[0] || {};
+    const totalCalls7d = parseInt(ov.totalCalls7d || '0', 10);
+    const successCount = parseInt(ov.successCount || '0', 10);
+    const failureCount = parseInt(ov.failureCount || '0', 10);
+    const successRate = totalCalls7d > 0 ? Math.round((successCount / totalCalls7d) * 100) : 100;
+    const failureRate = totalCalls7d > 0 ? Math.round((failureCount / totalCalls7d) * 100) : 0;
 
-      const envCondition = mode === 'live' ? "AND environment = 'LIVE'" : mode === 'sandbox' ? "AND (environment = 'TEST' OR environment = 'SANDBOX')" : '';
-      const recentTotalRes = await db.query(
-        `SELECT COUNT(*) as total FROM api_usage_metrics WHERE user_id = $1 ${envCondition}`,
-        [userId],
-      ).catch(() => ({ rows: [{ total: '0' }] }));
-      const recentTotal = parseInt(recentTotalRes.rows[0]?.total || '0', 10);
+    // 5. Query 7-day Daily Series
+    const dailyRes = await db.query(
+      `SELECT
+        TO_CHAR(d.day, 'MM-DD') as date,
+        TO_CHAR(d.day, 'YYYY-MM-DD') as "fullDate",
+        COUNT(CASE WHEN m.status_code >= 200 AND m.status_code < 400 THEN 1 END) as successes,
+        COUNT(CASE WHEN m.status_code >= 400 THEN 1 END) as failures,
+        COUNT(m.id) as total,
+        COALESCE(ROUND(AVG(m.response_time_ms)), 0) as "avgLatencyMs"
+      FROM generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, '1 day'::interval) d(day)
+      LEFT JOIN api_usage_metrics m ON DATE(m.created_at) = DATE(d.day)
+        AND (
+          (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
+          OR
+          (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+        )
+      GROUP BY d.day
+      ORDER BY d.day ASC`,
+      [candidateUserIds, candidateKeyIds],
+    ).catch(() => ({ rows: [] }));
 
-      const recentItemsRes = await db.query(`
-        SELECT
-          id,
-          created_at as timestamp,
-          CASE WHEN environment = 'LIVE' THEN 'live' ELSE 'sandbox' END as mode,
-          method,
-          endpoint as path,
-          status_code as "statusCode",
-          ROUND(response_time_ms) as "latencyMs"
-        FROM api_usage_metrics
-        WHERE user_id = $1 ${envCondition}
-        ORDER BY created_at DESC
-        LIMIT $2 OFFSET $3
-      `, [userId, limitNum, offset]).catch(() => ({ rows: [] }));
+    let dailyItems = (dailyRes.rows || []).map((r: any) => ({
+      date: r.date,
+      fullDate: r.fullDate,
+      successes: parseInt(r.successes || '0', 10),
+      failures: parseInt(r.failures || '0', 10),
+      total: parseInt(r.total || '0', 10),
+      avgLatencyMs: parseInt(r.avgLatencyMs || '0', 10),
+    }));
 
-      return reply.send({
-        success: true,
-        data: {
-          overview: {
-            totalCalls7d,
-            liveCalls7d: parseInt(ov.liveCalls7d || '0', 10),
-            sandboxCalls7d: parseInt(ov.sandboxCalls7d || '0', 10),
-            successRatePercent: successRate,
-            failureRatePercent: failureRate,
-            p95LatencyMs: Math.round(parseFloat(ov.p95LatencyMs || '245')),
-            avgLatencyMs: Math.round(parseFloat(ov.avgLatencyMs || '58')),
-          },
-          daily: dailyRes.rows.map((r: any) => ({
-            date: r.date,
-            fullDate: r.fullDate,
-            successes: parseInt(r.successes || '0', 10),
-            failures: parseInt(r.failures || '0', 10),
-            total: parseInt(r.total || '0', 10),
-            avgLatencyMs: parseInt(r.avgLatencyMs || '0', 10),
-          })),
-          topEndpoints: topEndpointsRes.rows.map((r: any) => ({
-            method: r.method,
-            path: r.path,
-            count: parseInt(r.count || '0', 10),
-          })),
-          recentRequests: {
-            items: recentItemsRes.rows,
-            total: recentTotal,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(recentTotal / limitNum) || 1,
-          },
-        },
+    if (dailyItems.length === 0) {
+      dailyItems = Array.from({ length: 7 }).map((_, idx) => {
+        const d = new Date(Date.now() - (6 - idx) * 86400000);
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return {
+          date: `${mm}-${dd}`,
+          fullDate: d.toISOString().slice(0, 10),
+          successes: 0,
+          failures: 0,
+          total: 0,
+          avgLatencyMs: 0,
+        };
       });
     }
 
-    // High-fidelity telemetry benchmark matching reference design
-    const totalCalls7d = 38920;
-    const liveCalls7d = 38920;
-    const sandboxCalls7d = 0;
-    const totalRequests = mode === 'sandbox' ? 0 : 209111;
-    const totalPages = mode === 'sandbox' ? 1 : Math.ceil(totalRequests / limitNum);
+    // 6. Query Top Endpoints
+    const topEndpointsRes = await db.query(
+      `SELECT
+        m.method,
+        m.endpoint as path,
+        COUNT(*) as count
+      FROM api_usage_metrics m
+      WHERE (
+        (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
+        OR
+        (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+      )
+      AND m.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+      GROUP BY m.method, m.endpoint
+      ORDER BY count DESC
+      LIMIT 5`,
+      [candidateUserIds, candidateKeyIds],
+    ).catch(() => ({ rows: [] }));
 
-    // Dynamic 7-day window matching 09-03 to 09-09 pattern
-    const dailyData = [
-      { offsetDays: 6, successes: 0, failures: 0, total: 0, avgLatencyMs: 0 },
-      { offsetDays: 5, successes: 0, failures: 0, total: 0, avgLatencyMs: 0 },
-      { offsetDays: 4, successes: 4200, failures: 0, total: 4200, avgLatencyMs: 56 },
-      { offsetDays: 3, successes: 11800, failures: 0, total: 11800, avgLatencyMs: 61 },
-      { offsetDays: 2, successes: 11100, failures: 0, total: 11100, avgLatencyMs: 57 },
-      { offsetDays: 1, successes: 11400, failures: 0, total: 11400, avgLatencyMs: 59 },
-      { offsetDays: 0, successes: 420, failures: 0, total: 420, avgLatencyMs: 54 },
-    ].map((d) => {
-      const targetDate = new Date(Date.now() - d.offsetDays * 86400000);
-      const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(targetDate.getDate()).padStart(2, '0');
-      return {
-        date: `${mm}-${dd}`,
-        fullDate: targetDate.toISOString().slice(0, 10),
-        successes: d.successes,
-        failures: d.failures,
-        total: d.total,
-        avgLatencyMs: d.avgLatencyMs,
-      };
-    });
+    // 7. Query Recent Requests Count & Page
+    const recentTotalRes = await db.query(
+      `SELECT COUNT(*) as total 
+      FROM api_usage_metrics m 
+      WHERE (
+        (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
+        OR
+        (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+      ) ${envClause}`,
+      [candidateUserIds, candidateKeyIds],
+    ).catch(() => ({ rows: [{ total: '0' }] }));
+    const recentTotal = parseInt(recentTotalRes.rows[0]?.total || '0', 10);
 
-    const topEndpoints = [
-      { method: 'GET' as const, path: '/api/v1/agent/orders', count: 34023 },
-      { method: 'GET' as const, path: '/api/v1/agent/beneficiaries', count: 4897 },
-    ];
-
-    // Generate recent requests for current page
-    const sampleLatencies = [10, 10, 13, 10, 9, 10, 11, 238, 8, 9, 9, 10, 9, 10, 15, 231, 9, 9, 15, 9];
-    const baseTimeMs = Date.now() - (pageNum - 1) * limitNum * 3000;
-
-    const recentItems = mode === 'sandbox'
-      ? []
-      : Array.from({ length: Math.min(limitNum, Math.max(0, totalRequests - offset)) }).map((_, i) => {
-          const itemTime = new Date(baseTimeMs - i * 1500 - (i % 3 === 0 ? 500 : 0));
-          const isBeneficiary = i === 7 || i === 15;
-          return {
-            id: `req_${pageNum}_${i + 1}`,
-            timestamp: itemTime.toISOString(),
-            mode: 'live' as const,
-            method: 'GET' as const,
-            path: isBeneficiary ? '/api/v1/agent/beneficiaries' : '/api/v1/agent/orders',
-            statusCode: 200,
-            latencyMs: sampleLatencies[i % sampleLatencies.length] || 10,
-          };
-        });
+    const recentItemsRes = await db.query(
+      `SELECT
+        m.id,
+        m.created_at as timestamp,
+        CASE WHEN m.environment = 'LIVE' THEN 'live' ELSE 'sandbox' END as mode,
+        m.method,
+        m.endpoint as path,
+        m.status_code as "statusCode",
+        ROUND(m.response_time_ms) as "latencyMs"
+      FROM api_usage_metrics m
+      WHERE (
+        (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
+        OR
+        (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+      ) ${envClause}
+      ORDER BY m.created_at DESC
+      LIMIT $3 OFFSET $4`,
+      [candidateUserIds, candidateKeyIds, limitNum, offset],
+    ).catch(() => ({ rows: [] }));
 
     return reply.send({
       success: true,
       data: {
         overview: {
           totalCalls7d,
-          liveCalls7d,
-          sandboxCalls7d,
-          successRatePercent: 100,
-          failureRatePercent: 0,
-          p95LatencyMs: 245,
-          avgLatencyMs: 58,
+          liveCalls7d: parseInt(ov.liveCalls7d || '0', 10),
+          sandboxCalls7d: parseInt(ov.sandboxCalls7d || '0', 10),
+          successRatePercent: successRate,
+          failureRatePercent: failureRate,
+          p95LatencyMs: Math.round(parseFloat(ov.p95LatencyMs || '0')),
+          avgLatencyMs: Math.round(parseFloat(ov.avgLatencyMs || '0')),
         },
-        daily: dailyData,
-        topEndpoints,
+        daily: dailyItems,
+        topEndpoints: (topEndpointsRes.rows || []).map((r: any) => ({
+          method: r.method,
+          path: r.path,
+          count: parseInt(r.count || '0', 10),
+        })),
         recentRequests: {
-          items: recentItems,
-          total: totalRequests,
+          items: recentItemsRes.rows || [],
+          total: recentTotal,
           page: pageNum,
           limit: limitNum,
-          totalPages,
+          totalPages: Math.max(1, Math.ceil(recentTotal / limitNum)),
         },
       },
     });
@@ -3102,28 +3099,4 @@ export async function agentRoutes(
     { preHandler: [authHooks.authenticateCustomer] },
     handleGetAgentApiUsage,
   );
-
-  // Background Telemetry Logger Hook for API Key Invocations
-  app.addHook('onResponse', async (req, reply) => {
-    try {
-      const apiKeyHeader = extractApiKeyFromRequest(req) || '';
-      const authHeader = req.headers.authorization || '';
-      const hasKey = apiKeyHeader || authHeader.startsWith('Bearer ak_') || (req as any).apiKey;
-      if (!hasKey) return;
-
-      const keyId = (req as any).apiKey?.id || null;
-      const userId = req.user?.sub || (req as any).apiKey?.agentId || null;
-      const env = (req as any).apiKey?.environment || (apiKeyHeader.startsWith('ak_test_') ? 'TEST' : 'LIVE');
-      const route = req.routeOptions?.url || req.url.split('?')[0];
-      const duration = reply.elapsedTime || 0;
-
-      await db.query(
-        `INSERT INTO api_usage_metrics (
-          key_id, user_id, environment, endpoint, method, status_code, response_time_ms, ip_address
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [keyId, userId, env, route, req.method, reply.statusCode, duration, req.ip],
-      ).catch(() => {});
-    } catch {}
-  });
 }
-

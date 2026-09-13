@@ -18,6 +18,7 @@ import { ApiKeyService } from './core/security/api-key.service.js';
 import { RbacService } from './core/security/rbac.service.js';
 import { AuditService } from './core/security/audit.service.js';
 import { RateLimiterService } from './core/security/rate-limiter.service.js';
+import { ApiUsageTelemetryService } from './core/security/api-usage-telemetry.service.js';
 import { customerAuthRoutes } from './routes/auth/customer-auth.routes.js';
 import { adminAuthRoutes } from './routes/auth/admin-auth.routes.js';
 import { developerApiKeyRoutes } from './routes/auth/developer-api-key.routes.js';
@@ -99,6 +100,7 @@ export interface AppOptions {
   tokenService?: TokenService;
   sessionService?: SessionService;
   apiKeyService?: ApiKeyService;
+  apiUsageTelemetryService?: ApiUsageTelemetryService;
   rbacService?: RbacService;
   auditService?: AuditService;
   rateLimiter?: RateLimiterService;
@@ -332,6 +334,14 @@ export function createApp(options: AppOptions = {}) {
   const auditService = options.auditService ?? new AuditService(dbPool);
   const rateLimiter = options.rateLimiter ?? new RateLimiterService(redisClient);
   const featureFlagService = options.featureFlagService ?? new FeatureFlagService(dbPool);
+  const apiUsageTelemetryService =
+    options.apiUsageTelemetryService ?? new ApiUsageTelemetryService(dbPool);
+
+  // 4c. Global API Usage Telemetry Hook
+  // Captures all API key and authenticated agent traffic across all endpoints
+  app.addHook('onResponse', async (req, reply) => {
+    await apiUsageTelemetryService.recordRequest(req, reply);
+  });
 
   const catalogService = options.catalogService ?? new CatalogService(dbPool);
   const idempotencyService =

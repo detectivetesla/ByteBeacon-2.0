@@ -91,12 +91,8 @@ describe('AgentApiUsagePage Suite', () => {
     );
 
     await waitFor(() => {
-      expect(apiKeysApi.getApiUsage).toHaveBeenCalled();
+      expect(screen.getByText('38,920')).toBeInTheDocument();
     });
-
-    // TOTAL CALLS · 7D
-    expect(screen.getByText('TOTAL CALLS · 7D')).toBeInTheDocument();
-    expect(screen.getByText('38,920')).toBeInTheDocument();
     expect(screen.getByText('38920 live · 0 sandbox')).toBeInTheDocument();
 
     // SUCCESS RATE
@@ -189,5 +185,50 @@ describe('AgentApiUsagePage Suite', () => {
         expect.objectContaining({ mode: 'sandbox' }),
       );
     });
+  });
+
+  it('renders clean zero state when no API calls have occurred', async () => {
+    vi.mocked(apiKeysApi.getApiUsage).mockResolvedValue({
+      overview: {
+        totalCalls7d: 0,
+        liveCalls7d: 0,
+        sandboxCalls7d: 0,
+        successRatePercent: 100,
+        failureRatePercent: 0,
+        p95LatencyMs: 0,
+        avgLatencyMs: 0,
+      },
+      daily: Array.from({ length: 7 }).map((_, i) => ({
+        date: `09-0${i + 1}`,
+        fullDate: `2026-09-0${i + 1}`,
+        successes: 0,
+        failures: 0,
+        total: 0,
+        avgLatencyMs: 0,
+      })),
+      topEndpoints: [],
+      recentRequests: {
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 1,
+      },
+    } as any);
+
+    render(
+      <MemoryRouter>
+        <AgentApiUsagePage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(apiKeysApi.getApiUsage).toHaveBeenCalled();
+    });
+
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
+    expect(screen.getByText('0 live · 0 sandbox')).toBeInTheDocument();
+    expect(screen.getByText('0 total')).toBeInTheDocument();
+    expect(screen.getByText('No recent API requests found for this mode filter.')).toBeInTheDocument();
   });
 });

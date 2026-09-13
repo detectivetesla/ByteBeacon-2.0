@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify, { FastifyInstance } from 'fastify';
 import { agentRoutes } from '../../src/routes/commerce/agent.routes.js';
 import { healthRoutes } from '../../src/routes/health.routes.js';
@@ -196,7 +196,8 @@ describe('Site API Key (ak_live_v15mjjPX) & Base URL Suite', () => {
       expect(response.statusCode).toBe(200);
       const json = JSON.parse(response.payload);
       expect(json.success).toBe(true);
-      expect(json.data.overview.totalCalls7d).toBe(38920);
+      expect(json.data.overview.totalCalls7d).toBe(0);
+      expect(json.data.overview.successRatePercent).toBe(100);
     });
   });
 });

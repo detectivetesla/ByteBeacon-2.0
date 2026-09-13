@@ -206,20 +206,27 @@ export class ApiKeyService {
           }
         } catch {}
 
-        // Ensure key is registered in api_keys table asynchronously if db is active
-        this.db
-          .query(
+        const keyName = keyPrefix === 'ak_live_v15mjjPX' ? 'Site Live API Key' : `Live Master API Key (${keyPrefix})`;
+        let resolvedKeyId = `key_${keyPrefix}`;
+        try {
+          const insertRes = await this.db.query<{ id: string }>(
             `INSERT INTO api_keys (agent_id, name, key_prefix, key_hash, environment, scopes, status, rate_limit_tier)
              VALUES ($1, $2, $3, $4, 'LIVE', '{}', 'ACTIVE', 'TIER_UNLIMITED')
-             ON CONFLICT (key_hash) DO UPDATE SET status = 'ACTIVE', rate_limit_tier = 'TIER_UNLIMITED'`,
-            [resolvedAgentId, `Live Master API Key (${keyPrefix})`, keyPrefix, keyHash],
-          )
-          .catch(() => {});
+             ON CONFLICT (key_hash) DO UPDATE SET status = 'ACTIVE', rate_limit_tier = 'TIER_UNLIMITED'
+             RETURNING id`,
+            [resolvedAgentId, keyName, keyPrefix, keyHash],
+          );
+          if (insertRes.rows[0]?.id) {
+            resolvedKeyId = insertRes.rows[0].id;
+          }
+        } catch {
+          // Fallback if database operation is interrupted
+        }
 
         return {
-          id: `key_${keyPrefix}`,
+          id: resolvedKeyId,
           agentId: resolvedAgentId,
-          name: `Live Master API Key (${keyPrefix})`,
+          name: keyName,
           environment: ApiKeyEnvironment.LIVE,
           scopes: [],
           rateLimitTier: 'TIER_UNLIMITED',
