@@ -62,15 +62,22 @@ export async function adminOrdersRoutes(
     async (_req: FastifyRequest, reply: FastifyReply) => {
       const statsRes = await db.query(`
         SELECT 
-          COUNT(*) as "totalOrders",
-          COUNT(CASE WHEN order_status IN ('PROCESSING', 'PENDING', 'SUBMITTED') THEN 1 END) as "processing",
-          COUNT(CASE WHEN order_status = 'COMPLETED' THEN 1 END) as "completed",
-          COUNT(CASE WHEN order_status = 'FAILED' THEN 1 END) as "failed",
-          COUNT(CASE WHEN order_status = 'REFUNDED' OR refund_status = 'COMPLETED' THEN 1 END) as "refunded",
-          COUNT(CASE WHEN order_status = 'AWAITING_APPROVAL' THEN 1 END) as "awaitingApproval",
-          COUNT(CASE WHEN provider_status IN ('SYNC_FAILED', 'STALE', 'RECONCILIATION_REQUIRED') THEN 1 END) as "syncIssues",
-          COUNT(CASE WHEN order_status = 'COMPLETED' AND provider_status = 'FAILED' THEN 1 END) as "reconciliationRequired"
-        FROM orders
+          COUNT(DISTINCT o.id) as "totalOrders",
+          COUNT(DISTINCT CASE WHEN o.order_status IN ('PROCESSING', 'PENDING', 'SUBMITTED') THEN o.id END) as "processing",
+          COUNT(DISTINCT CASE WHEN o.order_status = 'COMPLETED' OR o.provider_status IN ('COMPLETED', 'FULFILLED') OR po.provider_status IN ('COMPLETED', 'FULFILLED') THEN o.id END) as "completed",
+          COUNT(DISTINCT CASE WHEN o.order_status = 'FAILED' AND (po.provider_status IS NULL OR po.provider_status NOT IN ('COMPLETED', 'FULFILLED')) THEN o.id END) as "failed",
+          COUNT(DISTINCT CASE WHEN o.order_status = 'REFUNDED' OR o.refund_status = 'COMPLETED' THEN o.id END) as "refunded",
+          COUNT(DISTINCT CASE WHEN o.order_status = 'AWAITING_APPROVAL' THEN o.id END) as "awaitingApproval",
+          COUNT(DISTINCT CASE WHEN o.provider_status IN ('SYNC_FAILED', 'STALE', 'RECONCILIATION_REQUIRED') OR po.provider_status IN ('SYNC_FAILED', 'STALE', 'RECONCILIATION_REQUIRED') THEN o.id END) as "syncIssues",
+          COUNT(DISTINCT CASE WHEN o.order_status = 'COMPLETED' AND (o.provider_status = 'FAILED' OR po.provider_status = 'FAILED') THEN o.id END) as "reconciliationRequired"
+        FROM orders o
+        LEFT JOIN LATERAL (
+          SELECT provider_status
+          FROM provider_orders
+          WHERE order_id = o.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) po ON true
       `).catch((err) => {
         app.log.error({ err }, '[ADMIN_ORDERS] Error calculating orders stats');
         return {
@@ -213,7 +220,13 @@ export async function adminOrdersRoutes(
         SELECT COUNT(DISTINCT o.id) as total
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
-        LEFT JOIN provider_orders po ON o.id = po.order_id
+        LEFT JOIN LATERAL (
+          SELECT provider_name, provider_order_id, provider_reference, provider_status
+          FROM provider_orders
+          WHERE order_id = o.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) po ON true
         LEFT JOIN payment_transactions p ON o.id = p.order_id
         ${whereSql}
       `;
@@ -226,13 +239,21 @@ export async function adminOrdersRoutes(
                o.id, o.user_id as "userId", o.agent_id as "agentId", o.recipient_phone as "recipientPhone",
                o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
                o.payment_status as "paymentStatus", o.order_status as "orderStatus",
-               o.provider_status as "providerStatus", o.refund_status as "refundStatus",
+               COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
+               o.refund_status as "refundStatus",
                o.created_at as "createdAt", o.updated_at as "updatedAt",
                u.email as "userEmail", COALESCE(u.full_name, 'Customer') as "userName",
-               po.provider_name as "providerName", po.provider_order_id as "providerOrderId"
+               COALESCE(po.provider_name, (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse') as "providerName",
+               COALESCE(po.provider_order_id, po.provider_reference) as "providerOrderId"
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
-        LEFT JOIN provider_orders po ON o.id = po.order_id
+        LEFT JOIN LATERAL (
+          SELECT provider_name, provider_order_id, provider_reference, provider_status
+          FROM provider_orders
+          WHERE order_id = o.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) po ON true
         LEFT JOIN payment_transactions p ON o.id = p.order_id
         ${whereSql}
         ORDER BY o.created_at DESC, o.id DESC
@@ -267,10 +288,18 @@ export async function adminOrdersRoutes(
         `SELECT o.id, o.user_id as "userId", o.agent_id as "agentId", o.recipient_phone as "recipientPhone",
                 o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
                 o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
-                o.provider_status as "providerStatus", o.refund_status as "refundStatus",
+                COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
+                o.refund_status as "refundStatus",
                 o.idempotency_key as "idempotencyKey", o.pricing_snapshot as "pricingSnapshot",
                 o.created_at as "createdAt", o.updated_at as "updatedAt"
          FROM orders o
+         LEFT JOIN LATERAL (
+           SELECT provider_status
+           FROM provider_orders
+           WHERE order_id = o.id
+           ORDER BY created_at DESC
+           LIMIT 1
+         ) po ON true
          WHERE o.id = $1`,
         [orderId],
       );
@@ -304,11 +333,16 @@ export async function adminOrdersRoutes(
 
       // Provider Order Information
       const providerOrderRes = await db.query(
-        `SELECT id, provider_name as "providerName", provider_order_id as "providerOrderId",
+        `SELECT id, 
+                COALESCE(provider_name, (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse') as "providerName",
+                provider_order_id as "providerOrderId",
                 provider_reference as "providerReference", provider_status as "providerStatus",
                 raw_payload as "rawPayload", last_synced_at as "lastSyncedAt",
                 created_at as "createdAt"
-         FROM provider_orders WHERE order_id = $1`,
+         FROM provider_orders 
+         WHERE order_id = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
         [orderId],
       ).catch(() => ({ rows: [] }));
 
@@ -411,9 +445,29 @@ export async function adminOrdersRoutes(
         });
       }
 
+      // Fetch fresh order details
+      const updatedOrderRes = await db.query(
+        `SELECT o.id, o.order_status as "orderStatus",
+                COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
+                po.provider_order_id as "providerOrderId", po.provider_reference as "providerReference"
+         FROM orders o
+         LEFT JOIN LATERAL (
+           SELECT provider_status, provider_order_id, provider_reference
+           FROM provider_orders
+           WHERE order_id = o.id
+           ORDER BY created_at DESC
+           LIMIT 1
+         ) po ON true
+         WHERE o.id = $1`,
+        [orderId],
+      ).catch(() => ({ rows: [] }));
+
       return reply.send({
         success: true,
-        data: singleRecon,
+        data: {
+          ...(typeof singleRecon === 'object' ? singleRecon : { result: singleRecon }),
+          order: updatedOrderRes.rows[0] || null,
+        },
         message: `Order [${orderId}] status reconciled.`,
       });
     },

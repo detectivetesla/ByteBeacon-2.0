@@ -77,6 +77,18 @@ export class DataHouseAdapter implements ITelecomProvider {
       '50': 'feca870e-95e2-436a-8cfc-39375575717c',
       '100': '06bd81ef-98bc-4b60-983b-9976f9eb7acd',
     },
+    TELECEL: {
+      '8': '75dbbc08-6609-4ca3-9ce1-eab139fded46',
+      '9': '356f7090-86be-4c4a-b6ce-1f57e949749c',
+      '10': 'dde5609b-29a9-46c1-889d-7976a6a7267b',
+      '15': 'a2c7dc51-881d-4a94-8b10-c5690058811c',
+      '20': '0ed4e19a-dc55-4f96-9f65-b31412d5981a',
+      '25': '5d542240-ec3a-4a8a-b8b5-1ba6b8a45cfa',
+      '30': '9966c5a7-7a72-46b3-93d4-bf812b55bbac',
+      '40': 'f78a2ed2-1762-4d0b-b565-485352dcf137',
+      '50': '6f782198-478e-4e8f-bf71-2c85172bf1c4',
+      '100': '8a561506-63e6-4047-b3b5-ebcb3df98122',
+    },
   };
 
   private bundleCache: Map<string, { bundles: any[]; expiresAt: number }> = new Map();
@@ -88,9 +100,9 @@ export class DataHouseAdapter implements ITelecomProvider {
     const targetMb = input.dataAmountMb || 1024;
     const targetGb = Math.max(1, Math.round(targetMb / 1024));
 
-    const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    // If already a valid UUID, use directly
-    if (rawBundleId && uuidV4Regex.test(rawBundleId)) {
+    // Check if rawBundleId directly matches a known standard DataHouse bundle
+    const standardMap = DataHouseAdapter.STANDARD_BUNDLE_UUIDS[network];
+    if (rawBundleId && standardMap && Object.values(standardMap).includes(rawBundleId)) {
       return rawBundleId;
     }
 
@@ -129,13 +141,12 @@ export class DataHouseAdapter implements ITelecomProvider {
         }
       }
     } catch {
-      // Fallback
+      // Fallback to static mapping
     }
 
     // Static catalog fallback by network and volume
-    const staticMap = DataHouseAdapter.STANDARD_BUNDLE_UUIDS[network];
-    if (staticMap && staticMap[String(targetGb)]) {
-      return staticMap[String(targetGb)];
+    if (standardMap && standardMap[String(targetGb)]) {
+      return standardMap[String(targetGb)];
     }
 
     return rawBundleId;
@@ -170,57 +181,123 @@ export class DataHouseAdapter implements ITelecomProvider {
   }
 
   public async getOrderStatus(input: GetOrderStatusInput): Promise<ProviderOrderStatus> {
-    const correlationId = `dh_status_${input.providerReference}`;
-    try {
-      const dhResp = await this.client.getOrderStatus(input.providerReference, correlationId);
-      return DataHouseMapper.toProviderOrderStatus(dhResp);
-    } catch (err: any) {
-      if (
-        (err instanceof DataHouseError && (err.statusCode === 404 || err.code === 'NOT_FOUND')) ||
-        err?.statusCode === 404 ||
-        err?.code === 'NOT_FOUND' ||
-        err?.message?.toLowerCase().includes('not found')
-      ) {
-        return {
-          providerOrderId: input.providerReference,
-          providerReference: input.providerReference,
-          providerStatus: ProviderStatus.FAILED,
-          completedAt: null,
-          errorMessage: 'Order not found at upstream provider',
-          rawResponse: { error: err?.message || 'Order not found', statusCode: 404, code: err?.code || 'NOT_FOUND' },
-        };
+    const primaryId = input.providerReference || input.orderId || '';
+    const correlationId = `dh_status_${primaryId}`;
+
+    // 1. If primaryId starts with 'ord_' or appears to be a direct DataHouse order ID:
+    if (primaryId && (primaryId.startsWith('ord_') || primaryId.includes('-') || !primaryId.startsWith('TXN-'))) {
+      try {
+        const dhResp = await this.client.getOrderStatus(primaryId, correlationId);
+        if (dhResp && (dhResp.id || dhResp.publicId || dhResp.status)) {
+          return DataHouseMapper.toProviderOrderStatus(dhResp);
+        }
+      } catch (err: any) {
+        const isNotFound =
+          (err instanceof DataHouseError && (err.statusCode === 404 || err.code === 'NOT_FOUND')) ||
+          err?.statusCode === 404 ||
+          err?.code === 'NOT_FOUND' ||
+          err?.message?.toLowerCase().includes('not found');
+        if (!isNotFound) throw err;
       }
-      throw err;
     }
+
+    // 2. If primaryId starts with 'TXN-' or direct lookup returned 404, query search by referenceCode:
+    if (primaryId) {
+      try {
+        const searchList = await this.client.listOrders({ search: primaryId, limit: 5 }, correlationId);
+        const orders = searchList?.data || searchList || [];
+        const rawItems = Array.isArray(orders) ? orders : (orders as any)?.data || [];
+        const matched = rawItems.find(
+          (o: any) =>
+            o.referenceCode === primaryId ||
+            o.reference === primaryId ||
+            o.id === primaryId ||
+            o.publicId === primaryId,
+        );
+        if (matched) {
+          return DataHouseMapper.toProviderOrderStatus(matched);
+        }
+      } catch {
+        // Continue to secondary check if applicable
+      }
+    }
+
+    // 3. If input.orderId is different from primaryId (e.g. secondary identifier available)
+    if (input.orderId && input.orderId !== primaryId) {
+      try {
+        const dhResp = await this.client.getOrderStatus(input.orderId, correlationId);
+        if (dhResp && (dhResp.id || dhResp.publicId || dhResp.status)) {
+          return DataHouseMapper.toProviderOrderStatus(dhResp);
+        }
+      } catch (err: any) {
+        const isNotFound =
+          (err instanceof DataHouseError && (err.statusCode === 404 || err.code === 'NOT_FOUND')) ||
+          err?.statusCode === 404 ||
+          err?.code === 'NOT_FOUND' ||
+          err?.message?.toLowerCase().includes('not found');
+        if (!isNotFound) throw err;
+      }
+    }
+
+    // Upstream has not indexed or recognized this reference yet.
+    // Invariants: 404 must NEVER falsely fail or reject an in-flight order.
+    return {
+      providerOrderId: primaryId,
+      providerReference: input.providerReference || primaryId,
+      providerStatus: ProviderStatus.UNKNOWN,
+      completedAt: null,
+      errorMessage: 'Order status pending or not yet indexed at upstream provider',
+      rawResponse: { statusCode: 404, code: 'NOT_FOUND', status: 'UNKNOWN' },
+    };
   }
 
   public async getOrderDetails(orderIdOrReference: string): Promise<DataHouseOrderDetailsDto> {
     const correlationId = `dh_details_${orderIdOrReference}`;
     try {
       const dhResp = await this.client.getOrderStatus(orderIdOrReference, correlationId);
-      return DataHouseMapper.toOrderDetailsDto(dhResp);
+      if (dhResp && (dhResp.id || dhResp.publicId || dhResp.status)) {
+        return DataHouseMapper.toOrderDetailsDto(dhResp);
+      }
     } catch (err: any) {
-      if (
+      const isNotFound =
         (err instanceof DataHouseError && (err.statusCode === 404 || err.code === 'NOT_FOUND')) ||
         err?.statusCode === 404 ||
         err?.code === 'NOT_FOUND' ||
-        err?.message?.toLowerCase().includes('not found')
-      ) {
-        return {
-          id: orderIdOrReference,
-          publicId: orderIdOrReference,
-          status: 'failed',
-          beneficiaryCount: 1,
-          totalAmount: 0,
-          deliveredCount: 0,
-          pendingCount: 0,
-          failedCount: 1,
-          delivery: { approved: 0, pending: 0, failed: 1, total: 1 },
-          beneficiaries: [],
-        } as any;
-      }
-      throw err;
+        err?.message?.toLowerCase().includes('not found');
+      if (!isNotFound) throw err;
     }
+
+    // Fallback: search by referenceCode if direct lookup gave 404
+    try {
+      const searchList = await this.client.listOrders({ search: orderIdOrReference, limit: 5 }, correlationId);
+      const orders = searchList?.data || searchList || [];
+      const rawItems = Array.isArray(orders) ? orders : (orders as any)?.data || [];
+      const matched = rawItems.find(
+        (o: any) =>
+          o.referenceCode === orderIdOrReference ||
+          o.reference === orderIdOrReference ||
+          o.id === orderIdOrReference ||
+          o.publicId === orderIdOrReference,
+      );
+      if (matched) {
+        return DataHouseMapper.toOrderDetailsDto(matched);
+      }
+    } catch {
+      // Return pending projection fallback
+    }
+
+    return {
+      id: orderIdOrReference,
+      publicId: orderIdOrReference,
+      status: 'pending',
+      beneficiaryCount: 1,
+      totalAmount: 0,
+      deliveredCount: 0,
+      pendingCount: 1,
+      failedCount: 0,
+      delivery: { approved: 0, pending: 1, failed: 0, total: 1 },
+      beneficiaries: [],
+    } as any;
   }
 
   public async listOrders(params: any = {}): Promise<DataHouseOrdersListDto> {

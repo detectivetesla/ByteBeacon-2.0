@@ -80,25 +80,30 @@ export async function agentRoutes(
       limit,
     } = req.query;
 
-    const pageNum = page ? parseInt(page, 10) : 1;
-    const limitNum = limit ? parseInt(limit, 10) : 30;
+    const pageNum = page ? Math.max(1, parseInt(page, 10)) : 1;
+    const limitNum = limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 30;
     const isAdmin = String(req.user?.role || '').toLowerCase().includes('admin');
 
     let result;
-    if (orderService) {
-      result = await orderService.listAgentOrders({
-        agentOrUserId: req.user!.sub,
-        isAdmin,
-        status,
-        network,
-        paymentStatus,
-        after,
-        before,
-        search,
-        page: pageNum,
-        limit: limitNum,
-      });
-    } else {
+    try {
+      if (orderService) {
+        result = await orderService.listAgentOrders({
+          agentOrUserId: req.user!.sub,
+          isAdmin,
+          status,
+          network,
+          paymentStatus,
+          after,
+          before,
+          search,
+          page: pageNum,
+          limit: limitNum,
+        });
+      } else {
+        result = { data: [], meta: { page: pageNum, limit: limitNum, total: 0, totalPages: 1 } };
+      }
+    } catch (err: any) {
+      req.log.error({ err: err?.message, userId: req.user?.sub }, '[AGENT_ORDERS] Failed to list agent orders');
       result = { data: [], meta: { page: pageNum, limit: limitNum, total: 0, totalPages: 1 } };
     }
 
@@ -109,6 +114,7 @@ export async function agentRoutes(
       data: {
         data: result.data,
         orders: result.data,
+        items: result.data,
         total: result.meta.total,
         page: result.meta.page,
         limit: result.meta.limit,
@@ -144,14 +150,22 @@ export async function agentRoutes(
     }
 
     const isAdmin = String(req.user?.role || '').toLowerCase().includes('admin');
-    const order = await orderService.getAgentOrderById(id, req.user!.sub, isAdmin);
+    try {
+      const order = await orderService.getAgentOrderById(id, req.user!.sub, isAdmin);
 
-    return reply.status(200).send({
-      success: true,
-      statusCode: 200,
-      message: 'Success',
-      data: order,
-    });
+      return reply.status(200).send({
+        success: true,
+        statusCode: 200,
+        message: 'Success',
+        data: order,
+      });
+    } catch (err: any) {
+      if (err instanceof NotFoundError || err?.statusCode === 404) {
+        throw err;
+      }
+      req.log.error({ err: err?.message, id, userId: req.user?.sub }, '[AGENT_ORDERS] Unexpected error retrieving agent order');
+      throw new NotFoundError(`Order '${id}' not found for current agent`);
+    }
   };
 
   app.get<{ Params: { id: string } }>(

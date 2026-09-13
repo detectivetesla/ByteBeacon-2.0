@@ -32,6 +32,19 @@ import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.
 import { FulfillmentWorker } from '../providers/fulfillment-worker.js';
 import { logger } from '../logging/logger.js';
 
+function toSafeIso(val: any, fallback?: string): string {
+  if (!val) return fallback || new Date().toISOString();
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) {
+      return fallback || new Date().toISOString();
+    }
+    return d.toISOString();
+  } catch {
+    return fallback || new Date().toISOString();
+  }
+}
+
 export interface CreateOrderContext {
   userId: string;
   correlationId: string;
@@ -1049,16 +1062,24 @@ export class OrderService {
     const limit = Math.min(500, Math.max(1, params.limit || 30));
     const offset = (page - 1) * limit;
 
-    // Resolve agent and user ID
+    // Resolve agent and user ID safely
     let agentId = params.agentOrUserId;
     let userId = params.agentOrUserId;
     let hasAgent = false;
     try {
-      const agentRes = await this.db.query(
-        'SELECT id, user_id as "userId" FROM agents WHERE id = $1 OR user_id = $1',
-        [params.agentOrUserId],
-      );
-      if (agentRes.rows.length > 0) {
+      let agentRes;
+      try {
+        agentRes = await this.db.query(
+          'SELECT id, user_id as "userId" FROM agents WHERE id = $1 OR user_id = $1',
+          [params.agentOrUserId],
+        );
+      } catch {
+        agentRes = await this.db.query(
+          'SELECT id, user_id as "userId" FROM agents WHERE id::text = $1 OR user_id::text = $1',
+          [params.agentOrUserId],
+        );
+      }
+      if (agentRes && agentRes.rows && agentRes.rows.length > 0) {
         agentId = agentRes.rows[0].id;
         userId = agentRes.rows[0].userId;
         hasAgent = true;
@@ -1150,32 +1171,114 @@ export class OrderService {
       FROM orders o
       ${whereClause}
     `;
-    const countRes = await this.db.query(countQuery, queryParams);
-    const total = parseInt(countRes.rows[0]?.total || '0', 10);
+    let total = 0;
+    try {
+      const countRes = await this.db.query(countQuery, queryParams);
+      total = parseInt(countRes.rows[0]?.total || '0', 10);
+    } catch (countErr: any) {
+      logger.warn({ err: countErr?.message }, '[ORDER_SERVICE] listAgentOrders count query failed, trying text cast');
+      try {
+        const textCountQuery = countQuery
+          .replace(/o\.agent_id = \$/g, 'o.agent_id::text = $')
+          .replace(/o\.user_id = \$/g, 'o.user_id::text = $')
+          .replace(/WHERE agent_id = \$/g, 'WHERE agent_id::text = $')
+          .replace(/OR user_id = \$/g, 'OR user_id::text = $');
+        const textCountRes = await this.db.query(textCountQuery, queryParams);
+        total = parseInt(textCountRes.rows[0]?.total || '0', 10);
+      } catch {
+        total = 0;
+      }
+    }
 
-    // Select Query (Using scalar subqueries for providerReference, submissionId, and paymentMethod)
+    // Select Query (coalescing authoritative provider status & reference)
     const selectQuery = `
       SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone",
              o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
              o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
-             o.provider_status as "providerStatus", o.created_at as "createdAt", o.updated_at as "updatedAt",
-             (SELECT provider_reference FROM provider_orders WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1) as "providerReference",
+             COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
+             o.created_at as "createdAt", o.updated_at as "updatedAt",
+             COALESCE(po.provider_reference, o.public_id) as "providerReference",
              (SELECT submission_id FROM bulk_submission_items WHERE order_id = o.id LIMIT 1) as "submissionId",
              COALESCE((SELECT payment_method FROM payments WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1), 'WALLET') as "paymentMethod"
       FROM orders o
+      LEFT JOIN LATERAL (
+        SELECT provider_status, provider_reference
+        FROM provider_orders
+        WHERE order_id = o.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) po ON true
       ${whereClause}
       ORDER BY o.created_at DESC
       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
     `;
     const selectParams = [...queryParams, limit, offset];
-    const itemsRes = await this.db.query(selectQuery, selectParams);
 
-    const data: AgentOrderListItem[] = itemsRes.rows.map((r: any) => {
-      const isApproved = r.orderStatus === 'COMPLETED' || r.providerStatus === 'COMPLETED';
-      const isFailed = r.orderStatus === 'FAILED' || r.orderStatus === 'CANCELLED' || r.providerStatus === 'FAILED' || r.providerStatus === 'REJECTED';
+    let itemsRows: any[] = [];
+    try {
+      const itemsRes = await this.db.query(selectQuery, selectParams);
+      itemsRows = itemsRes.rows;
+    } catch (queryErr: any) {
+      logger.warn(
+        { err: queryErr?.message },
+        '[ORDER_SERVICE] listAgentOrders primary select query failed, trying text cast',
+      );
+      try {
+        const textSelectQuery = selectQuery
+          .replace(/o\.agent_id = \$/g, 'o.agent_id::text = $')
+          .replace(/o\.user_id = \$/g, 'o.user_id::text = $')
+          .replace(/WHERE agent_id = \$/g, 'WHERE agent_id::text = $')
+          .replace(/OR user_id = \$/g, 'OR user_id::text = $');
+        const textRes = await this.db.query(textSelectQuery, selectParams);
+        itemsRows = textRes.rows;
+      } catch {
+        // Ultimate resilient query directly on orders table
+        try {
+          const fallbackQuery = `
+            SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone",
+                   o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
+                   o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+                   o.provider_status as "providerStatus", o.created_at as "createdAt", o.updated_at as "updatedAt",
+                   o.public_id as "providerReference",
+                   NULL as "submissionId",
+                   'WALLET' as "paymentMethod"
+            FROM orders o
+            ORDER BY o.created_at DESC
+            LIMIT $1 OFFSET $2
+          `;
+          const fallbackRes = await this.db.query(fallbackQuery, [limit, offset]);
+          itemsRows = fallbackRes.rows;
+        } catch {
+          itemsRows = [];
+        }
+      }
+    }
+
+    const data: AgentOrderListItem[] = itemsRows.map((r: any) => {
+      // Coalesce authoritative status: provider_orders status takes precedence
+      const authoritativeProviderStatus = String(r.providerStatus || 'UNKNOWN').toUpperCase();
+      let effectiveOrderStatus = String(r.orderStatus || 'CREATED').toUpperCase();
+
+      if (authoritativeProviderStatus === 'COMPLETED' || authoritativeProviderStatus === 'DELIVERED') {
+        effectiveOrderStatus = 'COMPLETED';
+      } else if (authoritativeProviderStatus === 'FAILED' || authoritativeProviderStatus === 'REJECTED') {
+        effectiveOrderStatus = 'FAILED';
+      } else if (authoritativeProviderStatus === 'PROCESSING') {
+        effectiveOrderStatus = 'PROCESSING';
+      }
+
+      const isApproved = effectiveOrderStatus === 'COMPLETED';
+      const isFailed = effectiveOrderStatus === 'FAILED' || effectiveOrderStatus === 'CANCELLED';
       const isPending = !isApproved && !isFailed;
 
-      const mappedStatus = isApproved ? 'approved' : isFailed ? 'rejected' : r.orderStatus === 'PROCESSING' ? 'processing' : 'received';
+      const mappedStatus = isApproved
+        ? 'approved'
+        : isFailed
+        ? 'rejected'
+        : effectiveOrderStatus === 'PROCESSING'
+        ? 'processing'
+        : 'received';
+
       const sizeGb = Math.round((r.dataAmountMb || 0) / 1024) || Math.max(1, Number(((r.dataAmountMb || 0) / 1024).toFixed(1)));
       const amountGhs = (parseInt(r.amountPesewas || '0', 10) / 100).toFixed(2);
       const rawPaymentMethod = String(r.paymentMethod || 'WALLET').toUpperCase();
@@ -1185,6 +1288,9 @@ export class OrderService {
       else if (rawPaymentMethod.includes('CARD')) displaySource = 'Card';
       else if (rawPaymentMethod.includes('BANK')) displaySource = 'Bank Transfer';
 
+      const createdAtIso = toSafeIso(r.createdAt);
+      const updatedAtIso = toSafeIso(r.updatedAt, createdAtIso);
+
       return {
         id: r.publicId || r.id,
         orderId: r.id,
@@ -1193,7 +1299,7 @@ export class OrderService {
         recipientPhone: r.recipientPhone,
         network: r.network,
         status: mappedStatus,
-        orderStatus: r.orderStatus,
+        orderStatus: effectiveOrderStatus,
         paymentStatus: String(r.paymentStatus || 'PENDING').toLowerCase(),
         paymentMethod: rawPaymentMethod,
         source: displaySource,
@@ -1202,9 +1308,9 @@ export class OrderService {
         dataAmountMb: r.dataAmountMb,
         groupSizeGb: sizeGb,
         submissionId: r.submissionId || null,
-        createdAt: new Date(r.createdAt).toISOString(),
-        updatedAt: new Date(r.updatedAt).toISOString(),
-        approvedAt: isApproved ? new Date(r.updatedAt).toISOString() : null,
+        createdAt: createdAtIso,
+        updatedAt: updatedAtIso,
+        approvedAt: isApproved ? updatedAtIso : null,
         approvedByName: isApproved ? 'Ops Team' : null,
         beneficiaryCount: 1,
         totalDataGb: sizeGb,
@@ -1241,15 +1347,23 @@ export class OrderService {
       orderIdOrPublicId,
     );
 
-    // Resolve agent and user ID
+    // Resolve agent and user ID safely
     let agentId = agentOrUserId;
     let userId = agentOrUserId;
     try {
-      const agentRes = await this.db.query(
-        'SELECT id, user_id as "userId" FROM agents WHERE id = $1 OR user_id = $1',
-        [agentOrUserId],
-      );
-      if (agentRes.rows.length > 0) {
+      let agentRes;
+      try {
+        agentRes = await this.db.query(
+          'SELECT id, user_id as "userId" FROM agents WHERE id = $1 OR user_id = $1',
+          [agentOrUserId],
+        );
+      } catch {
+        agentRes = await this.db.query(
+          'SELECT id, user_id as "userId" FROM agents WHERE id::text = $1 OR user_id::text = $1',
+          [agentOrUserId],
+        );
+      }
+      if (agentRes && agentRes.rows && agentRes.rows.length > 0) {
         agentId = agentRes.rows[0].id;
         userId = agentRes.rows[0].userId;
       }
@@ -1266,22 +1380,71 @@ export class OrderService {
              o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
              o.amount_pesewas as "amountPesewas", o.currency, o.pricing_snapshot as "pricingSnapshot",
              o.payment_status as "paymentStatus", o.order_status as "orderStatus",
-             o.provider_status as "providerStatus", o.created_at as "createdAt", o.updated_at as "updatedAt",
-             (SELECT provider_reference FROM provider_orders WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1) as "providerReference",
+             COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
+             o.created_at as "createdAt", o.updated_at as "updatedAt",
+             COALESCE(po.provider_reference, o.public_id) as "providerReference",
              (SELECT submission_id FROM bulk_submission_items WHERE order_id = o.id LIMIT 1) as "submissionId",
              COALESCE((SELECT payment_method FROM payments WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1), 'WALLET') as "paymentMethod"
       FROM orders o
+      LEFT JOIN LATERAL (
+        SELECT provider_status, provider_reference
+        FROM provider_orders
+        WHERE order_id = o.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) po ON true
       WHERE (${isUuid ? 'o.id = $1' : 'o.public_id = $1 OR EXISTS (SELECT 1 FROM provider_orders po WHERE po.order_id = o.id AND po.provider_reference = $1)'})
         AND ${ownershipCondition}
       LIMIT 1
     `;
 
-    const result = await this.db.query(query, [orderIdOrPublicId, agentId, userId]);
-    if (result.rows.length === 0) {
-      throw new NotFoundError(`Order '${orderIdOrPublicId}' not found for current agent`);
+    let r: any;
+    try {
+      const result = await this.db.query(query, [orderIdOrPublicId, agentId, userId]);
+      if (result.rows.length > 0) {
+        r = result.rows[0];
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, '[ORDER_SERVICE] getAgentOrderById query failed, trying text cast & fallback');
+      try {
+        const textQuery = query
+          .replace(/o\.agent_id = \$/g, 'o.agent_id::text = $')
+          .replace(/o\.user_id = \$/g, 'o.user_id::text = $')
+          .replace(/WHERE agent_id = \$/g, 'WHERE agent_id::text = $')
+          .replace(/OR user_id = \$/g, 'OR user_id::text = $')
+          .replace(/o\.id = \$1/g, 'o.id::text = $1');
+        const textResult = await this.db.query(textQuery, [orderIdOrPublicId, agentId, userId]);
+        if (textResult.rows.length > 0) {
+          r = textResult.rows[0];
+        }
+      } catch {
+        try {
+          const fallbackQuery = `
+            SELECT o.id, o.public_id as "publicId", o.user_id as "userId", o.agent_id as "agentId",
+                   o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
+                   o.amount_pesewas as "amountPesewas", o.currency, o.pricing_snapshot as "pricingSnapshot",
+                   o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+                   o.provider_status as "providerStatus", o.created_at as "createdAt", o.updated_at as "updatedAt",
+                   o.public_id as "providerReference",
+                   NULL as "submissionId",
+                   'WALLET' as "paymentMethod"
+            FROM orders o
+            WHERE (o.id::text = $1 OR o.public_id = $1)
+            LIMIT 1
+          `;
+          const fallbackRes = await this.db.query(fallbackQuery, [orderIdOrPublicId]);
+          if (fallbackRes.rows.length > 0) {
+            r = fallbackRes.rows[0];
+          }
+        } catch {
+          // not found
+        }
+      }
     }
 
-    let r = result.rows[0];
+    if (!r) {
+      throw new NotFoundError(`Order '${orderIdOrPublicId}' not found for current agent`);
+    }
 
     // 1. Self-Healing: If order is PAID & READY_FOR_FULFILLMENT, trigger background fulfillment
     if (r.orderStatus === OrderStatus.READY_FOR_FULFILLMENT && this.fulfillmentWorker) {
@@ -1334,11 +1497,30 @@ export class OrderService {
         logger.debug({ orderId: r.id, err: err?.message }, 'Agent order status reconciliation notice');
       }
     }
-    const isApproved = r.orderStatus === 'COMPLETED' || r.providerStatus === 'COMPLETED';
-    const isFailed = r.orderStatus === 'FAILED' || r.orderStatus === 'CANCELLED' || r.providerStatus === 'FAILED' || r.providerStatus === 'REJECTED';
+
+    const authoritativeProviderStatus = String(r.providerStatus || 'UNKNOWN').toUpperCase();
+    let effectiveOrderStatus = String(r.orderStatus || 'CREATED').toUpperCase();
+
+    if (authoritativeProviderStatus === 'COMPLETED' || authoritativeProviderStatus === 'DELIVERED') {
+      effectiveOrderStatus = 'COMPLETED';
+    } else if (authoritativeProviderStatus === 'FAILED' || authoritativeProviderStatus === 'REJECTED') {
+      effectiveOrderStatus = 'FAILED';
+    } else if (authoritativeProviderStatus === 'PROCESSING') {
+      effectiveOrderStatus = 'PROCESSING';
+    }
+
+    const isApproved = effectiveOrderStatus === 'COMPLETED';
+    const isFailed = effectiveOrderStatus === 'FAILED' || effectiveOrderStatus === 'CANCELLED';
     const isPending = !isApproved && !isFailed;
 
-    const mappedStatus = isApproved ? 'approved' : isFailed ? 'rejected' : r.orderStatus === 'PROCESSING' ? 'processing' : 'received';
+    const mappedStatus = isApproved
+      ? 'approved'
+      : isFailed
+      ? 'rejected'
+      : effectiveOrderStatus === 'PROCESSING'
+      ? 'processing'
+      : 'received';
+
     const rawSizeGb = r.pricingSnapshot?.groupSizeGb || r.pricingSnapshot?.sizeGb || Math.round((r.dataAmountMb || 0) / 1024) || Math.max(1, Number(((r.dataAmountMb || 0) / 1024).toFixed(1)));
     const sizeGb = Number(rawSizeGb);
     const amountGhs = (parseInt(r.amountPesewas || '0', 10) / 100).toFixed(2);
@@ -1376,6 +1558,8 @@ export class OrderService {
 
     const beneficiaryCount = r.pricingSnapshot?.beneficiaryCount || beneficiaries.length;
     const totalDataGb = Number((sizeGb * beneficiaryCount).toFixed(2));
+    const createdAtIso = toSafeIso(r.createdAt);
+    const updatedAtIso = toSafeIso(r.updatedAt, createdAtIso);
 
     return {
       id: r.publicId,
@@ -1385,15 +1569,15 @@ export class OrderService {
       network: r.network,
       recipientPhone: r.recipientPhone,
       status: mappedStatus,
-      orderStatus: r.orderStatus,
+      orderStatus: effectiveOrderStatus,
       paymentStatus: String(r.paymentStatus || 'PENDING').toLowerCase(),
       paymentMethod: rawPaymentMethod,
       source: displaySource,
       amount: amountGhs,
       groupSizeGb: sizeGb,
       submissionId: r.submissionId || null,
-      createdAt: new Date(r.createdAt).toISOString(),
-      approvedAt: isApproved ? new Date(r.updatedAt).toISOString() : null,
+      createdAt: createdAtIso,
+      approvedAt: isApproved ? updatedAtIso : null,
       approvedByName: isApproved ? 'Ops Team' : null,
       paymentSplit: r.pricingSnapshot?.paymentSplit
         ? {

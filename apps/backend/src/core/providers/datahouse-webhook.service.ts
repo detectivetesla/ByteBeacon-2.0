@@ -104,6 +104,7 @@ export class DataHouseWebhookService {
       // 5. Locate Local Provider Order Projection
       const reference = payload.data?.referenceCode || payload.data?.reference || payload.data?.reference_code;
       const datahouseOrderId = payload.data?.id || payload.data?.orderId || payload.data?.order_id;
+      const idempotencyKey = (payload.data as any)?.idempotencyKey || (payload.data as any)?.idempotency_key || null;
 
       const projRes = await client.query(
         `SELECT po.id, po.order_id as "orderId", po.provider_status as "currentStatus",
@@ -112,9 +113,17 @@ export class DataHouseWebhookService {
                 o.amount_pesewas as "amountPesewas"
          FROM provider_orders po
          JOIN orders o ON po.order_id = o.id
-         WHERE po.provider_reference = $1 OR po.provider_order_id = $2 OR o.public_id = $1 OR o.public_id = $2
+         WHERE po.provider_reference = $1 
+            OR po.provider_order_id = $2 
+            OR po.provider_order_id = $1 
+            OR po.provider_reference = $2 
+            OR o.public_id = $1 
+            OR o.public_id = $2
+            OR o.id::text = $1
+            OR o.id::text = $2
+            OR ($3::text IS NOT NULL AND (o.id::text = $3 OR o.idempotency_key = $3))
          FOR UPDATE`,
-        [reference, datahouseOrderId],
+        [reference, datahouseOrderId, idempotencyKey],
       );
 
       if (projRes.rows.length === 0) {
@@ -231,13 +240,15 @@ export class DataHouseWebhookService {
       await client.query(
         `UPDATE provider_orders
          SET provider_status = $1,
+             provider_order_id = COALESCE(provider_order_id, $5),
+             provider_reference = COALESCE(provider_reference, $6),
              raw_payload = $2,
              last_synced_at = $3,
              last_provider_event_at = $3,
              sync_version = sync_version + 1,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $4`,
-        [incomingStatus, JSON.stringify(payload), eventTimestamp, projection.id],
+        [incomingStatus, JSON.stringify(payload), eventTimestamp, projection.id, datahouseOrderId || null, reference || null],
       );
 
       // Update orders

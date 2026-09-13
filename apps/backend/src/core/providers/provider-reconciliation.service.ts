@@ -51,12 +51,16 @@ export class ProviderReconciliationService {
 
     const ordersRes = await this.db.query(
       `SELECT po.id, po.order_id as "orderId", po.provider_name as "providerName",
-              po.provider_reference as "providerReference", po.provider_status as "providerStatus",
-              o.order_status as "orderStatus"
+              po.provider_reference as "providerReference", po.provider_order_id as "providerOrderId",
+              po.provider_status as "providerStatus", o.order_status as "orderStatus",
+              o.created_at as "orderCreatedAt"
        FROM provider_orders po
        JOIN orders o ON po.order_id = o.id
-       WHERE po.provider_status IN ('RECEIVED', 'PROCESSING')
-         AND (po.last_synced_at IS NULL OR po.last_synced_at < $1)
+       WHERE (
+         po.provider_status IN ('RECEIVED', 'PROCESSING', 'UNKNOWN')
+         OR o.order_status IN ('READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING')
+       )
+       AND (po.last_synced_at IS NULL OR po.last_synced_at < $1)
        LIMIT 100`,
       [staleThresholdTime],
     );
@@ -65,18 +69,30 @@ export class ProviderReconciliationService {
     let matchedCount = 0;
 
     for (const row of ordersRes.rows) {
-      if (!row.providerReference) continue;
+      const targetRef = row.providerOrderId || row.providerReference;
+      if (!targetRef) continue;
 
       const orderProvider = this.resolveProviderForRecord(row.providerName);
 
       try {
         const actualStatus = await orderProvider.getOrderStatus({
-          providerReference: row.providerReference,
-          orderId: row.orderId,
+          providerReference: targetRef,
+          orderId: row.providerOrderId || row.orderId,
         });
 
-        if (actualStatus.providerStatus === row.providerStatus) {
+        if (actualStatus.providerStatus === ProviderStatus.UNKNOWN) {
+          // Status pending upstream or not yet indexed; preserve in-flight state
           matchedCount++;
+          await this.db.query(
+            `UPDATE provider_orders SET last_synced_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [row.id],
+          );
+        } else if (actualStatus.providerStatus === row.providerStatus) {
+          matchedCount++;
+          await this.db.query(
+            `UPDATE provider_orders SET last_synced_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [row.id],
+          );
         } else {
           // Discrepancy found! Authoritative provider status has changed
           const isCompleted = actualStatus.providerStatus === ProviderStatus.COMPLETED;
@@ -91,10 +107,12 @@ export class ProviderReconciliationService {
           await this.db.query(
             `UPDATE provider_orders
              SET provider_status = $1,
+                 provider_order_id = COALESCE($3, provider_order_id),
+                 provider_reference = COALESCE($4, provider_reference),
                  last_synced_at = CURRENT_TIMESTAMP,
                  sync_version = sync_version + 1
              WHERE id = $2`,
-            [actualStatus.providerStatus, row.id],
+            [actualStatus.providerStatus, row.id, actualStatus.providerOrderId || null, actualStatus.providerReference || null],
           );
 
           await this.db.query(
@@ -201,15 +219,32 @@ export class ProviderReconciliationService {
           });
         }
       } catch (err: any) {
-        if (
+        const orderAgeMs = row.orderCreatedAt ? Date.now() - new Date(row.orderCreatedAt).getTime() : 0;
+        const isPermanentlyLost = orderAgeMs > 24 * 60 * 60 * 1000;
+        const isNotFound =
           err?.statusCode === 404 ||
           err?.code === 'NOT_FOUND' ||
           err?.message?.toLowerCase().includes('not found') ||
-          err?.message?.toLowerCase().includes('does not exist')
-        ) {
+          err?.message?.toLowerCase().includes('does not exist');
+
+        if (isNotFound && !isPermanentlyLost) {
+          // Fresh or in-flight order not yet indexed at provider; update sync timestamp and do not falsely fail
+          logger.info(
+            { orderId: row.orderId, providerReference: row.providerReference, providerName: orderProvider.providerName },
+            'Order status pending or not yet indexed at upstream provider; preserving in-flight status',
+          );
+          await this.db.query(
+            `UPDATE provider_orders SET last_synced_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [row.id],
+          );
+          matchedCount++;
+          continue;
+        }
+
+        if (isNotFound) {
           logger.warn(
             { orderId: row.orderId, providerReference: row.providerReference, providerName: orderProvider.providerName },
-            'Order not found at upstream provider during reconciliation; marking local record as FAILED and resolving refund if applicable',
+            'Order not found at upstream provider during reconciliation and exceeds 24h retention; marking local record as FAILED and resolving refund if applicable',
           );
           await this.db.query(
             `UPDATE provider_orders
@@ -291,9 +326,11 @@ export class ProviderReconciliationService {
       ],
     );
 
+    const recId = insertRes.rows?.[0]?.id || `rec_${Date.now()}`;
+
     logger.info(
       {
-        reconciliationId: insertRes.rows[0].id,
+        reconciliationId: recId,
         totalChecked: ordersRes.rows.length,
         discrepancies: discrepancies.length,
       },
@@ -301,7 +338,7 @@ export class ProviderReconciliationService {
     );
 
     return {
-      reconciliationId: insertRes.rows[0].id,
+      reconciliationId: recId,
       reconciliationDate,
       totalChecked: ordersRes.rows.length,
       matchedCount,
@@ -354,8 +391,9 @@ export class ProviderReconciliationService {
     const res = await this.db.query(
       `SELECT o.id, o.public_id as "publicId", o.order_status as "orderStatus",
               o.provider_status as "orderProviderStatus", o.network,
-              po.id as "providerOrderId", po.provider_name as "providerName",
-              po.provider_reference as "providerReference", po.provider_status as "providerStatus"
+              po.id as "providerOrderIdRow", po.provider_name as "providerName",
+              po.provider_reference as "providerReference", po.provider_order_id as "providerOrderId",
+              po.provider_status as "providerStatus"
        FROM orders o
        LEFT JOIN provider_orders po ON o.id = po.order_id
        WHERE o.id = $1`,
@@ -369,11 +407,11 @@ export class ProviderReconciliationService {
     const row = res.rows[0];
     const providerName = row.providerName || (typeof (this.provider as any).getActiveProvider === 'function' ? (this.provider as any).getActiveProvider().providerName : this.provider.providerName);
     const orderProvider = this.resolveProviderForRecord(providerName);
-    const reference = row.providerReference || `pst_sub_${row.id}`;
+    const reference = row.providerOrderId || row.providerReference || `pst_sub_${row.id}`;
 
     const actualStatus = await orderProvider.getOrderStatus({
       providerReference: reference,
-      orderId: row.id,
+      orderId: row.providerOrderId || row.id,
     });
 
     const isCompleted = actualStatus.providerStatus === ProviderStatus.COMPLETED;
@@ -389,17 +427,19 @@ export class ProviderReconciliationService {
 
     await this.db.query(
       `UPDATE provider_orders
-       SET provider_status = $1,
+       SET provider_status = CASE WHEN $1 = 'UNKNOWN' THEN provider_status ELSE $1 END,
+           provider_order_id = COALESCE($3, provider_order_id),
+           provider_reference = COALESCE($4, provider_reference),
            last_synced_at = CURRENT_TIMESTAMP,
            sync_version = sync_version + 1
        WHERE order_id = $2`,
-      [actualStatus.providerStatus, row.id],
+      [actualStatus.providerStatus, row.id, actualStatus.providerOrderId || null, actualStatus.providerReference || null],
     );
 
     await this.db.query(
       `UPDATE orders
        SET order_status = $1,
-           provider_status = $2,
+           provider_status = CASE WHEN $2 = 'UNKNOWN' THEN provider_status ELSE $2 END,
            refund_status = CASE WHEN $4 = TRUE AND payment_status = 'PAID' THEN 'COMPLETED' ELSE refund_status END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,

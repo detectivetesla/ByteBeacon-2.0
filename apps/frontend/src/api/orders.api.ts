@@ -24,6 +24,7 @@ export interface OrderListFilters {
 export interface PaginatedOrdersResponse {
   orders: OrderSummaryDto[];
   items?: OrderSummaryDto[];
+  data?: OrderSummaryDto[];
   total: number;
   page: number;
   limit: number;
@@ -85,6 +86,7 @@ export const ordersApi = {
     return {
       orders: ordersList,
       items: ordersList,
+      data: ordersList,
       total,
       page,
       limit,
@@ -107,6 +109,8 @@ export const ordersApi = {
       ? raw.orders
       : Array.isArray(raw?.items)
       ? raw.items
+      : Array.isArray(raw?.data)
+      ? raw.data
       : Array.isArray(raw)
       ? raw
       : [];
@@ -119,6 +123,7 @@ export const ordersApi = {
     return {
       orders: ordersList,
       items: ordersList,
+      data: ordersList,
       total,
       page,
       limit,

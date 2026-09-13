@@ -69,6 +69,8 @@ export const AgentOrdersPage: React.FC = () => {
           ? res.orders
           : Array.isArray(res.items)
           ? res.items
+          : Array.isArray(res.data)
+          ? res.data
           : Array.isArray(res)
           ? res
           : [];

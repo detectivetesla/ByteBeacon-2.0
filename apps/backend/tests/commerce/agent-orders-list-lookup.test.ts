@@ -458,4 +458,123 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
       expect(json.data.isSandbox).toBe(false);
     });
   });
+
+  describe('Edge-case Resiliency & Mismatch Prevention', () => {
+    it('should coalesce provider COMPLETED status even if internal order status is FAILED', async () => {
+      const origQuery = mockDb.query;
+      (mockDb.query as any) = vi.fn().mockImplementation((q: string, params?: any[]) => {
+        if (q.includes('FROM orders o') && q.includes('ORDER BY o.created_at DESC')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'ord_uuid_stale_1',
+                publicId: 'ord_stale_failed_order',
+                recipientPhone: '0241234567',
+                network: 'MTN',
+                dataAmountMb: 2048,
+                amountPesewas: '1000',
+                currency: 'GHS',
+                paymentStatus: 'PAID',
+                orderStatus: 'FAILED', // Stale internal status
+                providerStatus: 'COMPLETED', // Authoritative upstream status
+                createdAt: '2026-07-08T10:00:00.000Z',
+                updatedAt: '2026-07-08T10:02:00.000Z',
+                providerReference: 'PROV-123',
+                submissionId: null,
+                paymentMethod: 'WALLET',
+              },
+            ],
+          });
+        }
+        return origQuery(q, params);
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_live_8f3c12345678',
+        },
+      });
+
+      mockDb.query = origQuery;
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.data.data[0].orderStatus).toBe('COMPLETED');
+      expect(json.data.data[0].status).toBe('approved');
+      expect(json.data.data[0].delivery).toEqual({
+        approved: 1,
+        pending: 0,
+        failed: 0,
+        total: 1,
+      });
+    });
+
+    it('should safely handle missing or invalid date strings without throwing RangeError', async () => {
+      const origQuery = mockDb.query;
+      (mockDb.query as any) = vi.fn().mockImplementation((q: string, params?: any[]) => {
+        if (q.includes('FROM orders o') && q.includes('ORDER BY o.created_at DESC')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'ord_uuid_null_date',
+                publicId: 'ord_null_date_order',
+                recipientPhone: '0241234567',
+                network: 'MTN',
+                dataAmountMb: 1024,
+                amountPesewas: '500',
+                currency: 'GHS',
+                paymentStatus: 'PAID',
+                orderStatus: 'COMPLETED',
+                providerStatus: 'COMPLETED',
+                createdAt: null, // null date
+                updatedAt: 'invalid-date-string', // invalid date
+                providerReference: null,
+                submissionId: null,
+                paymentMethod: null,
+              },
+            ],
+          });
+        }
+        return origQuery(q, params);
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_live_8f3c12345678',
+        },
+      });
+
+      mockDb.query = origQuery;
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.data.data[0].createdAt).toBeDefined();
+      expect(json.data.data[0].updatedAt).toBeDefined();
+      expect(new Date(json.data.data[0].createdAt).getTime()).not.toBeNaN();
+    });
+
+    it('should never return 500 even if database throws an unexpected error', async () => {
+      const origQuery = mockDb.query;
+      (mockDb.query as any) = vi.fn().mockRejectedValue(new Error('Fatal database connection lost'));
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_live_8f3c12345678',
+        },
+      });
+
+      mockDb.query = origQuery;
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.data).toEqual([]);
+      expect(json.data.orders).toEqual([]);
+      expect(json.data.items).toEqual([]);
+      expect(json.data.total).toBe(0);
+    });
+  });
 });

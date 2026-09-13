@@ -228,7 +228,7 @@ export class FulfillmentWorker {
             confirmedPorted,
             metadata: {
               correlationId,
-              bundleId: order.providerPlanId || order.providerPlanCode || order.product_id,
+              bundleId: order.providerPlanId || order.providerPlanCode || undefined,
               providerProductId: order.providerProductCode,
               sku: order.sku,
               productName: order.productName,
@@ -361,11 +361,14 @@ export class FulfillmentWorker {
         ? OrderStatus.FAILED
         : OrderStatus.SUBMITTED;
 
+      const providerOrderId = submitResult.providerOrderId || submitResult.providerReference;
+
       try {
         await this.db.query(
           `UPDATE provider_orders
            SET provider_name = $1,
                provider_reference = $2,
+               provider_order_id = $6,
                provider_status = $3,
                raw_payload = $5,
                last_synced_at = CURRENT_TIMESTAMP,
@@ -379,6 +382,7 @@ export class FulfillmentWorker {
             initialProviderStatus,
             order.id,
             JSON.stringify(submitResult.rawResponse || submitResult),
+            providerOrderId,
           ],
         );
       } catch {
@@ -386,6 +390,7 @@ export class FulfillmentWorker {
           `UPDATE provider_orders
            SET provider_name = $1,
                provider_reference = $2,
+               provider_order_id = $5,
                provider_status = $3,
                last_synced_at = CURRENT_TIMESTAMP
            WHERE order_id = $4`,
@@ -394,6 +399,7 @@ export class FulfillmentWorker {
             submitResult.providerReference,
             initialProviderStatus,
             order.id,
+            providerOrderId,
           ],
         ).catch(() => {});
       }
@@ -929,10 +935,17 @@ export class FulfillmentWorker {
     await this.db.query(
       `UPDATE provider_orders
        SET provider_status = $1,
+           provider_order_id = COALESCE($3, provider_order_id),
+           provider_reference = COALESCE($4, provider_reference),
            last_synced_at = CURRENT_TIMESTAMP,
            sync_version = sync_version + 1
        WHERE order_id = $2`,
-      [statusData.providerStatus, orderId],
+      [
+        statusData.providerStatus,
+        orderId,
+        statusData.providerOrderId || null,
+        statusData.providerReference || null,
+      ],
     ).catch(() => {});
 
     await this.db.query(
