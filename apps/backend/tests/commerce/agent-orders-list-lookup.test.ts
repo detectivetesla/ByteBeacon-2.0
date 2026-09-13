@@ -576,5 +576,48 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
       expect(json.data.items).toEqual([]);
       expect(json.data.total).toBe(0);
     });
+
+    it('should strictly isolate agent orders and never leak all platform orders for admin users without agentId filter', async () => {
+      const executedQueries: { sql: string; params?: any[] }[] = [];
+      const origQuery = mockDb.query;
+      (mockDb.query as any) = vi.fn().mockImplementation((q: string, params?: any[]) => {
+        executedQueries.push({ sql: q, params });
+        if (q.includes('FROM agents WHERE')) {
+          return Promise.resolve({ rows: [] }); // Admin has no agent record
+        }
+        if (q.includes('FROM orders o')) {
+          return Promise.resolve({ rows: [] }); // User has 0 orders
+        }
+        return origQuery(q, params);
+      });
+
+      (mockTokenService.verifyAccessToken as any).mockReturnValueOnce({
+        sub: 'usr_admin_without_orders',
+        email: 'admin_no_orders@bytebeacon.com',
+        role: UserRole.ADMIN,
+        domain: SecurityDomain.BACKOFFICE,
+        status: 'ACTIVE',
+        sessionId: 'sess_admin_2',
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/orders',
+        headers: {
+          authorization: 'Bearer admin_token_2',
+        },
+      });
+
+      mockDb.query = origQuery;
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.data.data).toHaveLength(0);
+
+      // Verify that the query strictly checked for usr_admin_without_orders and NOT "(o.agent_id IS NOT NULL)"
+      const ordersQuery = executedQueries.find((item) => item.sql.includes('FROM orders o'));
+      expect(ordersQuery).toBeDefined();
+      expect(ordersQuery?.sql).not.toContain('(o.agent_id IS NOT NULL OR o.store_id IS NOT NULL)');
+      expect(ordersQuery?.params).toContain('usr_admin_without_orders');
+    });
   });
 });

@@ -1065,7 +1065,6 @@ export class OrderService {
     // Resolve agent and user ID safely
     let agentId = params.agentOrUserId;
     let userId = params.agentOrUserId;
-    let hasAgent = false;
     try {
       let agentRes;
       try {
@@ -1082,7 +1081,6 @@ export class OrderService {
       if (agentRes && agentRes.rows && agentRes.rows.length > 0) {
         agentId = agentRes.rows[0].id;
         userId = agentRes.rows[0].userId;
-        hasAgent = true;
       }
     } catch {
       // Continue with provided ID
@@ -1092,20 +1090,16 @@ export class OrderService {
     const queryParams: any[] = [];
     let paramIdx = 1;
 
-    if (!params.isAdmin || hasAgent) {
-      conditions.push(`(
-        o.agent_id = $${paramIdx}
-        OR o.user_id = $${paramIdx + 1}
-        OR o.agent_id = $${paramIdx + 1}
-        OR o.user_id = $${paramIdx}
-        OR o.store_id IN (SELECT id FROM stores WHERE agent_id = $${paramIdx} OR user_id = $${paramIdx + 1})
-      )`);
-      queryParams.push(agentId, userId);
-      paramIdx += 2;
-    } else {
-      // Global admin view without an explicit agent record: show all agent and storefront orders
-      conditions.push(`(o.agent_id IS NOT NULL OR o.store_id IS NOT NULL)`);
-    }
+    // Always restrict to the target agent / user's individual orders
+    conditions.push(`(
+      o.agent_id = $${paramIdx}
+      OR o.user_id = $${paramIdx + 1}
+      OR o.agent_id = $${paramIdx + 1}
+      OR o.user_id = $${paramIdx}
+      OR o.store_id IN (SELECT id FROM stores WHERE agent_id = $${paramIdx} OR user_id = $${paramIdx + 1})
+    )`);
+    queryParams.push(agentId, userId);
+    paramIdx += 2;
 
     // Filter by network
     if (params.network && params.network.toUpperCase() !== 'ALL') {
@@ -1232,7 +1226,7 @@ export class OrderService {
         const textRes = await this.db.query(textSelectQuery, selectParams);
         itemsRows = textRes.rows;
       } catch {
-        // Ultimate resilient query directly on orders table
+        // Ultimate resilient query directly on orders table (strictly preserving agent whereClause)
         try {
           const fallbackQuery = `
             SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone",
@@ -1243,11 +1237,22 @@ export class OrderService {
                    NULL as "submissionId",
                    'WALLET' as "paymentMethod"
             FROM orders o
+            ${whereClause}
             ORDER BY o.created_at DESC
-            LIMIT $1 OFFSET $2
+            LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
           `;
-          const fallbackRes = await this.db.query(fallbackQuery, [limit, offset]);
-          itemsRows = fallbackRes.rows;
+          try {
+            const fallbackRes = await this.db.query(fallbackQuery, selectParams);
+            itemsRows = fallbackRes.rows;
+          } catch {
+            const textFallbackQuery = fallbackQuery
+              .replace(/o\.agent_id = \$/g, 'o.agent_id::text = $')
+              .replace(/o\.user_id = \$/g, 'o.user_id::text = $')
+              .replace(/WHERE agent_id = \$/g, 'WHERE agent_id::text = $')
+              .replace(/OR user_id = \$/g, 'OR user_id::text = $');
+            const textFallbackRes = await this.db.query(textFallbackQuery, selectParams);
+            itemsRows = textFallbackRes.rows;
+          }
         } catch {
           itemsRows = [];
         }

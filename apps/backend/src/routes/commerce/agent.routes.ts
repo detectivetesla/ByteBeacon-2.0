@@ -54,6 +54,7 @@ export async function agentRoutes(
   const maintenanceHook = createMaintenanceHook(featureFlagService);
 
   interface ListAgentOrdersQuery {
+    agentId?: string;
     status?: string;
     network?: string;
     paymentStatus?: string;
@@ -70,6 +71,7 @@ export async function agentRoutes(
     reply: FastifyReply,
   ) => {
     const {
+      agentId,
       status,
       network,
       paymentStatus,
@@ -83,12 +85,13 @@ export async function agentRoutes(
     const pageNum = page ? Math.max(1, parseInt(page, 10)) : 1;
     const limitNum = limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 30;
     const isAdmin = String(req.user?.role || '').toLowerCase().includes('admin');
+    const targetAgentOrUserId = (isAdmin && agentId) ? agentId : req.user!.sub;
 
     let result;
     try {
       if (orderService) {
         result = await orderService.listAgentOrders({
-          agentOrUserId: req.user!.sub,
+          agentOrUserId: targetAgentOrUserId,
           isAdmin,
           status,
           network,
