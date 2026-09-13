@@ -49,19 +49,19 @@ export const AgentOrdersPage: React.FC = () => {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Live Orders State
   const [orders, setOrders] = useState<OrderRowData[]>([]);
 
-  const fetchAgentOrders = useCallback(async () => {
-    setIsRefreshing(true);
+  const fetchAgentOrders = useCallback(async (silent = false) => {
+    if (!silent) setIsRefreshing(true);
+    setFetchError(null);
     try {
       const res = await ordersApi.listAgentOrders({
         page: 1,
-        limit: 100,
-        status: statusFilter !== 'ALL' ? (statusFilter as any) : undefined,
-        paymentStatus: paymentFilter !== 'ALL' ? (paymentFilter as any) : undefined,
-        search: searchQuery.trim() || undefined,
+        limit: 200,
       });
 
       if (res) {
@@ -104,14 +104,21 @@ export const AgentOrdersPage: React.FC = () => {
             ? Math.round(parseFloat(o.amount) * 100)
             : 0;
 
+          const rawMethod = String(o.paymentMethod || o.source || 'WALLET').toUpperCase();
+          let displaySource = 'Wallet';
+          if (rawMethod.includes('MOMO') || rawMethod.includes('MOBILE')) displaySource = 'Mobile Money';
+          else if (rawMethod.includes('PAYSTACK')) displaySource = 'Paystack';
+          else if (rawMethod.includes('CARD')) displaySource = 'Card';
+          else if (rawMethod.includes('BANK')) displaySource = 'Bank Transfer';
+
           return {
-            id: o.id,
+            id: o.orderId || o.id,
             orderNumber: o.publicId || o.reference || o.referenceCode || (o.id ? o.id.slice(0, 8).toUpperCase() : '—'),
             network: o.network,
             recipient: o.recipientPhone || o.recipient || '—',
             dataDisplay: o.dataAmountMb ? `${((o.dataAmountMb || 0) / 1024).toFixed(1)} GB` : o.groupSizeGb ? `${o.groupSizeGb} GB` : o.dataDisplay || '—',
             amountDisplay: `GH₵ ${(pesewas / 100).toFixed(2)}`,
-            source: (o.paymentMethod || o.source || 'Wallet') as any,
+            source: displaySource as any,
             paidDisplay: `GH₵ ${(pesewas / 100).toFixed(2)}`,
             orderStatus: resolvedOrderStatus,
             paymentStatus: resolvedPaymentStatus,
@@ -132,12 +139,14 @@ export const AgentOrdersPage: React.FC = () => {
       } else {
         setOrders([]);
       }
-    } catch {
+    } catch (err: any) {
+      setFetchError(err?.message || 'Unable to connect to order services. Please refresh.');
       setOrders([]);
     } finally {
       setIsRefreshing(false);
+      setIsLoading(false);
     }
-  }, [statusFilter, paymentFilter, searchQuery]);
+  }, []);
 
   useEffect(() => {
     fetchAgentOrders();
@@ -756,22 +765,54 @@ export const AgentOrdersPage: React.FC = () => {
           </p>
         </div>
 
-        {filteredOrders.length === 0 ? (
+        {isLoading ? (
+          <Card style={{ padding: 'var(--space-12)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface)' }}>
+            <RefreshCw size={28} style={{ color: 'var(--color-brand)', animation: 'spin 1s linear infinite' }} />
+            <p style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-secondary)', margin: 0 }}>
+              Loading agent orders...
+            </p>
+          </Card>
+        ) : fetchError ? (
+          <Card style={{ padding: 'var(--space-10)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-danger-border)' }}>
+            <div style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: 'var(--color-danger-surface)', color: 'var(--color-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <AlertCircle size={22} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                Unable to load orders
+              </h3>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
+                {fetchError}
+              </p>
+            </div>
+            <Button variant="primary" size="sm" onClick={() => fetchAgentOrders()} leftIcon={<RefreshCw size={14} />}>
+              Retry
+            </Button>
+          </Card>
+        ) : filteredOrders.length === 0 ? (
           <Card style={{ padding: 'var(--space-12)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface)' }}>
             <div style={{ width: '48px', height: '48px', borderRadius: '50%', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>
               <Package size={24} />
             </div>
             <div>
               <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                No orders yet
+                {orders.length === 0 ? 'No orders yet' : 'No matching orders found'}
               </h3>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
-                Your purchases will appear here.
+                {orders.length === 0
+                  ? 'Your purchases and storefront customer orders will appear here.'
+                  : 'Try adjusting or clearing your filters to see more results.'}
               </p>
             </div>
-            <Button variant="primary" size="sm" onClick={() => navigate('/agent/buy-data')}>
-              Buy Data
-            </Button>
+            {orders.length === 0 ? (
+              <Button variant="primary" size="sm" onClick={() => navigate('/agent/buy-data')}>
+                Buy Data
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={handleClearFilters}>
+                Clear Filters
+              </Button>
+            )}
           </Card>
         ) : (
           <>
@@ -792,9 +833,9 @@ export const AgentOrdersPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedOrders.map((order) => (
+                  {paginatedOrders.map((order, idx) => (
                     <tr
-                      key={order.id}
+                      key={`${order.id || order.orderNumber}-${idx}`}
                       onClick={() => handleViewDetails(order)}
                       style={{
                         borderBottom: '1px solid var(--color-border-subtle)',

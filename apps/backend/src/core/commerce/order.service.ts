@@ -1035,6 +1035,7 @@ export class OrderService {
    */
   public async listAgentOrders(params: {
     agentOrUserId: string;
+    isAdmin?: boolean;
     status?: string;
     network?: string;
     paymentStatus?: string;
@@ -1045,12 +1046,13 @@ export class OrderService {
     limit?: number;
   }): Promise<AgentOrdersListData> {
     const page = Math.max(1, params.page || 1);
-    const limit = Math.min(100, Math.max(1, params.limit || 30));
+    const limit = Math.min(500, Math.max(1, params.limit || 30));
     const offset = (page - 1) * limit;
 
     // Resolve agent and user ID
     let agentId = params.agentOrUserId;
     let userId = params.agentOrUserId;
+    let hasAgent = false;
     try {
       const agentRes = await this.db.query(
         'SELECT id, user_id as "userId" FROM agents WHERE id = $1 OR user_id = $1',
@@ -1059,14 +1061,30 @@ export class OrderService {
       if (agentRes.rows.length > 0) {
         agentId = agentRes.rows[0].id;
         userId = agentRes.rows[0].userId;
+        hasAgent = true;
       }
     } catch {
       // Continue with provided ID
     }
 
-    const conditions: string[] = ['(o.agent_id = $1 OR o.user_id = $2 OR o.agent_id = $2 OR o.user_id = $1)'];
-    const queryParams: any[] = [agentId, userId];
-    let paramIdx = 3;
+    const conditions: string[] = [];
+    const queryParams: any[] = [];
+    let paramIdx = 1;
+
+    if (!params.isAdmin || hasAgent) {
+      conditions.push(`(
+        o.agent_id = $${paramIdx}
+        OR o.user_id = $${paramIdx + 1}
+        OR o.agent_id = $${paramIdx + 1}
+        OR o.user_id = $${paramIdx}
+        OR o.store_id IN (SELECT id FROM stores WHERE agent_id = $${paramIdx} OR user_id = $${paramIdx + 1})
+      )`);
+      queryParams.push(agentId, userId);
+      paramIdx += 2;
+    } else {
+      // Global admin view without an explicit agent record: show all agent and storefront orders
+      conditions.push(`(o.agent_id IS NOT NULL OR o.store_id IS NOT NULL)`);
+    }
 
     // Filter by network
     if (params.network && params.network.toUpperCase() !== 'ALL') {
@@ -1118,7 +1136,7 @@ export class OrderService {
     if (params.search && params.search.trim()) {
       const s = params.search.trim();
       conditions.push(
-        `(o.public_id ILIKE $${paramIdx} OR o.recipient_phone ILIKE $${paramIdx} OR po.provider_reference ILIKE $${paramIdx} OR o.idempotency_key ILIKE $${paramIdx})`,
+        `(o.public_id ILIKE $${paramIdx} OR o.recipient_phone ILIKE $${paramIdx} OR o.idempotency_key ILIKE $${paramIdx} OR EXISTS (SELECT 1 FROM provider_orders po WHERE po.order_id = o.id AND po.provider_reference ILIKE $${paramIdx}))`,
       );
       queryParams.push(`%${s}%`);
       paramIdx++;
@@ -1126,26 +1144,25 @@ export class OrderService {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Total Count Query
+    // Total Count Query (Clean scalar counting without join cartesian product)
     const countQuery = `
       SELECT COUNT(*) as total
       FROM orders o
-      LEFT JOIN provider_orders po ON o.id = po.order_id
       ${whereClause}
     `;
     const countRes = await this.db.query(countQuery, queryParams);
     const total = parseInt(countRes.rows[0]?.total || '0', 10);
 
-    // Select Query
+    // Select Query (Using scalar subqueries for providerReference, submissionId, and paymentMethod)
     const selectQuery = `
       SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone",
              o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
              o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
              o.provider_status as "providerStatus", o.created_at as "createdAt", o.updated_at as "updatedAt",
-             po.provider_reference as "providerReference", bsi.submission_id as "submissionId"
+             (SELECT provider_reference FROM provider_orders WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1) as "providerReference",
+             (SELECT submission_id FROM bulk_submission_items WHERE order_id = o.id LIMIT 1) as "submissionId",
+             COALESCE((SELECT payment_method FROM payments WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1), 'WALLET') as "paymentMethod"
       FROM orders o
-      LEFT JOIN provider_orders po ON o.id = po.order_id
-      LEFT JOIN bulk_submission_items bsi ON o.id = bsi.order_id
       ${whereClause}
       ORDER BY o.created_at DESC
       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
@@ -1161,6 +1178,12 @@ export class OrderService {
       const mappedStatus = isApproved ? 'approved' : isFailed ? 'rejected' : r.orderStatus === 'PROCESSING' ? 'processing' : 'received';
       const sizeGb = Math.round((r.dataAmountMb || 0) / 1024) || Math.max(1, Number(((r.dataAmountMb || 0) / 1024).toFixed(1)));
       const amountGhs = (parseInt(r.amountPesewas || '0', 10) / 100).toFixed(2);
+      const rawPaymentMethod = String(r.paymentMethod || 'WALLET').toUpperCase();
+      let displaySource = 'Wallet';
+      if (rawPaymentMethod.includes('MOMO') || rawPaymentMethod.includes('MOBILE')) displaySource = 'Mobile Money';
+      else if (rawPaymentMethod.includes('PAYSTACK')) displaySource = 'Paystack';
+      else if (rawPaymentMethod.includes('CARD')) displaySource = 'Card';
+      else if (rawPaymentMethod.includes('BANK')) displaySource = 'Bank Transfer';
 
       return {
         id: r.publicId || r.id,
@@ -1172,6 +1195,8 @@ export class OrderService {
         status: mappedStatus,
         orderStatus: r.orderStatus,
         paymentStatus: String(r.paymentStatus || 'PENDING').toLowerCase(),
+        paymentMethod: rawPaymentMethod,
+        source: displaySource,
         amount: amountGhs,
         amountPesewas: parseInt(r.amountPesewas || '0', 10),
         dataAmountMb: r.dataAmountMb,
@@ -1210,6 +1235,7 @@ export class OrderService {
   public async getAgentOrderById(
     orderIdOrPublicId: string,
     agentOrUserId: string,
+    isAdmin: boolean = false,
   ): Promise<AgentOrderDetailData> {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       orderIdOrPublicId,
@@ -1231,18 +1257,22 @@ export class OrderService {
       // Continue with provided ID
     }
 
+    const ownershipCondition = isAdmin
+      ? '1=1'
+      : `(o.agent_id = $2 OR o.user_id = $3 OR o.agent_id = $3 OR o.user_id = $2 OR o.store_id IN (SELECT id FROM stores WHERE agent_id = $2 OR user_id = $3))`;
+
     const query = `
       SELECT o.id, o.public_id as "publicId", o.user_id as "userId", o.agent_id as "agentId",
              o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
              o.amount_pesewas as "amountPesewas", o.currency, o.pricing_snapshot as "pricingSnapshot",
              o.payment_status as "paymentStatus", o.order_status as "orderStatus",
              o.provider_status as "providerStatus", o.created_at as "createdAt", o.updated_at as "updatedAt",
-             po.provider_reference as "providerReference", bsi.submission_id as "submissionId"
+             (SELECT provider_reference FROM provider_orders WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1) as "providerReference",
+             (SELECT submission_id FROM bulk_submission_items WHERE order_id = o.id LIMIT 1) as "submissionId",
+             COALESCE((SELECT payment_method FROM payments WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1), 'WALLET') as "paymentMethod"
       FROM orders o
-      LEFT JOIN provider_orders po ON o.id = po.order_id
-      LEFT JOIN bulk_submission_items bsi ON o.id = bsi.order_id
-      WHERE (${isUuid ? 'o.id = $1' : 'o.public_id = $1 OR po.provider_reference = $1'})
-        AND (o.agent_id = $2 OR o.user_id = $3 OR o.agent_id = $3 OR o.user_id = $2)
+      WHERE (${isUuid ? 'o.id = $1' : 'o.public_id = $1 OR EXISTS (SELECT 1 FROM provider_orders po WHERE po.order_id = o.id AND po.provider_reference = $1)'})
+        AND ${ownershipCondition}
       LIMIT 1
     `;
 
@@ -1312,6 +1342,12 @@ export class OrderService {
     const rawSizeGb = r.pricingSnapshot?.groupSizeGb || r.pricingSnapshot?.sizeGb || Math.round((r.dataAmountMb || 0) / 1024) || Math.max(1, Number(((r.dataAmountMb || 0) / 1024).toFixed(1)));
     const sizeGb = Number(rawSizeGb);
     const amountGhs = (parseInt(r.amountPesewas || '0', 10) / 100).toFixed(2);
+    const rawPaymentMethod = String(r.paymentMethod || 'WALLET').toUpperCase();
+    let displaySource = 'Wallet';
+    if (rawPaymentMethod.includes('MOMO') || rawPaymentMethod.includes('MOBILE')) displaySource = 'Mobile Money';
+    else if (rawPaymentMethod.includes('PAYSTACK')) displaySource = 'Paystack';
+    else if (rawPaymentMethod.includes('CARD')) displaySource = 'Card';
+    else if (rawPaymentMethod.includes('BANK')) displaySource = 'Bank Transfer';
 
     let beneficiaries: any[] = [];
     if (Array.isArray(r.pricingSnapshot?.beneficiaries) && r.pricingSnapshot.beneficiaries.length > 0) {
@@ -1343,10 +1379,16 @@ export class OrderService {
 
     return {
       id: r.publicId,
+      orderId: r.id,
+      publicId: r.publicId,
       referenceCode: r.providerReference || r.publicId,
       network: r.network,
+      recipientPhone: r.recipientPhone,
       status: mappedStatus,
+      orderStatus: r.orderStatus,
       paymentStatus: String(r.paymentStatus || 'PENDING').toLowerCase(),
+      paymentMethod: rawPaymentMethod,
+      source: displaySource,
       amount: amountGhs,
       groupSizeGb: sizeGb,
       submissionId: r.submissionId || null,

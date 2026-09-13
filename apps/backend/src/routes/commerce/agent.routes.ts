@@ -82,11 +82,13 @@ export async function agentRoutes(
 
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 30;
+    const isAdmin = String(req.user?.role || '').toLowerCase().includes('admin');
 
     let result;
     if (orderService) {
       result = await orderService.listAgentOrders({
         agentOrUserId: req.user!.sub,
+        isAdmin,
         status,
         network,
         paymentStatus,
@@ -141,7 +143,8 @@ export async function agentRoutes(
       throw new NotFoundError(`Order '${id}' not found`);
     }
 
-    const order = await orderService.getAgentOrderById(id, req.user!.sub);
+    const isAdmin = String(req.user?.role || '').toLowerCase().includes('admin');
+    const order = await orderService.getAgentOrderById(id, req.user!.sub, isAdmin);
 
     return reply.status(200).send({
       success: true,

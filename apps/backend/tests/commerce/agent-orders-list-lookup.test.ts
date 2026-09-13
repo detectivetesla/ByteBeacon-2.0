@@ -62,6 +62,7 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
                 updatedAt: '2026-07-07T12:05:00.000Z',
                 providerReference: 'TXN-7GH2K9',
                 submissionId: null,
+                paymentMethod: 'MOMO',
               },
             ],
           });
@@ -90,6 +91,7 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
                   updatedAt: '2026-07-07T12:05:00.000Z',
                   providerReference: 'TXN-7GH2K9',
                   submissionId: null,
+                  paymentMethod: 'MOMO',
                 },
               ],
             });
@@ -187,6 +189,8 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
         failed: 0,
         total: 1,
       });
+      expect(order.paymentMethod).toBe('MOMO');
+      expect(order.source).toBe('Mobile Money');
       expect(order.beneficiaries).toEqual([]);
 
       expect(json.data.meta).toEqual({
@@ -203,6 +207,52 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
         url: '/agent/orders',
         headers: {
           authorization: 'Bearer valid_jwt_token',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.data).toBeDefined();
+    });
+
+    it('should include storefront customer orders query condition for agents', async () => {
+      const executedQueries: string[] = [];
+      const origQuery = mockDb.query;
+      (mockDb.query as any) = vi.fn().mockImplementation((q: string, params?: any[]) => {
+        executedQueries.push(q);
+        return origQuery(q, params);
+      });
+
+      await app.inject({
+        method: 'GET',
+        url: '/agent/orders',
+        headers: {
+          'x-api-key': 'ak_live_8f3c12345678',
+        },
+      });
+
+      mockDb.query = origQuery;
+      const ordersQuery = executedQueries.find((q) => q.includes('FROM orders o'));
+      expect(ordersQuery).toBeDefined();
+      expect(ordersQuery).toContain('store_id IN (SELECT id FROM stores WHERE agent_id =');
+    });
+
+    it('should allow admin role to list agent and store orders', async () => {
+      (mockTokenService.verifyAccessToken as any).mockReturnValueOnce({
+        sub: 'usr_admin_999',
+        email: 'admin@bytebeacon.com',
+        role: UserRole.ADMIN,
+        domain: SecurityDomain.BACKOFFICE,
+        status: 'ACTIVE',
+        sessionId: 'sess_admin_1',
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/agent/orders',
+        headers: {
+          authorization: 'Bearer admin_token',
         },
       });
 
@@ -235,6 +285,8 @@ describe('Agent Orders List & Lookup API Suite (GET /agent/orders & GET /agent/o
       expect(order.network).toBe('MTN');
       expect(order.status).toBe('approved');
       expect(order.paymentStatus).toBe('paid');
+      expect(order.paymentMethod).toBe('MOMO');
+      expect(order.source).toBe('Mobile Money');
       expect(order.amount).toBe('21.00');
       expect(order.groupSizeGb).toBe(5);
       expect(order.delivery).toEqual({

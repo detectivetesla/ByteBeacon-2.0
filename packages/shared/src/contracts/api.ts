@@ -2783,12 +2783,15 @@ export interface AgentOrderBeneficiaryItem {
 
 export interface AgentOrderListItem {
   id: string;
+  orderId?: string;
   publicId?: string;
   referenceCode: string;
   network: string;
   status: string;
   orderStatus?: string;
   paymentStatus: string;
+  paymentMethod?: string;
+  source?: string;
   amount: string;
   amountPesewas?: number;
   dataAmountMb?: number;
@@ -2817,10 +2820,16 @@ export interface AgentOrdersListData {
 
 export interface AgentOrderDetailData {
   id: string;
+  orderId?: string;
+  publicId?: string;
   referenceCode: string;
   network: string;
+  recipientPhone?: string;
   status: string;
+  orderStatus?: string;
   paymentStatus: string;
+  paymentMethod?: string;
+  source?: string;
   amount: string;
   groupSizeGb: number;
   submissionId: string | null;
