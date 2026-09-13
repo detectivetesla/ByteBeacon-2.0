@@ -203,6 +203,31 @@ export const AdminPaymentsPage: React.FC = () => {
     }
   };
 
+  // Handle Withdrawal Approval / Settlement / Rejection
+  const handleWithdrawalAction = async (id: string, action: 'PAID' | 'REJECT') => {
+    const note = prompt(
+      action === 'PAID'
+        ? 'Enter disbursement reference or note (optional):'
+        : 'Enter reason for rejecting this payout request (required):',
+    );
+    if (action === 'REJECT' && (note === null || !note.trim())) {
+      alert('A rejection reason is required.');
+      return;
+    }
+    try {
+      await adminApi.processWithdrawalAction(id, {
+        action,
+        reason: note || undefined,
+        notes: note || undefined,
+      });
+      alert(`Withdrawal marked as ${action === 'PAID' ? 'Settled (PAID)' : 'REJECTED'}.`);
+      fetchWithdrawals();
+      fetchOverview();
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.message || 'Failed to update withdrawal.');
+    }
+  };
+
   // Save Safety Controls
   const handleSaveSafetyControls = async () => {
     if (!safety) return;
@@ -703,17 +728,17 @@ export const AdminPaymentsPage: React.FC = () => {
           </Card>
 
           <Card>
-            <Table headers={['Store Name', 'Agent', 'Amount (GHS)', 'Destination Account', 'Status', 'Requested Date']}>
+            <Table headers={['Store Name', 'Agent', 'Amount (GHS)', 'Destination Account', 'Status', 'Requested Date', 'Action']}>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                     <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
                     <span>Loading store withdrawals...</span>
                   </td>
                 </tr>
               ) : withdrawals.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                     <span>No agent store withdrawal records found.</span>
                   </td>
                 </tr>
@@ -721,7 +746,16 @@ export const AdminPaymentsPage: React.FC = () => {
                 withdrawals.map((w) => (
                   <tr key={w.id || w.storeName} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                     <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{w.storeName}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                          {w.storeName || 'Agent Direct'}
+                        </span>
+                        {w.storeSlug && (
+                          <span style={{ fontSize: '10px', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
+                            /{w.storeSlug}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -730,14 +764,26 @@ export const AdminPaymentsPage: React.FC = () => {
                       </div>
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                        GHS {(w.amountPesewas / 100).toFixed(2)}
+                      <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>
+                        GH₵ {(w.amountPesewas / 100).toFixed(2)}
                       </span>
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-                        {w.destinationProvider}: {w.destinationAccount}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Badge variant="neutral" size="xs">
+                            {w.bankName || w.destinationProvider || 'MOMO'}
+                          </Badge>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            {w.destinationAccount}
+                          </span>
+                        </div>
+                        {w.accountName && (
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                            {w.accountName}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                       <Badge variant={w.status === 'PAID' ? 'success' : w.status === 'REJECTED' ? 'danger' : 'warning'}>
@@ -748,6 +794,24 @@ export const AdminPaymentsPage: React.FC = () => {
                       <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
                         {new Date(w.createdAt).toLocaleString()}
                       </span>
+                    </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        {w.status === 'PENDING' || w.status === 'PROCESSING' ? (
+                          <>
+                            <Button variant="primary" size="sm" onClick={() => handleWithdrawalAction(w.id, 'PAID')}>
+                              Mark Paid
+                            </Button>
+                            <Button variant="danger" size="sm" onClick={() => handleWithdrawalAction(w.id, 'REJECT')}>
+                              Reject
+                            </Button>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                            {w.status === 'PAID' ? 'Settled' : 'Resolved'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

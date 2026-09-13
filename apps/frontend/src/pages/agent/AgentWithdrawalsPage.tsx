@@ -24,6 +24,28 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 
+export const GHANA_BANKS = [
+  'GCB Bank Ghana',
+  'Ecobank Ghana',
+  'Stanbic Bank Ghana',
+  'Absa Bank Ghana',
+  'Fidelity Bank Ghana',
+  'CalBank',
+  'Zenith Bank Ghana',
+  'Standard Chartered Bank Ghana',
+  'Access Bank Ghana',
+  'Agricultural Development Bank (ADB)',
+  'CBG (Consolidated Bank Ghana)',
+  'First National Bank Ghana',
+  'Prudential Bank',
+  'Republic Bank Ghana',
+  'Societe Generale Ghana',
+  'UBA (United Bank for Africa)',
+  'OmniBSIC Bank',
+  'FBNBank Ghana',
+  'Bank of Africa Ghana',
+];
+
 export type PayoutStatus = 'COMPLETED' | 'PROCESSING' | 'PENDING' | 'FAILED' | 'REVERSED';
 export type LedgerEntryType = 'Profit Earned' | 'Profit Adjustment' | 'Withdrawal' | 'Refund Adjustment' | 'Reversal';
 
@@ -75,9 +97,12 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
-  // Authoritative Reseller Financial Balances
-  const [totalProfitEarnedPesewas] = useState<number>(0);
+  // Authoritative Reseller Storefront Financial Balances
+  const [availableProfitPesewas, setAvailableProfitPesewas] = useState<number>(0);
+  const [totalProfitEarnedPesewas, setTotalProfitEarnedPesewas] = useState<number>(0);
   const [totalWithdrawnPesewas, setTotalWithdrawnPesewas] = useState<number>(0);
+  const [hasStore, setHasStore] = useState<boolean>(true);
+  const [storeName, setStoreName] = useState<string>('');
 
   // In-Place Withdraw Form Drawer / Panel State
   const [isWithdrawPanelOpen, setIsWithdrawPanelOpen] = useState(false);
@@ -105,27 +130,42 @@ export const AgentWithdrawalsPage: React.FC = () => {
 
   // Payout History & Profit Ledger
   const [payouts, setPayouts] = useState<PayoutRecord[]>([]);
-  const [ledger, _setLedger] = useState<ProfitLedgerRecord[]>([]);
+  const [ledger, setLedger] = useState<ProfitLedgerRecord[]>([]);
 
   const fetchWithdrawalData = useCallback(async () => {
     try {
-      refreshBalance();
       const res = await walletApi.getWithdrawals().catch(() => null);
-      if (res && Array.isArray(res.withdrawals)) {
-        setPayouts(res.withdrawals);
-        const sumWithdrawn = res.withdrawals.reduce((sum: number, w: any) => sum + (w.amountPesewas || 0), 0);
-        setTotalWithdrawnPesewas(sumWithdrawn);
+      if (res) {
+        if (Array.isArray(res.withdrawals)) {
+          setPayouts(res.withdrawals);
+        }
+        if (Array.isArray(res.ledger)) {
+          setLedger(res.ledger);
+        }
+        if (res.summary) {
+          setAvailableProfitPesewas(res.summary.availableProfitPesewas || 0);
+          setTotalProfitEarnedPesewas(res.summary.totalProfitEarnedPesewas || 0);
+          setTotalWithdrawnPesewas(res.summary.totalWithdrawnPesewas || 0);
+          setHasStore(Boolean(res.summary.hasStore));
+          if (res.summary.storeName) {
+            setStoreName(res.summary.storeName);
+          }
+        } else if (Array.isArray(res.withdrawals)) {
+          const sumWithdrawn = res.withdrawals.reduce((sum: number, w: any) => sum + (w.amountPesewas || 0), 0);
+          setTotalWithdrawnPesewas(sumWithdrawn);
+        }
       }
     } catch {
       setPayouts([]);
     }
-  }, [refreshBalance]);
+  }, []);
 
   useEffect(() => {
     fetchWithdrawalData();
   }, [fetchWithdrawalData]);
 
-  const availableProfitGhs = balanceGhs;
+  // Derived Values Strictly from Storefront Sales Profit
+  const availableProfitGhs = availableProfitPesewas / 100;
   const totalProfitEarnedGhs = totalProfitEarnedPesewas / 100;
   const totalWithdrawnGhs = totalWithdrawnPesewas / 100;
 
@@ -259,7 +299,8 @@ export const AgentWithdrawalsPage: React.FC = () => {
       fetchWithdrawalData();
     } catch (err: any) {
       setIsSubmittingWithdrawal(false);
-      toastError('Withdrawal Failed', err.message || 'Unable to process withdrawal.');
+      const errMsg = err?.response?.data?.message || err?.message || 'Unable to process withdrawal.';
+      toastError('Withdrawal Failed', errMsg);
     }
   };
 
@@ -283,6 +324,8 @@ export const AgentWithdrawalsPage: React.FC = () => {
   };
 
   const handleRefresh = () => {
+    fetchWithdrawalData();
+    refreshBalance();
     toastInfo('Refreshed', 'Withdrawal records and profit ledger synchronized.');
   };
 
@@ -513,16 +556,23 @@ export const AgentWithdrawalsPage: React.FC = () => {
           </div>
 
           {availableProfitGhs <= 0 ? (
-            /* Zero Withdrawable Profit Alert Guard */
+            /* Zero Withdrawable Profit / No Storefront Alert Guard */
             <div style={{ padding: 'var(--space-6)', textAlign: 'center', backgroundColor: 'var(--color-bg-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
               <AlertCircle size={28} color="var(--color-warning)" style={{ margin: '0 auto var(--space-2) auto' }} />
               <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                No withdrawable profit available
+                {!hasStore ? 'No Storefront Registered' : 'No Withdrawable Profit Available'}
               </h3>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
-                Your eligible reseller earnings will appear here once they become available.
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.25rem', maxWidth: '420px', margin: '0.25rem auto 0 auto' }}>
+                {!hasStore
+                  ? 'You need an active agent storefront to earn reseller profit from customer orders.'
+                  : 'Your eligible reseller profit will appear here as soon as customers complete orders on your storefront.'}
               </p>
-              <div style={{ marginTop: 'var(--space-3)' }}>
+              <div style={{ marginTop: 'var(--space-4)', display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
+                {!hasStore && (
+                  <Button variant="primary" size="sm" onClick={() => window.location.href = '/agent/store'}>
+                    Go to Store Settings →
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" onClick={() => setIsWithdrawPanelOpen(false)}>
                   Close
                 </Button>
@@ -590,12 +640,11 @@ export const AgentWithdrawalsPage: React.FC = () => {
                   />
                 ) : (
                   <>
-                    <Input
+                    <Select
                       label="Bank Name"
-                      type="text"
                       value={bankName}
                       onChange={(e) => setBankName(e.target.value)}
-                      placeholder="e.g. GCB Bank"
+                      options={GHANA_BANKS.map((b) => ({ label: b, value: b }))}
                       required
                     />
                     <Input
@@ -986,11 +1035,20 @@ export const AgentWithdrawalsPage: React.FC = () => {
                       GH₵ {(p.amountPesewas / 100).toFixed(2)}
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <div>
-                        <strong style={{ color: 'var(--color-text-primary)' }}>{p.method}</strong>
-                        <span style={{ display: 'block', fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                          {p.recipientAccount} ({p.recipientName})
-                        </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Badge variant="neutral" size="xs">
+                            {p.method ? p.method.replace('_', ' ') : 'MOMO'}
+                          </Badge>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            {p.recipientAccount || '—'}
+                          </span>
+                        </div>
+                        {p.recipientName && (
+                          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                            {p.recipientName}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)' }}>

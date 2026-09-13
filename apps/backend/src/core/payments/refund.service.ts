@@ -456,59 +456,92 @@ export class RefundService {
       const order = orderRes.rows[0];
 
       // 2. Idempotency verification
-      if (order.refund_status === RefundStatus.COMPLETED) {
+      if (order.refund_status === RefundStatus.COMPLETED || order.refund_status === 'COMPLETED') {
         await client.query('COMMIT');
         logger.info({ orderId }, '[REFUND_SERVICE] Order already refunded; idempotent no-op');
-        return { success: true, alreadyRefunded: true };
+        return { success: true, alreadyRefunded: true, amountRefundedPesewas: Number(order.amount_pesewas || 0) };
       }
 
-      // If not paid, no wallet/payment funds were captured: mark failed and commit
-      if (order.payment_status !== PaymentStatus.PAID) {
-        await client.query(
-          `UPDATE orders SET order_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-          [OrderStatus.FAILED, orderId],
-        );
-        await client.query('COMMIT');
-        logger.info({ orderId, paymentStatus: order.payment_status }, '[REFUND_SERVICE] Order was never paid; no refund required');
-        return { success: true, amountRefundedPesewas: 0 };
-      }
-
-      const amountPesewas = Number(order.amount_pesewas || 0);
-      if (!order.user_id || amountPesewas <= 0) {
-        await client.query(
-          `UPDATE orders SET order_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-          [OrderStatus.FAILED, orderId],
-        );
-        await client.query('COMMIT');
-        return { success: true, amountRefundedPesewas: 0 };
-      }
+      const isPaidStatus =
+        order.payment_status === PaymentStatus.PAID ||
+        order.payment_status === 'PAID' ||
+        order.payment_status === 'COMPLETED' ||
+        order.payment_status === 'paid' ||
+        order.payment_status === 'completed';
 
       // 3. Fetch or ensure Payment record
-      let payRes = await client.query(
+      const payRes = await client.query(
         `SELECT id, provider_reference, amount_pesewas, currency, status, provider, payment_method
          FROM payments
          WHERE order_id = $1
-         ORDER BY created_at DESC
+         ORDER BY (CASE WHEN status IN ('PAID', 'SUCCESS', 'COMPLETED') THEN 0 ELSE 1 END), created_at DESC
          LIMIT 1
          FOR UPDATE`,
         [order.id],
       );
 
-      let paymentId: string;
+      const hasCapturedPayment =
+        payRes.rows.length > 0 &&
+        ['PAID', 'SUCCESS', 'COMPLETED'].includes(String(payRes.rows[0].status || '').toUpperCase());
+
+      // Orders only enter READY_FOR_FULFILLMENT/SUBMITTED/PROCESSING if wallet debited or payment verified
+      const reachedFulfillment = [
+        OrderStatus.READY_FOR_FULFILLMENT,
+        OrderStatus.SUBMITTED,
+        OrderStatus.PROCESSING,
+        OrderStatus.FAILED,
+        'READY_FOR_FULFILLMENT',
+        'SUBMITTED',
+        'PROCESSING',
+        'FAILED',
+      ].includes(order.order_status);
+
+      const isRefundEligible = isPaidStatus || hasCapturedPayment || reachedFulfillment;
+
+      if (!isRefundEligible) {
+        await client.query(
+          `UPDATE orders SET order_status = $1, refund_status = 'NOT_REQUIRED', updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [OrderStatus.FAILED, orderId],
+        );
+        await client.query('COMMIT');
+        logger.info({ orderId, paymentStatus: order.payment_status }, '[REFUND_SERVICE] Order was never captured; no refund required');
+        return { success: true, amountRefundedPesewas: 0 };
+      }
+
+      const amountPesewas = Number(order.amount_pesewas || 0);
+
+      let recipientUserId = order.user_id;
+      if (!recipientUserId && order.agent_id) {
+        const agentLookup = await client.query('SELECT user_id FROM agents WHERE id = $1 LIMIT 1', [order.agent_id]);
+        recipientUserId = agentLookup.rows[0]?.user_id;
+      }
+
+      if (!recipientUserId || amountPesewas <= 0) {
+        await client.query(
+          `UPDATE orders SET order_status = $1, refund_status = 'NOT_REQUIRED', updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [OrderStatus.FAILED, orderId],
+        );
+        await client.query('COMMIT');
+        return { success: true, amountRefundedPesewas: 0 };
+      }
+
+      let paymentId: string | null = null;
       if (payRes.rows.length === 0) {
         // Create an explicit internal payment record to link the refund with unique reference
         const uniqueProviderRef = `pst_wal_${order.public_id || order.id}_${crypto.randomBytes(4).toString('hex')}`;
+        const paymentPublicId = `pay_${crypto.randomBytes(8).toString('hex')}`;
         await client.query('SAVEPOINT fallback_payment_insert');
         try {
           const fallbackPaymentRes = await client.query(
             `INSERT INTO payments (
-                order_id, user_id, amount_pesewas, currency, provider,
+                public_id, order_id, user_id, amount_pesewas, currency, provider,
                 provider_reference, payment_method, status, paid_at
-             ) VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'PAID', CURRENT_TIMESTAMP)
+             ) VALUES ($1, $2, $3, $4, $5, 'WALLET', $6, 'WALLET', 'PAID', CURRENT_TIMESTAMP)
              RETURNING id`,
             [
+              paymentPublicId,
               order.id,
-              order.user_id,
+              recipientUserId,
               amountPesewas,
               order.currency || 'GHS',
               uniqueProviderRef,
@@ -522,36 +555,38 @@ export class RefundService {
             `SELECT id FROM payments WHERE order_id = $1 LIMIT 1`,
             [order.id],
           );
-          paymentId = anyPay.rows[0]?.id || crypto.randomUUID();
+          paymentId = anyPay.rows[0]?.id || null;
         }
       } else {
         paymentId = payRes.rows[0].id;
       }
 
       // Check if already recorded in refunds table
-      let existingRefund: any;
-      await client.query('SAVEPOINT check_existing_refund');
-      try {
-        existingRefund = await client.query(
-          `SELECT id, public_id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
-          [paymentId],
-        );
-        await client.query('RELEASE SAVEPOINT check_existing_refund');
-      } catch {
-        await client.query('ROLLBACK TO SAVEPOINT check_existing_refund');
-        existingRefund = await client.query(
-          `SELECT id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
-          [paymentId],
-        );
-      }
+      if (paymentId) {
+        let existingRefund: any;
+        await client.query('SAVEPOINT check_existing_refund');
+        try {
+          existingRefund = await client.query(
+            `SELECT id, public_id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
+            [paymentId],
+          );
+          await client.query('RELEASE SAVEPOINT check_existing_refund');
+        } catch {
+          await client.query('ROLLBACK TO SAVEPOINT check_existing_refund');
+          existingRefund = await client.query(
+            `SELECT id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
+            [paymentId],
+          );
+        }
 
-      if (existingRefund.rows.length > 0) {
-        await client.query(
-          `UPDATE orders SET refund_status = 'COMPLETED', payment_status = 'REFUNDED', order_status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-          [order.id],
-        );
-        await client.query('COMMIT');
-        return { success: true, alreadyRefunded: true };
+        if (existingRefund && existingRefund.rows.length > 0) {
+          await client.query(
+            `UPDATE orders SET refund_status = 'COMPLETED', payment_status = 'REFUNDED', order_status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [order.id],
+          );
+          await client.query('COMMIT');
+          return { success: true, alreadyRefunded: true };
+        }
       }
 
       // 4. Create authoritative Refund record
@@ -600,8 +635,15 @@ export class RefundService {
             public_id: refundPublicId,
           };
         } catch {
+          const refundRes = await client.query(
+            `INSERT INTO refunds (
+                order_id, amount_pesewas, reason, status
+             ) VALUES ($1, $2, $3, 'COMPLETED')
+             RETURNING id, created_at, updated_at`,
+            [order.id, amountPesewas, reason],
+          );
           refundRecord = {
-            id: crypto.randomUUID(),
+            ...refundRes.rows[0],
             public_id: refundPublicId,
           };
         }
@@ -628,15 +670,17 @@ export class RefundService {
       }
 
       // 6. Transition Payment & Order Statuses
-      await client.query('SAVEPOINT payment_refund_status');
-      try {
-        await client.query(
-          `UPDATE payments SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-          [PaymentStatus.REFUNDED, paymentId],
-        );
-        await client.query('RELEASE SAVEPOINT payment_refund_status');
-      } catch {
-        await client.query('ROLLBACK TO SAVEPOINT payment_refund_status');
+      if (paymentId) {
+        await client.query('SAVEPOINT payment_refund_status');
+        try {
+          await client.query(
+            `UPDATE payments SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            [PaymentStatus.REFUNDED, paymentId],
+          );
+          await client.query('RELEASE SAVEPOINT payment_refund_status');
+        } catch {
+          await client.query('ROLLBACK TO SAVEPOINT payment_refund_status');
+        }
       }
 
       await client.query(
@@ -644,9 +688,10 @@ export class RefundService {
          SET refund_status = 'COMPLETED',
              payment_status = 'REFUNDED',
              order_status = 'FAILED',
+             failure_reason = COALESCE($2, failure_reason),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
-        [order.id],
+        [order.id, reason],
       );
 
       // Record Order Event
@@ -685,7 +730,7 @@ export class RefundService {
       // 7. Atomically credit user wallet
       await client.query(
         `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
-        [order.user_id],
+        [recipientUserId],
       );
 
       await client.query(
@@ -694,7 +739,7 @@ export class RefundService {
              wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $2`,
-        [amountPesewas, order.user_id],
+        [amountPesewas, recipientUserId],
       );
 
       // 8. Post Balanced Double-Entry Financial Ledger Reversal (Total Debits == Total Credits)
@@ -717,7 +762,7 @@ export class RefundService {
           {
             entryType: LedgerEntryType.CREDIT,
             accountType: LedgerAccountType.CUSTOMER_WALLET,
-            accountId: order.user_id,
+            accountId: recipientUserId,
             amountPesewas,
             currency: (order.currency || 'GHS') as Currency,
             referenceType: 'REFUND',

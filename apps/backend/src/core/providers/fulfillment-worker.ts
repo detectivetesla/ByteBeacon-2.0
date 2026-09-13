@@ -107,7 +107,7 @@ export class FulfillmentWorker {
       // 2. Fetch Order and Provider Projection with Catalog Plan Mapping
       const orderRes = await this.db.query(
         `SELECT o.id, o.public_id, o.user_id, o.agent_id, o.recipient_phone, o.network,
-                o.data_amount_mb, o.payment_status, o.order_status, o.product_id,
+                o.data_amount_mb, o.amount_pesewas as "amountPesewas", o.payment_status, o.order_status, o.product_id,
                 o.pricing_snapshot as "pricingSnapshot",
                 cp.provider_plan_id as "providerPlanId", cp.provider_plan_code as "providerPlanCode",
                 cp.provider_product_code as "providerProductCode", cp.sku, cp.name as "productName",
@@ -551,12 +551,12 @@ export class FulfillmentWorker {
       if (this.refundService) {
         try {
           const res = await this.refundService.executeAutomatedOrderRefund(orderId, reason, correlationId);
-          if (res && res.success) {
+          if (res && res.success && ((res.amountRefundedPesewas && res.amountRefundedPesewas > 0) || res.alreadyRefunded)) {
             refundDone = true;
           } else {
             logger.warn(
-              { orderId, reason },
-              '[FULFILLMENT_WORKER] refundService returned false; proceeding with direct atomic wallet refund fallback',
+              { orderId, reason, res },
+              '[FULFILLMENT_WORKER] refundService did not refund amount; proceeding with direct atomic wallet refund fallback',
             );
           }
         } catch (rfErr: any) {
@@ -574,7 +574,7 @@ export class FulfillmentWorker {
         try {
           await client.query('BEGIN');
           const orderRes = await client.query(
-            `SELECT id, user_id, agent_id, amount_pesewas, public_id, currency, payment_status, refund_status
+            `SELECT id, user_id, agent_id, amount_pesewas, public_id, currency, payment_status, order_status, refund_status
              FROM orders WHERE id = $1 FOR UPDATE`,
             [orderId],
           );
@@ -588,16 +588,49 @@ export class FulfillmentWorker {
             await client.query('COMMIT');
             return true;
           }
-          if (order.payment_status !== PaymentStatus.PAID || !order.user_id || Number(order.amount_pesewas) <= 0) {
+
+          const isPaidStatus =
+            order.payment_status === PaymentStatus.PAID ||
+            order.payment_status === 'PAID' ||
+            order.payment_status === 'COMPLETED' ||
+            order.payment_status === 'paid' ||
+            order.payment_status === 'completed';
+
+          const reachedFulfillment = [
+            OrderStatus.READY_FOR_FULFILLMENT,
+            OrderStatus.SUBMITTED,
+            OrderStatus.PROCESSING,
+            OrderStatus.FAILED,
+            'READY_FOR_FULFILLMENT',
+            'SUBMITTED',
+            'PROCESSING',
+            'FAILED',
+          ].includes(order.order_status);
+
+          if (!isPaidStatus && !reachedFulfillment) {
             await client.query(
-              `UPDATE orders SET order_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+              `UPDATE orders SET order_status = $1, refund_status = 'NOT_REQUIRED', updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
               [OrderStatus.FAILED, orderId],
             );
             await client.query('COMMIT');
             return true;
           }
 
-          const amountPesewas = Number(order.amount_pesewas);
+          const amountPesewas = Number(order.amount_pesewas || 0);
+          let recipientUserId = order.user_id;
+          if (!recipientUserId && order.agent_id) {
+            const ag = await client.query('SELECT user_id FROM agents WHERE id = $1 LIMIT 1', [order.agent_id]);
+            recipientUserId = ag.rows[0]?.user_id;
+          }
+
+          if (!recipientUserId || amountPesewas <= 0) {
+            await client.query(
+              `UPDATE orders SET order_status = $1, refund_status = 'NOT_REQUIRED', updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+              [OrderStatus.FAILED, orderId],
+            );
+            await client.query('COMMIT');
+            return true;
+          }
 
           // Find or create payment
           const payRes = await client.query(
@@ -607,19 +640,20 @@ export class FulfillmentWorker {
           let paymentId = payRes?.rows?.[0]?.id;
           if (!paymentId) {
             const uniqueRef = `pst_wal_${order.public_id || order.id}_${crypto.randomBytes(4).toString('hex')}`;
+            const payPubId = `pay_${crypto.randomBytes(8).toString('hex')}`;
             await client.query('SAVEPOINT worker_fallback_payment_insert');
             try {
               const newPay = await client.query(
-                `INSERT INTO payments (order_id, user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, paid_at)
-                 VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'PAID', CURRENT_TIMESTAMP) RETURNING id`,
-                [order.id, order.user_id, amountPesewas, order.currency || 'GHS', uniqueRef],
+                `INSERT INTO payments (public_id, order_id, user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, paid_at)
+                 VALUES ($1, $2, $3, $4, $5, 'WALLET', $6, 'WALLET', 'PAID', CURRENT_TIMESTAMP) RETURNING id`,
+                [payPubId, order.id, recipientUserId, amountPesewas, order.currency || 'GHS', uniqueRef],
               );
               await client.query('RELEASE SAVEPOINT worker_fallback_payment_insert');
-              paymentId = newPay?.rows?.[0]?.id || crypto.randomUUID();
+              paymentId = newPay?.rows?.[0]?.id || null;
             } catch {
               await client.query('ROLLBACK TO SAVEPOINT worker_fallback_payment_insert');
               const anyPay = await client.query(`SELECT id FROM payments WHERE order_id = $1 LIMIT 1`, [order.id]);
-              paymentId = anyPay?.rows?.[0]?.id || crypto.randomUUID();
+              paymentId = anyPay?.rows?.[0]?.id || null;
             }
           }
 
@@ -652,25 +686,37 @@ export class FulfillmentWorker {
                   [paymentId, order.id, amountPesewas, reason],
                 );
                 refundId = refundRes?.rows?.[0]?.id || refundId;
-              } catch (fallbackInsertErr: any) {
-                logger.warn({ orderId, err: fallbackInsertErr?.message }, '[FULFILLMENT_WORKER] Fallback refund record insert notice');
+              } catch {
+                try {
+                  const refundRes = await client.query(
+                    `INSERT INTO refunds (order_id, amount_pesewas, reason, status)
+                     VALUES ($1, $2, $3, 'COMPLETED') RETURNING id`,
+                    [order.id, amountPesewas, reason],
+                  );
+                  refundId = refundRes?.rows?.[0]?.id || refundId;
+                } catch (fallbackInsertErr: any) {
+                  logger.warn({ orderId, err: fallbackInsertErr?.message }, '[FULFILLMENT_WORKER] Fallback refund record insert notice');
+                }
               }
             }
           }
 
-          await client.query('SAVEPOINT worker_payment_refund_status');
-          try {
-            await client.query(
-              `UPDATE payments SET status = 'REFUNDED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-              [paymentId],
-            );
-            await client.query('RELEASE SAVEPOINT worker_payment_refund_status');
-          } catch {
-            await client.query('ROLLBACK TO SAVEPOINT worker_payment_refund_status');
+          if (paymentId) {
+            await client.query('SAVEPOINT worker_payment_refund_status');
+            try {
+              await client.query(
+                `UPDATE payments SET status = 'REFUNDED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                [paymentId],
+              );
+              await client.query('RELEASE SAVEPOINT worker_payment_refund_status');
+            } catch {
+              await client.query('ROLLBACK TO SAVEPOINT worker_payment_refund_status');
+            }
           }
+
           await client.query(
-            `UPDATE orders SET refund_status = 'COMPLETED', payment_status = 'REFUNDED', order_status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-            [order.id],
+            `UPDATE orders SET refund_status = 'COMPLETED', payment_status = 'REFUNDED', order_status = 'FAILED', failure_reason = COALESCE($2, failure_reason), updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [order.id, reason],
           );
           await client.query(
             `UPDATE users
@@ -678,7 +724,7 @@ export class FulfillmentWorker {
                  wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $2`,
-            [amountPesewas, order.user_id],
+            [amountPesewas, recipientUserId],
           );
 
           // Balanced double-entry financial ledger (Total Debits == Total Credits)
@@ -698,7 +744,7 @@ export class FulfillmentWorker {
                 order.currency || 'GHS',
                 refundId,
                 `Platform escrow debited for automated refund on Order ${order.id}`,
-                order.user_id,
+                recipientUserId,
                 `Customer wallet credited for automated refund on Order ${order.id}`,
               ],
             );

@@ -109,33 +109,72 @@ export class ProviderReconciliationService {
 
           if (isFailed) {
             const orderInfo = await this.db.query(
-              `SELECT user_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
+              `SELECT id, user_id, agent_id, amount_pesewas, payment_status, refund_status, public_id FROM orders WHERE id = $1`,
               [row.orderId],
             );
             if (orderInfo.rows.length > 0) {
               const ord = orderInfo.rows[0];
-              if (ord.payment_status === 'PAID' && ord.refund_status !== 'COMPLETED' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+              const isPaid = ['PAID', 'SUCCESS', 'COMPLETED'].includes(String(ord.payment_status || '').toUpperCase());
+              if (isPaid && ord.refund_status !== 'COMPLETED' && Number(ord.amount_pesewas) > 0) {
                 const refundAmt = Number(ord.amount_pesewas);
-                await this.db.query(
-                  `UPDATE users
-                   SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
-                       wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
-                       updated_at = CURRENT_TIMESTAMP
-                   WHERE id = $2`,
-                  [refundAmt, ord.user_id],
-                );
-                await this.db.query(
-                  `INSERT INTO financial_ledger (
-                      transaction_id, entry_type, account_type, account_id,
-                      amount_pesewas, currency, reference_type, reference_id,
-                      description
-                   ) VALUES (
-                      uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
-                      $2, 'GHS', 'ORDER_REFUND', $3,
-                      $4
-                   )`,
-                  [ord.user_id, refundAmt, row.orderId, `Automated refund on reconciliation failure [${row.orderId}]`],
-                ).catch(() => {});
+                let targetUserId = ord.user_id;
+                if (!targetUserId && ord.agent_id) {
+                  const agRes = await this.db.query('SELECT user_id FROM agents WHERE id = $1 LIMIT 1', [ord.agent_id]).catch(() => ({ rows: [] }));
+                  targetUserId = agRes.rows[0]?.user_id;
+                }
+
+                if (targetUserId) {
+                  await this.db.query(
+                    `UPDATE users
+                     SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+                         wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $2`,
+                    [refundAmt, targetUserId],
+                  );
+
+                  // Update order
+                  await this.db.query(
+                    `UPDATE orders
+                     SET refund_status = 'COMPLETED',
+                         payment_status = 'REFUNDED',
+                         order_status = 'FAILED',
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $1`,
+                    [row.orderId],
+                  );
+
+                  // Insert into refunds table
+                  const refPubId = `ref_${Math.random().toString(36).substring(2, 10)}`;
+                  const refRes = await this.db.query(
+                    `INSERT INTO refunds (public_id, order_id, amount_pesewas, reason, status)
+                     VALUES ($1, $2, $3, $4, 'COMPLETED')
+                     RETURNING id`,
+                    [refPubId, row.orderId, refundAmt, `Automated refund on reconciliation failure [${row.orderId}]`],
+                  ).catch(async () => {
+                    return this.db.query(
+                      `INSERT INTO refunds (order_id, amount_pesewas, reason, status)
+                       VALUES ($1, $2, $3, 'COMPLETED')
+                       RETURNING id`,
+                      [row.orderId, refundAmt, `Automated refund on reconciliation failure [${row.orderId}]`],
+                    ).catch(() => ({ rows: [] }));
+                  });
+
+                  const refundDbId = refRes?.rows?.[0]?.id || row.orderId;
+
+                  await this.db.query(
+                    `INSERT INTO financial_ledger (
+                        transaction_id, entry_type, account_type, account_id,
+                        amount_pesewas, currency, reference_type, reference_id,
+                        description
+                     ) VALUES (
+                        uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
+                        $2, 'GHS', 'ORDER_REFUND', $3,
+                        $4
+                     )`,
+                    [targetUserId, refundAmt, refundDbId, `Automated refund on reconciliation failure [${row.orderId}]`],
+                  ).catch(() => {});
+                }
               }
             }
           }

@@ -9,6 +9,7 @@ import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
+import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
 import { BadRequestError, InsufficientBalanceError, BeneficiaryNotValidatedError } from '../../core/errors/app-error.js';
 import {
   CreateOrderRequest,
@@ -30,6 +31,7 @@ export interface OrderRouteDependencies {
   rbacService: RbacService;
   rateLimiter: RateLimiterService;
   featureFlagService?: FeatureFlagService;
+  beneficiaryService?: BeneficiaryService;
 }
 
 export async function orderRoutes(
@@ -37,6 +39,7 @@ export async function orderRoutes(
   deps: OrderRouteDependencies,
 ) {
   const { db, orderService, tokenService, apiKeyService, rbacService, rateLimiter } = deps;
+  const beneficiaryService = deps.beneficiaryService ?? (app as any).beneficiaryService;
   const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const orderRateLimit = createRateLimitHook(rateLimiter, { limit: 120, windowSeconds: 60 });

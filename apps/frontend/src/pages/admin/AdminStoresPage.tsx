@@ -57,6 +57,14 @@ export const AdminStoresPage: React.FC = () => {
   const [approvalFilter, setApprovalFilter] = useState<string>('ALL');
   const [paymentFilter, setPaymentFilter] = useState<string>('ALL');
 
+  // Store Payouts State
+  const [payouts, setPayouts] = useState<any[]>([]);
+  const [payoutStatus, setPayoutStatus] = useState<string>('ALL');
+  const [payoutPage, setPayoutPage] = useState<number>(1);
+  const [payoutTotalPages, setPayoutTotalPages] = useState<number>(1);
+  const [payoutTotal, setPayoutTotal] = useState<number>(0);
+  const [isPayoutsLoading, setIsPayoutsLoading] = useState<boolean>(false);
+
   // Dossier Drawer State
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [storeDetail, setStoreDetail] = useState<AdminStoreDetail | null>(null);
@@ -150,11 +158,61 @@ export const AdminStoresPage: React.FC = () => {
     }
   }, [activeTab, statusFilter, approvalFilter, paymentFilter, page, search, toastError]);
 
+  // Fetch Store Payouts List
+  const fetchStorePayouts = useCallback(async () => {
+    setIsPayoutsLoading(true);
+    try {
+      const res = await adminApi.getFinanceWithdrawals({
+        page: payoutPage,
+        limit: 20,
+        status: payoutStatus !== 'ALL' ? payoutStatus : undefined,
+      });
+      if (res?.items) {
+        setPayouts(res.items);
+        setPayoutTotalPages(res.pagination?.totalPages || 1);
+        setPayoutTotal(res.pagination?.total || 0);
+      }
+    } catch (err: any) {
+      toastError('Failed to Load Payouts', err.message || 'Error loading store withdrawals');
+    } finally {
+      setIsPayoutsLoading(false);
+    }
+  }, [payoutPage, payoutStatus, toastError]);
+
+  // Handle Admin Payout Action (Paid or Reject)
+  const handlePayoutAction = async (id: string, action: 'PAID' | 'REJECT') => {
+    const note = prompt(
+      action === 'PAID'
+        ? 'Enter disbursement reference or audit note (optional):'
+        : 'Enter reason for rejecting this payout request (required):',
+    );
+    if (action === 'REJECT' && (note === null || !note.trim())) {
+      toastError('Rejection Reason Required', 'A reason must be provided to reject a payout request.');
+      return;
+    }
+    try {
+      await adminApi.processWithdrawalAction(id, {
+        action,
+        reason: note || undefined,
+        notes: note || undefined,
+      });
+      toastSuccess('Payout Updated', `Payout marked as ${action === 'PAID' ? 'Settled (PAID)' : 'REJECTED'}.`);
+      fetchStorePayouts();
+      fetchStats();
+    } catch (err: any) {
+      toastError('Action Failed', err.response?.data?.message || err.message || 'Failed to update payout.');
+    }
+  };
+
   useEffect(() => {
     fetchStats();
     fetchActivationFee();
-    fetchStores();
-  }, [fetchStats, fetchActivationFee, fetchStores]);
+    if (activeTab === 'PAYOUTS') {
+      fetchStorePayouts();
+    } else {
+      fetchStores();
+    }
+  }, [fetchStats, fetchActivationFee, fetchStores, fetchStorePayouts, activeTab]);
 
   // Handle Save Paywall Activation Fee
   const handleSaveActivationFee = async (e?: React.FormEvent) => {
@@ -522,8 +580,169 @@ export const AdminStoresPage: React.FC = () => {
         </form>
       </Card>
 
-      {/* Main Table Card */}
-      <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
+      {activeTab === 'PAYOUTS' ? (
+        /* Dedicated Storefront Payouts Administration */
+        <Card elevated accentColor="purple" style={{ padding: 'var(--space-5)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                Storefront Profit Payout Requests
+              </h3>
+              <p style={{ margin: '0.15rem 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                Track and disburse agent store profits to Mobile Money numbers and Bank accounts.
+              </p>
+            </div>
+
+            <div style={{ minWidth: '180px' }}>
+              <Select
+                value={payoutStatus}
+                onChange={(e) => { setPayoutStatus(e.target.value); setPayoutPage(1); }}
+                options={[
+                  { value: 'ALL', label: 'All Statuses' },
+                  { value: 'PENDING', label: 'Pending Approval' },
+                  { value: 'PAID', label: 'Settled / Paid' },
+                  { value: 'REJECTED', label: 'Rejected' },
+                ]}
+              />
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-secondary)' }}>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Store Name</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Agent</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Amount</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Destination Account</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Requested</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isPayoutsLoading ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                      <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                      <span>Loading store payouts...</span>
+                    </td>
+                  </tr>
+                ) : payouts.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                      <span>No store payouts matching the filter.</span>
+                    </td>
+                  </tr>
+                ) : (
+                  payouts.map((w) => (
+                    <tr key={w.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            {w.storeName || 'Agent Direct'}
+                          </span>
+                          {w.storeSlug && (
+                            <span style={{ fontSize: '10px', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
+                              /{w.storeSlug}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{w.agentName}</span>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{w.agentEmail}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>
+                          GH₵ {(w.amountPesewas / 100).toFixed(2)}
+                        </span>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Badge variant="neutral" size="xs">
+                              {w.bankName || w.destinationProvider || 'MOMO'}
+                            </Badge>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                              {w.destinationAccount}
+                            </span>
+                          </div>
+                          {w.accountName && (
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                              {w.accountName}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <Badge variant={w.status === 'PAID' ? 'success' : w.status === 'REJECTED' ? 'danger' : 'warning'}>
+                          {w.status}
+                        </Badge>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                          {new Date(w.createdAt).toLocaleString()}
+                        </span>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                          {w.status === 'PENDING' || w.status === 'PROCESSING' ? (
+                            <>
+                              <Button variant="primary" size="sm" onClick={() => handlePayoutAction(w.id, 'PAID')}>
+                                Mark Paid
+                              </Button>
+                              <Button variant="danger" size="sm" onClick={() => handlePayoutAction(w.id, 'REJECT')}>
+                                Reject
+                              </Button>
+                            </>
+                          ) : (
+                            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                              {w.status === 'PAID' ? 'Settled' : 'Resolved'}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Payouts Pagination */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+              Showing {payouts.length} of {payoutTotal} payouts
+            </span>
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={payoutPage <= 1}
+                onClick={() => setPayoutPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </Button>
+              <span style={{ display: 'flex', alignItems: 'center', padding: '0 0.5rem', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                Page {payoutPage} of {payoutTotalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={payoutPage >= payoutTotalPages}
+                onClick={() => setPayoutPage((p) => Math.min(payoutTotalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        /* Main Table Card */
+        <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
         {/* Filter Bar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -771,6 +990,7 @@ export const AdminStoresPage: React.FC = () => {
           </div>
         </div>
       </Card>
+      )}
 
       {/* APPROVE APPLICATION MODAL */}
       <Modal

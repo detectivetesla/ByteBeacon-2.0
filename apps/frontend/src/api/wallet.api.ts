@@ -29,6 +29,25 @@ export interface WalletTransactionsResponse {
   totalPages: number;
 }
 
+export interface WithdrawalSummaryDto {
+  hasStore: boolean;
+  storeName?: string;
+  slug?: string;
+  totalProfitEarnedPesewas: number;
+  totalWithdrawnPesewas: number;
+  pendingWithdrawnPesewas: number;
+  settledWithdrawnPesewas: number;
+  availableProfitPesewas: number;
+  salesCount: number;
+  salesVolumePesewas: number;
+}
+
+export interface WithdrawalsResponseDto {
+  withdrawals: any[];
+  ledger?: any[];
+  summary?: WithdrawalSummaryDto;
+}
+
 export const walletApi = {
   getBalance: async (): Promise<WalletBalanceDto> => {
     return apiClient.get<WalletBalanceDto>('/agents/wallet/balance');
@@ -86,8 +105,12 @@ export const walletApi = {
     return apiClient.post('/agents/withdrawals', payload);
   },
 
-  getWithdrawals: async (): Promise<{ withdrawals: any[] }> => {
-    return apiClient.get<{ withdrawals: any[] }>('/agents/withdrawals');
+  getWithdrawals: async (): Promise<WithdrawalsResponseDto> => {
+    return apiClient.get<WithdrawalsResponseDto>('/agents/withdrawals');
+  },
+
+  getWithdrawalsSummary: async (): Promise<WithdrawalSummaryDto> => {
+    return apiClient.get<WithdrawalSummaryDto>('/agents/withdrawals/summary');
   },
 
   getSubAgents: async (): Promise<{ subAgents: any[] }> => {

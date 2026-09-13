@@ -616,6 +616,7 @@ export function createApp(options: AppOptions = {}) {
         rbacService,
         rateLimiter,
         featureFlagService,
+        beneficiaryService,
       });
       await beneficiaryRoutes(commerceSubApp, {
         db: dbPool!,

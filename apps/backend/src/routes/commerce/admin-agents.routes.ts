@@ -410,6 +410,8 @@ export async function adminAgentsRoutes(
           SELECT COALESCE(agent_id, user_id) as aid, COUNT(*) as orders_count, SUM(amount_pesewas) as revenue_pesewas
           FROM orders
           WHERE payment_status = 'PAID'
+            AND order_status IN ('COMPLETED', 'DELIVERED')
+            AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')
           GROUP BY COALESCE(agent_id, user_id)
         ) o ON (o.aid = a.id OR o.aid = u.id)
         LEFT JOIN (

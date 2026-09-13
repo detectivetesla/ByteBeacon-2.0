@@ -26,6 +26,7 @@ import {
   LedgerAccountType,
   Permission,
   UserRole,
+  NetworkProvider,
 } from '@bytebeacon/shared';
 
 export interface AgentRouteDependencies {
@@ -1792,7 +1793,111 @@ export async function agentRoutes(
     handleVerifyTopup,
   );
 
-  // 7. AGENT PROFIT WITHDRAWALS
+  // 7. HELPER: Calculate Agent Storefront Sales Profit & Payout Balances
+  const getAgentStorefrontProfit = async (userId: string) => {
+    // 1. Resolve agent's storefront
+    const storeRes = await db.query<{
+      id: string;
+      agent_id: string | null;
+      store_name: string;
+      slug: string;
+      store_status: string;
+    }>(
+      `SELECT s.id, s.agent_id, s.store_name, s.slug, s.store_status
+       FROM stores s
+       WHERE s.user_id = $1 OR s.agent_id = (SELECT id FROM agents WHERE user_id = $1 LIMIT 1)
+       LIMIT 1`,
+      [userId]
+    );
+
+    const store = storeRes.rows[0] || null;
+
+    if (!store) {
+      return {
+        hasStore: false,
+        store: null,
+        totalProfitEarnedPesewas: 0,
+        totalWithdrawnPesewas: 0,
+        pendingWithdrawnPesewas: 0,
+        settledWithdrawnPesewas: 0,
+        availableProfitPesewas: 0,
+        salesCount: 0,
+        salesVolumePesewas: 0,
+      };
+    }
+
+    // 2. Sum profit earned strictly from paid storefront customer sales
+    const profitRes = await db.query<{
+      total_profit_pesewas: string;
+      sales_count: string;
+      sales_volume_pesewas: string;
+    }>(
+      `SELECT 
+         COALESCE(SUM(
+           CASE 
+             WHEN (o.pricing_snapshot->>'markupPesewas') IS NOT NULL AND (o.pricing_snapshot->>'markupPesewas') != '' 
+               THEN (o.pricing_snapshot->>'markupPesewas')::bigint
+             WHEN (o.pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (o.pricing_snapshot->>'basePricePesewas') IS NOT NULL 
+               THEN GREATEST(0, (o.pricing_snapshot->>'unitPricePesewas')::bigint - (o.pricing_snapshot->>'basePricePesewas')::bigint)
+             ELSE 0
+           END
+         ), 0) as total_profit_pesewas,
+         COUNT(o.id) as sales_count,
+         COALESCE(SUM(o.amount_pesewas), 0) as sales_volume_pesewas
+       FROM orders o
+       WHERE o.store_id = $1
+         AND o.payment_status = 'PAID'
+         AND COALESCE(o.refund_status, 'NONE') != 'COMPLETED'`,
+      [store.id]
+    );
+
+    const totalProfitEarnedPesewas = parseInt(profitRes.rows[0]?.total_profit_pesewas || '0', 10);
+    const salesCount = parseInt(profitRes.rows[0]?.sales_count || '0', 10);
+    const salesVolumePesewas = parseInt(profitRes.rows[0]?.sales_volume_pesewas || '0', 10);
+
+    // 3. Sum payouts requested / processed from store_payouts
+    const payoutsRes = await db.query<{
+      total_withdrawn_pesewas: string;
+      pending_withdrawn_pesewas: string;
+      settled_withdrawn_pesewas: string;
+    }>(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN status IN ('PENDING', 'PROCESSING', 'PAID') THEN amount_pesewas ELSE 0 END), 0) as total_withdrawn_pesewas,
+         COALESCE(SUM(CASE WHEN status IN ('PENDING', 'PROCESSING') THEN amount_pesewas ELSE 0 END), 0) as pending_withdrawn_pesewas,
+         COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount_pesewas ELSE 0 END), 0) as settled_withdrawn_pesewas
+       FROM store_payouts
+       WHERE store_id = $1 OR (agent_id IS NOT NULL AND agent_id = $2)`,
+      [store.id, store.agent_id]
+    );
+
+    const totalWithdrawnPesewas = parseInt(payoutsRes.rows[0]?.total_withdrawn_pesewas || '0', 10);
+    const pendingWithdrawnPesewas = parseInt(payoutsRes.rows[0]?.pending_withdrawn_pesewas || '0', 10);
+    const settledWithdrawnPesewas = parseInt(payoutsRes.rows[0]?.settled_withdrawn_pesewas || '0', 10);
+
+    const availableProfitPesewas = Math.max(0, totalProfitEarnedPesewas - totalWithdrawnPesewas);
+
+    return {
+      hasStore: true,
+      store: {
+        id: store.id,
+        agentId: store.agent_id,
+        storeName: store.store_name,
+        slug: store.slug,
+        status: store.store_status,
+      },
+      storeName: store.store_name,
+      storeSlug: store.slug,
+      totalProfitEarnedPesewas,
+      totalWithdrawnPesewas,
+      pendingWithdrawnPesewas,
+      settledWithdrawnPesewas,
+      availableProfitPesewas,
+      salesCount,
+      salesVolumePesewas,
+    };
+  };
+
+  // 7a. AGENT STOREFRONT PROFIT WITHDRAWALS (DO NOT TOUCH OPERATIONAL WALLET)
   app.post<{
     Body: {
       amountPesewas: number;
@@ -1819,140 +1924,270 @@ export async function agentRoutes(
         throw new BadRequestError('Minimum withdrawal amount is GH₵ 10.00 (1000 pesewas)');
       }
       if (!accountNumber || !accountName || !payoutMethod) {
-        throw new BadRequestError('Payout method, account number, and account name are required');
+        throw new BadRequestError('Payout method, destination account number, and account holder name are required');
       }
 
-      // Check agent wallet balance
-      let currentBalancePesewas = 0;
-      try {
-        const balRes = await db.query<{ wallet_balance: string; wallet_balance_pesewas: string }>(
-          'SELECT wallet_balance, wallet_balance_pesewas FROM users WHERE id = $1',
-          [req.user!.sub],
+      // Check agent storefront profit balance
+      const profitData = await getAgentStorefrontProfit(req.user!.sub);
+      if (!profitData.hasStore || !profitData.store) {
+        throw new BadRequestError('You must have an active agent storefront to earn and withdraw reseller profits.');
+      }
+
+      if (profitData.availableProfitPesewas < amountPesewas) {
+        throw new BadRequestError(
+          `Insufficient storefront profit. Available profit: GH₵ ${(profitData.availableProfitPesewas / 100).toFixed(2)}. (Withdrawals draw strictly from storefront sales profit, not your purchasing wallet).`
         );
-        if (balRes.rows[0]) {
-          const row = balRes.rows[0];
-          if (row.wallet_balance_pesewas !== null && row.wallet_balance_pesewas !== undefined) {
-            currentBalancePesewas = parseInt(row.wallet_balance_pesewas, 10) || 0;
-          } else if (row.wallet_balance) {
-            currentBalancePesewas = Math.round(parseFloat(row.wallet_balance) * 100) || 0;
-          }
-        }
-      } catch {
-        currentBalancePesewas = 0;
       }
 
-      if (currentBalancePesewas < amountPesewas) {
-        throw new BadRequestError(`Insufficient balance. Available: GH₵ ${(currentBalancePesewas / 100).toFixed(2)}`);
-      }
+      const reference = `PAYOUT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-4)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-      const withdrawalId = `wth_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const reference = `PAYOUT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
+      // Insert directly into authoritative store_payouts table
+      const payoutRes = await db.query<{
+        id: string;
+        store_id: string;
+        agent_id: string;
+        amount_pesewas: string;
+        destination_account: string;
+        destination_provider: string;
+        account_name: string;
+        bank_name: string | null;
+        reference: string;
+        status: string;
+        created_at: string;
+      }>(
+        `INSERT INTO store_payouts (
+           store_id, agent_id, amount_pesewas, destination_account, destination_provider,
+           account_name, bank_name, reference, status, created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         RETURNING id, store_id, agent_id, amount_pesewas, destination_account, destination_provider,
+                   account_name, bank_name, reference, status, created_at`,
+        [
+          profitData.store.id,
+          profitData.store.agentId || null,
+          amountPesewas,
+          accountNumber.trim(),
+          payoutMethod,
+          accountName.trim(),
+          payoutMethod === 'BANK' ? (bankName?.trim() || 'Bank') : null,
+          reference,
+        ]
+      );
 
-      // Post double-entry journal to debit wallet and credit payout escrow
+      const created = payoutRes.rows[0];
+
+      // Format method label
+      const formattedMethod = payoutMethod === 'BANK'
+        ? `${created.bank_name || 'Bank'} Account`
+        : payoutMethod.replace(/_/g, ' ');
+
+      // Also record double-entry audit entry in financial ledger
       if (ledgerService) {
-        const platformAccountId = '00000000-0000-0000-0000-000000000000';
-        await ledgerService.recordJournalEntries(db, [
-          {
-            entryType: LedgerEntryType.DEBIT,
-            accountType: LedgerAccountType.CUSTOMER_WALLET,
-            accountId: req.user!.sub,
-            amountPesewas,
-            currency: Currency.GHS,
-            referenceType: 'WITHDRAWAL',
-            referenceId: withdrawalId,
-            description: `Agent profit withdrawal to ${payoutMethod} (${accountNumber})`,
-          },
-          {
-            entryType: LedgerEntryType.CREDIT,
-            accountType: LedgerAccountType.PLATFORM_ESCROW,
-            accountId: platformAccountId,
-            amountPesewas,
-            currency: Currency.GHS,
-            referenceType: 'WITHDRAWAL',
-            referenceId: withdrawalId,
-            description: `Payout processing escrow for withdrawal (${withdrawalId})`,
-          },
-        ]);
-      }
-
-      // Update user wallet balance cache
-      try {
-        await db.query(
-          `UPDATE users
-           SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
-               wallet_balance = GREATEST(0, COALESCE(wallet_balance, 0) - ($1::numeric / 100))
-           WHERE id = $2`,
-          [amountPesewas, req.user!.sub],
-        );
-      } catch {
-        // Continue
+        try {
+          const platformAccountId = '00000000-0000-0000-0000-000000000000';
+          await ledgerService.recordJournalEntries(db, [
+            {
+              entryType: LedgerEntryType.DEBIT,
+              accountType: LedgerAccountType.PLATFORM_ESCROW,
+              accountId: platformAccountId,
+              amountPesewas,
+              currency: Currency.GHS,
+              referenceType: 'MERCHANT_PAYOUT',
+              referenceId: created.id,
+              description: `Agent storefront profit withdrawal to ${formattedMethod} (${accountNumber.trim()})`,
+            },
+          ]);
+        } catch {
+          // Non-blocking audit log
+        }
       }
 
       return reply.status(201).send({
         success: true,
         data: {
-          id: withdrawalId,
-          reference,
-          amountPesewas,
+          id: created.id,
+          reference: created.reference,
+          amountPesewas: parseInt(created.amount_pesewas, 10),
           feePesewas: 0,
-          method: payoutMethod === 'BANK' ? `${bankName || 'Bank'} Account` : payoutMethod.replace('_', ' '),
-          recipientAccount: accountNumber,
-          recipientName: accountName,
-          status: 'PROCESSING',
-          createdAt: new Date().toISOString(),
+          method: formattedMethod,
+          recipientAccount: created.destination_account,
+          destinationAccount: created.destination_account,
+          recipientName: created.account_name,
+          accountName: created.account_name,
+          bankName: created.bank_name,
+          status: 'PENDING',
+          createdAt: created.created_at,
+          availableProfitPesewas: Math.max(0, profitData.availableProfitPesewas - amountPesewas),
         },
       });
     },
   );
 
-  // 7. GET AGENT WITHDRAWALS
+  // 7b. GET AGENT WITHDRAWALS & PAYOUT HISTORY (READS FROM STORE_PAYOUTS)
   app.get(
     '/agents/withdrawals',
     { preHandler: [authHooks.authenticateCustomer] },
     async (req: FastifyRequest, reply: FastifyReply) => {
       try {
-        const result = await db.query<{
-          id: string;
-          reference_id: string;
-          amount_pesewas: string;
-          description: string;
-          created_at: string;
-        }>(
-          `SELECT id, reference_id, amount_pesewas, description, created_at
-           FROM financial_ledger
-           WHERE account_id = $1 AND reference_type = 'WITHDRAWAL' AND entry_type = 'DEBIT'
-           ORDER BY created_at DESC
-           LIMIT 50`,
-          [req.user!.sub],
-        );
+        const profitData = await getAgentStorefrontProfit(req.user!.sub);
 
-        const withdrawals = (result.rows || []).map((row) => ({
-          id: row.id,
-          reference: row.reference_id || `PAYOUT-${row.id.slice(0, 8).toUpperCase()}`,
-          amountPesewas: parseInt(row.amount_pesewas, 10) || 0,
-          feePesewas: 0,
-          method: 'Mobile Money',
-          recipientAccount: '—',
-          recipientName: 'Agent Payout',
-          status: 'COMPLETED',
-          date: new Date(row.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-          rawDate: row.created_at,
-        }));
+        let withdrawals: any[] = [];
+
+        if (profitData.hasStore && profitData.store) {
+          const result = await db.query<{
+            id: string;
+            reference: string | null;
+            amount_pesewas: string;
+            destination_account: string;
+            destination_provider: string;
+            account_name: string | null;
+            bank_name: string | null;
+            status: string;
+            created_at: string;
+            paid_at: string | null;
+            admin_notes: string | null;
+          }>(
+            `SELECT id, reference, amount_pesewas, destination_account, destination_provider,
+                    account_name, bank_name, status, created_at, paid_at, admin_notes
+             FROM store_payouts
+             WHERE store_id = $1 OR (agent_id IS NOT NULL AND agent_id = $2)
+             ORDER BY created_at DESC
+             LIMIT 100`,
+            [profitData.store.id, profitData.store.agentId]
+          );
+
+          withdrawals = (result.rows || []).map((row) => {
+            const methodLabel = row.destination_provider === 'BANK'
+              ? `${row.bank_name || 'Bank'} Account`
+              : row.destination_provider.replace(/_/g, ' ');
+
+            return {
+              id: row.id,
+              reference: row.reference || `PAYOUT-${row.id.slice(0, 8).toUpperCase()}`,
+              amountPesewas: parseInt(row.amount_pesewas, 10) || 0,
+              feePesewas: 0,
+              method: methodLabel,
+              recipientAccount: row.destination_account,
+              recipientName: row.account_name || 'Agent Payout',
+              bankName: row.bank_name,
+              status: row.status === 'PAID' ? 'COMPLETED' : row.status,
+              date: new Date(row.created_at).toLocaleDateString([], {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+              rawDate: row.created_at,
+              adminNotes: row.admin_notes,
+            };
+          });
+        }
+
+        // Generate Profit Ledger records (Storefront order markups + Payouts)
+        let ledger: any[] = [];
+        if (profitData.hasStore && profitData.store) {
+          const orderLedgerRes = await db.query<{
+            id: string;
+            public_id: string;
+            amount_pesewas: string;
+            pricing_snapshot: any;
+            created_at: string;
+          }>(
+            `SELECT id, public_id, amount_pesewas, pricing_snapshot, created_at
+             FROM orders
+             WHERE store_id = $1 AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED'
+             ORDER BY created_at DESC
+             LIMIT 50`,
+            [profitData.store.id]
+          );
+
+          const orderEntries = (orderLedgerRes.rows || []).map((o) => {
+            let markup = 0;
+            const snap = typeof o.pricing_snapshot === 'string' ? JSON.parse(o.pricing_snapshot) : o.pricing_snapshot;
+            if (snap?.markupPesewas) {
+              markup = parseInt(snap.markupPesewas, 10);
+            } else if (snap?.unitPricePesewas && snap?.basePricePesewas) {
+              markup = Math.max(0, parseInt(snap.unitPricePesewas, 10) - parseInt(snap.basePricePesewas, 10));
+            }
+
+            return {
+              id: `pl_ord_${o.id.slice(0, 8)}`,
+              date: new Date(o.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+              rawDate: o.created_at,
+              reference: o.public_id,
+              type: 'Profit Earned',
+              amountPesewas: markup,
+              balanceAfterPesewas: 0,
+              status: 'POSTED',
+              isCredit: true,
+            };
+          });
+
+          const payoutEntries = withdrawals.map((w) => ({
+            id: `pl_wd_${w.id.slice(0, 8)}`,
+            date: w.date,
+            rawDate: w.rawDate,
+            reference: w.reference,
+            type: 'Withdrawal',
+            amountPesewas: w.amountPesewas,
+            balanceAfterPesewas: 0,
+            status: w.status === 'REJECTED' ? 'REVERSED' : 'POSTED',
+            isCredit: false,
+          }));
+
+          ledger = [...orderEntries, ...payoutEntries].sort(
+            (a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime()
+          );
+        }
 
         return reply.send({
           success: true,
           data: {
             withdrawals,
+            ledger,
+            summary: {
+              hasStore: profitData.hasStore,
+              storeName: profitData.store?.storeName || null,
+              slug: profitData.store?.slug || null,
+              totalProfitEarnedPesewas: profitData.totalProfitEarnedPesewas,
+              totalWithdrawnPesewas: profitData.totalWithdrawnPesewas,
+              pendingWithdrawnPesewas: profitData.pendingWithdrawnPesewas,
+              settledWithdrawnPesewas: profitData.settledWithdrawnPesewas,
+              availableProfitPesewas: profitData.availableProfitPesewas,
+              salesCount: profitData.salesCount,
+              salesVolumePesewas: profitData.salesVolumePesewas,
+            },
           },
         });
-      } catch {
+      } catch (err: any) {
         return reply.send({
           success: true,
           data: {
             withdrawals: [],
+            ledger: [],
+            summary: {
+              hasStore: false,
+              totalProfitEarnedPesewas: 0,
+              totalWithdrawnPesewas: 0,
+              availableProfitPesewas: 0,
+            },
           },
         });
       }
+    },
+  );
+
+  // 7c. GET AGENT WITHDRAWALS SUMMARY (/agents/withdrawals/summary)
+  app.get(
+    '/agents/withdrawals/summary',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const summary = await getAgentStorefrontProfit(req.user!.sub);
+      return reply.send({
+        success: true,
+        data: summary,
+      });
     },
   );
 
@@ -2409,7 +2644,7 @@ export async function agentRoutes(
                   COALESCE((SELECT COUNT(*) FROM orders WHERE agent_id = a.id OR user_id = u.id), 0) as "ordersCount",
                   COALESCE((SELECT COUNT(*) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND order_status IN ('COMPLETED', 'DELIVERED')), 0) as "successfulOrdersCount",
                   COALESCE((SELECT COUNT(*) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND order_status = 'FAILED'), 0) as "failedOrdersCount",
-                  COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND payment_status = 'PAID'), 0) as "totalSalesPesewas",
+                  COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE (agent_id = a.id OR user_id = u.id) AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')), 0) as "totalSalesPesewas",
                   a.created_at as "createdAt"
            FROM agents a
            JOIN users u ON a.user_id = u.id

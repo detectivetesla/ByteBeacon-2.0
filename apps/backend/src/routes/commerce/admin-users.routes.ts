@@ -416,10 +416,10 @@ export async function adminUsersRoutes(
            COUNT(*) FILTER (WHERE order_status = 'REFUNDED') as "refunded",
            COUNT(*) FILTER (WHERE order_status = 'CANCELLED') as "cancelled",
            MAX(created_at) as "lastOrderAt",
-           COALESCE(SUM(amount_pesewas) FILTER (WHERE payment_status = 'PAID'), 0) as "totalSpentPesewas",
-           COALESCE(SUM(amount_pesewas) FILTER (WHERE order_status = 'REFUNDED'), 0) as "totalRefundsPesewas",
-           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) as "dailyOrders",
-           COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_DATE), 0) as "dailySpentPesewas"
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')), 0) as "totalSpentPesewas",
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE order_status IN ('REFUNDED', 'FAILED') OR COALESCE(refund_status, 'NONE') = 'COMPLETED' OR payment_status = 'REFUNDED'), 0) as "totalRefundsPesewas",
+           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')) as "dailyOrders",
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_DATE AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')), 0) as "dailySpentPesewas"
          FROM orders
          WHERE user_id = $1`,
         [req.params.id],

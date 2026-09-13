@@ -1415,6 +1415,13 @@ export const adminApi = {
     }>('/admin/finance/withdrawals', { params });
   },
 
+  processWithdrawalAction: async (
+    id: string,
+    data: { action: 'PAID' | 'APPROVE' | 'REJECT' | 'HOLD'; reason?: string; notes?: string },
+  ) => {
+    return apiClient.post(`/admin/finance/withdrawals/${id}/action`, data);
+  },
+
   getFinanceAdjustments: async (): Promise<FinancialAdjustmentDto[]> => {
     return apiClient.get<FinancialAdjustmentDto[]>('/admin/finance/adjustments');
   },

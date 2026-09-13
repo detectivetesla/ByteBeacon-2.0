@@ -175,10 +175,11 @@ export class ProviderSyncService {
               );
               let paymentId = payRes.rows[0]?.id;
               if (!paymentId) {
+                const payPubId = `pay_${crypto.randomBytes(8).toString('hex')}`;
                 const newPay = await client.query(
-                  `INSERT INTO payments (order_id, user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, paid_at)
-                   VALUES ($1, $2, $3, $4, 'WALLET', $5, 'WALLET', 'REFUNDED', CURRENT_TIMESTAMP) RETURNING id`,
-                  [event.orderId, ord.user_id, refundAmt, ord.currency || 'GHS', `pst_wal_${ord.public_id || event.orderId}`],
+                  `INSERT INTO payments (public_id, order_id, user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, paid_at)
+                   VALUES ($1, $2, $3, $4, $5, 'WALLET', $6, 'WALLET', 'REFUNDED', CURRENT_TIMESTAMP) RETURNING id`,
+                  [payPubId, event.orderId, ord.user_id, refundAmt, ord.currency || 'GHS', `pst_wal_${ord.public_id || event.orderId}`],
                 );
                 paymentId = newPay.rows[0].id;
               } else {
@@ -189,10 +190,11 @@ export class ProviderSyncService {
               }
 
               // Create record in refunds table
+              const refPubId = `ref_${crypto.randomBytes(8).toString('hex')}`;
               const refundRes = await client.query(
-                `INSERT INTO refunds (payment_id, order_id, amount_pesewas, reason, status)
-                 VALUES ($1, $2, $3, $4, 'COMPLETED') RETURNING id`,
-                [paymentId, event.orderId, refundAmt, `Automated refund on provider sync failure [${event.orderId}]`],
+                `INSERT INTO refunds (public_id, payment_id, order_id, amount_pesewas, reason, status)
+                 VALUES ($1, $2, $3, $4, $5, 'COMPLETED') RETURNING id`,
+                [refPubId, paymentId, event.orderId, refundAmt, `Automated refund on provider sync failure [${event.orderId}]`],
               );
               const refundId = refundRes.rows[0]?.id;
 

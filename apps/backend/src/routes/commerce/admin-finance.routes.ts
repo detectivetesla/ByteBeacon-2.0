@@ -862,13 +862,16 @@ export async function adminFinanceRoutes(
           p.id,
           p.store_id as "storeId",
           s.store_name as "storeName",
-          s.store_slug as "storeSlug",
+          COALESCE(s.slug, '') as "storeSlug",
           p.agent_id as "agentId",
           COALESCE(u.full_name, 'Agent') as "agentName",
           u.email as "agentEmail",
           p.amount_pesewas as "amountPesewas",
           p.destination_account as "destinationAccount",
           p.destination_provider as "destinationProvider",
+          p.account_name as "accountName",
+          p.bank_name as "bankName",
+          p.reference,
           p.status,
           p.admin_notes as "adminNotes",
           p.reviewed_by as "reviewedBy",
@@ -876,7 +879,7 @@ export async function adminFinanceRoutes(
           p.paid_at as "paidAt",
           p.created_at as "createdAt"
         FROM store_payouts p
-        JOIN stores s ON p.store_id = s.id
+        LEFT JOIN stores s ON p.store_id = s.id
         LEFT JOIN agents a ON p.agent_id = a.id
         LEFT JOIN users u ON a.user_id = u.id
         WHERE ${whereSql}
@@ -897,6 +900,59 @@ export async function adminFinanceRoutes(
             totalPages: Math.ceil(total / limitNum) || 1,
           },
         },
+      });
+    },
+  );
+
+  // 8b. POST /admin/finance/withdrawals/:id/action — Settle/Approve/Reject Withdrawal
+  app.post<{
+    Params: { id: string };
+    Body: { action: 'PAID' | 'APPROVE' | 'REJECT' | 'HOLD'; reason?: string; notes?: string };
+  }>(
+    '/admin/finance/withdrawals/:id/action',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { id } = req.params;
+      const { action, reason = '', notes = '' } = req.body || {};
+
+      let newStatus: string;
+      if (action === 'APPROVE' || action === 'PAID') {
+        newStatus = 'PAID';
+      } else if (action === 'REJECT') {
+        newStatus = 'REJECTED';
+      } else if (action === 'HOLD') {
+        newStatus = 'HELD';
+      } else {
+        throw new BadRequestError(`Invalid action '${action}'. Allowed: APPROVE, PAID, REJECT, HOLD.`);
+      }
+
+      const adminNote = notes || reason || `Admin marked as ${newStatus}`;
+
+      const updateRes = await db.query(
+        `UPDATE store_payouts
+         SET status = $1,
+             admin_notes = COALESCE($2, admin_notes),
+             reviewed_by = $3,
+             reviewed_at = CURRENT_TIMESTAMP,
+             paid_at = CASE WHEN $1 = 'PAID' THEN CURRENT_TIMESTAMP ELSE paid_at END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id::text = $4
+         RETURNING id, store_id as "storeId", agent_id as "agentId", amount_pesewas as "amountPesewas",
+                   destination_account as "destinationAccount", destination_provider as "destinationProvider",
+                   account_name as "accountName", bank_name as "bankName", reference, status, paid_at as "paidAt"`,
+        [newStatus, adminNote, req.user!.sub, id]
+      );
+
+      if (updateRes.rows.length === 0) {
+        throw new NotFoundError(`Withdrawal not found with ID '${id}'`);
+      }
+
+      const updated = updateRes.rows[0];
+
+      return reply.send({
+        success: true,
+        message: `Withdrawal successfully updated to ${newStatus}.`,
+        data: updated,
       });
     },
   );

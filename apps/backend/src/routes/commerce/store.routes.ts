@@ -526,8 +526,8 @@ export async function storeRoutes(
       // Calculate scoped store metrics
       const ordersRes = await db.query(
         `SELECT COUNT(*) as total_orders,
-                COALESCE(SUM(amount_pesewas), 0) as total_sales_pesewas,
-                COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_pesewas ELSE 0 END), 0) as today_sales_pesewas,
+                COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as total_sales_pesewas,
+                COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as today_sales_pesewas,
                 COUNT(DISTINCT recipient_phone) as customers_count,
                 COUNT(CASE WHEN order_status = 'COMPLETED' THEN 1 END) as completed_orders,
                 COUNT(CASE WHEN order_status = 'PROCESSING' THEN 1 END) as processing_orders,

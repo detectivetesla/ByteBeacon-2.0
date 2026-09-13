@@ -83,10 +83,10 @@ export async function adminStoresRoutes(
             SELECT SUM(amount_pesewas) FROM store_payouts WHERE status = 'PENDING'
           ), 0) as "pendingWithdrawalPesewas",
           COALESCE((
-            SELECT SUM(amount_pesewas) FROM orders WHERE store_id IS NOT NULL AND payment_status = 'PAID'
+            SELECT SUM(amount_pesewas) FROM orders WHERE store_id IS NOT NULL AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')
           ), 0) as "totalSalesPesewas",
           COALESCE((
-            SELECT SUM(amount_pesewas) FROM orders WHERE store_id IS NOT NULL AND payment_status = 'PAID'
+            SELECT SUM(amount_pesewas) FROM orders WHERE store_id IS NOT NULL AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')
           ), 0) as "totalRevenuePesewas",
           COALESCE((
             SELECT SUM(amount_pesewas) FROM store_payouts WHERE status = 'PAID'
@@ -211,7 +211,7 @@ export async function adminStoresRoutes(
           s.paystack_reference as "paystackReference",
           s.admin_notes as "adminNotes",
           COALESCE((SELECT COUNT(*) FROM store_products WHERE store_id = s.id), 0) as "productsCount",
-          COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE store_id = s.id AND payment_status = 'PAID'), 0) as "totalSalesPesewas",
+          COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE store_id = s.id AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')), 0) as "totalSalesPesewas",
           COALESCE((SELECT SUM(amount_pesewas) FROM store_payouts WHERE store_id = s.id AND status = 'PENDING'), 0) as "pendingPayoutPesewas",
           s.created_at as "createdAt",
           s.updated_at as "updatedAt"
@@ -342,7 +342,7 @@ export async function adminStoresRoutes(
         SELECT
           COUNT(*) as "totalOrders",
           COUNT(*) FILTER (WHERE order_status = 'COMPLETED') as "completedOrders",
-          COALESCE(SUM(amount_pesewas) FILTER (WHERE payment_status = 'PAID'), 0) as "grossSalesPesewas",
+          COALESCE(SUM(amount_pesewas) FILTER (WHERE payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')), 0) as "grossSalesPesewas",
           COALESCE(SUM(amount_pesewas) FILTER (WHERE refund_status = 'COMPLETED'), 0) as "refundedPesewas"
         FROM orders
         WHERE store_id::text = $1
@@ -1023,7 +1023,7 @@ export async function adminStoresRoutes(
           s.store_status as "storeStatus",
           s.approval_status as "approvalStatus",
           s.payment_status as "paymentStatus",
-          COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE store_id = s.id AND payment_status = 'PAID'), 0) / 100.0 as "salesGhs",
+          COALESCE((SELECT SUM(amount_pesewas) FROM orders WHERE store_id = s.id AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')), 0) / 100.0 as "salesGhs",
           s.created_at as "createdAt"
         FROM stores s
         JOIN users u ON s.user_id = u.id
