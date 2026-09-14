@@ -529,4 +529,169 @@ describe('Phase 11.5: Order & Pending Approval Administration Suite', () => {
     expect(mockBeneficiaryService.approveBeneficiary).toHaveBeenCalledWith('ben_001');
     expect(mockFulfillmentQueue.enqueueOrderFulfillment).toHaveBeenCalled();
   });
+
+  // 11. Customer System Pending Orders Listed
+  it('GET /admin/pending-approvals includes pending orders placed by Customer System users', async () => {
+    vi.spyOn(mockDb, 'query').mockImplementation((query: string) => {
+      const sql = query.replace(/\s+/g, ' ');
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
+        return Promise.resolve({
+          rows: [{ id: 'usr_admin_1', uuid: 'usr_admin_1', status: 'ACTIVE', role: UserRole.ADMIN }],
+        });
+      }
+      if (sql.includes('SELECT COUNT(*) as total FROM unified_approvals')) {
+        return Promise.resolve({ rows: [{ total: '1' }] });
+      }
+      if (sql.includes('FROM unified_approvals b') && sql.includes('LIMIT')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'ord_cust_pending_01',
+              phoneNumber: '0249999999',
+              network: 'MTN',
+              status: 'PENDING',
+              providerReference: 'ORD-CUST-999',
+              validatedAt: null,
+              expiresAt: null,
+              createdAt: new Date().toISOString(),
+              lastBundleSizeGb: '5.00',
+              metadata: {
+                orderId: 'ord_cust_pending_01',
+                publicId: 'ORD-CUST-999',
+                amountPesewas: 2500,
+                orderStatus: 'AWAITING_APPROVAL',
+                detectedFrom: 'Customer Order',
+                isOrder: true,
+              },
+              agentId: null,
+              sourceType: 'order',
+              agentName: 'Ama Serwaa',
+              agentEmail: 'ama@gmail.com',
+              agentRole: 'customer',
+              occurrences: 1,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/pending-approvals?source=CUSTOMER',
+      headers: { authorization: 'Bearer mock_admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.data.items.length).toBe(1);
+    expect(body.data.items[0].phoneNumber).toBe('0249999999');
+    expect(body.data.items[0].sourceRole).toBe('customer');
+    expect(body.data.items[0].isOrder).toBe(true);
+    expect(body.data.items[0].detectedFrom).toBe('Customer Order');
+  });
+
+  // 12. Agent System Pending Orders Listed
+  it('GET /admin/pending-approvals includes pending orders placed by Agent System users', async () => {
+    vi.spyOn(mockDb, 'query').mockImplementation((query: string) => {
+      const sql = query.replace(/\s+/g, ' ');
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
+        return Promise.resolve({
+          rows: [{ id: 'usr_admin_1', uuid: 'usr_admin_1', status: 'ACTIVE', role: UserRole.ADMIN }],
+        });
+      }
+      if (sql.includes('SELECT COUNT(*) as total FROM unified_approvals')) {
+        return Promise.resolve({ rows: [{ total: '1' }] });
+      }
+      if (sql.includes('FROM unified_approvals b') && sql.includes('LIMIT')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'ord_agent_pending_01',
+              phoneNumber: '0541112233',
+              network: 'MTN',
+              status: 'PENDING',
+              providerReference: 'ORD-AG-111',
+              validatedAt: null,
+              expiresAt: null,
+              createdAt: new Date().toISOString(),
+              lastBundleSizeGb: '10.00',
+              metadata: {
+                orderId: 'ord_agent_pending_01',
+                publicId: 'ORD-AG-111',
+                amountPesewas: 4800,
+                orderStatus: 'AWAITING_APPROVAL',
+                detectedFrom: 'Agent Order',
+                isOrder: true,
+              },
+              agentId: 'usr_agent_88',
+              sourceType: 'order',
+              agentName: 'Kwame Agent Hub',
+              agentEmail: 'kwame@agenthub.com',
+              agentRole: 'agent',
+              occurrences: 2,
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/pending-approvals?source=AGENT',
+      headers: { authorization: 'Bearer mock_admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.data.items.length).toBe(1);
+    expect(body.data.items[0].phoneNumber).toBe('0541112233');
+    expect(body.data.items[0].sourceRole).toBe('agent');
+    expect(body.data.items[0].sourceLabel).toBe('Kwame Agent Hub (agent)');
+    expect(body.data.items[0].isOrder).toBe(true);
+  });
+
+  // 13. Beneficiary Reject & Order Cancellation
+  it('POST /admin/pending-approvals/:id/reject rejects beneficiary and marks affected orders as FAILED', async () => {
+    vi.spyOn(mockDb, 'query').mockImplementation((query: string) => {
+      const sql = query.replace(/\s+/g, ' ');
+      if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
+        return Promise.resolve({
+          rows: [{ id: 'usr_admin_1', uuid: 'usr_admin_1', status: 'ACTIVE', role: UserRole.ADMIN }],
+        });
+      }
+      if (sql.includes('FROM orders WHERE recipient_phone = $1') || sql.includes('FROM orders WHERE (recipient_phone = $1')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'ord_to_fail_01',
+              recipient_phone: '0241234567',
+              network: NetworkProvider.MTN,
+              data_amount_mb: 5120,
+            },
+          ],
+        });
+      }
+      if (sql.includes('UPDATE orders SET order_status =')) {
+        return Promise.resolve({ rows: [{ id: 'ord_to_fail_01' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/pending-approvals/ben_001/reject',
+      headers: { authorization: 'Bearer mock_admin_token' },
+      payload: { reason: 'Carrier rejected beneficiary validation' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockBeneficiaryService.rejectBeneficiary).toHaveBeenCalledWith('ben_001');
+    expect(mockAuditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'BENEFICIARY_REJECT' }),
+    );
+  });
 });

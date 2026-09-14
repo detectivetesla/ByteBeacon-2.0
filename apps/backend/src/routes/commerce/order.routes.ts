@@ -233,13 +233,28 @@ export async function orderRoutes(
             db.query(
               `INSERT INTO beneficiary_validation (
                   phone_number, network, validation_status, attempt_count,
-                  last_bundle_size_gb, agent_id, created_at, updated_at
-               ) VALUES ($1, 'MTN', 'PENDING', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                  last_bundle_size_gb, agent_id, user_id, provider_response_metadata, created_at, updated_at
+               ) VALUES ($1, 'MTN', 'PENDING', 1, $2, $3, $3, $4::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                ON CONFLICT (phone_number, network) DO UPDATE
                SET attempt_count = beneficiary_validation.attempt_count + 1,
                    last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+                   agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
+                   user_id = COALESCE(EXCLUDED.user_id, beneficiary_validation.user_id),
+                   provider_response_metadata = EXCLUDED.provider_response_metadata,
                    updated_at = CURRENT_TIMESTAMP`,
-              [normalizedLocal, bundleSizeGb, req.user!.sub],
+              [
+                normalizedLocal,
+                bundleSizeGb,
+                req.user!.sub,
+                JSON.stringify({
+                  channel: actorType === 'AGENT' ? 'Agent Order' : 'Customer Order',
+                  detectedFrom: actorType === 'AGENT' ? 'Agent Order' : 'Customer Order',
+                  dataSize: bundleSizeGb ? `${bundleSizeGb} GB` : null,
+                  dataAmountMb: prodRow?.data_amount_mb || null,
+                  userId: req.user!.sub,
+                  userRole: req.user!.role,
+                }),
+              ],
             ),
           ).catch(() => {});
 

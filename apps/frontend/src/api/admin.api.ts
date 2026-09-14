@@ -757,6 +757,12 @@ export interface AdminPendingApprovalItem {
   sourceRole?: string;
   sourceLabel?: string;
   agentId?: string | null;
+  sourceType?: string;
+  orderId?: string;
+  publicId?: string;
+  amountPesewas?: number;
+  paymentStatus?: string;
+  isOrder?: boolean;
 }
 
 export interface AdminPendingApprovalDetail {
@@ -974,6 +980,7 @@ export const adminApi = {
     search?: string;
     status?: string;
     network?: string;
+    source?: string;
   } = {}) => {
     return apiClient.get<{ items: AdminPendingApprovalItem[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/admin/pending-approvals', { params });
   },

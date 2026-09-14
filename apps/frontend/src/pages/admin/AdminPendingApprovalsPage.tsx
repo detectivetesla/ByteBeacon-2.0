@@ -34,6 +34,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [networkFilter, setNetworkFilter] = useState('ALL');
+  const [sourceFilter, setSourceFilter] = useState('ALL');
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
@@ -91,6 +92,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
         search: searchQuery.trim() || undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
+        source: sourceFilter !== 'ALL' ? sourceFilter : undefined,
       });
 
       if (res && Array.isArray(res.items)) {
@@ -108,7 +110,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [page, pageSize, searchQuery, statusFilter, networkFilter, toastError]);
+  }, [page, pageSize, searchQuery, statusFilter, networkFilter, sourceFilter, toastError]);
 
   useEffect(() => {
     fetchStats();
@@ -411,6 +413,21 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                 { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
               ]}
             />
+
+            <Select
+              value={sourceFilter}
+              onChange={(e) => {
+                setSourceFilter(e.target.value);
+                setPage(1);
+              }}
+              options={[
+                { label: 'All Sources & Users', value: 'ALL' },
+                { label: 'Customer System (Portal)', value: 'CUSTOMER' },
+                { label: 'Agent System', value: 'AGENT' },
+                { label: 'Pending Orders Only', value: 'ORDERS' },
+                { label: 'Excel Uploads Only', value: 'EXCEL' },
+              ]}
+            />
           </div>
         </div>
       </Card>
@@ -433,37 +450,56 @@ export const AdminPendingApprovalsPage: React.FC = () => {
           {items.map((item) => (
             <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
               <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
-                <button
-                  onClick={() => setSelectedId(item.id)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--color-brand)',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    padding: 0,
-                    textDecoration: 'underline',
-                  }}
-                >
-                  {item.phoneNumber}
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                  <button
+                    onClick={() => setSelectedId(item.id)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--color-brand)',
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                      padding: 0,
+                      textDecoration: 'underline',
+                      textAlign: 'left',
+                    }}
+                  >
+                    {item.phoneNumber}
+                  </button>
+                  {item.isOrder && (
+                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Order #{item.publicId || item.orderId?.slice(0, 8)}
+                    </span>
+                  )}
+                </div>
               </td>
               <td>
                 <NetworkBadge network={item.network as any} />
               </td>
               <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-                {item.dataSize || '5 GB'}
+                {item.dataSize || '—'}
               </td>
               <td>
-                <Badge variant={item.detectedFrom?.toLowerCase().includes('excel') ? 'brand' : 'neutral'} size="sm">
-                  {item.detectedFrom || 'Excel Precheck'}
-                </Badge>
+                {item.isOrder ? (
+                  <Badge variant="brand" size="sm">
+                    {item.detectedFrom || 'Order Submission'}
+                  </Badge>
+                ) : (
+                  <Badge variant={item.detectedFrom?.toLowerCase().includes('excel') ? 'warning' : 'neutral'} size="sm">
+                    {item.detectedFrom || 'Beneficiary Precheck'}
+                  </Badge>
+                )}
               </td>
               <td style={{ fontSize: 'var(--font-size-2xs)' }}>
                 {item.sourceRole === 'agent' ? (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
                     <Badge variant="warning" size="sm">Agent</Badge>
-                    <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.sourceLabel}</span>
+                    <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.sourceLabel || 'Agent Portal'}</span>
+                  </span>
+                ) : item.sourceRole === 'admin' ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <Badge variant="brand" size="sm">Admin</Badge>
+                    <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.sourceLabel || 'Admin Portal'}</span>
                   </span>
                 ) : (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -476,24 +512,43 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                 {renderStatusBadge(item.status)}
               </td>
               <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.3rem',
-                    padding: '0.15rem 0.55rem',
-                    background: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
-                    color: (item.occurrences || 1) > 1 ? '#FFCC00' : 'var(--color-text-secondary)',
-                    borderRadius: 'var(--radius-sm)',
-                    border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
-                    fontFamily: 'var(--font-mono)',
-                    fontWeight: 800,
-                  }}
-                  title={`Recorded ${item.occurrences || 1} time(s)`}
-                >
-                  <Layers size={11} />
-                  {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
-                </span>
+                {item.isOrder ? (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                      padding: '0.15rem 0.55rem',
+                      background: 'rgba(59, 130, 246, 0.1)',
+                      color: 'var(--color-brand)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      fontFamily: 'var(--font-mono)',
+                      fontWeight: 700,
+                    }}
+                  >
+                    1 Order {item.amountPesewas ? `(GH₵ ${(item.amountPesewas / 100).toFixed(2)})` : ''}
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                      padding: '0.15rem 0.55rem',
+                      background: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
+                      color: (item.occurrences || 1) > 1 ? '#FFCC00' : 'var(--color-text-secondary)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
+                      fontFamily: 'var(--font-mono)',
+                      fontWeight: 800,
+                    }}
+                    title={`Recorded ${item.occurrences || 1} time(s)`}
+                  >
+                    <Layers size={11} />
+                    {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
+                  </span>
+                )}
               </td>
               <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
                 {new Date(item.createdAt).toLocaleString()}
@@ -556,7 +611,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
         <Modal
           isOpen={true}
           onClose={() => setSelectedId(null)}
-          title={`Beneficiary Approval Details — ${detail?.record?.phoneNumber || ''}`}
+          title={detail?.record?.isOrder ? `Pending MTN Order Approval — ${detail.record.phoneNumber}` : `Beneficiary Approval Details — ${detail?.record?.phoneNumber || ''}`}
         >
           {isLoadingDetail ? (
             <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
@@ -574,7 +629,9 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   {detail.record.dataSize && (
                     <Badge variant="neutral" size="sm">{detail.record.dataSize}</Badge>
                   )}
-                  {detail.record.detectedFrom && (
+                  {detail.record.isOrder ? (
+                    <Badge variant="brand" size="sm">Order #{detail.record.publicId || detail.record.orderId?.slice(0, 8)}</Badge>
+                  ) : detail.record.detectedFrom && (
                     <Badge variant="brand" size="sm">{detail.record.detectedFrom}</Badge>
                   )}
                   {detail.record.sourceLabel && (
@@ -619,6 +676,51 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {/* Order Information if record is an order */}
+              {detail.record.isOrder && (
+                <Card style={{ padding: 'var(--space-3)', background: 'rgba(255, 204, 0, 0.05)', border: '1px solid rgba(255, 204, 0, 0.25)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', display: 'block' }}>Order Reference</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                          {detail.record.publicId || detail.record.orderId}
+                        </span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', display: 'block' }}>Order Amount</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-brand)' }}>
+                          GH₵ {((detail.record.amountPesewas || 0) / 100).toFixed(2)}
+                        </span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', display: 'block' }}>Payment Status</span>
+                        <Badge variant={detail.record.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
+                          {detail.record.paymentStatus || 'PAID'}
+                        </Badge>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', display: 'block' }}>User / Origin</span>
+                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                          {detail.record.sourceLabel} ({detail.record.sourceRole?.toUpperCase() || 'CUSTOMER'})
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedId(null);
+                        navigate(`/admin/orders?search=${detail.record.publicId || detail.record.orderId || detail.record.phoneNumber}`);
+                      }}
+                    >
+                      <ExternalLink size={12} />
+                      <span>Inspect in Orders</span>
+                    </Button>
+                  </div>
+                </Card>
+              )}
 
               {/* Automatic Order Release Notice */}
               <div style={{ padding: 'var(--space-3)', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 'var(--radius-md)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>

@@ -1482,14 +1482,15 @@ export class BeneficiaryService {
         await this.db.query(
           `INSERT INTO beneficiary_validation (
             phone_number, network, validation_status, attempt_count,
-            last_bundle_size_gb, agent_id, provider_response_metadata, created_at, updated_at
+            last_bundle_size_gb, agent_id, user_id, provider_response_metadata, created_at, updated_at
           )
-          SELECT t.phone, t.net, 'PENDING', 1, t.size_gb, $5, t.meta::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          SELECT t.phone, t.net, 'PENDING', 1, t.size_gb, $5, $5, t.meta::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
           FROM unnest($1::text[], $2::text[], $3::numeric[], $4::text[]) AS t(phone, net, size_gb, meta)
           ON CONFLICT (phone_number, network) DO UPDATE
           SET attempt_count = beneficiary_validation.attempt_count + 1,
               last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
               agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
+              user_id = COALESCE(EXCLUDED.user_id, beneficiary_validation.user_id),
               provider_response_metadata = EXCLUDED.provider_response_metadata,
               updated_at = CURRENT_TIMESTAMP`,
           [phones, networks, sizesGb, metadatas, effectiveAgentId || null],
@@ -1512,8 +1513,8 @@ export class BeneficiaryService {
               await this.db.query(
                 `INSERT INTO beneficiary_validation (
                   phone_number, network, validation_status, attempt_count,
-                  last_bundle_size_gb, agent_id, provider_response_metadata, created_at, updated_at
-                ) VALUES ($1, $2, 'PENDING', 1, $3, $4, $5::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+                  last_bundle_size_gb, agent_id, user_id, provider_response_metadata, created_at, updated_at
+                ) VALUES ($1, $2, 'PENDING', 1, $3, $4, $4, $5::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
                 [u.phone, u.net, u.sizeGb, effectiveAgentId || null, u.metadata],
               );
             }
@@ -1832,6 +1833,47 @@ export class BeneficiaryService {
       };
     }
 
+    // Try finding by id or public_id in orders
+    const orderRes = await this.db.query(
+      `SELECT id, recipient_phone as "phoneNumber", network
+       FROM orders
+       WHERE id::text = $1 OR public_id = $1`,
+      [id],
+    ).catch(() => ({ rows: [] }));
+
+    if (orderRes.rows.length > 0) {
+      const phone = orderRes.rows[0].phoneNumber;
+      const net = orderRes.rows[0].network;
+      await this.db.query(
+        `INSERT INTO beneficiary_validation (
+           phone_number, network, validation_status, validated_at, expires_at, created_at, updated_at
+         )
+         VALUES ($1, $2, 'VALID', CURRENT_TIMESTAMP, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT (phone_number, network) DO UPDATE
+         SET validation_status = 'VALID',
+             validated_at = CURRENT_TIMESTAMP,
+             expires_at = $3,
+             updated_at = CURRENT_TIMESTAMP`,
+        [phone, net, expiresAt],
+      ).catch(() => {});
+      await this.db.query(
+        `UPDATE pending_beneficiary_approvals
+         SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE phone_number = $1 AND network = $2`,
+        [phone, net],
+      ).catch(() => {});
+      if (this.cacheService) {
+        this.cacheService.deleteCachedResults(String(net), [phone]).catch(() => {});
+      }
+      (this.telecomProvider as any)?.clearCache?.([phone]);
+      return {
+        id: orderRes.rows[0].id,
+        phoneNumber: phone,
+        network: net,
+        status: 'VALID',
+      };
+    }
+
     throw new NotFoundError(`Beneficiary record with ID [${id}] not found`);
   }
 
@@ -1878,6 +1920,37 @@ export class BeneficiaryService {
       ).catch(() => {});
       return {
         id: pendingRes.rows[0].id,
+        phoneNumber: phone,
+        network: net,
+        status: 'INVALID',
+      };
+    }
+
+    // Try finding by id or public_id in orders
+    const orderRejectRes = await this.db.query(
+      `SELECT id, recipient_phone as "phoneNumber", network
+       FROM orders
+       WHERE id::text = $1 OR public_id = $1`,
+      [id],
+    ).catch(() => ({ rows: [] }));
+
+    if (orderRejectRes.rows.length > 0) {
+      const phone = orderRejectRes.rows[0].phoneNumber;
+      const net = orderRejectRes.rows[0].network;
+      await this.db.query(
+        `UPDATE beneficiary_validation
+         SET validation_status = 'INVALID'
+         WHERE phone_number = $1 AND network = $2`,
+        [phone, net],
+      ).catch(() => {});
+      await this.db.query(
+        `UPDATE pending_beneficiary_approvals
+         SET status = 'REJECTED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE phone_number = $1 AND network = $2`,
+        [phone, net],
+      ).catch(() => {});
+      return {
+        id: orderRejectRes.rows[0].id,
         phoneNumber: phone,
         network: net,
         status: 'INVALID',
