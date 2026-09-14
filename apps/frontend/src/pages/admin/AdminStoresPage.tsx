@@ -1,11 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
-import { Input } from '../../components/ui/Input/Input.js';
-import { Select } from '../../components/ui/Select/Select.js';
-import { Modal } from '../../components/ui/Modal/Modal.js';
+import { Input, SearchInput, Modal } from '../../components/ui/index.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
 import {
@@ -23,7 +20,6 @@ import {
   AlertTriangle,
   Clock,
   ShieldCheck,
-  Search,
   RefreshCw,
   Eye,
   Download,
@@ -32,12 +28,15 @@ import {
   Check,
   X,
   CreditCard,
+  Layers,
+  ArrowRight,
+  TrendingUp,
 } from 'lucide-react';
 
 export const AdminStoresPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
 
-  // State
+  // 1. Primary State
   const [activeTab, setActiveTab] = useState<'ALL' | 'APPLICATIONS' | 'PAYOUTS' | 'PRICING' | 'ANALYTICS'>('ALL');
   const [stats, setStats] = useState<AdminStoreStats | null>(null);
   const [stores, setStores] = useState<AdminStoreListItem[]>([]);
@@ -46,18 +45,18 @@ export const AdminStoresPage: React.FC = () => {
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalStores, setTotalStores] = useState<number>(0);
 
-  // Global Activation Fee (Paywall Price) State
+  // 2. Global Activation Fee (Paywall Price) State
   const [activationFeeGhs, setActivationFeeGhs] = useState<number | null>(null);
   const [paywallFeeInput, setPaywallFeeInput] = useState<string>('');
   const [isUpdatingActivationFee, setIsUpdatingActivationFee] = useState<boolean>(false);
 
-  // Filters
+  // 3. Filter State
   const [search, setSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [approvalFilter, setApprovalFilter] = useState<string>('ALL');
   const [paymentFilter, setPaymentFilter] = useState<string>('ALL');
 
-  // Store Payouts State
+  // 4. Store Payouts State
   const [payouts, setPayouts] = useState<any[]>([]);
   const [payoutStatus, setPayoutStatus] = useState<string>('ALL');
   const [payoutPage, setPayoutPage] = useState<number>(1);
@@ -65,46 +64,87 @@ export const AdminStoresPage: React.FC = () => {
   const [payoutTotal, setPayoutTotal] = useState<number>(0);
   const [isPayoutsLoading, setIsPayoutsLoading] = useState<boolean>(false);
 
-  // Dossier Drawer State
+  // 5. Dossier Drawer State
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [storeDetail, setStoreDetail] = useState<AdminStoreDetail | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState<boolean>(false);
   const [dossierTab, setDossierTab] = useState<'OVERVIEW' | 'BRANDING' | 'PRODUCTS' | 'ORDERS' | 'PAYOUTS' | 'HEALTH'>('OVERVIEW');
 
-  // Application Review Modals
+  // 6. Application Review Modals
   const [isApproveModalOpen, setIsApproveModalOpen] = useState<boolean>(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState<boolean>(false);
   const [reviewTargetStore, setReviewTargetStore] = useState<AdminStoreListItem | null>(null);
   const [reviewNotes, setReviewNotes] = useState<string>('');
   const [isReviewing, setIsReviewing] = useState<boolean>(false);
 
-  // Manual Payment Verification Modal
+  // 7. Manual Payment Verification Modal
   const [isVerifyPaymentModalOpen, setIsVerifyPaymentModalOpen] = useState<boolean>(false);
   const [verifyPaymentTargetStore, setVerifyPaymentTargetStore] = useState<AdminStoreListItem | null>(null);
   const [verifyPaymentNotes, setVerifyPaymentNotes] = useState<string>('Payment verified by administrator');
   const [verifyPaymentAutoApprove, setVerifyPaymentAutoApprove] = useState<boolean>(true);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState<boolean>(false);
 
-  // Store Status Change Modal
+  // 8. Store Status Change Modal
   const [isStatusModalOpen, setIsStatusModalOpen] = useState<boolean>(false);
   const [statusTargetStore, setStatusTargetStore] = useState<AdminStoreListItem | null>(null);
   const [newStoreStatus, setNewStoreStatus] = useState<StoreStatus>(StoreStatus.ACTIVE);
   const [statusReason, setStatusReason] = useState<string>('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
 
-  // Store Products Markup Modal
+  // 9. Store Products Markup Modal
   const [isProductsModalOpen, setIsProductsModalOpen] = useState<boolean>(false);
   const [productsTargetStore, setProductsTargetStore] = useState<AdminStoreListItem | null>(null);
   const [storeProductsList, setStoreProductsList] = useState<StoreProductAdminDto[]>([]);
   const [markupEdits, setMarkupEdits] = useState<Record<string, { markupGhs: string; customGhs: string; isAvailable: boolean }>>({});
   const [isSavingProducts, setIsSavingProducts] = useState<boolean>(false);
 
-  // Payout Action Modal
+  // 10. Payout Action Modal
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState<boolean>(false);
   const [payoutTarget, setPayoutTarget] = useState<{ storeId: string; payout: StorePayoutDto } | null>(null);
   const [payoutActionType, setPayoutActionType] = useState<'APPROVE' | 'REJECT' | 'HOLD' | 'RELEASE'>('APPROVE');
   const [payoutReason, setPayoutReason] = useState<string>('');
   const [isProcessingPayout, setIsProcessingPayout] = useState<boolean>(false);
+
+  // Standardized Tactile Button Styles
+  const tactileButtonStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.45rem',
+    padding: '0.45rem 0.85rem',
+    borderRadius: 'var(--radius-md)',
+    backgroundColor: 'var(--color-bg-surface)',
+    border: '1px solid var(--color-border-subtle)',
+    fontSize: 'var(--font-size-xs)',
+    fontWeight: 700,
+    color: 'var(--color-text-primary)',
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
+    boxShadow: 'var(--shadow-tactile-sm)',
+  };
+
+  const primaryButtonStyle: React.CSSProperties = {
+    ...tactileButtonStyle,
+    background: 'linear-gradient(180deg, var(--color-primary-bright, #22C55E) 0%, var(--color-primary, #16A34A) 100%)',
+    backgroundColor: 'var(--color-brand, #16A34A)',
+    color: '#FFFFFF',
+    border: '1px solid rgba(255, 255, 255, 0.25)',
+    boxShadow: 'var(--shadow-tactile-btn, 0 4px 14px rgba(22, 163, 74, 0.35))',
+    fontWeight: 700,
+  };
+
+  const selectStyle: React.CSSProperties = {
+    padding: '0.45rem 0.75rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--color-border-subtle)',
+    backgroundColor: 'var(--color-bg-surface)',
+    color: 'var(--color-text-primary)',
+    fontSize: '11px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    outline: 'none',
+    minWidth: '135px',
+    boxShadow: 'var(--shadow-tactile-sm)',
+  };
 
   // Fetch Stats
   const fetchStats = useCallback(async () => {
@@ -128,7 +168,6 @@ export const AdminStoresPage: React.FC = () => {
       // Fallback
     }
   }, []);
-
 
   // Fetch Stores List
   const fetchStores = useCallback(async () => {
@@ -306,7 +345,6 @@ export const AdminStoresPage: React.FC = () => {
     }
   };
 
-
   // Handle Reject Store Application
   const handleRejectStore = async () => {
     if (!reviewTargetStore || !reviewNotes || reviewNotes.trim().length < 4) {
@@ -414,7 +452,7 @@ export const AdminStoresPage: React.FC = () => {
         action: payoutActionType,
         reason: payoutReason.trim(),
       });
-      toastSuccess('Payout Processed', `Payout of GH₵ ${(payoutTarget.payout.amountPesewas / 100).toFixed(2)} ${payoutActionType.toLowerCase()}ed.`);
+      toastSuccess('Payout Processed', `Payout of GH₵ ${((payoutTarget.payout.amountPesewas || 0) / 100).toFixed(2)} ${payoutActionType.toLowerCase()}ed.`);
       setIsPayoutModalOpen(false);
       setPayoutReason('');
       fetchStats();
@@ -438,9 +476,67 @@ export const AdminStoresPage: React.FC = () => {
     }
   };
 
+  // Active filter chips calculation
+  const activeFilters = useMemo(() => {
+    const filters: Array<{ id: string; label: string; onRemove: () => void }> = [];
+
+    if (search.trim()) {
+      filters.push({
+        id: 'search',
+        label: `Search: "${search}"`,
+        onRemove: () => setSearch(''),
+      });
+    }
+
+    if (statusFilter !== 'ALL') {
+      filters.push({
+        id: 'status',
+        label: `Status: ${statusFilter}`,
+        onRemove: () => setStatusFilter('ALL'),
+      });
+    }
+
+    if (approvalFilter !== 'ALL') {
+      const labels: Record<string, string> = {
+        APPROVED: 'Approved',
+        AWAITING_APPROVAL: 'Awaiting Approval',
+        REJECTED: 'Rejected',
+        NOT_SUBMITTED: 'Not Submitted',
+      };
+      filters.push({
+        id: 'approval',
+        label: `Approval: ${labels[approvalFilter] || approvalFilter}`,
+        onRemove: () => setApprovalFilter('ALL'),
+      });
+    }
+
+    if (paymentFilter !== 'ALL') {
+      const labels: Record<string, string> = {
+        PAID: 'Fee Paid',
+        PAYMENT_PENDING: 'Fee Pending',
+        PAYMENT_REQUIRED: 'Fee Required',
+      };
+      filters.push({
+        id: 'payment',
+        label: `Activation: ${labels[paymentFilter] || paymentFilter}`,
+        onRemove: () => setPaymentFilter('ALL'),
+      });
+    }
+
+    return filters;
+  }, [search, statusFilter, approvalFilter, paymentFilter]);
+
+  const handleResetFilters = () => {
+    setSearch('');
+    setStatusFilter('ALL');
+    setApprovalFilter('ALL');
+    setPaymentFilter('ALL');
+    setPage(1);
+  };
+
   return (
     <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', padding: 'var(--space-4)' }}>
-      {/* Header */}
+      {/* 1. Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <TactileIcon icon={Store} color="speed" size="lg" />
@@ -451,25 +547,35 @@ export const AdminStoresPage: React.FC = () => {
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Agent Store Management
             </h1>
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
               Authoritative control plane for store applications, branding, custom product markups, merchant payouts, and storefront health.
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download size={14} style={{ marginRight: '6px' }} />
-            Export CSV
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => { fetchStats(); fetchStores(); }} disabled={isLoading}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" onClick={handleExport} style={tactileButtonStyle} title="Export stores as CSV">
+            <Download size={14} />
+            <span>Export CSV</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { fetchStats(); fetchStores(); }}
+            disabled={isLoading}
+            style={{
+              ...tactileButtonStyle,
+              padding: '0.45rem 0.6rem',
+              color: 'var(--color-text-muted)',
+            }}
+            title="Refresh Data"
+          >
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-          </Button>
+          </button>
         </div>
       </div>
 
-      {/* KPI Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
+      {/* 2. 6 KPI Summary Cards (Standard Auto-fit Grid) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Total Storefronts"
           value={stats ? stats.totalStores.toLocaleString() : '—'}
@@ -494,7 +600,7 @@ export const AdminStoresPage: React.FC = () => {
         <MetricCard
           title="Pending Payouts"
           value={stats ? `GH₵ ${(stats.pendingWithdrawalPesewas / 100).toFixed(2)}` : '—'}
-          subvalue={`${stats?.pendingWithdrawalsCount || 0} Withdrawal Requests`}
+          subvalue={`${stats?.pendingWithdrawalsCount || 0} Requests`}
           accent="purple"
           icon={<TactileIcon icon={DollarSign} color="payments" size="sm" />}
         />
@@ -510,114 +616,190 @@ export const AdminStoresPage: React.FC = () => {
           value={stats ? `GH₵ ${(stats.totalSalesPesewas / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
           subvalue="Lifetime Merchant Volume"
           accent="blue"
-          icon={<TactileIcon icon={DollarSign} color="orders" size="sm" />}
+          icon={<TactileIcon icon={TrendingUp} color="orders" size="sm" />}
         />
       </div>
 
-      {/* Internal Navigation Tabs */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)' }}>
+      {/* 3. Internal Navigation Tabs (Standard Tactile Segmented Bar) */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.35rem',
+          padding: '0.25rem',
+          backgroundColor: 'var(--color-bg-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-border-subtle)',
+          overflowX: 'auto',
+        }}
+      >
         {[
-          { id: 'ALL', label: 'All Registered Stores' },
-          { id: 'APPLICATIONS', label: `Store Applications (${stats?.pendingReviewStores || 0})` },
-          { id: 'PAYOUTS', label: 'Payouts & Withdrawals' },
-          { id: 'PRICING', label: 'Product Markup Rules' },
-          { id: 'ANALYTICS', label: 'Health & Diagnostics' },
-        ].map((tab) => (
-          <Button
-            key={tab.id}
-            variant={activeTab === tab.id ? 'primary' : 'ghost'}
-            size="sm"
-            onClick={() => { setActiveTab(tab.id as any); setPage(1); }}
-            style={{ borderRadius: 'var(--radius-full)', padding: '0.4rem 1.1rem' }}
-          >
-            {tab.label}
-          </Button>
-        ))}
+          { id: 'ALL', label: 'All Registered Stores', count: stats?.totalStores ?? totalStores, icon: <Store size={13} /> },
+          { id: 'APPLICATIONS', label: 'Store Applications', count: stats?.pendingReviewStores ?? 0, icon: <Clock size={13} /> },
+          { id: 'PAYOUTS', label: 'Payouts & Withdrawals', count: stats?.pendingWithdrawalsCount ?? 0, icon: <DollarSign size={13} /> },
+          { id: 'PRICING', label: 'Product Markup Rules', count: undefined, icon: <Sliders size={13} /> },
+          { id: 'ANALYTICS', label: 'Health & Diagnostics', count: undefined, icon: <ShieldCheck size={13} /> },
+        ].map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => { setActiveTab(tab.id as any); setPage(1); }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.45rem 0.85rem',
+                borderRadius: 'var(--radius-md)',
+                border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
+                color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                fontWeight: isActive ? 700 : 500,
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+              {tab.count !== undefined && (
+                <span
+                  style={{
+                    display: 'inline-block',
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: 'var(--radius-full)',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    backgroundColor: isActive ? 'var(--color-bg-subtle)' : 'rgba(255,255,255,0.05)',
+                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                  }}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Paywall Activation Fee Configuration Banner */}
-      <Card elevated accentColor="green" style={{ padding: 'var(--space-4) var(--space-5)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-md)', background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <DollarSign size={20} />
-          </div>
+      {/* 4. Paywall Activation Fee Configuration Card (Compact & Tactile) */}
+      <Card
+        elevated
+        style={{
+          padding: 'var(--space-3) var(--space-5)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 'var(--space-3)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          <TactileIcon icon={DollarSign} color="emerald" size="sm" />
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
-                Agent Storefront Paywall Activation Fee
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                Storefront Paywall Activation Fee
               </h3>
               <Badge variant="success" size="sm">
                 Current: GH₵ {activationFeeGhs !== null ? activationFeeGhs.toFixed(2) : '500.00'}
               </Badge>
             </div>
-            <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', margin: '0.15rem 0 0 0' }}>
-              Universal one-time registration fee charged to agents to deploy their public storefront.
+            <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '0.1rem 0 0 0' }}>
+              One-time deployment fee charged to agents to activate their customer-facing storefront.
             </p>
           </div>
         </div>
 
-        <form onSubmit={handleSaveActivationFee} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <div style={{ width: '130px' }}>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="500.00"
-              value={paywallFeeInput}
-              onChange={(e) => setPaywallFeeInput(e.target.value)}
-              disabled={isUpdatingActivationFee}
-            />
-          </div>
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            isLoading={isUpdatingActivationFee}
+        <form onSubmit={handleSaveActivationFee} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="500.00"
+            value={paywallFeeInput}
+            onChange={(e) => setPaywallFeeInput(e.target.value)}
             disabled={isUpdatingActivationFee}
+            style={{
+              width: '100px',
+              padding: '0.4rem 0.6rem',
+              fontSize: '11px',
+              fontFamily: 'var(--font-mono)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border-subtle)',
+              backgroundColor: 'var(--color-bg-surface)',
+              color: 'var(--color-text-primary)',
+              outline: 'none',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={isUpdatingActivationFee}
+            style={{
+              ...primaryButtonStyle,
+              padding: '0.4rem 0.75rem',
+              fontSize: '11px',
+              opacity: isUpdatingActivationFee ? 0.6 : 1,
+            }}
           >
-            Update Paywall Fee
-          </Button>
+            {isUpdatingActivationFee ? 'Saving...' : 'Update Fee'}
+          </button>
         </form>
       </Card>
 
       {activeTab === 'PAYOUTS' ? (
         /* Dedicated Storefront Payouts Administration */
-        <Card elevated accentColor="purple" style={{ padding: 'var(--space-5)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+        <Card
+          elevated
+          style={{
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border-subtle)',
+            borderRadius: 'var(--radius-xl)',
+            boxShadow: 'var(--shadow-tactile-sm)',
+            overflow: 'hidden',
+            padding: 0,
+          }}
+        >
+          <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-primary)' }}>
                 Storefront Profit Payout Requests
               </h3>
-              <p style={{ margin: '0.15rem 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+              <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
                 Track and disburse agent store profits to Mobile Money numbers and Bank accounts.
               </p>
             </div>
 
-            <div style={{ minWidth: '180px' }}>
-              <Select
-                value={payoutStatus}
-                onChange={(e) => { setPayoutStatus(e.target.value); setPayoutPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All Statuses' },
-                  { value: 'PENDING', label: 'Pending Approval' },
-                  { value: 'PAID', label: 'Settled / Paid' },
-                  { value: 'REJECTED', label: 'Rejected' },
-                ]}
-              />
-            </div>
+            <select
+              value={payoutStatus}
+              onChange={(e) => { setPayoutStatus(e.target.value); setPayoutPage(1); }}
+              style={selectStyle}
+              aria-label="Filter Payout Status"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="PENDING">Pending Approval</option>
+              <option value="PAID">Settled / Paid</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-secondary)' }}>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Store Name</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Agent</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Amount</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Destination Account</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Requested</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Action</th>
+                <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)' }}>
+                  <th style={{ padding: '0.5rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Store Name</th>
+                  <th style={{ padding: '0.5rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Agent</th>
+                  <th style={{ padding: '0.5rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Amount</th>
+                  <th style={{ padding: '0.5rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Destination Account</th>
+                  <th style={{ padding: '0.5rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Status</th>
+                  <th style={{ padding: '0.5rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Requested</th>
+                  <th style={{ padding: '0.5rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px', textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -637,7 +819,7 @@ export const AdminStoresPage: React.FC = () => {
                 ) : (
                   payouts.map((w) => (
                     <tr key={w.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <td style={{ padding: '0.65rem 0.85rem' }}>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
                             {w.storeName || 'Agent Direct'}
@@ -649,24 +831,24 @@ export const AdminStoresPage: React.FC = () => {
                           )}
                         </div>
                       </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <td style={{ padding: '0.65rem 0.85rem' }}>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{w.agentName}</span>
                           <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{w.agentEmail}</span>
                         </div>
                       </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>
+                      <td style={{ padding: '0.65rem 0.85rem' }}>
+                        <span style={{ fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>
                           GH₵ {(w.amountPesewas / 100).toFixed(2)}
                         </span>
                       </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <td style={{ padding: '0.65rem 0.85rem' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Badge variant="neutral" size="xs">
+                            <Badge variant="neutral" size="sm">
                               {w.bankName || w.destinationProvider || 'MOMO'}
                             </Badge>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-primary)' }}>
                               {w.destinationAccount}
                             </span>
                           </div>
@@ -677,29 +859,40 @@ export const AdminStoresPage: React.FC = () => {
                           )}
                         </div>
                       </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <Badge variant={w.status === 'PAID' ? 'success' : w.status === 'REJECTED' ? 'danger' : 'warning'}>
+                      <td style={{ padding: '0.65rem 0.85rem' }}>
+                        <Badge variant={w.status === 'PAID' ? 'success' : w.status === 'REJECTED' ? 'danger' : 'warning'} size="sm">
                           {w.status}
                         </Badge>
                       </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                          {new Date(w.createdAt).toLocaleString()}
-                        </span>
+                      <td style={{ padding: '0.65rem 0.85rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        {new Date(w.createdAt).toLocaleDateString()}
                       </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
                           {w.status === 'PENDING' || w.status === 'PROCESSING' ? (
                             <>
-                              <Button variant="primary" size="sm" onClick={() => handlePayoutAction(w.id, 'PAID')}>
+                              <button
+                                type="button"
+                                onClick={() => handlePayoutAction(w.id, 'PAID')}
+                                style={{ ...primaryButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
+                              >
                                 Mark Paid
-                              </Button>
-                              <Button variant="danger" size="sm" onClick={() => handlePayoutAction(w.id, 'REJECT')}>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePayoutAction(w.id, 'REJECT')}
+                                style={{
+                                  ...tactileButtonStyle,
+                                  padding: '0.35rem 0.6rem',
+                                  fontSize: '11px',
+                                  color: 'var(--color-danger)',
+                                }}
+                              >
                                 Reject
-                              </Button>
+                              </button>
                             </>
                           ) : (
-                            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
                               {w.status === 'PAID' ? 'Settled' : 'Resolved'}
                             </span>
                           )}
@@ -713,290 +906,451 @@ export const AdminStoresPage: React.FC = () => {
           </div>
 
           {/* Payouts Pagination */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.25rem', borderTop: '1px solid var(--color-border-subtle)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
               Showing {payouts.length} of {payoutTotal} payouts
             </span>
-            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-              <Button
-                variant="outline"
-                size="sm"
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              <button
+                type="button"
                 disabled={payoutPage <= 1}
                 onClick={() => setPayoutPage((p) => Math.max(1, p - 1))}
+                style={{
+                  ...tactileButtonStyle,
+                  padding: '0.35rem 0.65rem',
+                  opacity: payoutPage <= 1 ? 0.5 : 1,
+                  cursor: payoutPage <= 1 ? 'not-allowed' : 'pointer',
+                }}
               >
                 Previous
-              </Button>
-              <span style={{ display: 'flex', alignItems: 'center', padding: '0 0.5rem', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+              </button>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-primary)', padding: '0 0.5rem' }}>
                 Page {payoutPage} of {payoutTotalPages}
               </span>
-              <Button
-                variant="outline"
-                size="sm"
+              <button
+                type="button"
                 disabled={payoutPage >= payoutTotalPages}
                 onClick={() => setPayoutPage((p) => Math.min(payoutTotalPages, p + 1))}
+                style={{
+                  ...tactileButtonStyle,
+                  padding: '0.35rem 0.65rem',
+                  opacity: payoutPage >= payoutTotalPages ? 0.5 : 1,
+                  cursor: payoutPage >= payoutTotalPages ? 'not-allowed' : 'pointer',
+                }}
               >
                 Next
-              </Button>
+              </button>
             </div>
           </div>
         </Card>
       ) : (
-        /* Main Table Card */
-        <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
-        {/* Filter Bar */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ minWidth: '280px', flex: 1 }}>
-              <Input
-                placeholder="Search by store name, slug, owner, email, or phone..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                leftIcon={<Search size={15} color="var(--color-text-muted)" />}
-              />
+        /* Main Storefronts Table & Compact Filters */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* 5. Standardized Compact Filter Card */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', justifyContent: 'space-between' }}>
+              <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
+                <SearchInput
+                  value={search}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Search by store name, slug, owner, email, or phone..."
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Status"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="SUSPENDED">Suspended</option>
+                </select>
+
+                <select
+                  value={approvalFilter}
+                  onChange={(e) => { setApprovalFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Approval"
+                >
+                  <option value="ALL">All Approvals</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="AWAITING_APPROVAL">Awaiting Approval</option>
+                  <option value="REJECTED">Rejected</option>
+                  <option value="NOT_SUBMITTED">Not Submitted</option>
+                </select>
+
+                <select
+                  value={paymentFilter}
+                  onChange={(e) => { setPaymentFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Activation Fee"
+                >
+                  <option value="ALL">All Activation Fees</option>
+                  <option value="PAID">Paid</option>
+                  <option value="PAYMENT_PENDING">Payment Pending</option>
+                  <option value="PAYMENT_REQUIRED">Payment Required</option>
+                </select>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-              <Select
-                value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All Statuses' },
-                  { value: 'ACTIVE', label: 'Active' },
-                  { value: 'INACTIVE', label: 'Inactive' },
-                  { value: 'SUSPENDED', label: 'Suspended' },
-                ]}
-              />
-              <Select
-                value={approvalFilter}
-                onChange={(e) => { setApprovalFilter(e.target.value); setPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All Approvals' },
-                  { value: 'APPROVED', label: 'Approved' },
-                  { value: 'AWAITING_APPROVAL', label: 'Awaiting Approval' },
-                  { value: 'REJECTED', label: 'Rejected' },
-                  { value: 'NOT_SUBMITTED', label: 'Not Submitted' },
-                ]}
-              />
-              <Select
-                value={paymentFilter}
-                onChange={(e) => { setPaymentFilter(e.target.value); setPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All Activation Fees' },
-                  { value: 'PAID', label: 'Paid' },
-                  { value: 'PAYMENT_PENDING', label: 'Payment Pending' },
-                  { value: 'PAYMENT_REQUIRED', label: 'Payment Required' },
-                ]}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Table */}
-        <Table
-          columns={[
-            {
-              header: 'Store & Slug',
-              accessor: 'storeName',
-              render: (row: AdminStoreListItem) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <div style={{
-                    width: '36px', height: '36px', borderRadius: 'var(--radius-md)',
-                    background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800,
-                    color: 'var(--color-speed-bright)', fontSize: 'var(--font-size-xs)'
-                  }}>
-                    <Store size={18} />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                      {row.storeName}
-                    </span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
-                      /{row.slug}
-                    </span>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              header: 'Merchant Owner',
-              accessor: 'ownerName',
-              render: (row: AdminStoreListItem) => (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{row.ownerName}</span>
-                  <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>{row.ownerEmail}</span>
-                </div>
-              ),
-            },
-            {
-              header: 'Status',
-              accessor: 'storeStatus',
-              render: (row: AdminStoreListItem) => (
-                <Badge variant={row.storeStatus === 'ACTIVE' ? 'success' : row.storeStatus === 'SUSPENDED' ? 'danger' : 'default'} size="sm">
-                  {row.storeStatus}
-                </Badge>
-              ),
-            },
-            {
-              header: 'Approval',
-              accessor: 'approvalStatus',
-              render: (row: AdminStoreListItem) => (
-                <Badge variant={row.approvalStatus === 'APPROVED' ? 'success' : row.approvalStatus === 'REJECTED' ? 'danger' : 'warning'} size="sm">
-                  {row.approvalStatus}
-                </Badge>
-              ),
-            },
-            {
-              header: 'Activation Fee',
-              accessor: 'paymentStatus',
-              render: (row: AdminStoreListItem) => (
-                <Badge variant={row.paymentStatus === 'PAID' ? 'success' : 'default'} size="sm">
-                  {row.paymentStatus}
-                </Badge>
-              ),
-            },
-            {
-              header: 'Sales Volume',
-              accessor: 'totalSalesPesewas',
-              render: (row: AdminStoreListItem) => (
-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--color-brand)', fontSize: 'var(--font-size-xs)' }}>
-                  GH₵ {(row.totalSalesPesewas / 100).toFixed(2)}
+            {/* Active Filter Chips */}
+            {activeFilters.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '0.4rem',
+                  alignItems: 'center',
+                  paddingTop: '0.25rem',
+                  borderTop: '1px solid var(--color-border-subtle)',
+                }}
+              >
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>
+                  Active Filters:
                 </span>
-              ),
-            },
-            {
-              header: 'Products',
-              accessor: 'productsCount',
-              render: (row: AdminStoreListItem) => (
-                <span style={{ fontSize: 'var(--font-size-xs)' }}>{row.productsCount} active</span>
-              ),
-            },
-            {
-              header: 'Created',
-              accessor: 'createdAt',
-              render: (row: AdminStoreListItem) => (
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(row.createdAt).toLocaleDateString()}
-                </span>
-              ),
-            },
-            {
-              header: 'Actions',
-              accessor: 'id',
-              render: (row: AdminStoreListItem) => (
-                <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-                  <Button variant="outline" size="sm" onClick={() => openStoreDossier(row.id)}>
-                    <Eye size={13} style={{ marginRight: '4px' }} />
-                    Dossier
-                  </Button>
-                  {row.paymentStatus !== 'PAID' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setVerifyPaymentTargetStore(row);
-                        setVerifyPaymentNotes('Payment verified by administrator');
-                        setVerifyPaymentAutoApprove(true);
-                        setIsVerifyPaymentModalOpen(true);
-                      }}
-                      title="Verify Payment & Approve"
-                    >
-                      <CreditCard size={13} style={{ marginRight: '4px' }} />
-                      Verify Pay
-                    </Button>
-                  )}
-                  {row.approvalStatus !== 'APPROVED' && (
-                    <>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => {
-                          setReviewTargetStore(row);
-                          setIsApproveModalOpen(true);
-                        }}
-                        title="Approve & Activate Storefront"
-                      >
-                        <Check size={13} />
-                      </Button>
-                      {row.approvalStatus === 'AWAITING_APPROVAL' && (
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => {
-                            setReviewTargetStore(row);
-                            setIsRejectModalOpen(true);
-                          }}
-                          title="Reject Storefront"
-                        >
-                          <X size={13} />
-                        </Button>
-                      )}
-                    </>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => openProductsModal(row)}
-                    title="Edit Product Markups"
-                  >
-                    <Sliders size={14} color="var(--color-speed-bright)" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setStatusTargetStore(row);
-                      setNewStoreStatus(row.storeStatus as any);
-                      setIsStatusModalOpen(true);
+                {activeFilters.map((af) => (
+                  <span
+                    key={af.id}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-full)',
+                      padding: '0.2rem 0.55rem',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-primary)',
                     }}
-                    title="Change Status"
                   >
-                    <ShieldCheck size={14} color="var(--color-text-muted)" />
-                  </Button>
-                </div>
-              ),
-            },
-          ]}
-          data={stores}
-          keyExtractor={(row) => row.id}
-          emptyMessage={isLoading ? 'Loading stores from authoritative database...' : 'No stores match your search criteria.'}
-        />
+                    {af.label}
+                    <button
+                      type="button"
+                      onClick={af.onRemove}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        color: 'var(--color-text-muted)',
+                      }}
+                      title="Remove filter"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
 
-        {/* Pagination Bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-            Showing {stores.length} of {totalStores} storefronts
-          </span>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Previous
-            </Button>
-            <span style={{ display: 'flex', alignItems: 'center', padding: '0 0.5rem', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-              Page {page} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Next
-            </Button>
-          </div>
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: 'var(--color-brand-primary)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '0.2rem 0.4rem',
+                  }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
+          </Card>
+
+          {/* 6. Main Storefront Table Card */}
+          <Card
+            elevated
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              overflow: 'hidden',
+              padding: 0,
+            }}
+          >
+            <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                  Merchant Storefront Directory
+                </h3>
+                <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+                  Authoritative storefront deployments, approval states, paywall fees, and lifetime sales metrics.
+                </p>
+              </div>
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                Showing {stores.length} of {totalStores} storefronts
+              </span>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <Table
+                columns={[
+                  {
+                    header: 'Store & Slug',
+                    accessor: 'storeName',
+                    render: (row: AdminStoreListItem) => (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                        <div style={{
+                          width: '34px', height: '34px', borderRadius: 'var(--radius-md)',
+                          background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800,
+                          color: 'var(--color-speed-bright)', fontSize: 'var(--font-size-xs)'
+                        }}>
+                          <Store size={16} />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            {row.storeName}
+                          </span>
+                          <span style={{ fontSize: '10px', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
+                            /{row.slug}
+                          </span>
+                        </div>
+                      </div>
+                    ),
+                  },
+                  {
+                    header: 'Merchant Owner',
+                    accessor: 'ownerName',
+                    render: (row: AdminStoreListItem) => (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{row.ownerName}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{row.ownerEmail}</span>
+                      </div>
+                    ),
+                  },
+                  {
+                    header: 'Status',
+                    accessor: 'storeStatus',
+                    render: (row: AdminStoreListItem) => (
+                      <Badge variant={row.storeStatus === 'ACTIVE' ? 'success' : row.storeStatus === 'SUSPENDED' ? 'danger' : 'neutral'} size="sm">
+                        {row.storeStatus}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    header: 'Approval',
+                    accessor: 'approvalStatus',
+                    render: (row: AdminStoreListItem) => (
+                      <Badge variant={row.approvalStatus === 'APPROVED' ? 'success' : row.approvalStatus === 'REJECTED' ? 'danger' : 'warning'} size="sm">
+                        {row.approvalStatus}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    header: 'Activation Fee',
+                    accessor: 'paymentStatus',
+                    render: (row: AdminStoreListItem) => (
+                      <Badge variant={row.paymentStatus === 'PAID' ? 'success' : 'neutral'} size="sm">
+                        {row.paymentStatus}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    header: 'Sales Volume',
+                    accessor: 'totalSalesPesewas',
+                    render: (row: AdminStoreListItem) => (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--color-brand)', fontSize: 'var(--font-size-xs)' }}>
+                        GH₵ {(row.totalSalesPesewas / 100).toFixed(2)}
+                      </span>
+                    ),
+                  },
+                  {
+                    header: 'Products',
+                    accessor: 'productsCount',
+                    render: (row: AdminStoreListItem) => (
+                      <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>{row.productsCount} active</span>
+                    ),
+                  },
+                  {
+                    header: 'Created',
+                    accessor: 'createdAt',
+                    render: (row: AdminStoreListItem) => (
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        {new Date(row.createdAt).toLocaleDateString()}
+                      </span>
+                    ),
+                  },
+                  {
+                    header: 'Actions',
+                    accessor: 'id',
+                    render: (row: AdminStoreListItem) => (
+                      <div style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => openStoreDossier(row.id)}
+                          style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+                          title="View Store Dossier"
+                        >
+                          <Eye size={12} />
+                          <span>Dossier</span>
+                        </button>
+                        {row.paymentStatus !== 'PAID' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVerifyPaymentTargetStore(row);
+                              setVerifyPaymentNotes('Payment verified by administrator');
+                              setVerifyPaymentAutoApprove(true);
+                              setIsVerifyPaymentModalOpen(true);
+                            }}
+                            style={{
+                              ...tactileButtonStyle,
+                              padding: '0.35rem 0.6rem',
+                              fontSize: '11px',
+                              color: 'var(--color-warning-bright)',
+                            }}
+                            title="Verify Paywall Payment & Approve"
+                          >
+                            <CreditCard size={12} />
+                            <span>Verify Pay</span>
+                          </button>
+                        )}
+                        {row.approvalStatus !== 'APPROVED' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReviewTargetStore(row);
+                                setIsApproveModalOpen(true);
+                              }}
+                              style={{
+                                ...primaryButtonStyle,
+                                padding: '0.35rem 0.55rem',
+                                fontSize: '11px',
+                              }}
+                              title="Approve & Activate Storefront"
+                            >
+                              <Check size={12} />
+                            </button>
+                            {row.approvalStatus === 'AWAITING_APPROVAL' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReviewTargetStore(row);
+                                  setIsRejectModalOpen(true);
+                                }}
+                                style={{
+                                  ...tactileButtonStyle,
+                                  padding: '0.35rem 0.55rem',
+                                  fontSize: '11px',
+                                  color: 'var(--color-danger)',
+                                }}
+                                title="Reject Storefront Application"
+                              >
+                                <X size={12} />
+                              </button>
+                            )}
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => openProductsModal(row)}
+                          style={{ ...tactileButtonStyle, padding: '0.35rem 0.5rem', color: 'var(--color-speed-bright)' }}
+                          title="Edit Product Markups"
+                        >
+                          <Sliders size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatusTargetStore(row);
+                            setNewStoreStatus(row.storeStatus as any);
+                            setIsStatusModalOpen(true);
+                          }}
+                          style={{ ...tactileButtonStyle, padding: '0.35rem 0.5rem', color: 'var(--color-text-muted)' }}
+                          title="Change Operational Status"
+                        >
+                          <ShieldCheck size={13} />
+                        </button>
+                      </div>
+                    ),
+                  },
+                ]}
+                data={stores}
+                keyExtractor={(row) => row.id}
+                emptyText={isLoading ? 'Loading stores from authoritative database...' : 'No stores match your search criteria.'}
+              />
+            </div>
+
+            {/* Pagination Bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.25rem', borderTop: '1px solid var(--color-border-subtle)', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                Showing {stores.length} of {totalStores} storefronts (Page {page} of {totalPages})
+              </span>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  style={{
+                    ...tactileButtonStyle,
+                    padding: '0.35rem 0.65rem',
+                    opacity: page <= 1 ? 0.5 : 1,
+                    cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Previous
+                </button>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-primary)', padding: '0 0.5rem' }}>
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  style={{
+                    ...tactileButtonStyle,
+                    padding: '0.35rem 0.65rem',
+                    opacity: page >= totalPages ? 0.5 : 1,
+                    cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </Card>
         </div>
-      </Card>
       )}
 
-      {/* APPROVE APPLICATION MODAL */}
+      {/* ========================================================================= */}
+      {/* 7. MODALS (Non-Overlapping, rendered at high z-index via Modal component) */}
+      {/* ========================================================================= */}
+
+      {/* A. APPROVE APPLICATION MODAL */}
       <Modal
         isOpen={isApproveModalOpen}
         onClose={() => setIsApproveModalOpen(false)}
         title={`Approve Store: ${reviewTargetStore?.storeName || ''}`}
+        maxWidth="500px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
@@ -1012,27 +1366,38 @@ export const AdminStoresPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsApproveModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleApproveStore} disabled={isReviewing}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setIsApproveModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleApproveStore}
+              disabled={isReviewing}
+              style={{
+                ...primaryButtonStyle,
+                opacity: isReviewing ? 0.6 : 1,
+              }}
+            >
               {isReviewing ? 'Activating...' : 'Approve & Activate Store'}
-            </Button>
+            </button>
           </div>
         </div>
       </Modal>
 
-      {/* VERIFY PAYMENT MODAL */}
+      {/* B. VERIFY PAYMENT MODAL */}
       <Modal
         isOpen={isVerifyPaymentModalOpen}
         onClose={() => setIsVerifyPaymentModalOpen(false)}
         title={`Verify Payment: ${verifyPaymentTargetStore?.storeName || ''}`}
+        maxWidth="540px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
-          <div style={{ background: 'var(--color-bg-secondary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-            <div style={{ fontSize: '12px' }}><strong>Store:</strong> {verifyPaymentTargetStore?.storeName} (/{verifyPaymentTargetStore?.slug})</div>
-            <div style={{ fontSize: '12px', marginTop: '4px' }}><strong>Owner:</strong> {verifyPaymentTargetStore?.ownerName} ({verifyPaymentTargetStore?.ownerEmail})</div>
-            <div style={{ fontSize: '12px', marginTop: '4px' }}><strong>Activation Fee:</strong> GH₵ {((verifyPaymentTargetStore?.activationFeePesewas || 50000) / 100).toFixed(2)}</div>
-            <div style={{ fontSize: '12px', marginTop: '4px' }}><strong>Current Status:</strong> {verifyPaymentTargetStore?.paymentStatus} · {verifyPaymentTargetStore?.approvalStatus}</div>
+          <div style={{ background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <div style={{ fontSize: '11px' }}><strong>Store:</strong> {verifyPaymentTargetStore?.storeName} (/{verifyPaymentTargetStore?.slug})</div>
+            <div style={{ fontSize: '11px', marginTop: '4px' }}><strong>Owner:</strong> {verifyPaymentTargetStore?.ownerName} ({verifyPaymentTargetStore?.ownerEmail})</div>
+            <div style={{ fontSize: '11px', marginTop: '4px' }}><strong>Activation Fee:</strong> GH₵ {((verifyPaymentTargetStore?.activationFeePesewas || 50000) / 100).toFixed(2)}</div>
+            <div style={{ fontSize: '11px', marginTop: '4px' }}><strong>Current Status:</strong> {verifyPaymentTargetStore?.paymentStatus} · {verifyPaymentTargetStore?.approvalStatus}</div>
           </div>
 
           <div>
@@ -1053,21 +1418,31 @@ export const AdminStoresPage: React.FC = () => {
             <span>Auto-approve application and activate storefront immediately</span>
           </label>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsVerifyPaymentModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleVerifyStorePayment} disabled={isVerifyingPayment}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setIsVerifyPaymentModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleVerifyStorePayment}
+              disabled={isVerifyingPayment}
+              style={{
+                ...primaryButtonStyle,
+                opacity: isVerifyingPayment ? 0.6 : 1,
+              }}
+            >
               {isVerifyingPayment ? 'Verifying...' : 'Confirm Payment & Verify'}
-            </Button>
+            </button>
           </div>
         </div>
       </Modal>
 
-
-      {/* REJECT APPLICATION MODAL */}
+      {/* C. REJECT APPLICATION MODAL */}
       <Modal
         isOpen={isRejectModalOpen}
         onClose={() => setIsRejectModalOpen(false)}
         title={`Reject Store Application: ${reviewTargetStore?.storeName || ''}`}
+        maxWidth="500px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
           <div>
@@ -1079,34 +1454,47 @@ export const AdminStoresPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
-            <Button variant="danger" onClick={handleRejectStore} disabled={isReviewing}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setIsRejectModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleRejectStore}
+              disabled={isReviewing}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: 'var(--color-danger)',
+                color: '#fff',
+                borderColor: 'var(--color-danger)',
+              }}
+            >
               {isReviewing ? 'Rejecting...' : 'Confirm Rejection'}
-            </Button>
+            </button>
           </div>
         </div>
       </Modal>
 
-      {/* STORE STATUS CHANGE MODAL */}
+      {/* D. STORE STATUS CHANGE MODAL */}
       <Modal
         isOpen={isStatusModalOpen}
         onClose={() => setIsStatusModalOpen(false)}
         title={`Update Status: ${statusTargetStore?.storeName || ''}`}
+        maxWidth="500px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
           <div>
             <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Store Status *</label>
-            <Select
+            <select
               value={newStoreStatus}
               onChange={(e) => setNewStoreStatus(e.target.value as any)}
-              options={[
-                { value: 'ACTIVE', label: 'ACTIVE — Storefront live and selling' },
-                { value: 'INACTIVE', label: 'INACTIVE — Temporarily hidden' },
-                { value: 'SUSPENDED', label: 'SUSPENDED — Blocked from customer purchases' },
-                { value: 'ARCHIVED', label: 'ARCHIVED — Terminated storefront' },
-              ]}
-            />
+              style={{ ...selectStyle, width: '100%' }}
+            >
+              <option value="ACTIVE">ACTIVE — Storefront live and selling</option>
+              <option value="INACTIVE">INACTIVE — Temporarily hidden</option>
+              <option value="SUSPENDED">SUSPENDED — Blocked from customer purchases</option>
+              <option value="ARCHIVED">ARCHIVED — Terminated storefront</option>
+            </select>
           </div>
 
           <div>
@@ -1118,97 +1506,131 @@ export const AdminStoresPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsStatusModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleUpdateStoreStatus} disabled={isUpdatingStatus}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setIsStatusModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleUpdateStoreStatus}
+              disabled={isUpdatingStatus}
+              style={{
+                ...primaryButtonStyle,
+                opacity: isUpdatingStatus ? 0.6 : 1,
+              }}
+            >
               {isUpdatingStatus ? 'Saving...' : 'Apply Status Change'}
-            </Button>
+            </button>
           </div>
         </div>
       </Modal>
 
-      {/* STORE PRODUCTS & MARKUP MODAL */}
+      {/* E. STORE PRODUCTS & MARKUP MODAL */}
       <Modal
         isOpen={isProductsModalOpen}
         onClose={() => setIsProductsModalOpen(false)}
         title={`Store Catalog & Markups: ${productsTargetStore?.storeName || ''}`}
+        maxWidth="740px"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)', maxHeight: '70vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
             Configure product availability and retail markups for this storefront. Customer Price = Agent Wholesale Price + Store Markup.
           </p>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', textAlign: 'left' }}>
-                <th style={{ padding: '8px' }}>Active</th>
-                <th style={{ padding: '8px' }}>Product</th>
-                <th style={{ padding: '8px' }}>Wholesale Cost</th>
-                <th style={{ padding: '8px', minWidth: '120px' }}>Store Markup (GH₵)</th>
-                <th style={{ padding: '8px' }}>Final Customer Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              {storeProductsList.map((plan) => {
-                const edit = markupEdits[plan.catalogProductId] || { markupGhs: '2.00', customGhs: '', isAvailable: true };
-                const wholesaleGhs = plan.agentPricePesewas / 100;
-                const markupNum = parseFloat(edit.markupGhs) || 0;
-                const finalCustomerGhs = wholesaleGhs + markupNum;
+          <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)', textAlign: 'left' }}>
+                  <th style={{ padding: '0.45rem 0.65rem' }}>Active</th>
+                  <th style={{ padding: '0.45rem 0.65rem' }}>Product</th>
+                  <th style={{ padding: '0.45rem 0.65rem' }}>Wholesale Cost</th>
+                  <th style={{ padding: '0.45rem 0.65rem', minWidth: '120px' }}>Store Markup (GH₵)</th>
+                  <th style={{ padding: '0.45rem 0.65rem' }}>Final Customer Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {storeProductsList.map((plan) => {
+                  const edit = markupEdits[plan.catalogProductId] || { markupGhs: '2.00', customGhs: '', isAvailable: true };
+                  const wholesaleGhs = plan.agentPricePesewas / 100;
+                  const markupNum = parseFloat(edit.markupGhs) || 0;
+                  const finalCustomerGhs = wholesaleGhs + markupNum;
 
-                return (
-                  <tr key={plan.catalogProductId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: '8px' }}>
-                      <input
-                        type="checkbox"
-                        checked={edit.isAvailable}
-                        onChange={(e) => setMarkupEdits({
-                          ...markupEdits,
-                          [plan.catalogProductId]: { ...edit, isAvailable: e.target.checked }
-                        })}
-                      />
-                    </td>
-                    <td style={{ padding: '8px', fontWeight: 600 }}>{plan.productName} ({plan.network})</td>
-                    <td style={{ padding: '8px', fontFamily: 'var(--font-mono)' }}>GH₵ {wholesaleGhs.toFixed(2)}</td>
-                    <td style={{ padding: '8px' }}>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={edit.markupGhs}
-                        onChange={(e) => setMarkupEdits({
-                          ...markupEdits,
-                          [plan.catalogProductId]: { ...edit, markupGhs: e.target.value }
-                        })}
-                        style={{ height: '30px', fontSize: '12px' }}
-                      />
-                    </td>
-                    <td style={{ padding: '8px', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--color-brand)' }}>
-                      GH₵ {finalCustomerGhs.toFixed(2)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr key={plan.catalogProductId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: '0.45rem 0.65rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={edit.isAvailable}
+                          onChange={(e) => setMarkupEdits({
+                            ...markupEdits,
+                            [plan.catalogProductId]: { ...edit, isAvailable: e.target.checked }
+                          })}
+                        />
+                      </td>
+                      <td style={{ padding: '0.45rem 0.65rem', fontWeight: 600 }}>{plan.productName} ({plan.network})</td>
+                      <td style={{ padding: '0.45rem 0.65rem', fontFamily: 'var(--font-mono)' }}>GH₵ {wholesaleGhs.toFixed(2)}</td>
+                      <td style={{ padding: '0.45rem 0.65rem' }}>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={edit.markupGhs}
+                          onChange={(e) => setMarkupEdits({
+                            ...markupEdits,
+                            [plan.catalogProductId]: { ...edit, markupGhs: e.target.value }
+                          })}
+                          style={{
+                            width: '90px',
+                            padding: '0.35rem 0.5rem',
+                            fontSize: '11px',
+                            fontFamily: 'var(--font-mono)',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--color-border-subtle)',
+                            backgroundColor: 'var(--color-bg-surface)',
+                            color: 'var(--color-text-primary)',
+                            outline: 'none',
+                          }}
+                        />
+                      </td>
+                      <td style={{ padding: '0.45rem 0.65rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--color-brand)' }}>
+                        GH₵ {finalCustomerGhs.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsProductsModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleSaveStoreProducts} disabled={isSavingProducts}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setIsProductsModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveStoreProducts}
+              disabled={isSavingProducts}
+              style={{
+                ...primaryButtonStyle,
+                opacity: isSavingProducts ? 0.6 : 1,
+              }}
+            >
               {isSavingProducts ? 'Saving...' : 'Save Markup Rules'}
-            </Button>
+            </button>
           </div>
         </div>
       </Modal>
 
-      {/* STORE PAYOUT ACTION MODAL */}
+      {/* F. STORE PAYOUT ACTION MODAL */}
       <Modal
         isOpen={isPayoutModalOpen}
         onClose={() => setIsPayoutModalOpen(false)}
         title={`${payoutActionType} Payout: GH₵ ${((payoutTarget?.payout.amountPesewas || 0) / 100).toFixed(2)}`}
+        maxWidth="500px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
-          <div style={{ background: 'var(--color-bg-secondary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>
-            <div style={{ fontSize: '12px' }}><strong>Destination:</strong> {payoutTarget?.payout.destinationAccount} ({payoutTarget?.payout.destinationProvider})</div>
-            <div style={{ fontSize: '12px', marginTop: '4px' }}><strong>Merchant:</strong> {payoutTarget?.payout.agentName || payoutTarget?.payout.storeName}</div>
+          <div style={{ background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <div style={{ fontSize: '11px' }}><strong>Destination:</strong> {payoutTarget?.payout.destinationAccount} ({payoutTarget?.payout.destinationProvider})</div>
+            <div style={{ fontSize: '11px', marginTop: '4px' }}><strong>Merchant:</strong> {payoutTarget?.payout.agentName || payoutTarget?.payout.storeName}</div>
           </div>
 
           <div>
@@ -1220,328 +1642,431 @@ export const AdminStoresPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsPayoutModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleProcessPayoutAction} disabled={isProcessingPayout}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setIsPayoutModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleProcessPayoutAction}
+              disabled={isProcessingPayout}
+              style={{
+                ...primaryButtonStyle,
+                opacity: isProcessingPayout ? 0.6 : 1,
+              }}
+            >
               {isProcessingPayout ? 'Processing...' : `Confirm ${payoutActionType}`}
-            </Button>
+            </button>
           </div>
         </div>
       </Modal>
 
-      {/* STORE DOSSIER DRAWER */}
+      {/* ========================================================================= */}
+      {/* 8. STORE DOSSIER DRAWER & BACKDROP (Non-Overlapping, zIndex 250/260) */}
+      {/* ========================================================================= */}
       {selectedStoreId && (
-        <div style={{
-          position: 'fixed', top: 0, right: 0, bottom: 0, width: '100%', maxWidth: '850px',
-          background: 'var(--color-bg-primary)', borderLeft: '1px solid var(--color-border-subtle)',
-          boxShadow: 'var(--shadow-2xl)', zIndex: 1000, display: 'flex', flexDirection: 'column',
-          overflow: 'hidden', animation: 'slideInRight 0.25s ease-out'
-        }}>
-          {/* Drawer Header */}
-          <div style={{ padding: 'var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--color-bg-secondary)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: 'var(--radius-md)', background: storeDetail?.branding.primaryColor || 'var(--color-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                <Store size={22} />
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 250,
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
+          onClick={() => setSelectedStoreId(null)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '820px',
+              height: '100%',
+              backgroundColor: 'var(--color-bg-surface)',
+              borderLeft: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-xl, 0 20px 50px rgba(0,0,0,0.5))',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              zIndex: 260,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                padding: 'var(--space-5) var(--space-6)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: 'var(--color-bg-subtle)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div style={{
+                  width: '40px', height: '40px', borderRadius: 'var(--radius-md)',
+                  background: storeDetail?.branding.primaryColor || 'var(--color-brand)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                }}>
+                  <Store size={20} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                    {storeDetail?.store.storeName || 'Loading Store...'}
+                  </h2>
+                  <span style={{ fontSize: '11px', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
+                    /{storeDetail?.store.slug} • Owner: {storeDetail?.store.ownerName}
+                  </span>
+                </div>
               </div>
-              <div>
-                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
-                  {storeDetail?.store.storeName || 'Loading Store...'}
-                </h2>
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
-                  /{storeDetail?.store.slug} • Owner: {storeDetail?.store.ownerName}
-                </span>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStoreId(null)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: 'none',
+                    padding: '0.4rem',
+                    cursor: 'pointer',
+                    color: 'var(--color-text-muted)',
+                    borderRadius: 'var(--radius-sm)',
+                  }}
+                  title="Close Dossier"
+                >
+                  <X size={18} />
+                </button>
               </div>
             </div>
 
-            <Button variant="ghost" size="sm" onClick={() => setSelectedStoreId(null)}>
-              ✕ Close
-            </Button>
-          </div>
+            {/* Dossier Segmented Tabs Bar */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.35rem',
+                padding: '0.75rem var(--space-6)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+                backgroundColor: 'var(--color-bg-surface)',
+                overflowX: 'auto',
+              }}
+            >
+              {[
+                { id: 'OVERVIEW', label: 'Overview' },
+                { id: 'BRANDING', label: 'Storefront Branding' },
+                { id: 'PRODUCTS', label: 'Products & Markups' },
+                { id: 'ORDERS', label: 'Sales Orders' },
+                { id: 'PAYOUTS', label: 'Payouts' },
+                { id: 'HEALTH', label: 'Store Health' },
+              ].map((t) => {
+                const isActive = dossierTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setDossierTab(t.id as any)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      padding: '0.4rem 0.85rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                      backgroundColor: isActive ? 'var(--color-bg-subtle)' : 'transparent',
+                      color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                      fontWeight: isActive ? 700 : 500,
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                      transition: 'all var(--transition-fast)',
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
 
-          {/* Drawer Tabs */}
-          <div style={{ display: 'flex', gap: 'var(--space-2)', padding: 'var(--space-3) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', overflowX: 'auto', background: 'var(--color-bg-primary)' }}>
-            {[
-              { id: 'OVERVIEW', label: 'Overview' },
-              { id: 'BRANDING', label: 'Storefront Branding' },
-              { id: 'PRODUCTS', label: 'Products & Markups' },
-              { id: 'ORDERS', label: 'Sales Orders' },
-              { id: 'PAYOUTS', label: 'Payouts' },
-              { id: 'HEALTH', label: 'Store Health' },
-            ].map((t) => (
-              <Button
-                key={t.id}
-                variant={dossierTab === t.id ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setDossierTab(t.id as any)}
-                style={{ fontSize: '12px', whiteSpace: 'nowrap' }}
-              >
-                {t.label}
-              </Button>
-            ))}
-          </div>
-
-          {/* Drawer Body */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-            {isLoadingDetail ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-                <RefreshCw size={24} className="animate-spin" color="var(--color-brand)" />
-              </div>
-            ) : storeDetail ? (
-              <>
-                {dossierTab === 'OVERVIEW' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total Orders</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800 }}>{storeDetail.salesMetrics.totalOrders}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Gross Sales</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-brand)' }}>
-                          GH₵ {(storeDetail.salesMetrics.grossSalesPesewas / 100).toFixed(2)}
-                        </div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Active Products</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800 }}>{storeDetail.products.length}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Store Status</span>
-                        <div style={{ fontWeight: 800, color: storeDetail.store.storeStatus === 'ACTIVE' ? 'var(--color-success)' : 'var(--color-warning)' }}>
-                          {storeDetail.store.storeStatus}
-                        </div>
-                      </Card>
-                    </div>
-
-                    <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-                      <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <div>
-                          <span style={{ fontSize: '12px', fontWeight: 700 }}>Payment: </span>
-                          <Badge variant={storeDetail.store.paymentStatus === 'PAID' ? 'success' : 'warning'}>
-                            {storeDetail.store.paymentStatus}
-                          </Badge>
-                        </div>
-                        <div>
-                          <span style={{ fontSize: '12px', fontWeight: 700 }}>Approval: </span>
-                          <Badge variant={storeDetail.store.approvalStatus === 'APPROVED' ? 'success' : 'warning'}>
-                            {storeDetail.store.approvalStatus}
-                          </Badge>
-                        </div>
+            {/* Drawer Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              {isLoadingDetail ? (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+                  <RefreshCw size={24} className="animate-spin" color="var(--color-brand)" />
+                </div>
+              ) : storeDetail ? (
+                <>
+                  {dossierTab === 'OVERVIEW' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--space-3)' }}>
+                        <Card style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Total Orders</span>
+                          <div style={{ fontSize: '16px', fontWeight: 800 }}>{storeDetail.salesMetrics.totalOrders}</div>
+                        </Card>
+                        <Card style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Gross Sales</span>
+                          <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
+                            GH₵ {(storeDetail.salesMetrics.grossSalesPesewas / 100).toFixed(2)}
+                          </div>
+                        </Card>
+                        <Card style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Active Products</span>
+                          <div style={{ fontSize: '16px', fontWeight: 800 }}>{storeDetail.products.length}</div>
+                        </Card>
+                        <Card style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Store Status</span>
+                          <div style={{ fontWeight: 800, fontSize: '13px', color: storeDetail.store.storeStatus === 'ACTIVE' ? 'var(--color-success)' : 'var(--color-warning)' }}>
+                            {storeDetail.store.storeStatus}
+                          </div>
+                        </Card>
                       </div>
-                      <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                        {storeDetail.store.paymentStatus !== 'PAID' && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setVerifyPaymentTargetStore(storeDetail.store);
-                              setVerifyPaymentNotes('Payment verified by administrator');
-                              setVerifyPaymentAutoApprove(true);
-                              setIsVerifyPaymentModalOpen(true);
-                            }}
-                          >
-                            <CreditCard size={13} style={{ marginRight: '4px' }} />
-                            Verify Payment
-                          </Button>
-                        )}
-                        {storeDetail.store.approvalStatus !== 'APPROVED' && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => {
-                              setReviewTargetStore(storeDetail.store);
-                              setIsApproveModalOpen(true);
-                            }}
-                          >
-                            Approve & Activate
-                          </Button>
-                        )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setStatusTargetStore(storeDetail.store);
-                            setNewStoreStatus(storeDetail.store.storeStatus as any);
-                            setIsStatusModalOpen(true);
-                          }}
-                        >
-                          Change Status
-                        </Button>
-                      </div>
-                    </Card>
 
-
-                    <div>
-                      <h3 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px' }}>Recent Sales Activity</h3>
-                      <Table
-                        columns={[
-                          { header: 'Order ID', accessor: 'publicId' },
-                          { header: 'Recipient', accessor: 'recipientPhone' },
-                          { header: 'Network', accessor: 'network' },
-                          { header: 'Amount', accessor: 'amountPesewas', render: (r: any) => `GH₵ ${(r.amountPesewas / 100).toFixed(2)}` },
-                          { header: 'Status', accessor: 'orderStatus', render: (r: any) => <Badge variant={r.orderStatus === 'COMPLETED' ? 'success' : 'warning'} size="sm">{r.orderStatus}</Badge> },
-                          { header: 'Date', accessor: 'createdAt', render: (r: any) => new Date(r.createdAt).toLocaleDateString() },
-                        ]}
-                        data={storeDetail.recentOrders}
-                        keyExtractor={(r: any) => r.id}
-                        emptyMessage="No sales orders recorded yet."
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {dossierTab === 'BRANDING' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <Card style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Storefront URL</span>
-                        <div style={{ fontWeight: 700, color: 'var(--color-brand)' }}>
-                          {typeof window !== 'undefined' && window.location?.origin
-                            ? `${window.location.origin}/store/${storeDetail.store.slug}`
-                            : `/store/${storeDetail.store.slug}`}
-                        </div>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Tagline</span>
-                        <div>{storeDetail.branding.tagline || 'No tagline configured.'}</div>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Description</span>
-                        <div>{storeDetail.branding.description || 'No description provided.'}</div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
-                        <div>
-                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Primary Color</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <div style={{ width: '18px', height: '18px', borderRadius: '4px', background: storeDetail.branding.primaryColor }} />
-                            <span>{storeDetail.branding.primaryColor}</span>
+                      <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+                        <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div>
+                            <span style={{ fontSize: '11px', fontWeight: 700 }}>Payment: </span>
+                            <Badge variant={storeDetail.store.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
+                              {storeDetail.store.paymentStatus}
+                            </Badge>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '11px', fontWeight: 700 }}>Approval: </span>
+                            <Badge variant={storeDetail.store.approvalStatus === 'APPROVED' ? 'success' : 'warning'} size="sm">
+                              {storeDetail.store.approvalStatus}
+                            </Badge>
                           </div>
                         </div>
-                        <div>
-                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Accent Color</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <div style={{ width: '18px', height: '18px', borderRadius: '4px', background: storeDetail.branding.accentColor }} />
-                            <span>{storeDetail.branding.accentColor}</span>
-                          </div>
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          {storeDetail.store.paymentStatus !== 'PAID' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVerifyPaymentTargetStore(storeDetail.store);
+                                setVerifyPaymentNotes('Payment verified by administrator');
+                                setVerifyPaymentAutoApprove(true);
+                                setIsVerifyPaymentModalOpen(true);
+                              }}
+                              style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+                            >
+                              <CreditCard size={12} />
+                              <span>Verify Payment</span>
+                            </button>
+                          )}
+                          {storeDetail.store.approvalStatus !== 'APPROVED' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReviewTargetStore(storeDetail.store);
+                                setIsApproveModalOpen(true);
+                              }}
+                              style={{ ...primaryButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+                            >
+                              Approve & Activate
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStatusTargetStore(storeDetail.store);
+                              setNewStoreStatus(storeDetail.store.storeStatus as any);
+                              setIsStatusModalOpen(true);
+                            }}
+                            style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+                          >
+                            Change Status
+                          </button>
                         </div>
-                      </div>
-                    </Card>
-                  </div>
-                )}
+                      </Card>
 
-                {dossierTab === 'PRODUCTS' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 700 }}>Store Products & Retail Pricing</span>
-                      <Button variant="outline" size="sm" onClick={() => openProductsModal(storeDetail.store)}>
-                        <Sliders size={13} style={{ marginRight: '4px' }} />
-                        Edit Markups
-                      </Button>
-                    </div>
-
-                    <Table
-                      columns={[
-                        { header: 'Product Name', accessor: 'productName' },
-                        { header: 'Network', accessor: 'network' },
-                        { header: 'Wholesale Cost', accessor: 'agentPricePesewas', render: (r: any) => `GH₵ ${(r.agentPricePesewas / 100).toFixed(2)}` },
-                        { header: 'Store Markup', accessor: 'markupPesewas', render: (r: any) => `GH₵ ${(r.markupPesewas / 100).toFixed(2)}` },
-                        { header: 'Customer Retail', accessor: 'finalCustomerPricePesewas', render: (r: any) => <span style={{ fontWeight: 800, color: 'var(--color-brand)' }}>GH₵ ${(r.finalCustomerPricePesewas / 100).toFixed(2)}</span> },
-                        { header: 'Status', accessor: 'isAvailable', render: (r: any) => <Badge variant={r.isAvailable ? 'success' : 'default'} size="sm">{r.isAvailable ? 'Available' : 'Hidden'}</Badge> },
-                      ]}
-                      data={storeDetail.products}
-                      keyExtractor={(r: any) => r.id}
-                      emptyMessage="No products configured for this store."
-                    />
-                  </div>
-                )}
-
-                {dossierTab === 'PAYOUTS' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>Merchant Payout Requests</h3>
-                    <Table
-                      columns={[
-                        { header: 'Amount', accessor: 'amountPesewas', render: (r: any) => `GH₵ ${(r.amountPesewas / 100).toFixed(2)}` },
-                        { header: 'Destination', accessor: 'destinationAccount', render: (r: any) => `${r.destinationAccount} (${r.destinationProvider})` },
-                        { header: 'Status', accessor: 'status', render: (r: any) => <Badge variant={r.status === 'PAID' ? 'success' : r.status === 'PENDING' ? 'warning' : 'danger'} size="sm">{r.status}</Badge> },
-                        { header: 'Requested', accessor: 'createdAt', render: (r: any) => new Date(r.createdAt).toLocaleDateString() },
-                        {
-                          header: 'Action',
-                          accessor: 'id',
-                          render: (r: any) => r.status === 'PENDING' ? (
-                            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={() => {
-                                  setPayoutTarget({ storeId: storeDetail.store.id, payout: r });
-                                  setPayoutActionType('APPROVE');
-                                  setIsPayoutModalOpen(true);
-                                }}
-                              >
-                                Approve
-                              </Button>
-                              <Button
-                                variant="danger"
-                                size="sm"
-                                onClick={() => {
-                                  setPayoutTarget({ storeId: storeDetail.store.id, payout: r });
-                                  setPayoutActionType('REJECT');
-                                  setIsPayoutModalOpen(true);
-                                }}
-                              >
-                                Reject
-                              </Button>
-                            </div>
-                          ) : null,
-                        },
-                      ]}
-                      data={storeDetail.payouts}
-                      keyExtractor={(r: any) => r.id}
-                      emptyMessage="No payout requests recorded."
-                    />
-                  </div>
-                )}
-
-                {dossierTab === 'HEALTH' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <Card style={{ padding: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: '1rem', background: storeDetail.health.isHealthy ? 'var(--color-bg-secondary)' : 'rgba(239, 68, 68, 0.08)' }}>
-                      {storeDetail.health.isHealthy ? (
-                        <CheckCircle size={32} color="var(--color-success)" />
-                      ) : (
-                        <AlertTriangle size={32} color="var(--color-danger)" />
-                      )}
                       <div>
-                        <h4 style={{ margin: 0, fontWeight: 800 }}>
-                          Storefront Diagnostics: {storeDetail.health.isHealthy ? 'All Systems Healthy' : 'Action Required'}
+                        <h4 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 var(--space-3)' }}>
+                          Recent Sales Activity
                         </h4>
-                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
-                          {storeDetail.health.issues.length === 0 ? 'Catalog synced, payments verified, and payouts clean.' : storeDetail.health.issues.join(' • ')}
-                        </span>
+                        <div style={{ border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                          <Table
+                            columns={[
+                              { header: 'Order ID', accessor: 'publicId' },
+                              { header: 'Recipient', accessor: 'recipientPhone' },
+                              { header: 'Network', accessor: 'network' },
+                              { header: 'Amount', accessor: 'amountPesewas', render: (r: any) => `GH₵ ${(r.amountPesewas / 100).toFixed(2)}` },
+                              { header: 'Status', accessor: 'orderStatus', render: (r: any) => <Badge variant={r.orderStatus === 'COMPLETED' ? 'success' : 'warning'} size="sm">{r.orderStatus}</Badge> },
+                              { header: 'Date', accessor: 'createdAt', render: (r: any) => new Date(r.createdAt).toLocaleDateString() },
+                            ]}
+                            data={storeDetail.recentOrders}
+                            keyExtractor={(r: any) => r.id}
+                            emptyText="No sales orders recorded yet."
+                          />
+                        </div>
                       </div>
-                    </Card>
+                    </div>
+                  )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-                      <Card style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Catalog Synchronized</span>
-                        <Badge variant={storeDetail.health.checks.catalogSynced ? 'success' : 'danger'}>{storeDetail.health.checks.catalogSynced ? 'Synced' : 'Missing'}</Badge>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Activation Fee Status</span>
-                        <Badge variant={storeDetail.health.checks.paymentsHealthy ? 'success' : 'warning'}>{storeDetail.health.checks.paymentsHealthy ? 'Verified' : 'Unpaid'}</Badge>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Payout Integrity</span>
-                        <Badge variant={storeDetail.health.checks.payoutsHealthy ? 'success' : 'danger'}>{storeDetail.health.checks.payoutsHealthy ? 'Clean' : 'Failed Payouts'}</Badge>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Fulfillment Health</span>
-                        <Badge variant={storeDetail.health.checks.ordersHealthy ? 'success' : 'warning'}>{storeDetail.health.checks.ordersHealthy ? 'Operational' : 'Attention'}</Badge>
+                  {dossierTab === 'BRANDING' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <Card style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                        <div>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Storefront URL</span>
+                          <div style={{ fontWeight: 700, color: 'var(--color-brand)' }}>
+                            {typeof window !== 'undefined' && window.location?.origin
+                              ? `${window.location.origin}/store/${storeDetail.store.slug}`
+                              : `/store/${storeDetail.store.slug}`}
+                          </div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Tagline</span>
+                          <div>{storeDetail.branding.tagline || 'No tagline configured.'}</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Description</span>
+                          <div>{storeDetail.branding.description || 'No description provided.'}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Primary Color</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div style={{ width: '18px', height: '18px', borderRadius: '4px', background: storeDetail.branding.primaryColor }} />
+                              <span>{storeDetail.branding.primaryColor}</span>
+                            </div>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Accent Color</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div style={{ width: '18px', height: '18px', borderRadius: '4px', background: storeDetail.branding.accentColor }} />
+                              <span>{storeDetail.branding.accentColor}</span>
+                            </div>
+                          </div>
+                        </div>
                       </Card>
                     </div>
-                  </div>
-                )}
-              </>
-            ) : null}
+                  )}
+
+                  {dossierTab === 'PRODUCTS' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 700 }}>Store Products & Retail Pricing</span>
+                        <button
+                          type="button"
+                          onClick={() => openProductsModal(storeDetail.store)}
+                          style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+                        >
+                          <Sliders size={12} />
+                          <span>Edit Markups</span>
+                        </button>
+                      </div>
+
+                      <div style={{ border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                        <Table
+                          columns={[
+                            { header: 'Product Name', accessor: 'productName' },
+                            { header: 'Network', accessor: 'network' },
+                            { header: 'Wholesale Cost', accessor: 'agentPricePesewas', render: (r: any) => `GH₵ ${(r.agentPricePesewas / 100).toFixed(2)}` },
+                            { header: 'Store Markup', accessor: 'markupPesewas', render: (r: any) => `GH₵ ${(r.markupPesewas / 100).toFixed(2)}` },
+                            { header: 'Customer Retail', accessor: 'finalCustomerPricePesewas', render: (r: any) => <span style={{ fontWeight: 800, color: 'var(--color-brand)' }}>GH₵ ${(r.finalCustomerPricePesewas / 100).toFixed(2)}</span> },
+                            { header: 'Status', accessor: 'isAvailable', render: (r: any) => <Badge variant={r.isAvailable ? 'success' : 'neutral'} size="sm">{r.isAvailable ? 'Available' : 'Hidden'}</Badge> },
+                          ]}
+                          data={storeDetail.products}
+                          keyExtractor={(r: any) => r.id}
+                          emptyText="No products configured for this store."
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {dossierTab === 'PAYOUTS' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <h4 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', margin: 0 }}>
+                        Merchant Payout Requests
+                      </h4>
+                      <div style={{ border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                        <Table
+                          columns={[
+                            { header: 'Amount', accessor: 'amountPesewas', render: (r: any) => `GH₵ ${(r.amountPesewas / 100).toFixed(2)}` },
+                            { header: 'Destination', accessor: 'destinationAccount', render: (r: any) => `${r.destinationAccount} (${r.destinationProvider})` },
+                            { header: 'Status', accessor: 'status', render: (r: any) => <Badge variant={r.status === 'PAID' ? 'success' : r.status === 'PENDING' ? 'warning' : 'danger'} size="sm">{r.status}</Badge> },
+                            { header: 'Requested', accessor: 'createdAt', render: (r: any) => new Date(r.createdAt).toLocaleDateString() },
+                            {
+                              header: 'Action',
+                              accessor: 'id',
+                              render: (r: any) => r.status === 'PENDING' ? (
+                                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPayoutTarget({ storeId: storeDetail.store.id, payout: r });
+                                      setPayoutActionType('APPROVE');
+                                      setIsPayoutModalOpen(true);
+                                    }}
+                                    style={{ ...primaryButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPayoutTarget({ storeId: storeDetail.store.id, payout: r });
+                                      setPayoutActionType('REJECT');
+                                      setIsPayoutModalOpen(true);
+                                    }}
+                                    style={{ ...tactileButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px', color: 'var(--color-danger)' }}
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              ) : null,
+                            },
+                          ]}
+                          data={storeDetail.payouts}
+                          keyExtractor={(r: any) => r.id}
+                          emptyText="No payout requests recorded."
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {dossierTab === 'HEALTH' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <Card style={{ padding: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: '1rem', background: storeDetail.health.isHealthy ? 'var(--color-bg-subtle)' : 'rgba(239, 68, 68, 0.08)' }}>
+                        {storeDetail.health.isHealthy ? (
+                          <CheckCircle size={28} color="var(--color-success)" />
+                        ) : (
+                          <AlertTriangle size={28} color="var(--color-danger)" />
+                        )}
+                        <div>
+                          <h4 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-xs)' }}>
+                            Storefront Diagnostics: {storeDetail.health.isHealthy ? 'All Systems Healthy' : 'Action Required'}
+                          </h4>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                            {storeDetail.health.issues.length === 0 ? 'Catalog synced, payments verified, and payouts clean.' : storeDetail.health.issues.join(' • ')}
+                          </span>
+                        </div>
+                      </Card>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                        <Card style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px' }}>Catalog Synchronized</span>
+                          <Badge variant={storeDetail.health.checks.catalogSynced ? 'success' : 'danger'} size="sm">{storeDetail.health.checks.catalogSynced ? 'Synced' : 'Missing'}</Badge>
+                        </Card>
+                        <Card style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px' }}>Activation Fee Status</span>
+                          <Badge variant={storeDetail.health.checks.paymentsHealthy ? 'success' : 'warning'} size="sm">{storeDetail.health.checks.paymentsHealthy ? 'Verified' : 'Unpaid'}</Badge>
+                        </Card>
+                        <Card style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px' }}>Payout Integrity</span>
+                          <Badge variant={storeDetail.health.checks.payoutsHealthy ? 'success' : 'danger'} size="sm">{storeDetail.health.checks.payoutsHealthy ? 'Clean' : 'Failed Payouts'}</Badge>
+                        </Card>
+                        <Card style={{ padding: 'var(--space-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px' }}>Fulfillment Health</span>
+                          <Badge variant={storeDetail.health.checks.ordersHealthy ? 'success' : 'warning'} size="sm">{storeDetail.health.checks.ordersHealthy ? 'Operational' : 'Attention'}</Badge>
+                        </Card>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       )}
