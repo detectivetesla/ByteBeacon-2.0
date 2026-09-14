@@ -12,6 +12,7 @@ import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { adminApi, AdminUserDetail, UserCustomPricingItemDto } from '../../api/admin.api.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
+import { parseUserAgent, formatRelativeTime, formatIpInfo } from '../../utils/ua-parser.js';
 import {
   User,
   ArrowLeft,
@@ -35,10 +36,17 @@ import {
   CreditCard,
   Tag,
   X,
-  FileCheck2,
-  SlidersHorizontal,
   UserCheck,
   UserX,
+  Laptop,
+  Smartphone,
+  Tablet,
+  Globe,
+  Clock,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 export const AdminUserDetailPage: React.FC = () => {
@@ -137,6 +145,16 @@ export const AdminUserDetailPage: React.FC = () => {
   const [activitySearch, setActivitySearch] = useState('');
   const [activityDateFrom, setActivityDateFrom] = useState('');
   const [activityDateTo, setActivityDateTo] = useState('');
+
+  // --- FILTERS: Sessions ---
+  const [sessionStatusFilter, setSessionStatusFilter] = useState<'ALL' | 'ACTIVE' | 'REVOKED'>('ALL');
+  const [sessionDeviceFilter, setSessionDeviceFilter] = useState<string>('ALL');
+  const [sessionSearch, setSessionSearch] = useState('');
+  const [sessionDateFrom, setSessionDateFrom] = useState('');
+  const [sessionDateTo, setSessionDateTo] = useState('');
+  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [copiedIp, setCopiedIp] = useState<string | null>(null);
 
   const fetchUser = useCallback(async () => {
     if (!id) return;
@@ -405,6 +423,29 @@ export const AdminUserDetailPage: React.FC = () => {
     }
   };
 
+  const handleRevokeSingleSession = async (sessionId: string) => {
+    if (!id) return;
+    setRevokingSessionId(sessionId);
+    try {
+      await adminApi.revokeUserSingleSession(id, sessionId);
+      toastSuccess('Session Revoked', 'The device session has been terminated.');
+      fetchUser();
+    } catch (err: any) {
+      toastError('Revocation Failed', err.message || 'Could not revoke session.');
+    } finally {
+      setRevokingSessionId(null);
+    }
+  };
+
+  const handleCopyIp = (ip: string) => {
+    if (!ip || ip === '—') return;
+    try {
+      navigator.clipboard.writeText(ip);
+      setCopiedIp(ip);
+      setTimeout(() => setCopiedIp(null), 2000);
+    } catch {}
+  };
+
   const handlePasswordReset = async () => {
     if (!id || !userDetail) return;
     try {
@@ -612,6 +653,63 @@ export const AdminUserDetailPage: React.FC = () => {
     });
   }, [userPricing, pricingNetworkFilter, pricingOverrideFilter, pricingSearch, pricingMaxPrice]);
 
+  const filteredSessions = useMemo(() => {
+    let list = userDetail?.activeSessions || [];
+
+    if (sessionStatusFilter === 'ACTIVE') {
+      list = list.filter((s) => !s.isRevoked);
+    } else if (sessionStatusFilter === 'REVOKED') {
+      list = list.filter((s) => s.isRevoked);
+    }
+
+    if (sessionDeviceFilter !== 'ALL') {
+      list = list.filter((s) => {
+        const parsed = parseUserAgent(s.userAgent);
+        return parsed.deviceType.toUpperCase() === sessionDeviceFilter;
+      });
+    }
+
+    if (sessionDateFrom) {
+      try {
+        const fromTime = new Date(sessionDateFrom).getTime();
+        list = list.filter((s) => {
+          const time = s.lastActiveAt ? new Date(s.lastActiveAt).getTime() : 0;
+          return time >= fromTime;
+        });
+      } catch {}
+    }
+
+    if (sessionDateTo) {
+      try {
+        const toDate = new Date(sessionDateTo);
+        toDate.setHours(23, 59, 59, 999);
+        const toTime = toDate.getTime();
+        list = list.filter((s) => {
+          const time = s.lastActiveAt ? new Date(s.lastActiveAt).getTime() : 0;
+          return time <= toTime;
+        });
+      } catch {}
+    }
+
+    if (sessionSearch.trim()) {
+      const q = sessionSearch.trim().toLowerCase();
+      list = list.filter((s) => {
+        const parsed = parseUserAgent(s.userAgent);
+        return (
+          (s.ipAddress && s.ipAddress.toLowerCase().includes(q)) ||
+          (s.deviceId && s.deviceId.toLowerCase().includes(q)) ||
+          parsed.browser.toLowerCase().includes(q) ||
+          parsed.browserName.toLowerCase().includes(q) ||
+          parsed.os.toLowerCase().includes(q) ||
+          parsed.deviceLabel.toLowerCase().includes(q) ||
+          parsed.raw.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    return list;
+  }, [userDetail?.activeSessions, sessionStatusFilter, sessionDeviceFilter, sessionDateFrom, sessionDateTo, sessionSearch]);
+
   if (isLoading && !userDetail) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '400px', gap: '1rem' }}>
@@ -628,6 +726,9 @@ export const AdminUserDetailPage: React.FC = () => {
   const totalSpentGhs = ((Number(fin?.totalSpentPesewas) || 0) / 100).toFixed(2);
   const totalRefundsGhs = ((Number(fin?.totalRefundsPesewas) || 0) / 100).toFixed(2);
   const activeSessionsCount = (userDetail?.activeSessions || []).filter((s) => !s.isRevoked).length;
+  const totalSessionsCount = (userDetail?.activeSessions || []).length;
+  const revokedSessionsCount = (userDetail?.activeSessions || []).filter((s) => s.isRevoked).length;
+  const uniqueIpsCount = new Set((userDetail?.activeSessions || []).map((s) => s.ipAddress).filter(Boolean)).size;
   const customOverridesCount = userPricing.filter((p) => p.customPricePesewas !== null).length;
   const totalOrdersCount = ordSummary?.totalOrders ?? userDetail?.recentOrders?.length ?? 0;
   const transactionsCount = userDetail?.transactions?.length || 0;
@@ -2079,13 +2180,14 @@ export const AdminUserDetailPage: React.FC = () => {
       {/* ========================================================================= */}
       {activeTab === 'sessions' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Header & Global Security Controls */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
                 Active Device Sessions & Security Controls
               </h2>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.125rem 0 0' }}>
-                Server-side session invalidation and password reset triggers.
+                Real-time active client sessions, browser fingerprints, network origins, and session invalidation.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -2108,6 +2210,155 @@ export const AdminUserDetailPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Metric Cards Grid */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <Card elevated style={{ padding: 'var(--space-3) var(--space-4)' }}>
+              <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Active Sessions
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                <span style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: activeSessionsCount > 0 ? 'var(--color-success)' : 'var(--color-text-primary)' }}>
+                  {activeSessionsCount}
+                </span>
+                {activeSessionsCount > 0 && (
+                  <Badge variant="success" size="sm" dot>Live</Badge>
+                )}
+              </div>
+            </Card>
+
+            <Card elevated style={{ padding: 'var(--space-3) var(--space-4)' }}>
+              <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Total Recorded Sessions
+              </div>
+              <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.25rem' }}>
+                {totalSessionsCount}
+              </div>
+            </Card>
+
+            <Card elevated style={{ padding: 'var(--space-3) var(--space-4)' }}>
+              <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Revoked Sessions
+              </div>
+              <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: revokedSessionsCount > 0 ? 'var(--color-danger)' : 'var(--color-text-primary)', marginTop: '0.25rem' }}>
+                {revokedSessionsCount}
+              </div>
+            </Card>
+
+            <Card elevated style={{ padding: 'var(--space-3) var(--space-4)' }}>
+              <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Unique IP Addresses
+              </div>
+              <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-brand-primary)', marginTop: '0.25rem' }}>
+                {uniqueIpsCount}
+              </div>
+            </Card>
+          </div>
+
+          {/* Standardized Filter Card */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', justifyContent: 'space-between' }}>
+              <div style={{ flex: '1 1 240px', minWidth: '220px' }}>
+                <SearchInput
+                  value={sessionSearch}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSessionSearch(e.target.value)}
+                  placeholder="Search browser, OS, device, IP..."
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
+                <Select
+                  value={sessionStatusFilter}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSessionStatusFilter(e.target.value as any)}
+                  style={{ minWidth: '130px', padding: '0.45rem 0.65rem', fontSize: 'var(--font-size-xs)' }}
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ACTIVE">Active Only</option>
+                  <option value="REVOKED">Revoked Only</option>
+                </Select>
+
+                <Select
+                  value={sessionDeviceFilter}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSessionDeviceFilter(e.target.value)}
+                  style={{ minWidth: '130px', padding: '0.45rem 0.65rem', fontSize: 'var(--font-size-xs)' }}
+                >
+                  <option value="ALL">All Devices</option>
+                  <option value="DESKTOP">Desktop Only</option>
+                  <option value="MOBILE">Mobile Only</option>
+                  <option value="TABLET">Tablet Only</option>
+                </Select>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>From:</span>
+                  <input
+                    type="date"
+                    value={sessionDateFrom}
+                    onChange={(e) => setSessionDateFrom(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>To:</span>
+                  <input
+                    type="date"
+                    value={sessionDateTo}
+                    onChange={(e) => setSessionDateTo(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '11px',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {(sessionSearch.trim() || sessionStatusFilter !== 'ALL' || sessionDeviceFilter !== 'ALL' || sessionDateFrom || sessionDateTo) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>Active Filters:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSessionSearch('');
+                    setSessionStatusFilter('ALL');
+                    setSessionDeviceFilter('ALL');
+                    setSessionDateFrom('');
+                    setSessionDateTo('');
+                  }}
+                  style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand-primary)', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
+          </Card>
+
+          {/* Sessions Table Card */}
           <Card
             elevated
             style={{
@@ -2119,38 +2370,237 @@ export const AdminUserDetailPage: React.FC = () => {
               boxShadow: 'var(--shadow-tactile-sm)',
             }}
           >
+            <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                Active & Historical Device Sessions ({filteredSessions.length})
+              </h3>
+            </div>
             <Table
-              minWidth="1000px"
-              headers={['Device / User Agent', 'IP Address', 'Device ID', 'Last Active', 'Session Status']}
+              minWidth="1050px"
+              headers={['Browser & Device', 'Operating System', 'IP Address & Network', 'Activity Timeline', 'Status', 'Actions']}
             >
-              {(userDetail?.activeSessions || []).length === 0 ? (
+              {filteredSessions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    No active device sessions found.
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No sessions found matching criteria.
                   </td>
                 </tr>
               ) : (
-                (userDetail?.activeSessions || []).map((s) => (
-                  <tr key={s.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-                      {s.userAgent || 'Web Browser'}
-                    </td>
-                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
-                      {s.ipAddress || '—'}
-                    </td>
-                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                      {s.deviceId || '—'}
-                    </td>
-                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      {s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : '—'}
-                    </td>
-                    <td style={{ padding: '0.85rem 1rem' }}>
-                      <Badge variant={s.isRevoked ? 'danger' : 'success'} size="sm" dot>
-                        {s.isRevoked ? 'REVOKED' : 'ACTIVE'}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))
+                filteredSessions.map((s) => {
+                  const parsed = parseUserAgent(s.userAgent);
+                  const ipInfo = formatIpInfo(s.ipAddress);
+                  const isExpanded = expandedSessionId === s.id;
+                  const isRevokingThis = revokingSessionId === s.id;
+
+                  return (
+                    <tr key={s.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      {/* Browser & Device */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          <div
+                            style={{
+                              width: '34px',
+                              height: '34px',
+                              borderRadius: 'var(--radius-md)',
+                              backgroundColor: 'var(--color-bg-subtle)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                              border: '1px solid var(--color-border-subtle)',
+                            }}
+                          >
+                            {parsed.deviceType === 'mobile' ? (
+                              <Smartphone size={16} color="var(--color-brand-primary)" />
+                            ) : parsed.deviceType === 'tablet' ? (
+                              <Tablet size={16} color="var(--color-brand-primary)" />
+                            ) : parsed.deviceType === 'bot' ? (
+                              <Globe size={16} color="var(--color-warning)" />
+                            ) : (
+                              <Laptop size={16} color="var(--color-brand-primary)" />
+                            )}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                              {parsed.browser}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <span>{parsed.deviceLabel}</span>
+                              {s.deviceId && (
+                                <span style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                  ({s.deviceId.slice(0, 8)}...)
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedSessionId(isExpanded ? null : s.id)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.2rem',
+                                marginTop: '0.2rem',
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                fontSize: '10px',
+                                color: 'var(--color-brand-primary)',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                              }}
+                            >
+                              <span>{isExpanded ? 'Hide Raw User-Agent' : 'View Raw User-Agent'}</span>
+                              {isExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                            </button>
+                            {isExpanded && (
+                              <div
+                                style={{
+                                  marginTop: '0.35rem',
+                                  padding: '0.4rem 0.5rem',
+                                  borderRadius: 'var(--radius-sm)',
+                                  backgroundColor: 'var(--color-bg-subtle)',
+                                  fontSize: '10px',
+                                  fontFamily: 'var(--font-mono)',
+                                  color: 'var(--color-text-muted)',
+                                  wordBreak: 'break-all',
+                                  maxWidth: '360px',
+                                }}
+                              >
+                                {s.userAgent || 'No user agent captured'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Operating System */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '0.2rem 0.5rem',
+                              borderRadius: 'var(--radius-full)',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              backgroundColor: 'var(--color-bg-subtle)',
+                              color: 'var(--color-text-primary)',
+                              border: '1px solid var(--color-border-subtle)',
+                            }}
+                          >
+                            {parsed.os}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* IP Address & Network */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                              {ipInfo.display}
+                            </span>
+                            {ipInfo.display !== '—' && (
+                              <button
+                                type="button"
+                                title="Copy IP"
+                                onClick={() => handleCopyIp(ipInfo.display)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: '0.15rem',
+                                  color: copiedIp === ipInfo.display ? 'var(--color-success)' : 'var(--color-text-muted)',
+                                }}
+                              >
+                                {copiedIp === ipInfo.display ? <Check size={12} /> : <Copy size={12} />}
+                              </button>
+                            )}
+                          </div>
+                          <div>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                padding: '0.1rem 0.35rem',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor:
+                                  ipInfo.type === 'localhost'
+                                    ? 'rgba(139, 92, 246, 0.12)'
+                                    : ipInfo.type === 'private'
+                                    ? 'rgba(234, 179, 8, 0.12)'
+                                    : 'rgba(59, 130, 246, 0.12)',
+                                color:
+                                  ipInfo.type === 'localhost'
+                                    ? 'rgb(124, 58, 237)'
+                                    : ipInfo.type === 'private'
+                                    ? 'rgb(180, 83, 9)'
+                                    : 'rgb(37, 99, 235)',
+                              }}
+                            >
+                              {ipInfo.label}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Activity Timeline */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <Clock size={12} color="var(--color-text-muted)" />
+                            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                              {formatRelativeTime(s.lastActiveAt)}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                            Active: {s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : '—'}
+                          </div>
+                          {s.createdAt && (
+                            <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                              Started: {new Date(s.createdAt).toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <Badge variant={s.isRevoked ? 'danger' : 'success'} size="sm" dot>
+                          {s.isRevoked ? 'REVOKED' : 'ACTIVE'}
+                        </Badge>
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
+                        {!s.isRevoked ? (
+                          <button
+                            type="button"
+                            disabled={isRevokingThis}
+                            onClick={() => handleRevokeSingleSession(s.id)}
+                            style={{
+                              ...tactileButtonStyle,
+                              padding: '0.35rem 0.65rem',
+                              fontSize: '11px',
+                              border: '1px solid rgba(239, 68, 68, 0.3)',
+                              color: 'var(--color-danger)',
+                              cursor: isRevokingThis ? 'wait' : 'pointer',
+                              opacity: isRevokingThis ? 0.6 : 1,
+                            }}
+                          >
+                            <UserX size={12} />
+                            <span>{isRevokingThis ? 'Revoking...' : 'Revoke'}</span>
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                            Terminated
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </Table>
           </Card>

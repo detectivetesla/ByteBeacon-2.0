@@ -1265,6 +1265,38 @@ export async function adminUsersRoutes(
     },
   );
 
+  // 13b. POST /admin/users/:id/sessions/:sessionId/revoke — Invalidate Single Session
+  app.post<{ Params: { id: string; sessionId: string } }>(
+    '/admin/users/:id/sessions/:sessionId/revoke',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest<{ Params: { id: string; sessionId: string } }>, reply: FastifyReply) => {
+      if (sessionService) {
+        await sessionService.revokeSession(req.params.sessionId).catch(() => {});
+      }
+
+      await db.query(
+        `UPDATE sessions SET is_revoked = true WHERE id = $1 AND user_id = $2`,
+        [req.params.sessionId, req.params.id],
+      ).catch(() => {});
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_REVOKE_SINGLE_SESSION',
+          resourceType: 'sessions',
+          resourceId: req.params.sessionId,
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Session revoked successfully.',
+      });
+    },
+  );
+
   // 14. POST /admin/users/:id/password-reset — Force Password Reset
   app.post<{ Params: { id: string } }>(
     '/admin/users/:id/password-reset',

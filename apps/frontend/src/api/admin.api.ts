@@ -874,6 +874,10 @@ export const adminApi = {
     return apiClient.post(`/admin/users/${id}/revoke-sessions`);
   },
 
+  revokeUserSingleSession: async (userId: string, sessionId: string) => {
+    return apiClient.post(`/admin/users/${userId}/sessions/${sessionId}/revoke`);
+  },
+
   requestUserPasswordReset: async (id: string) => {
     return apiClient.post(`/admin/users/${id}/password-reset`);
   },
