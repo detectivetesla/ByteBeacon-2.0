@@ -497,25 +497,60 @@ export async function adminUsersRoutes(
         [req.params.id],
       ).catch(() => ({ rows: [] }));
 
-      // Fetch audit activity logs
+      // Fetch audit activity logs (try audit_logs first, fallback to audit_events)
       const activityRes = await db.query(
         `SELECT id, action, actor_type as "actorType", actor_id as "actorId",
                 ip_address as "ipAddress", created_at as "createdAt", metadata
-         FROM audit_events
+         FROM audit_logs
          WHERE resource_id = $1 OR actor_id = $1
          ORDER BY created_at DESC LIMIT 50`,
         [req.params.id],
-      ).catch(() => ({ rows: [] }));
+      ).catch(async () => {
+        return db.query(
+          `SELECT id, action, actor_type as "actorType", actor_id as "actorId",
+                  ip_address as "ipAddress", created_at as "createdAt", metadata
+           FROM audit_events
+           WHERE resource_id = $1 OR actor_id = $1
+           ORDER BY created_at DESC LIMIT 50`,
+          [req.params.id],
+        ).catch(() => ({ rows: [] }));
+      });
 
-      // Fetch dispatched notifications history
+      // Fetch notifications from both notifications table and audit logs
       const notificationsRes = await db.query(
-        `SELECT id, action as channel, metadata->>'subject' as subject,
-                metadata->>'message' as message, created_at as "createdAt"
-         FROM audit_events
-         WHERE resource_id = $1 AND action LIKE '%NOTIFICATION%'
-         ORDER BY created_at DESC LIMIT 20`,
+        `SELECT id, channel, subject, message, "createdAt" FROM (
+           SELECT id, COALESCE(channel, type, 'IN_APP') as channel,
+                  title as subject, COALESCE(message, body, '') as message,
+                  created_at as "createdAt"
+           FROM notifications WHERE user_id = $1
+           UNION ALL
+           SELECT id, COALESCE(metadata->>'channel', 'EMAIL') as channel,
+                  COALESCE(metadata->>'subject', action) as subject,
+                  COALESCE(metadata->>'message', '') as message,
+                  created_at as "createdAt"
+           FROM audit_logs WHERE resource_id = $1 AND (action LIKE '%NOTIF%' OR action = 'ADMIN_NOTIFICATION_SENT')
+         ) all_notifs
+         ORDER BY "createdAt" DESC LIMIT 30`,
         [req.params.id],
-      ).catch(() => ({ rows: [] }));
+      ).catch(async () => {
+        return db.query(
+          `SELECT id, COALESCE(channel, type, 'IN_APP') as channel,
+                  title as subject, COALESCE(message, body, '') as message,
+                  created_at as "createdAt"
+           FROM notifications WHERE user_id = $1
+           ORDER BY created_at DESC LIMIT 30`,
+          [req.params.id],
+        ).catch(async () => {
+          return db.query(
+            `SELECT id, action as channel, metadata->>'subject' as subject,
+                    metadata->>'message' as message, created_at as "createdAt"
+             FROM audit_events
+             WHERE resource_id = $1 AND action LIKE '%NOTIFICATION%'
+             ORDER BY created_at DESC LIMIT 20`,
+            [req.params.id],
+          ).catch(() => ({ rows: [] }));
+        });
+      });
 
       // Agent-specific data if agent
       let agentData: any = null;
@@ -1284,6 +1319,19 @@ export async function adminUsersRoutes(
       if (userRes.rows.length === 0) {
         throw new NotFoundError('User not found');
       }
+
+      // Record in notifications table so user receives it in their notifications feed
+      await db.query(
+        `INSERT INTO notifications (user_id, type, severity, title, body, message, channel, is_read)
+         VALUES ($1, $2, 'INFO', $3, $4, $4, $2, false)`,
+        [req.params.id, channel, subject, message],
+      ).catch(async () => {
+        await db.query(
+          `INSERT INTO notifications (user_id, type, severity, title, message, is_read)
+           VALUES ($1, $2, 'INFO', $3, $4, false)`,
+          [req.params.id, channel, subject, message],
+        ).catch(() => {});
+      });
 
       // Record in communications / notification audit
       if (auditService) {

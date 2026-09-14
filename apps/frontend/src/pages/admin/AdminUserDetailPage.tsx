@@ -160,7 +160,8 @@ export const AdminUserDetailPage: React.FC = () => {
 
   useEffect(() => {
     fetchUser();
-  }, [fetchUser]);
+    fetchUserPricing();
+  }, [fetchUser, fetchUserPricing]);
 
   const fetchUserPricing = useCallback(async () => {
     if (!id) return;
@@ -443,8 +444,25 @@ export const AdminUserDetailPage: React.FC = () => {
 
     setIsExporting(true);
     try {
-      await adminApi.exportUserDossier(id, exportFormat);
-      toastSuccess('Dossier Exported', `User data successfully exported in ${exportFormat} format.`);
+      const res = await adminApi.exportUserDossier(id, exportFormat);
+      const dataStr =
+        exportFormat === 'JSON'
+          ? JSON.stringify((res as any)?.data || res, null, 2)
+          : typeof res === 'string'
+          ? res
+          : JSON.stringify(res);
+      const blob = new Blob([dataStr], { type: exportFormat === 'JSON' ? 'application/json' : 'text/csv' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const safeEmail = (userDetail?.user?.email || id).replace(/[^a-zA-Z0-9_-]/g, '_');
+      a.download = `user_dossier_${safeEmail}_${new Date().toISOString().slice(0, 10)}.${exportFormat.toLowerCase()}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+
+      toastSuccess('Dossier Exported', `User data successfully downloaded in ${exportFormat} format.`);
       setIsExportModalOpen(false);
     } catch (err: any) {
       toastError('Export Failed', err.message || 'Could not export user dossier.');
@@ -456,8 +474,20 @@ export const AdminUserDetailPage: React.FC = () => {
   // --- FILTERED DATA MEMOS ---
   const filteredOrders = useMemo(() => {
     return (userDetail?.recentOrders || []).filter((o) => {
-      if (orderStatusFilter !== 'ALL' && o.orderStatus !== orderStatusFilter) return false;
-      if (orderNetworkFilter !== 'ALL' && o.network?.toUpperCase() !== orderNetworkFilter) return false;
+      if (orderStatusFilter !== 'ALL') {
+        if (orderStatusFilter === 'PENDING_APPROVAL' || orderStatusFilter === 'PENDING') {
+          const isPending = ['PENDING', 'PENDING_APPROVAL', 'CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED'].includes(o.orderStatus);
+          if (!isPending) return false;
+        } else if (o.orderStatus !== orderStatusFilter) {
+          return false;
+        }
+      }
+      if (orderNetworkFilter !== 'ALL') {
+        const oNet = (o.network || '').toUpperCase();
+        const fNet = orderNetworkFilter.toUpperCase();
+        const isAtMatch = (oNet === 'AT' || oNet === 'AIRTELTIGO') && (fNet === 'AT' || fNet === 'AIRTELTIGO');
+        if (oNet !== fNet && !isAtMatch) return false;
+      }
       if (orderSearch.trim()) {
         const q = orderSearch.toLowerCase();
         const matchPublic = o.publicId?.toLowerCase().includes(q);
@@ -465,15 +495,19 @@ export const AdminUserDetailPage: React.FC = () => {
         const matchId = o.id?.toLowerCase().includes(q);
         if (!matchPublic && !matchPhone && !matchId) return false;
       }
-      if (orderDateFrom) {
-        const orderDate = new Date(o.createdAt).toISOString().slice(0, 10);
-        if (orderDate < orderDateFrom) return false;
+      if (orderDateFrom && o.createdAt) {
+        try {
+          const orderDate = new Date(o.createdAt).toISOString().slice(0, 10);
+          if (orderDate < orderDateFrom) return false;
+        } catch {}
       }
-      if (orderDateTo) {
-        const orderDate = new Date(o.createdAt).toISOString().slice(0, 10);
-        if (orderDate > orderDateTo) return false;
+      if (orderDateTo && o.createdAt) {
+        try {
+          const orderDate = new Date(o.createdAt).toISOString().slice(0, 10);
+          if (orderDate > orderDateTo) return false;
+        } catch {}
       }
-      const amountGhs = (o.amountPesewas || 0) / 100;
+      const amountGhs = (Number(o.amountPesewas) || 0) / 100;
       if (amountGhs > orderMaxAmount) return false;
       return true;
     });
@@ -489,15 +523,19 @@ export const AdminUserDetailPage: React.FC = () => {
         const refType = l.referenceType?.toLowerCase() || '';
         if (!desc.includes(q) && !refId.includes(q) && !refType.includes(q)) return false;
       }
-      if (ledgerDateFrom) {
-        const lineDate = new Date(l.createdAt).toISOString().slice(0, 10);
-        if (lineDate < ledgerDateFrom) return false;
+      if (ledgerDateFrom && l.createdAt) {
+        try {
+          const lineDate = new Date(l.createdAt).toISOString().slice(0, 10);
+          if (lineDate < ledgerDateFrom) return false;
+        } catch {}
       }
-      if (ledgerDateTo) {
-        const lineDate = new Date(l.createdAt).toISOString().slice(0, 10);
-        if (lineDate > ledgerDateTo) return false;
+      if (ledgerDateTo && l.createdAt) {
+        try {
+          const lineDate = new Date(l.createdAt).toISOString().slice(0, 10);
+          if (lineDate > ledgerDateTo) return false;
+        } catch {}
       }
-      const amountGhs = (l.amountPesewas || 0) / 100;
+      const amountGhs = (Number(l.amountPesewas) || 0) / 100;
       if (amountGhs > ledgerMaxAmount) return false;
       return true;
     });
@@ -513,15 +551,19 @@ export const AdminUserDetailPage: React.FC = () => {
         const methodMatch = t.paymentMethod?.toLowerCase().includes(q);
         if (!idMatch && !methodMatch) return false;
       }
-      if (txDateFrom) {
-        const txDate = new Date(t.createdAt).toISOString().slice(0, 10);
-        if (txDate < txDateFrom) return false;
+      if (txDateFrom && t.createdAt) {
+        try {
+          const txDate = new Date(t.createdAt).toISOString().slice(0, 10);
+          if (txDate < txDateFrom) return false;
+        } catch {}
       }
-      if (txDateTo) {
-        const txDate = new Date(t.createdAt).toISOString().slice(0, 10);
-        if (txDate > txDateTo) return false;
+      if (txDateTo && t.createdAt) {
+        try {
+          const txDate = new Date(t.createdAt).toISOString().slice(0, 10);
+          if (txDate > txDateTo) return false;
+        } catch {}
       }
-      const amountGhs = (t.amountPesewas || 0) / 100;
+      const amountGhs = (Number(t.amountPesewas) || 0) / 100;
       if (amountGhs > txMaxAmount) return false;
       return true;
     });
@@ -536,13 +578,17 @@ export const AdminUserDetailPage: React.FC = () => {
         const ipMatch = act.ipAddress?.toLowerCase().includes(q);
         if (!actionMatch && !actorMatch && !ipMatch) return false;
       }
-      if (activityDateFrom) {
-        const actDate = new Date(act.createdAt).toISOString().slice(0, 10);
-        if (actDate < activityDateFrom) return false;
+      if (activityDateFrom && act.createdAt) {
+        try {
+          const actDate = new Date(act.createdAt).toISOString().slice(0, 10);
+          if (actDate < activityDateFrom) return false;
+        } catch {}
       }
-      if (activityDateTo) {
-        const actDate = new Date(act.createdAt).toISOString().slice(0, 10);
-        if (actDate > activityDateTo) return false;
+      if (activityDateTo && act.createdAt) {
+        try {
+          const actDate = new Date(act.createdAt).toISOString().slice(0, 10);
+          if (actDate > activityDateTo) return false;
+        } catch {}
       }
       return true;
     });
@@ -578,9 +624,15 @@ export const AdminUserDetailPage: React.FC = () => {
   const u = userDetail?.user;
   const fin = userDetail?.financialSummary;
   const ordSummary = userDetail?.orderSummary;
-  const balanceGhs = ((u?.walletBalancePesewas || 0) / 100).toFixed(2);
-  const totalSpentGhs = ((fin?.totalSpentPesewas || 0) / 100).toFixed(2);
-  const totalRefundsGhs = ((fin?.totalRefundsPesewas || 0) / 100).toFixed(2);
+  const balanceGhs = ((Number(u?.walletBalancePesewas) || 0) / 100).toFixed(2);
+  const totalSpentGhs = ((Number(fin?.totalSpentPesewas) || 0) / 100).toFixed(2);
+  const totalRefundsGhs = ((Number(fin?.totalRefundsPesewas) || 0) / 100).toFixed(2);
+  const activeSessionsCount = (userDetail?.activeSessions || []).filter((s) => !s.isRevoked).length;
+  const customOverridesCount = userPricing.filter((p) => p.customPricePesewas !== null).length;
+  const totalOrdersCount = ordSummary?.totalOrders ?? userDetail?.recentOrders?.length ?? 0;
+  const transactionsCount = userDetail?.transactions?.length || 0;
+  const activityCount = userDetail?.activity?.length || 0;
+  const notificationsCount = userDetail?.notifications?.length || 0;
   const isSuperAdmin = currentUser?.role === 'super_admin';
   const isAgent = u?.role === 'agent';
 
@@ -777,13 +829,13 @@ export const AdminUserDetailPage: React.FC = () => {
         {[
           { key: 'overview', label: 'Overview', icon: <User size={14} /> },
           { key: 'wallet', label: `Wallet & Ledger (GH₵ ${balanceGhs})`, icon: <Wallet size={14} /> },
-          { key: 'orders', label: `Orders (${ordSummary?.totalOrders || userDetail?.recentOrders?.length || 0})`, icon: <Package size={14} /> },
-          { key: 'pricing', label: `Bundle Pricing (${userPricing.filter((p) => p.customPricePesewas !== null).length > 0 ? `${userPricing.filter((p) => p.customPricePesewas !== null).length} overrides` : 'Custom'})`, icon: <Tag size={14} /> },
-          { key: 'transactions', label: `Transactions (${userDetail?.transactions?.length || 0})`, icon: <CreditCard size={14} /> },
-          { key: 'activity', label: `Audit Stream (${userDetail?.activity?.length || 0})`, icon: <Activity size={14} /> },
-          { key: 'sessions', label: `Sessions (${userDetail?.activeSessions?.length || 0})`, icon: <Lock size={14} /> },
+          { key: 'orders', label: `Orders (${totalOrdersCount})`, icon: <Package size={14} /> },
+          { key: 'pricing', label: `Bundle Pricing (${customOverridesCount > 0 ? `${customOverridesCount} overrides` : 'Custom'})`, icon: <Tag size={14} /> },
+          { key: 'transactions', label: `Transactions (${transactionsCount})`, icon: <CreditCard size={14} /> },
+          { key: 'activity', label: `Audit Stream (${activityCount})`, icon: <Activity size={14} /> },
+          { key: 'sessions', label: `Sessions (${activeSessionsCount})`, icon: <Lock size={14} /> },
           ...(isAgent ? [{ key: 'agent', label: 'Agent & API Portal', icon: <Store size={14} /> }] : []),
-          { key: 'notifications', label: `Notifications (${userDetail?.notifications?.length || 0})`, icon: <Send size={14} /> },
+          { key: 'notifications', label: `Notifications (${notificationsCount})`, icon: <Send size={14} /> },
         ].map((tab) => {
           const isActive = activeTab === tab.key;
           return (
