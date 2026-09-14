@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Input } from '../../components/ui/Input/Input.js';
+import { SearchInput, Select } from '../../components/ui/index.js';
 import { Avatar } from '../../components/ui/Avatar/Avatar.js';
+import { Modal } from '../../components/ui/Modal/Modal.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { adminApi, AdminUserDetail, UserCustomPricingItemDto } from '../../api/admin.api.js';
 import { useAuth } from '../../context/AuthContext.js';
@@ -32,13 +34,18 @@ import {
   Download,
   CreditCard,
   Tag,
+  X,
+  FileCheck2,
+  SlidersHorizontal,
+  UserCheck,
+  UserX,
 } from 'lucide-react';
 
 export const AdminUserDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
-  const { success: toastSuccess, error: toastError } = useToast();
+  const { toastSuccess, toastError } = useToast();
 
   const [activeTab, setActiveTab] = useState<
     'overview' | 'wallet' | 'orders' | 'transactions' | 'pricing' | 'activity' | 'sessions' | 'agent' | 'notifications'
@@ -51,6 +58,8 @@ export const AdminUserDetailPage: React.FC = () => {
   const [isLoadingPricing, setIsLoadingPricing] = useState<boolean>(false);
   const [pricingSearch, setPricingSearch] = useState<string>('');
   const [pricingNetworkFilter, setPricingNetworkFilter] = useState<string>('ALL');
+  const [pricingOverrideFilter, setPricingOverrideFilter] = useState<string>('ALL');
+  const [pricingMaxPrice, setPricingMaxPrice] = useState<number>(500);
   const [editingPricingProduct, setEditingPricingProduct] = useState<UserCustomPricingItemDto | null>(null);
   const [editCustomPriceGhs, setEditCustomPriceGhs] = useState<string>('');
   const [editCustomPriceActive, setEditCustomPriceActive] = useState<boolean>(true);
@@ -101,8 +110,33 @@ export const AdminUserDetailPage: React.FC = () => {
   const [exportFormat, setExportFormat] = useState<'CSV' | 'JSON'>('JSON');
   const [isExporting, setIsExporting] = useState(false);
 
-  // Order status filter
+  // --- FILTERS: Orders ---
   const [orderStatusFilter, setOrderStatusFilter] = useState('ALL');
+  const [orderNetworkFilter, setOrderNetworkFilter] = useState('ALL');
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderDateFrom, setOrderDateFrom] = useState('');
+  const [orderDateTo, setOrderDateTo] = useState('');
+  const [orderMaxAmount, setOrderMaxAmount] = useState<number>(500);
+
+  // --- FILTERS: Ledger ---
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState('ALL');
+  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerDateFrom, setLedgerDateFrom] = useState('');
+  const [ledgerDateTo, setLedgerDateTo] = useState('');
+  const [ledgerMaxAmount, setLedgerMaxAmount] = useState<number>(1000);
+
+  // --- FILTERS: Transactions ---
+  const [txStatusFilter, setTxStatusFilter] = useState('ALL');
+  const [txProviderFilter, setTxProviderFilter] = useState('ALL');
+  const [txSearch, setTxSearch] = useState('');
+  const [txDateFrom, setTxDateFrom] = useState('');
+  const [txDateTo, setTxDateTo] = useState('');
+  const [txMaxAmount, setTxMaxAmount] = useState<number>(1000);
+
+  // --- FILTERS: Audit Stream (Activity) ---
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityDateFrom, setActivityDateFrom] = useState('');
+  const [activityDateTo, setActivityDateTo] = useState('');
 
   const fetchUser = useCallback(async () => {
     if (!id) return;
@@ -419,10 +453,124 @@ export const AdminUserDetailPage: React.FC = () => {
     }
   };
 
+  // --- FILTERED DATA MEMOS ---
+  const filteredOrders = useMemo(() => {
+    return (userDetail?.recentOrders || []).filter((o) => {
+      if (orderStatusFilter !== 'ALL' && o.orderStatus !== orderStatusFilter) return false;
+      if (orderNetworkFilter !== 'ALL' && o.network?.toUpperCase() !== orderNetworkFilter) return false;
+      if (orderSearch.trim()) {
+        const q = orderSearch.toLowerCase();
+        const matchPublic = o.publicId?.toLowerCase().includes(q);
+        const matchPhone = o.recipientPhone?.toLowerCase().includes(q);
+        const matchId = o.id?.toLowerCase().includes(q);
+        if (!matchPublic && !matchPhone && !matchId) return false;
+      }
+      if (orderDateFrom) {
+        const orderDate = new Date(o.createdAt).toISOString().slice(0, 10);
+        if (orderDate < orderDateFrom) return false;
+      }
+      if (orderDateTo) {
+        const orderDate = new Date(o.createdAt).toISOString().slice(0, 10);
+        if (orderDate > orderDateTo) return false;
+      }
+      const amountGhs = (o.amountPesewas || 0) / 100;
+      if (amountGhs > orderMaxAmount) return false;
+      return true;
+    });
+  }, [userDetail?.recentOrders, orderStatusFilter, orderNetworkFilter, orderSearch, orderDateFrom, orderDateTo, orderMaxAmount]);
+
+  const filteredLedgerLines = useMemo(() => {
+    return (userDetail?.recentLedgerLines || []).filter((l) => {
+      if (ledgerTypeFilter !== 'ALL' && l.entryType !== ledgerTypeFilter) return false;
+      if (ledgerSearch.trim()) {
+        const q = ledgerSearch.toLowerCase();
+        const desc = l.description?.toLowerCase() || '';
+        const refId = l.referenceId?.toLowerCase() || '';
+        const refType = l.referenceType?.toLowerCase() || '';
+        if (!desc.includes(q) && !refId.includes(q) && !refType.includes(q)) return false;
+      }
+      if (ledgerDateFrom) {
+        const lineDate = new Date(l.createdAt).toISOString().slice(0, 10);
+        if (lineDate < ledgerDateFrom) return false;
+      }
+      if (ledgerDateTo) {
+        const lineDate = new Date(l.createdAt).toISOString().slice(0, 10);
+        if (lineDate > ledgerDateTo) return false;
+      }
+      const amountGhs = (l.amountPesewas || 0) / 100;
+      if (amountGhs > ledgerMaxAmount) return false;
+      return true;
+    });
+  }, [userDetail?.recentLedgerLines, ledgerTypeFilter, ledgerSearch, ledgerDateFrom, ledgerDateTo, ledgerMaxAmount]);
+
+  const filteredTransactions = useMemo(() => {
+    return (userDetail?.transactions || []).filter((t) => {
+      if (txStatusFilter !== 'ALL' && t.status !== txStatusFilter) return false;
+      if (txProviderFilter !== 'ALL' && t.provider?.toUpperCase() !== txProviderFilter) return false;
+      if (txSearch.trim()) {
+        const q = txSearch.toLowerCase();
+        const idMatch = t.id?.toLowerCase().includes(q);
+        const methodMatch = t.paymentMethod?.toLowerCase().includes(q);
+        if (!idMatch && !methodMatch) return false;
+      }
+      if (txDateFrom) {
+        const txDate = new Date(t.createdAt).toISOString().slice(0, 10);
+        if (txDate < txDateFrom) return false;
+      }
+      if (txDateTo) {
+        const txDate = new Date(t.createdAt).toISOString().slice(0, 10);
+        if (txDate > txDateTo) return false;
+      }
+      const amountGhs = (t.amountPesewas || 0) / 100;
+      if (amountGhs > txMaxAmount) return false;
+      return true;
+    });
+  }, [userDetail?.transactions, txStatusFilter, txProviderFilter, txSearch, txDateFrom, txDateTo, txMaxAmount]);
+
+  const filteredActivity = useMemo(() => {
+    return (userDetail?.activity || []).filter((act) => {
+      if (activitySearch.trim()) {
+        const q = activitySearch.toLowerCase();
+        const actionMatch = act.action?.toLowerCase().includes(q);
+        const actorMatch = act.actorId?.toLowerCase().includes(q) || act.actorType?.toLowerCase().includes(q);
+        const ipMatch = act.ipAddress?.toLowerCase().includes(q);
+        if (!actionMatch && !actorMatch && !ipMatch) return false;
+      }
+      if (activityDateFrom) {
+        const actDate = new Date(act.createdAt).toISOString().slice(0, 10);
+        if (actDate < activityDateFrom) return false;
+      }
+      if (activityDateTo) {
+        const actDate = new Date(act.createdAt).toISOString().slice(0, 10);
+        if (actDate > activityDateTo) return false;
+      }
+      return true;
+    });
+  }, [userDetail?.activity, activitySearch, activityDateFrom, activityDateTo]);
+
+  const filteredPricing = useMemo(() => {
+    return userPricing.filter((item) => {
+      if (pricingNetworkFilter !== 'ALL' && item.network.toUpperCase() !== pricingNetworkFilter) return false;
+      if (pricingOverrideFilter === 'OVERRIDES_ONLY' && item.customPricePesewas === null) return false;
+      if (pricingOverrideFilter === 'DEFAULT_ONLY' && item.customPricePesewas !== null) return false;
+      if (pricingSearch.trim()) {
+        const q = pricingSearch.toLowerCase();
+        const matchName = item.productName.toLowerCase().includes(q);
+        const matchSku = item.sku.toLowerCase().includes(q);
+        const matchMb = `${item.dataAmountMb}`.includes(q);
+        if (!matchName && !matchSku && !matchMb) return false;
+      }
+      const effGhs = item.effectivePricePesewas / 100;
+      if (effGhs > pricingMaxPrice) return false;
+      return true;
+    });
+  }, [userPricing, pricingNetworkFilter, pricingOverrideFilter, pricingSearch, pricingMaxPrice]);
+
   if (isLoading && !userDetail) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '300px' }}>
-        <RefreshCw size={24} className="animate-spin" color="var(--color-brand)" />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '400px', gap: '1rem' }}>
+        <RefreshCw size={28} className="animate-spin" color="var(--color-brand-primary)" />
+        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Loading authoritative user dossier...</span>
       </div>
     );
   }
@@ -436,34 +584,68 @@ export const AdminUserDetailPage: React.FC = () => {
   const isSuperAdmin = currentUser?.role === 'super_admin';
   const isAgent = u?.role === 'agent';
 
-  // Order status filtering
-  const filteredOrders = (userDetail?.recentOrders || []).filter((o) => {
-    if (orderStatusFilter === 'ALL') return true;
-    return o.orderStatus === orderStatusFilter;
-  });
+  // Common button style
+  const tactileButtonStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.45rem',
+    padding: '0.5rem 0.85rem',
+    borderRadius: 'var(--radius-md)',
+    backgroundColor: 'var(--color-bg-surface)',
+    border: '1px solid var(--color-border-subtle)',
+    boxShadow: 'var(--shadow-tactile-sm)',
+    color: 'var(--color-text-primary)',
+    fontSize: 'var(--font-size-xs)',
+    fontWeight: 700,
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
+  };
 
   return (
-    <div style={{ maxWidth: '1300px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* Navigation Breadcrumb */}
+    <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      {/* 1. Navigation Breadcrumb */}
       <div>
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
+          type="button"
           onClick={() => navigate('/admin/users')}
-          leftIcon={<ArrowLeft size={16} />}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            padding: '0.45rem 0.8rem',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border-subtle)',
+            boxShadow: 'var(--shadow-tactile-sm)',
+            color: 'var(--color-text-secondary)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all var(--transition-fast)',
+          }}
         >
-          Back to User Directory
-        </Button>
+          <ArrowLeft size={15} />
+          <span>Back to User Directory</span>
+        </button>
       </div>
 
-      {/* 11.4.1 User Header Banner & Action Control Bar */}
-      <Card elevated accentColor="blue" style={{ padding: 'var(--space-6)' }}>
+      {/* 2. User Header Banner & Action Control Bar */}
+      <Card
+        elevated
+        style={{
+          padding: 'var(--space-6)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+        }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <Avatar name={u?.fullName || u?.email?.split('@')[0] || 'User'} size="lg" status={u?.status === 'ACTIVE' ? 'online' : 'offline'} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
                   {u?.fullName || u?.email?.split('@')[0] || 'User Control Center'}
                 </h1>
                 <Badge
@@ -476,11 +658,11 @@ export const AdminUserDetailPage: React.FC = () => {
                       ? 'warning'
                       : 'neutral'
                   }
-                  size="md"
+                  size="sm"
                 >
                   {u?.role?.replace('_', ' ').toUpperCase()}
                 </Badge>
-                <Badge variant={u?.status === 'ACTIVE' ? 'success' : 'danger'} size="md" dot>
+                <Badge variant={u?.status === 'ACTIVE' ? 'success' : 'danger'} size="sm" dot>
                   {u?.status}
                 </Badge>
                 {fin?.reconciliationStatus === 'RECONCILED' ? (
@@ -492,86 +674,106 @@ export const AdminUserDetailPage: React.FC = () => {
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0', fontFamily: 'var(--font-mono)' }}>
                 {u?.email} • {u?.phone || 'No phone linked'} • User ID: {u?.id}
               </p>
-              <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', margin: '0.125rem 0 0' }}>
+              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '0.2rem 0 0' }}>
                 Registered: {u?.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'} • Last Active: {u?.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}
               </p>
             </div>
           </div>
 
           {/* Quick Actions Toolbar */}
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <Button variant="outline" size="sm" onClick={() => setIsEditModalOpen(true)} leftIcon={<Edit3 size={14} />}>
-              Edit Profile
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setIsNotifyModalOpen(true)} leftIcon={<Send size={14} />}>
-              Notify
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setIsExportModalOpen(true)} leftIcon={<Download size={14} />}>
-              Export Dossier
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleRunReconciliation} isLoading={isReconciling} leftIcon={<RefreshCw size={14} />}>
-              Reconcile Wallet
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setIsAdjustModalOpen(true)} leftIcon={<Wallet size={14} />}>
-              Adjust Wallet
-            </Button>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" onClick={() => setIsEditModalOpen(true)} style={tactileButtonStyle}>
+              <Edit3 size={14} />
+              <span>Edit Profile</span>
+            </button>
+            <button type="button" onClick={() => setIsNotifyModalOpen(true)} style={tactileButtonStyle}>
+              <Send size={14} />
+              <span>Notify</span>
+            </button>
+            <button type="button" onClick={() => setIsExportModalOpen(true)} style={tactileButtonStyle}>
+              <Download size={14} />
+              <span>Export Dossier</span>
+            </button>
+            <button type="button" onClick={handleRunReconciliation} disabled={isReconciling} style={tactileButtonStyle}>
+              <RefreshCw size={14} className={isReconciling ? 'animate-spin' : ''} />
+              <span>Reconcile Wallet</span>
+            </button>
+            <button type="button" onClick={() => setIsAdjustModalOpen(true)} style={tactileButtonStyle}>
+              <Wallet size={14} />
+              <span>Adjust Wallet</span>
+            </button>
             {isSuperAdmin && (
-              <Button variant="outline" size="sm" onClick={() => setIsRoleModalOpen(true)} leftIcon={<Shield size={14} />}>
-                Change Role
-              </Button>
+              <button type="button" onClick={() => setIsRoleModalOpen(true)} style={tactileButtonStyle}>
+                <Shield size={14} />
+                <span>Change Role</span>
+              </button>
             )}
-            <Button
-              variant={u?.status === 'ACTIVE' ? 'danger' : 'primary'}
-              size="sm"
+            <button
+              type="button"
               onClick={handleToggleSuspend}
+              style={{
+                ...tactileButtonStyle,
+                border: u?.status === 'ACTIVE' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--color-success)',
+                color: u?.status === 'ACTIVE' ? 'var(--color-danger)' : 'var(--color-success)',
+              }}
             >
-              {u?.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
-            </Button>
+              {u?.status === 'ACTIVE' ? <UserX size={14} /> : <UserCheck size={14} />}
+              <span>{u?.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}</span>
+            </button>
           </div>
         </div>
       </Card>
 
-      {/* 11.4.2 Snapshot Overview Metric Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
+      {/* 3. Snapshot Overview Metric Cards (Standardized subtle surfaces without garish tint fills) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Authoritative Wallet"
           value={`GH₵ ${balanceGhs}`}
           subvalue={fin?.reconciliationStatus === 'RECONCILED' ? 'Ledger verified' : `Discrepancy: GH₵ ${((fin?.discrepancyPesewas || 0)/100).toFixed(2)}`}
-          accent="green"
           icon={<TactileIcon icon={Wallet} color="security" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Total Lifetime Orders"
           value={(ordSummary?.totalOrders || userDetail?.metrics?.totalOrders || 0).toLocaleString()}
           subvalue={`${ordSummary?.completed || 0} completed • ${ordSummary?.failed || 0} failed`}
-          accent="blue"
           icon={<TactileIcon icon={Package} color="orders" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Total Spending"
           value={`GH₵ ${totalSpentGhs}`}
           subvalue="Lifetime purchase volume"
-          accent="cyan"
           icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Resolved Refunds"
           value={`GH₵ ${totalRefundsGhs}`}
           subvalue={`${ordSummary?.refunded || 0} refunded orders`}
-          accent="purple"
           icon={<TactileIcon icon={RefreshCw} color="api" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Reconciliation Audit"
           value={fin?.reconciliationStatus === 'RECONCILED' ? 'PASSED' : 'DISCREPANCY'}
           subvalue="Double-entry ledger check"
-          accent={fin?.reconciliationStatus === 'RECONCILED' ? 'green' : 'amber'}
           icon={<TactileIcon icon={ShieldCheck} color={fin?.reconciliationStatus === 'RECONCILED' ? 'emerald' : 'speed'} size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
       </div>
 
-      {/* Responsive Navigation Tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border-subtle)', overflowX: 'auto', paddingBottom: '2px' }}>
+      {/* 4. Responsive Navigation Tabs with Tactile Styling */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.45rem',
+          borderBottom: '1px solid var(--color-border-subtle)',
+          overflowX: 'auto',
+          paddingBottom: '0.5rem',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
         {[
           { key: 'overview', label: 'Overview', icon: <User size={14} /> },
           { key: 'wallet', label: `Wallet & Ledger (GH₵ ${balanceGhs})`, icon: <Wallet size={14} /> },
@@ -582,29 +784,57 @@ export const AdminUserDetailPage: React.FC = () => {
           { key: 'sessions', label: `Sessions (${userDetail?.activeSessions?.length || 0})`, icon: <Lock size={14} /> },
           ...(isAgent ? [{ key: 'agent', label: 'Agent & API Portal', icon: <Store size={14} /> }] : []),
           { key: 'notifications', label: `Notifications (${userDetail?.notifications?.length || 0})`, icon: <Send size={14} /> },
-        ].map((tab) => (
-          <Button
-            key={tab.key}
-            variant={activeTab === tab.key ? 'primary' : 'ghost'}
-            size="sm"
-            onClick={() => setActiveTab(tab.key as any)}
-            leftIcon={tab.icon}
-            style={{ borderRadius: 'var(--radius-md) var(--radius-md) 0 0', whiteSpace: 'nowrap' }}
-          >
-            {tab.label}
-          </Button>
-        ))}
+        ].map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key as any)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.5rem 0.85rem',
+                borderRadius: 'var(--radius-lg)',
+                backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
+                border: isActive ? '1px solid var(--color-brand-primary)' : '1px solid transparent',
+                boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-secondary)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: isActive ? 700 : 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* TAB 1: Overview (11.4.2) */}
+      {/* ========================================================================= */}
+      {/* TAB 1: Overview */}
+      {/* ========================================================================= */}
       {activeTab === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-4)' }}>
           {/* Financial Overview Card */}
-          <Card elevated accentColor="green" style={{ padding: 'var(--space-5)' }}>
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
               <TactileIcon icon={Wallet} color="security" size="sm" />
-              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                11.4.2 Financial Overview
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                Financial Overview
               </h3>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
@@ -642,11 +872,20 @@ export const AdminUserDetailPage: React.FC = () => {
           </Card>
 
           {/* Orders Overview Card */}
-          <Card elevated accentColor="blue" style={{ padding: 'var(--space-5)' }}>
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
               <TactileIcon icon={Package} color="orders" size="sm" />
-              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                11.4.2 Orders Overview
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                Orders Overview
               </h3>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
@@ -684,11 +923,20 @@ export const AdminUserDetailPage: React.FC = () => {
           </Card>
 
           {/* Account Profile Details */}
-          <Card elevated accentColor="purple" style={{ padding: 'var(--space-5)' }}>
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
               <TactileIcon icon={User} color="api" size="sm" />
-              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                11.4.2 Account & Security Overview
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                Account & Security Overview
               </h3>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
@@ -721,18 +969,29 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: Wallet & Financial Control (11.4.3 & 11.4.18) */}
+      {/* ========================================================================= */}
+      {/* TAB 2: Wallet & Financial Control */}
+      {/* ========================================================================= */}
       {activeTab === 'wallet' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           {/* Financial Integrity & Reconciliation Bar */}
-          <Card elevated accentColor={fin?.reconciliationStatus === 'RECONCILED' ? 'green' : 'amber'} style={{ padding: 'var(--space-4)' }}>
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
-                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-primary)' }}>
                   {fin?.reconciliationStatus === 'RECONCILED' ? (
-                    <CheckCircle size={18} color="var(--color-success-bright)" />
+                    <CheckCircle size={18} color="var(--color-success)" />
                   ) : (
-                    <AlertTriangle size={18} color="var(--color-warning-bright)" />
+                    <AlertTriangle size={18} color="var(--color-warning)" />
                   )}
                   Wallet Reconciliation Status: {fin?.reconciliationStatus}
                 </h3>
@@ -741,223 +1000,590 @@ export const AdminUserDetailPage: React.FC = () => {
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <Button variant="outline" size="sm" onClick={handleRunReconciliation} isLoading={isReconciling} leftIcon={<RefreshCw size={14} />}>
-                  Run Reconciliation
-                </Button>
-                <Button variant="primary" size="sm" onClick={() => setIsAdjustModalOpen(true)} leftIcon={<Wallet size={14} />}>
-                  Post Double-Entry Voucher
-                </Button>
+                <button type="button" onClick={handleRunReconciliation} disabled={isReconciling} style={tactileButtonStyle}>
+                  <RefreshCw size={14} className={isReconciling ? 'animate-spin' : ''} />
+                  <span>Run Reconciliation</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAdjustModalOpen(true)}
+                  style={{
+                    ...tactileButtonStyle,
+                    color: 'var(--color-brand-primary, #0284C7)',
+                  }}
+                >
+                  <Wallet size={14} />
+                  <span>Post Double-Entry Voucher</span>
+                </button>
               </div>
             </div>
           </Card>
 
+          {/* Filters for Ledger */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', justifyContent: 'space-between' }}>
+              {/* Search */}
+              <div style={{ flex: '1 1 220px', minWidth: '200px' }}>
+                <SearchInput
+                  value={ledgerSearch}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLedgerSearch(e.target.value)}
+                  placeholder="Search description, reference ID..."
+                />
+              </div>
+
+              {/* Controls */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                {/* Entry Type */}
+                <div style={{ width: '130px' }}>
+                  <Select
+                    value={ledgerTypeFilter}
+                    onChange={(e) => setLedgerTypeFilter(e.target.value)}
+                    options={[
+                      { label: 'All Entries', value: 'ALL' },
+                      { label: 'Credit (+)', value: 'CREDIT' },
+                      { label: 'Debit (-)', value: 'DEBIT' },
+                    ]}
+                  />
+                </div>
+
+                {/* Date From & To */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>From:</span>
+                  <input
+                    type="date"
+                    value={ledgerDateFrom}
+                    onChange={(e) => setLedgerDateFrom(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>To:</span>
+                  <input
+                    type="date"
+                    value={ledgerDateTo}
+                    onChange={(e) => setLedgerDateTo(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '11px',
+                    }}
+                  />
+                </div>
+
+                {/* Amount Range Slider */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.6rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                    Max: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>GH₵ {ledgerMaxAmount}</strong>
+                  </span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="1000"
+                    value={ledgerMaxAmount}
+                    onChange={(e) => setLedgerMaxAmount(Number(e.target.value))}
+                    style={{ width: '80px', cursor: 'pointer', accentColor: 'var(--color-brand-primary)' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Active filters */}
+            {(ledgerTypeFilter !== 'ALL' || ledgerSearch.trim() || ledgerDateFrom || ledgerDateTo || ledgerMaxAmount < 1000) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>Active Filters:</span>
+                {ledgerTypeFilter !== 'ALL' && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-full)', padding: '0.2rem 0.55rem', fontSize: '11px' }}>
+                    Type: {ledgerTypeFilter}
+                    <button type="button" onClick={() => setLedgerTypeFilter('ALL')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}><X size={12} /></button>
+                  </span>
+                )}
+                {ledgerSearch.trim() && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-full)', padding: '0.2rem 0.55rem', fontSize: '11px' }}>
+                    Query: "{ledgerSearch}"
+                    <button type="button" onClick={() => setLedgerSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}><X size={12} /></button>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setLedgerTypeFilter('ALL'); setLedgerSearch(''); setLedgerDateFrom(''); setLedgerDateTo(''); setLedgerMaxAmount(1000); }}
+                  style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand-primary)', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
+          </Card>
+
           {/* Ledger Journal Lines Table */}
-          <Card elevated accentColor="green" style={{ padding: 0, overflow: 'hidden' }}>
+          <Card
+            elevated
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                11.4.3 Double-Entry Ledger History
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                Double-Entry Ledger History & Audit Trail
               </h3>
             </div>
             <Table
+              minWidth="1100px"
               headers={['Entry Type', 'Amount (GHS)', 'Account Type', 'Reference Type', 'Reference ID', 'Description', 'Timestamp']}
             >
-              {(userDetail?.recentLedgerLines || []).map((line, idx) => (
-                <tr key={line.id || idx} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                  <td>
-                    <Badge variant={line.entryType === 'CREDIT' ? 'success' : 'danger'} size="sm">
-                      {line.entryType}
-                    </Badge>
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: line.entryType === 'CREDIT' ? 'var(--color-success-bright)' : 'var(--color-text-primary)' }}>
-                    GH₵ {((line.amountPesewas || 0) / 100).toFixed(2)}
-                  </td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)' }}>
-                    {line.accountType || 'CUSTOMER_WALLET'}
-                  </td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
-                    {line.referenceType}
-                  </td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
-                    {line.referenceId?.slice(0, 12)}...
-                  </td>
-                  <td style={{ fontSize: 'var(--font-size-xs)' }}>
-                    {line.description || 'System transaction'}
-                  </td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {line.createdAt ? new Date(line.createdAt).toLocaleString() : '—'}
+              {filteredLedgerLines.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No financial ledger journal lines found matching criteria.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredLedgerLines.map((line, idx) => (
+                  <tr key={line.id || idx} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant={line.entryType === 'CREDIT' ? 'success' : 'danger'} size="sm" dot>
+                        {line.entryType}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: line.entryType === 'CREDIT' ? 'var(--color-success)' : 'var(--color-text-primary)' }}>
+                      GH₵ {((line.amountPesewas || 0) / 100).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)' }}>
+                      {line.accountType || 'CUSTOMER_WALLET'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                      {line.referenceType}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                      {line.referenceId?.slice(0, 12)}...
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-xs)' }}>
+                      {line.description || 'System transaction'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {line.createdAt ? new Date(line.createdAt).toLocaleString() : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
             </Table>
           </Card>
         </div>
       )}
 
-      {/* TAB 3: Orders & Lifecycle Visibility (11.4.4 & 11.4.5) */}
+      {/* ========================================================================= */}
+      {/* TAB 3: Orders & Lifecycle Visibility */}
+      {/* ========================================================================= */}
       {activeTab === 'orders' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {/* Filter Bar */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {['ALL', 'COMPLETED', 'PROCESSING', 'FAILED', 'REFUNDED'].map((st) => (
-                <Button
-                  key={st}
-                  variant={orderStatusFilter === st ? 'primary' : 'outline'}
-                  size="sm"
-                  onClick={() => setOrderStatusFilter(st)}
-                >
-                  {st}
-                </Button>
-              ))}
-            </div>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
-              DataHouse Telecom Fulfillment is Authoritative
-            </p>
-          </div>
+          {/* Filter Bar with Date Pickers, Range Slider, Network, and Status */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', justifyContent: 'space-between' }}>
+              {/* Search Box */}
+              <div style={{ flex: '1 1 220px', minWidth: '200px' }}>
+                <SearchInput
+                  value={orderSearch}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOrderSearch(e.target.value)}
+                  placeholder="Search Public ID, Phone, Order ID..."
+                />
+              </div>
 
-          <Card elevated accentColor="cyan" style={{ padding: 0, overflow: 'hidden' }}>
+              {/* Horizontal Controls */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', alignItems: 'center' }}>
+                {/* Status */}
+                <div style={{ width: '140px' }}>
+                  <Select
+                    value={orderStatusFilter}
+                    onChange={(e) => setOrderStatusFilter(e.target.value)}
+                    options={[
+                      { label: 'All Statuses', value: 'ALL' },
+                      { label: 'Completed', value: 'COMPLETED' },
+                      { label: 'Processing', value: 'PROCESSING' },
+                      { label: 'Pending', value: 'PENDING_APPROVAL' },
+                      { label: 'Failed', value: 'FAILED' },
+                      { label: 'Refunded', value: 'REFUNDED' },
+                    ]}
+                  />
+                </div>
+
+                {/* Network */}
+                <div style={{ width: '135px' }}>
+                  <Select
+                    value={orderNetworkFilter}
+                    onChange={(e) => setOrderNetworkFilter(e.target.value)}
+                    options={[
+                      { label: 'All Networks', value: 'ALL' },
+                      { label: 'MTN Ghana', value: 'MTN' },
+                      { label: 'Telecel', value: 'TELECEL' },
+                      { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
+                    ]}
+                  />
+                </div>
+
+                {/* Date Pickers (From, To) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>From:</span>
+                  <input
+                    type="date"
+                    value={orderDateFrom}
+                    onChange={(e) => setOrderDateFrom(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>To:</span>
+                  <input
+                    type="date"
+                    value={orderDateTo}
+                    onChange={(e) => setOrderDateTo(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '11px',
+                    }}
+                  />
+                </div>
+
+                {/* Amount Range Slider */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.6rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                    Max: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>GH₵ {orderMaxAmount}</strong>
+                  </span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="500"
+                    value={orderMaxAmount}
+                    onChange={(e) => setOrderMaxAmount(Number(e.target.value))}
+                    style={{ width: '80px', cursor: 'pointer', accentColor: 'var(--color-brand-primary)' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Active Filters */}
+            {(orderStatusFilter !== 'ALL' || orderNetworkFilter !== 'ALL' || orderSearch.trim() || orderDateFrom || orderDateTo || orderMaxAmount < 500) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>Active Filters:</span>
+                {orderStatusFilter !== 'ALL' && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-full)', padding: '0.2rem 0.55rem', fontSize: '11px' }}>
+                    Status: {orderStatusFilter}
+                    <button type="button" onClick={() => setOrderStatusFilter('ALL')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}><X size={12} /></button>
+                  </span>
+                )}
+                {orderNetworkFilter !== 'ALL' && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-full)', padding: '0.2rem 0.55rem', fontSize: '11px' }}>
+                    Network: {orderNetworkFilter}
+                    <button type="button" onClick={() => setOrderNetworkFilter('ALL')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}><X size={12} /></button>
+                  </span>
+                )}
+                {orderSearch.trim() && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-full)', padding: '0.2rem 0.55rem', fontSize: '11px' }}>
+                    Query: "{orderSearch}"
+                    <button type="button" onClick={() => setOrderSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}><X size={12} /></button>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setOrderStatusFilter('ALL'); setOrderNetworkFilter('ALL'); setOrderSearch(''); setOrderDateFrom(''); setOrderDateTo(''); setOrderMaxAmount(500); }}
+                  style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand-primary)', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
+          </Card>
+
+          <Card
+            elevated
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <Table
+              minWidth="1200px"
               headers={['Order ID / Public ID', 'Recipient', 'Network', 'Bundle Size', 'Amount', 'Payment', 'ByteBeacon State', 'DataHouse State', 'Date', 'Action']}
             >
-              {filteredOrders.map((o) => (
-                <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
-                    {o.publicId || o.id.slice(0, 8)}
-                  </td>
-                  <td style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                    {o.recipientPhone}
-                  </td>
-                  <td>
-                    <Badge variant="neutral" size="sm">{o.network}</Badge>
-                  </td>
-                  <td>{o.dataAmountMb >= 1000 ? `${o.dataAmountMb / 1000} GB` : `${o.dataAmountMb} MB`}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                    GH₵ {((o.amountPesewas || 0) / 100).toFixed(2)}
-                  </td>
-                  <td>
-                    <Badge variant={o.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
-                      {o.paymentStatus || 'PAID'}
-                    </Badge>
-                  </td>
-                  <td>
-                    <Badge
-                      variant={
-                        o.orderStatus === 'COMPLETED'
-                          ? 'success'
-                          : o.orderStatus === 'PROCESSING'
-                          ? 'info'
-                          : o.orderStatus === 'FAILED'
-                          ? 'danger'
-                          : 'neutral'
-                      }
-                      size="sm"
-                      dot
-                    >
-                      {o.orderStatus}
-                    </Badge>
-                  </td>
-                  <td>
-                    <Badge variant="neutral" size="sm">
-                      {o.providerStatus || 'SUBMITTED'}
-                    </Badge>
-                  </td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}
-                  </td>
-                  <td>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedOrder(o)}>
-                      Inspect Pipeline
-                    </Button>
+              {filteredOrders.length === 0 ? (
+                <tr>
+                  <td colSpan={10} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No orders found matching the filter criteria.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredOrders.map((o) => (
+                  <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
+                      {o.publicId || o.id.slice(0, 8)}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                      {o.recipientPhone}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant="neutral" size="sm">{o.network}</Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>
+                      {o.dataAmountMb >= 1000 ? `${o.dataAmountMb / 1000} GB` : `${o.dataAmountMb} MB`}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                      GH₵ {((o.amountPesewas || 0) / 100).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant={o.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
+                        {o.paymentStatus || 'PAID'}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge
+                        variant={
+                          o.orderStatus === 'COMPLETED'
+                            ? 'success'
+                            : o.orderStatus === 'PROCESSING'
+                            ? 'info'
+                            : o.orderStatus === 'FAILED'
+                            ? 'danger'
+                            : 'neutral'
+                        }
+                        size="sm"
+                        dot
+                      >
+                        {o.orderStatus}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant="neutral" size="sm">
+                        {o.providerStatus || 'SUBMITTED'}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrder(o)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          padding: '0.35rem 0.65rem',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'var(--color-bg-surface)',
+                          border: '1px solid var(--color-border-subtle)',
+                          boxShadow: 'var(--shadow-tactile-sm)',
+                          color: 'var(--color-text-primary)',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Inspect Pipeline
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </Table>
           </Card>
         </div>
       )}
 
-      {/* TAB: Custom Data Bundle Pricing */}
+      {/* ========================================================================= */}
+      {/* TAB 4: Custom Data Bundle Pricing */}
+      {/* ========================================================================= */}
       {activeTab === 'pricing' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {/* Header & Metric Summary */}
+          {/* Header & Action */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
+              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
                 Individual User Bundle Pricing Overrides
               </h3>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0' }}>
-                Set custom wholesale or special retail rates for this user. Overrides take precedence over default catalog retail and agent wholesale rates.
+                Set custom wholesale or special retail rates for this user. Overrides take precedence over default catalog rates.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchUserPricing}
-                isLoading={isLoadingPricing}
-                leftIcon={<RefreshCw size={14} />}
-              >
-                Refresh Pricing
-              </Button>
+              <button type="button" onClick={fetchUserPricing} disabled={isLoadingPricing} style={tactileButtonStyle}>
+                <RefreshCw size={14} className={isLoadingPricing ? 'animate-spin' : ''} />
+                <span>Refresh Pricing</span>
+              </button>
             </div>
           </div>
 
           {/* Pricing Telemetry Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
             <MetricCard
               title="Catalog Plans"
               value={userPricing.length.toString()}
               subvalue="Available telecom bundles"
-              accent="blue"
               icon={<TactileIcon icon={Package} color="api" size="sm" />}
+              style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
             />
             <MetricCard
               title="Active Custom Overrides"
               value={userPricing.filter((p) => p.customPricePesewas !== null && p.isActive).length.toString()}
               subvalue={`${userPricing.filter((p) => p.customPricePesewas !== null).length} total configured`}
-              accent="purple"
               icon={<TactileIcon icon={Tag} color="violet" size="sm" />}
+              style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
             />
             <MetricCard
               title="Default Retail Scope"
               value={isAgent ? 'Agent Wholesale Tier' : 'Standard Retail'}
               subvalue={`Base role: ${userDetail?.user?.role?.toUpperCase() || 'CUSTOMER'}`}
-              accent="amber"
               icon={<TactileIcon icon={Shield} color="security" size="sm" />}
+              style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
             />
           </div>
 
           {/* Filters Bar */}
-          <Card elevated style={{ padding: 'var(--space-3)' }}>
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Network:</span>
-                {['ALL', 'MTN', 'TELECEL', 'AIRTELTIGO'].map((net) => (
-                  <Button
-                    key={net}
-                    variant={pricingNetworkFilter === net ? 'primary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setPricingNetworkFilter(net)}
-                    style={{ fontSize: 'var(--font-size-2xs)', padding: '0.25rem 0.6rem' }}
-                  >
-                    {net}
-                  </Button>
-                ))}
-              </div>
-              <div style={{ minWidth: '220px', maxWidth: '360px', flex: 1 }}>
-                <Input
+              {/* Search */}
+              <div style={{ flex: '1 1 220px', minWidth: '200px' }}>
+                <SearchInput
                   placeholder="Search plan name, SKU, or data size..."
                   value={pricingSearch}
                   onChange={(e) => setPricingSearch(e.target.value)}
-                  style={{ fontSize: 'var(--font-size-xs)' }}
                 />
               </div>
+
+              {/* Controls */}
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Network */}
+                <div style={{ width: '135px' }}>
+                  <Select
+                    value={pricingNetworkFilter}
+                    onChange={(e) => setPricingNetworkFilter(e.target.value)}
+                    options={[
+                      { label: 'All Networks', value: 'ALL' },
+                      { label: 'MTN Ghana', value: 'MTN' },
+                      { label: 'Telecel', value: 'TELECEL' },
+                      { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
+                    ]}
+                  />
+                </div>
+
+                {/* Overrides */}
+                <div style={{ width: '150px' }}>
+                  <Select
+                    value={pricingOverrideFilter}
+                    onChange={(e) => setPricingOverrideFilter(e.target.value)}
+                    options={[
+                      { label: 'All Plans', value: 'ALL' },
+                      { label: 'Custom Overrides', value: 'OVERRIDES_ONLY' },
+                      { label: 'Default Catalog', value: 'DEFAULT_ONLY' },
+                    ]}
+                  />
+                </div>
+
+                {/* Max Price Range Slider */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.6rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                    Max: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>GH₵ {pricingMaxPrice}</strong>
+                  </span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="500"
+                    value={pricingMaxPrice}
+                    onChange={(e) => setPricingMaxPrice(Number(e.target.value))}
+                    style={{ width: '80px', cursor: 'pointer', accentColor: 'var(--color-brand-primary)' }}
+                  />
+                </div>
+              </div>
             </div>
+
+            {/* Active filters */}
+            {(pricingNetworkFilter !== 'ALL' || pricingOverrideFilter !== 'ALL' || pricingSearch.trim() || pricingMaxPrice < 500) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>Active Filters:</span>
+                <button
+                  type="button"
+                  onClick={() => { setPricingNetworkFilter('ALL'); setPricingOverrideFilter('ALL'); setPricingSearch(''); setPricingMaxPrice(500); }}
+                  style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand-primary)', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
           </Card>
 
           {/* Pricing Table */}
-          <Card elevated accentColor="cyan" style={{ padding: 0, overflow: 'hidden' }}>
+          <Card
+            elevated
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <Table
+              minWidth="1100px"
               headers={[
                 'Plan / SKU',
                 'Network',
@@ -970,111 +1596,120 @@ export const AdminUserDetailPage: React.FC = () => {
                 'Actions',
               ]}
             >
-              {userPricing
-                .filter((item) => {
-                  if (pricingNetworkFilter !== 'ALL' && item.network.toUpperCase() !== pricingNetworkFilter) {
-                    return false;
-                  }
-                  if (pricingSearch.trim()) {
-                    const q = pricingSearch.toLowerCase();
-                    return (
-                      item.productName.toLowerCase().includes(q) ||
-                      item.sku.toLowerCase().includes(q) ||
-                      `${item.dataAmountMb}`.includes(q)
-                    );
-                  }
-                  return true;
-                })
-                .map((item) => {
-                  const hasCustom = item.customPricePesewas !== null;
-                  const customGhs = hasCustom ? (item.customPricePesewas! / 100).toFixed(2) : null;
-                  const effectiveGhs = (item.effectivePricePesewas / 100).toFixed(2);
-                  const baseGhs = (item.basePricePesewas / 100).toFixed(2);
-                  const agentGhs = (item.defaultAgentPricePesewas / 100).toFixed(2);
-                  const dataFormatted =
-                    item.dataAmountMb >= 1024
-                      ? `${(item.dataAmountMb / 1024).toFixed(item.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`
-                      : `${item.dataAmountMb} MB`;
+              {filteredPricing.map((item) => {
+                const hasCustom = item.customPricePesewas !== null;
+                const customGhs = hasCustom ? (item.customPricePesewas! / 100).toFixed(2) : null;
+                const effectiveGhs = (item.effectivePricePesewas / 100).toFixed(2);
+                const baseGhs = (item.basePricePesewas / 100).toFixed(2);
+                const agentGhs = (item.defaultAgentPricePesewas / 100).toFixed(2);
+                const dataFormatted =
+                  item.dataAmountMb >= 1024
+                    ? `${(item.dataAmountMb / 1024).toFixed(item.dataAmountMb % 1024 === 0 ? 0 : 1)} GB`
+                    : `${item.dataAmountMb} MB`;
 
-                  return (
-                    <tr key={item.productId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{item.productName}</span>
-                          <span style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
-                            {item.sku}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <Badge
-                          variant={
-                            item.network === 'MTN'
-                              ? 'warning'
-                              : item.network === 'TELECEL'
-                              ? 'danger'
-                              : 'info'
-                          }
-                          size="sm"
-                        >
-                          {item.network}
+                return (
+                  <tr key={item.productId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{item.productName}</span>
+                        <span style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                          {item.sku}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge
+                        variant={
+                          item.network === 'MTN'
+                            ? 'warning'
+                            : item.network === 'TELECEL'
+                            ? 'danger'
+                            : 'info'
+                        }
+                        size="sm"
+                      >
+                        {item.network}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{dataFormatted}</td>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                      GH₵ {baseGhs}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                      GH₵ {agentGhs}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      {hasCustom ? (
+                        <Badge variant={item.isActive ? 'brand' : 'neutral'} size="sm">
+                          GH₵ {customGhs}
                         </Badge>
-                      </td>
-                      <td style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{dataFormatted}</td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                        GH₵ {baseGhs}
-                      </td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                        GH₵ {agentGhs}
-                      </td>
-                      <td>
-                        {hasCustom ? (
-                          <Badge variant={item.isActive ? 'brand' : 'neutral'} size="sm">
-                            GH₵ {customGhs}
-                          </Badge>
-                        ) : (
-                          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>Standard</span>
-                        )}
-                      </td>
-                      <td>
-                        <strong style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: hasCustom ? 'var(--color-brand-accent)' : 'var(--color-text-primary)' }}>
-                          GH₵ {effectiveGhs}
-                        </strong>
-                      </td>
-                      <td>
-                        {hasCustom ? (
-                          <Badge variant={item.isActive ? 'success' : 'neutral'} size="sm">
-                            {item.isActive ? 'OVERRIDE ACTIVE' : 'DISABLED'}
-                          </Badge>
-                        ) : (
-                          <Badge variant="neutral" size="sm">DEFAULT</Badge>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '0.35rem' }}>
-                          <Button
-                            variant={hasCustom ? 'primary' : 'outline'}
-                            size="sm"
-                            onClick={() => handleOpenEditPricing(item)}
-                            leftIcon={<Edit3 size={12} />}
+                      ) : (
+                        <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>Standard</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <strong style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: hasCustom ? 'var(--color-brand-accent)' : 'var(--color-text-primary)' }}>
+                        GH₵ {effectiveGhs}
+                      </strong>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      {hasCustom ? (
+                        <Badge variant={item.isActive ? 'success' : 'neutral'} size="sm">
+                          {item.isActive ? 'OVERRIDE ACTIVE' : 'DISABLED'}
+                        </Badge>
+                      ) : (
+                        <Badge variant="neutral" size="sm">DEFAULT</Badge>
+                      )}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditPricing(item)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            padding: '0.35rem 0.65rem',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: 'var(--color-bg-surface)',
+                            border: '1px solid var(--color-border-subtle)',
+                            boxShadow: 'var(--shadow-tactile-sm)',
+                            color: 'var(--color-text-primary)',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Edit3 size={12} />
+                          <span>{hasCustom ? 'Edit' : 'Set'}</span>
+                        </button>
+                        {hasCustom && (
+                          <button
+                            type="button"
+                            onClick={() => handleResetCustomPricing(item)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.3rem',
+                              padding: '0.35rem 0.65rem',
+                              borderRadius: 'var(--radius-md)',
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              color: 'var(--color-danger)',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
                           >
-                            {hasCustom ? 'Edit Price' : 'Set Custom'}
-                          </Button>
-                          {hasCustom && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleResetCustomPricing(item)}
-                              style={{ color: 'var(--color-danger-text)' }}
-                            >
-                              Reset
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </Table>
             {userPricing.length === 0 && !isLoadingPricing && (
               <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
@@ -1085,146 +1720,414 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 4: Dedicated Transactions View (11.4.6) */}
+      {/* ========================================================================= */}
+      {/* TAB 5: Dedicated Transactions View */}
+      {/* ========================================================================= */}
       {activeTab === 'transactions' && (
-        <Card elevated accentColor="purple" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-              11.4.6 User Payments & Payment Gateway Transactions
-            </h3>
-          </div>
-          <Table
-            headers={['Transaction ID', 'Amount (GHS)', 'Gateway / Provider', 'Payment Method', 'Payment Status', 'Timestamp']}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Transaction Filters */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
           >
-            {(userDetail?.transactions || []).map((t) => (
-              <tr key={t.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
-                  {t.id.slice(0, 12)}...
-                </td>
-                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                  GH₵ {((t.amountPesewas || 0) / 100).toFixed(2)}
-                </td>
-                <td>
-                  <Badge variant="brand" size="sm">{t.provider || 'PAYSTACK'}</Badge>
-                </td>
-                <td style={{ fontSize: 'var(--font-size-xs)' }}>
-                  {t.paymentMethod || 'MoMo'}
-                </td>
-                <td>
-                  <Badge variant={t.status === 'PAID' ? 'success' : 'warning'} size="sm">
-                    {t.status}
-                  </Badge>
-                </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {t.createdAt ? new Date(t.createdAt).toLocaleString() : '—'}
-                </td>
-              </tr>
-            ))}
-          </Table>
-        </Card>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', justifyContent: 'space-between' }}>
+              <div style={{ flex: '1 1 220px', minWidth: '200px' }}>
+                <SearchInput
+                  value={txSearch}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTxSearch(e.target.value)}
+                  placeholder="Search Transaction ID, Method..."
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                <div style={{ width: '135px' }}>
+                  <Select
+                    value={txStatusFilter}
+                    onChange={(e) => setTxStatusFilter(e.target.value)}
+                    options={[
+                      { label: 'All Statuses', value: 'ALL' },
+                      { label: 'Paid', value: 'PAID' },
+                      { label: 'Pending', value: 'PENDING' },
+                      { label: 'Failed', value: 'FAILED' },
+                    ]}
+                  />
+                </div>
+
+                <div style={{ width: '140px' }}>
+                  <Select
+                    value={txProviderFilter}
+                    onChange={(e) => setTxProviderFilter(e.target.value)}
+                    options={[
+                      { label: 'All Gateways', value: 'ALL' },
+                      { label: 'Paystack', value: 'PAYSTACK' },
+                      { label: 'Hubtel', value: 'HUBTEL' },
+                      { label: 'Wallet', value: 'WALLET' },
+                    ]}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>From:</span>
+                  <input
+                    type="date"
+                    value={txDateFrom}
+                    onChange={(e) => setTxDateFrom(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>To:</span>
+                  <input
+                    type="date"
+                    value={txDateTo}
+                    onChange={(e) => setTxDateTo(e.target.value)}
+                    style={{
+                      padding: '0.4rem 0.5rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: '11px',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.6rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                    Max: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>GH₵ {txMaxAmount}</strong>
+                  </span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="1000"
+                    value={txMaxAmount}
+                    onChange={(e) => setTxMaxAmount(Number(e.target.value))}
+                    style={{ width: '80px', cursor: 'pointer', accentColor: 'var(--color-brand-primary)' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {(txStatusFilter !== 'ALL' || txProviderFilter !== 'ALL' || txSearch.trim() || txDateFrom || txDateTo || txMaxAmount < 1000) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>Active Filters:</span>
+                <button
+                  type="button"
+                  onClick={() => { setTxStatusFilter('ALL'); setTxProviderFilter('ALL'); setTxSearch(''); setTxDateFrom(''); setTxDateTo(''); setTxMaxAmount(1000); }}
+                  style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand-primary)', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
+          </Card>
+
+          <Card
+            elevated
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
+            <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                User Payments & Payment Gateway Transactions
+              </h3>
+            </div>
+            <Table
+              minWidth="1100px"
+              headers={['Transaction ID', 'Amount (GHS)', 'Gateway / Provider', 'Payment Method', 'Payment Status', 'Timestamp']}
+            >
+              {filteredTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No payment gateway transactions found.
+                  </td>
+                </tr>
+              ) : (
+                filteredTransactions.map((t) => (
+                  <tr key={t.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
+                      {t.id.slice(0, 12)}...
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                      GH₵ {((t.amountPesewas || 0) / 100).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant="brand" size="sm">{t.provider || 'PAYSTACK'}</Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-xs)' }}>
+                      {t.paymentMethod || 'MoMo'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant={t.status === 'PAID' ? 'success' : 'warning'} size="sm" dot>
+                        {t.status}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {t.createdAt ? new Date(t.createdAt).toLocaleString() : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
+          </Card>
+        </div>
       )}
 
-      {/* TAB 5: Activity & Audit Stream (11.4.7) */}
+      {/* ========================================================================= */}
+      {/* TAB 6: Activity & Audit Stream */}
+      {/* ========================================================================= */}
       {activeTab === 'activity' && (
-        <Card elevated accentColor="purple" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-              11.4.7 Complete Account Audit Log
-            </h3>
-          </div>
-          <Table
-            headers={['Action', 'Actor Type', 'Actor ID', 'IP Address', 'Metadata', 'Timestamp']}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Filter Card */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
           >
-            {(userDetail?.activity || []).map((act, idx) => (
-              <tr key={act.id || idx} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                <td>
-                  <Badge variant="brand" size="sm">{act.action}</Badge>
-                </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)' }}>
-                  {act.actorType}
-                </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
-                  {act.actorId ? `${act.actorId.slice(0, 10)}...` : 'System'}
-                </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
-                  {act.ipAddress || '—'}
-                </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
-                  {act.metadata ? JSON.stringify(act.metadata) : '—'}
-                </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {act.createdAt ? new Date(act.createdAt).toLocaleString() : '—'}
-                </td>
-              </tr>
-            ))}
-          </Table>
-        </Card>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', justifyContent: 'space-between' }}>
+              <div style={{ flex: '1 1 240px', minWidth: '220px' }}>
+                <SearchInput
+                  value={activitySearch}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setActivitySearch(e.target.value)}
+                  placeholder="Search Action, Actor ID, IP Address..."
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>From:</span>
+                <input
+                  type="date"
+                  value={activityDateFrom}
+                  onChange={(e) => setActivityDateFrom(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.5rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: '11px',
+                  }}
+                />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>To:</span>
+                <input
+                  type="date"
+                  value={activityDateTo}
+                  onChange={(e) => setActivityDateTo(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.5rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: '11px',
+                  }}
+                />
+              </div>
+            </div>
+
+            {(activitySearch.trim() || activityDateFrom || activityDateTo) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>Active Filters:</span>
+                <button
+                  type="button"
+                  onClick={() => { setActivitySearch(''); setActivityDateFrom(''); setActivityDateTo(''); }}
+                  style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand-primary)', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
+          </Card>
+
+          <Card
+            elevated
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
+            <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                Complete Account Audit Log & Security Events
+              </h3>
+            </div>
+            <Table
+              minWidth="1100px"
+              headers={['Action', 'Actor Type', 'Actor ID', 'IP Address', 'Metadata', 'Timestamp']}
+            >
+              {filteredActivity.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No activity stream records found matching criteria.
+                  </td>
+                </tr>
+              ) : (
+                filteredActivity.map((act, idx) => (
+                  <tr key={act.id || idx} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant="brand" size="sm">{act.action}</Badge>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)' }}>
+                      {act.actorType}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                      {act.actorId ? `${act.actorId.slice(0, 10)}...` : 'System'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
+                      {act.ipAddress || '—'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
+                      {act.metadata ? JSON.stringify(act.metadata) : '—'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {act.createdAt ? new Date(act.createdAt).toLocaleString() : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
+          </Card>
+        </div>
       )}
 
-      {/* TAB 6: Sessions & Security (11.4.8) */}
+      {/* ========================================================================= */}
+      {/* TAB 7: Sessions & Security */}
+      {/* ========================================================================= */}
       {activeTab === 'sessions' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-                11.4.8 Active Device Sessions & Security Controls
+                Active Device Sessions & Security Controls
               </h2>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.125rem 0 0' }}>
                 Server-side session invalidation and password reset triggers.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <Button variant="outline" size="sm" onClick={handlePasswordReset} leftIcon={<Key size={14} />}>
-                Force Password Reset
-              </Button>
-              <Button variant="danger" size="sm" onClick={handleRevokeSessions} leftIcon={<LogOut size={14} />}>
-                Revoke All Sessions
-              </Button>
+              <button type="button" onClick={handlePasswordReset} style={tactileButtonStyle}>
+                <Key size={14} />
+                <span>Force Password Reset</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleRevokeSessions}
+                style={{
+                  ...tactileButtonStyle,
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  color: 'var(--color-danger)',
+                }}
+              >
+                <LogOut size={14} />
+                <span>Revoke All Sessions</span>
+              </button>
             </div>
           </div>
 
-          <Card elevated accentColor="purple" style={{ padding: 0, overflow: 'hidden' }}>
+          <Card
+            elevated
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <Table
+              minWidth="1000px"
               headers={['Device / User Agent', 'IP Address', 'Device ID', 'Last Active', 'Session Status']}
             >
-              {(userDetail?.activeSessions || []).map((s) => (
-                <tr key={s.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                  <td style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-                    {s.userAgent || 'Web Browser'}
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
-                    {s.ipAddress || '—'}
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                    {s.deviceId || '—'}
-                  </td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    {s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : '—'}
-                  </td>
-                  <td>
-                    <Badge variant={s.isRevoked ? 'danger' : 'success'} size="sm">
-                      {s.isRevoked ? 'REVOKED' : 'ACTIVE'}
-                    </Badge>
+              {(userDetail?.activeSessions || []).length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No active device sessions found.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                (userDetail?.activeSessions || []).map((s) => (
+                  <tr key={s.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                      {s.userAgent || 'Web Browser'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>
+                      {s.ipAddress || '—'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                      {s.deviceId || '—'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : '—'}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant={s.isRevoked ? 'danger' : 'success'} size="sm" dot>
+                        {s.isRevoked ? 'REVOKED' : 'ACTIVE'}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))
+              )}
             </Table>
           </Card>
         </div>
       )}
 
-      {/* TAB 7: Agent & Developer Portal (11.4.11 - 11.4.13) */}
+      {/* ========================================================================= */}
+      {/* TAB 8: Agent & Developer Portal */}
+      {/* ========================================================================= */}
       {activeTab === 'agent' && isAgent && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           {/* Agent Storefront Card */}
-          <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: '0 0 var(--space-4)' }}>
-              11.4.12 Agent Storefront Overview
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
+            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: '0 0 var(--space-4)', letterSpacing: '0.04em' }}>
+              Agent Storefront Overview
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)', fontSize: 'var(--font-size-xs)' }}>
               <div>
                 <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Store Name</span>
-                <strong>{userDetail?.agentData?.store?.storeName || 'No Storefront'}</strong>
+                <strong style={{ fontSize: '14px' }}>{userDetail?.agentData?.store?.storeName || 'No Storefront'}</strong>
               </div>
               <div>
                 <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Store Slug / URL</span>
@@ -1236,36 +2139,51 @@ export const AdminUserDetailPage: React.FC = () => {
               </div>
               <div>
                 <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Estimated Commission Earned</span>
-                <strong style={{ color: 'var(--color-success-bright)' }}>GH₵ {((userDetail?.agentData?.commissionEarnedPesewas || 0)/100).toFixed(2)}</strong>
+                <strong style={{ color: 'var(--color-success)', fontSize: '14px' }}>GH₵ {((userDetail?.agentData?.commissionEarnedPesewas || 0)/100).toFixed(2)}</strong>
               </div>
             </div>
           </Card>
 
           {/* API Keys Table */}
-          <Card elevated accentColor="orange" style={{ padding: 0, overflow: 'hidden' }}>
+          <Card
+            elevated
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <div style={{ padding: 'var(--space-4)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-                11.4.13 Provisioned API Keys (Secrets Masked)
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                Provisioned API Keys (Secrets Masked)
               </h3>
             </div>
             <Table
+              minWidth="1000px"
               headers={['Key Name', 'Prefix Identifier', 'Environment', 'Rate Limit Tier', 'Status', 'Last Used', 'Actions']}
             >
               {(userDetail?.agentData?.apiKeys || []).map((k) => (
                 <tr key={k.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                  <td style={{ fontWeight: 600 }}>{k.name}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{k.keyPrefix}...</td>
-                  <td><Badge variant="brand" size="sm">{k.environment}</Badge></td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)' }}>{k.rateLimitTier}</td>
-                  <td><Badge variant={k.status === 'ACTIVE' ? 'success' : 'danger'} size="sm">{k.status}</Badge></td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
+                  <td style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>{k.name}</td>
+                  <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{k.keyPrefix}...</td>
+                  <td style={{ padding: '0.85rem 1rem' }}><Badge variant="brand" size="sm">{k.environment}</Badge></td>
+                  <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)' }}>{k.rateLimitTier}</td>
+                  <td style={{ padding: '0.85rem 1rem' }}><Badge variant={k.status === 'ACTIVE' ? 'success' : 'danger'} size="sm" dot>{k.status}</Badge></td>
+                  <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
                     {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : 'Never'}
                   </td>
-                  <td>
+                  <td style={{ padding: '0.85rem 1rem' }}>
                     {k.status === 'ACTIVE' && (
-                      <div style={{ display: 'flex', gap: '0.25rem' }}>
-                        <Button variant="outline" size="sm" onClick={() => handleRotateApiKey(k.id)}>Rotate</Button>
-                        <Button variant="danger" size="sm" onClick={() => handleRevokeApiKey(k.id)}>Revoke</Button>
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        <button type="button" onClick={() => handleRotateApiKey(k.id)} style={{ ...tactileButtonStyle, padding: '0.3rem 0.6rem', fontSize: '11px' }}>
+                          Rotate
+                        </button>
+                        <button type="button" onClick={() => handleRevokeApiKey(k.id)} style={{ ...tactileButtonStyle, padding: '0.3rem 0.6rem', fontSize: '11px', color: 'var(--color-danger)' }}>
+                          Revoke
+                        </button>
                       </div>
                     )}
                   </td>
@@ -1276,55 +2194,81 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 8: Notifications Stream & Dispatch (11.4.14) */}
+      {/* ========================================================================= */}
+      {/* TAB 9: Notifications Stream & Dispatch */}
+      {/* ========================================================================= */}
       {activeTab === 'notifications' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0 }}>
-              11.4.14 Dispatched User Notifications
+            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+              Dispatched User Notifications
             </h3>
-            <Button variant="primary" size="sm" onClick={() => setIsNotifyModalOpen(true)} leftIcon={<Send size={14} />}>
-              Send Direct Notification
-            </Button>
+            <button
+              type="button"
+              onClick={() => setIsNotifyModalOpen(true)}
+              style={{
+                ...tactileButtonStyle,
+                color: 'var(--color-brand-primary, #0284C7)',
+              }}
+            >
+              <Send size={14} />
+              <span>Send Direct Notification</span>
+            </button>
           </div>
 
-          <Card elevated accentColor="blue" style={{ padding: 0, overflow: 'hidden' }}>
+          <Card
+            elevated
+            style={{
+              padding: 0,
+              overflow: 'hidden',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+            }}
+          >
             <Table
+              minWidth="1000px"
               headers={['Channel', 'Subject / Message Title', 'Message Content Snippet', 'Timestamp']}
             >
-              {(userDetail?.notifications || []).map((n) => (
-                <tr key={n.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                  <td><Badge variant="info" size="sm">{n.channel}</Badge></td>
-                  <td style={{ fontWeight: 600 }}>{n.subject || 'Account Notification'}</td>
-                  <td style={{ fontSize: 'var(--font-size-xs)' }}>{n.message || '—'}</td>
-                  <td style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
-                    {n.createdAt ? new Date(n.createdAt).toLocaleString() : '—'}
+              {(userDetail?.notifications || []).length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No notifications sent to this account yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                (userDetail?.notifications || []).map((n) => (
+                  <tr key={n.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <td style={{ padding: '0.85rem 1rem' }}><Badge variant="info" size="sm">{n.channel}</Badge></td>
+                    <td style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>{n.subject || 'Account Notification'}</td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-xs)' }}>{n.message || '—'}</td>
+                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
+                      {n.createdAt ? new Date(n.createdAt).toLocaleString() : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
             </Table>
           </Card>
         </div>
       )}
 
-      {/* ORDER LIFECYCLE DRAWER / MODAL (11.4.5) */}
-      {selectedOrder && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="cyan" style={{ maxWidth: '640px', width: '100%', padding: 'var(--space-6)', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <div>
-                <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0 }}>
-                  Order Lifecycle Pipeline
-                </h2>
-                <p style={{ fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', margin: '0.125rem 0 0' }}>
-                  Order ID: {selectedOrder.id} • Public ID: {selectedOrder.publicId || 'N/A'}
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedOrder(null)}>Close</Button>
-            </div>
+      {/* ========================================================================= */}
+      {/* MODALS STANDARDIZED WITH <Modal> */}
+      {/* ========================================================================= */}
 
-            {/* Lifecycle Pipeline Visualization */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', backgroundColor: 'var(--color-surface-subtle)', padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)' }}>
+      {/* 1. Order Lifecycle Pipeline Modal */}
+      {selectedOrder && (
+        <Modal
+          isOpen={true}
+          onClose={() => setSelectedOrder(null)}
+          title="Order Lifecycle Pipeline"
+          subtitle={`Order ID: ${selectedOrder.id} • Public ID: ${selectedOrder.publicId || 'N/A'}`}
+          maxWidth="560px"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>1. Payment State</span>
                 <Badge variant={selectedOrder.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">{selectedOrder.paymentStatus}</Badge>
@@ -1343,422 +2287,407 @@ export const AdminUserDetailPage: React.FC = () => {
               </div>
             </div>
 
-            <Card elevated accentColor="amber" style={{ padding: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
-              <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-warning-bright)', margin: 0 }}>
+            <div style={{ padding: 'var(--space-3)', backgroundColor: 'rgba(234, 179, 8, 0.08)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(234, 179, 8, 0.25)' }}>
+              <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-primary)', margin: 0 }}>
                 <strong>DataHouse Authority Rule:</strong> DataHouse remains authoritative for telecom fulfillment. Administrators cannot force-complete orders manually.
               </p>
-            </Card>
+            </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 'var(--space-2)' }}>
               <Button variant="primary" size="sm" onClick={() => setSelectedOrder(null)}>
                 Done
               </Button>
             </div>
-          </Card>
-        </div>
+          </div>
+        </Modal>
       )}
 
-      {/* Edit Profile Modal */}
+      {/* 2. Edit Profile Modal */}
       {isEditModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="blue" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-4)' }}>
-              Edit User Profile
-            </h2>
-            <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <Input
-                label="Full Name"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                required
-              />
-              <Input
-                label="Phone Number"
-                value={editPhone}
-                onChange={(e) => setEditPhone(e.target.value)}
-                required
-              />
-              <div style={{ display: 'flex', gap: '1rem', marginTop: 'var(--space-2)' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={editPhoneVerified}
-                    onChange={(e) => setEditPhoneVerified(e.target.checked)}
-                  />
-                  Phone Verified
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={editEmailVerified}
-                    onChange={(e) => setEditEmailVerified(e.target.checked)}
-                  />
-                  Email Verified
-                </label>
-              </div>
+        <Modal
+          isOpen={true}
+          onClose={() => setIsEditModalOpen(false)}
+          title="Edit User Profile"
+          subtitle="Update authoritative profile and verification flags."
+          maxWidth="460px"
+        >
+          <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <Input
+              label="Full Name"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              required
+            />
+            <Input
+              label="Phone Number"
+              value={editPhone}
+              onChange={(e) => setEditPhone(e.target.value)}
+              required
+            />
+            <div style={{ display: 'flex', gap: '1rem', marginTop: 'var(--space-1)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={editPhoneVerified}
+                  onChange={(e) => setEditPhoneVerified(e.target.checked)}
+                />
+                Phone Verified
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={editEmailVerified}
+                  onChange={(e) => setEditEmailVerified(e.target.checked)}
+                />
+                Email Verified
+              </label>
+            </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsEditModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" size="sm" isLoading={isUpdatingProfile}>
-                  Save Changes
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setIsEditModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" size="sm" isLoading={isUpdatingProfile}>
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
-      {/* Double-Entry Wallet Adjustment Modal (11.4.3) */}
+      {/* 3. Double-Entry Wallet Adjustment Modal */}
       {isAdjustModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="green" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
-              Double-Entry Wallet Adjustment
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Posts balanced journal voucher to financial_ledger paired against PLATFORM_RESERVE.
-            </p>
+        <Modal
+          isOpen={true}
+          onClose={() => setIsAdjustModalOpen(false)}
+          title="Double-Entry Wallet Adjustment"
+          subtitle="Posts balanced journal voucher to financial_ledger paired against PLATFORM_RESERVE."
+          maxWidth="460px"
+        >
+          <form onSubmit={handleAdjustWallet} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <Button
+                type="button"
+                variant={adjustType === 'CREDIT' ? 'primary' : 'secondary'}
+                size="sm"
+                fullWidth
+                onClick={() => setAdjustType('CREDIT')}
+                leftIcon={<PlusCircle size={14} />}
+              >
+                Credit Wallet
+              </Button>
+              <Button
+                type="button"
+                variant={adjustType === 'DEBIT' ? 'danger' : 'secondary'}
+                size="sm"
+                fullWidth
+                onClick={() => setAdjustType('DEBIT')}
+                leftIcon={<MinusCircle size={14} />}
+              >
+                Debit Wallet
+              </Button>
+            </div>
 
-            <form onSubmit={handleAdjustWallet} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <Button
-                  type="button"
-                  variant={adjustType === 'CREDIT' ? 'primary' : 'outline'}
-                  size="sm"
-                  fullWidth
-                  onClick={() => setAdjustType('CREDIT')}
-                  leftIcon={<PlusCircle size={14} />}
-                >
-                  Credit Wallet
-                </Button>
-                <Button
-                  type="button"
-                  variant={adjustType === 'DEBIT' ? 'danger' : 'outline'}
-                  size="sm"
-                  fullWidth
-                  onClick={() => setAdjustType('DEBIT')}
-                  leftIcon={<MinusCircle size={14} />}
-                >
-                  Debit Wallet
-                </Button>
+            <Input
+              label="Amount (GH₵)"
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={adjustAmountGhs}
+              onChange={(e) => setAdjustAmountGhs(e.target.value)}
+              placeholder="0.00"
+              required
+            />
+
+            <Input
+              label="Mandatory Audit Reason (min 5 chars)"
+              value={adjustReason}
+              onChange={(e) => setAdjustReason(e.target.value)}
+              placeholder="e.g. Manual MoMo deposit resolution"
+              required
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setIsAdjustModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant={adjustType === 'CREDIT' ? 'primary' : 'danger'} size="sm" isLoading={isAdjusting}>
+                Confirm {adjustType}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 4. Role Change Modal */}
+      {isRoleModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsRoleModalOpen(false)}
+          title="Change Account Role"
+          subtitle="Modifying roles will immediately invalidate all active sessions."
+          maxWidth="440px"
+        >
+          <form onSubmit={handleUpdateRole} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>New Role</label>
+              <select
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-border-subtle)',
+                }}
+              >
+                <option value="customer">Customer</option>
+                <option value="agent">Agent Reseller</option>
+                <option value="admin">Operations Admin</option>
+                <option value="super_admin">Super Administrator</option>
+              </select>
+            </div>
+
+            <Input
+              label="Reason for Role Change"
+              value={roleReason}
+              onChange={(e) => setRoleReason(e.target.value)}
+              placeholder="e.g. Approved Agent onboarding application"
+              required
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setIsRoleModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" size="sm" isLoading={isUpdatingRole}>
+                Confirm Role Change
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 5. Direct User Notification Modal */}
+      {isNotifyModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsNotifyModalOpen(false)}
+          title="Send Notification to User"
+          subtitle="Direct push notification dispatch to this account."
+          maxWidth="460px"
+        >
+          <form onSubmit={handleSendNotification} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>Channel</label>
+              <select
+                value={notifyChannel}
+                onChange={(e) => setNotifyChannel(e.target.value as any)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-border-subtle)',
+                }}
+              >
+                <option value="EMAIL">Email Relay</option>
+                <option value="SMS">SMS Gateway</option>
+                <option value="IN_APP">In-App Notification</option>
+              </select>
+            </div>
+
+            <Input
+              label="Subject"
+              value={notifySubject}
+              onChange={(e) => setNotifySubject(e.target.value)}
+              placeholder="Important account update"
+              required
+            />
+
+            <div>
+              <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>Message Content</label>
+              <textarea
+                value={notifyMessage}
+                onChange={(e) => setNotifyMessage(e.target.value)}
+                rows={4}
+                required
+                placeholder="Enter the body of the notification..."
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-border-subtle)',
+                  fontFamily: 'inherit',
+                  fontSize: 'var(--font-size-xs)',
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setIsNotifyModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" size="sm" isLoading={isSendingNotify}>
+                Send Notification
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 6. Suspension Modal */}
+      {isSuspendModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsSuspendModalOpen(false)}
+          title="Suspend User Account"
+          subtitle="Suspension immediately prevents storefront checkouts and authentication."
+          maxWidth="460px"
+        >
+          <form onSubmit={handleExecuteSuspend} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <Input
+              label="Mandatory Reason for Suspension"
+              value={suspendReason}
+              onChange={(e) => setSuspendReason(e.target.value)}
+              placeholder="e.g. Fraudulent transaction activity flagged"
+              required
+            />
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer', marginTop: 'var(--space-1)' }}>
+              <input
+                type="checkbox"
+                checked={suspendRevokeSessions}
+                onChange={(e) => setSuspendRevokeSessions(e.target.checked)}
+              />
+              Revoke all active device & API sessions
+            </label>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setIsSuspendModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="danger" size="sm" isLoading={isSuspending}>
+                Suspend Account
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 7. Export Dossier Modal */}
+      {isExportModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsExportModalOpen(false)}
+          title="Export User Dossier"
+          subtitle="Generates full account record (profile, orders, ledger, activity) excluding secrets."
+          maxWidth="440px"
+        >
+          <form onSubmit={handleExportDossier} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>Format</label>
+              <select
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value as any)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-border-subtle)',
+                }}
+              >
+                <option value="JSON">JSON Format</option>
+                <option value="CSV">CSV Format</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setIsExportModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" size="sm" isLoading={isExporting}>
+                Download Dossier
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 8. Edit Custom Bundle Price Modal */}
+      {editingPricingProduct && (
+        <Modal
+          isOpen={true}
+          onClose={() => setEditingPricingProduct(null)}
+          title="Set Custom Bundle Price"
+          subtitle={`${editingPricingProduct.productName} (${editingPricingProduct.network})`}
+          maxWidth="480px"
+        >
+          <form onSubmit={handleSaveCustomPricing} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-xs)', border: '1px solid var(--color-border-subtle)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Standard Retail Price:</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {(editingPricingProduct.basePricePesewas / 100).toFixed(2)}</span>
               </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Default Agent Wholesale:</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {(editingPricingProduct.defaultAgentPricePesewas / 100).toFixed(2)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>User Current Role:</span>
+                <span style={{ fontWeight: 700 }}>{userDetail?.user?.role?.toUpperCase() || 'CUSTOMER'}</span>
+              </div>
+            </div>
 
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, marginBottom: 'var(--space-1)' }}>
+                Custom Price for this User (GH₵)
+              </label>
               <Input
-                label="Amount (GH₵)"
                 type="number"
                 step="0.01"
                 min="0.01"
-                value={adjustAmountGhs}
-                onChange={(e) => setAdjustAmountGhs(e.target.value)}
-                placeholder="0.00"
                 required
+                placeholder="e.g. 4.50"
+                value={editCustomPriceGhs}
+                onChange={(e) => setEditCustomPriceGhs(e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}
               />
-
-              <Input
-                label="Mandatory Audit Reason (min 5 chars)"
-                value={adjustReason}
-                onChange={(e) => setAdjustReason(e.target.value)}
-                placeholder="e.g. Manual MoMo deposit resolution"
-                required
-              />
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsAdjustModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant={adjustType === 'CREDIT' ? 'primary' : 'danger'} size="sm" isLoading={isAdjusting}>
-                  Confirm {adjustType}
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
-
-      {/* Role Change Modal */}
-      {isRoleModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="purple" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
-              Change Account Role
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Modifying roles will immediately invalidate all active sessions.
-            </p>
-
-            <form onSubmit={handleUpdateRole} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>New Role</label>
-                <select
-                  value={selectedRole}
-                  onChange={(e) => setSelectedRole(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-surface)',
-                    color: 'var(--color-text-primary)',
-                    border: '1px solid var(--color-border-default)',
-                  }}
-                >
-                  <option value="customer">Customer</option>
-                  <option value="agent">Agent Reseller</option>
-                  <option value="admin">Operations Admin</option>
-                  <option value="super_admin">Super Administrator</option>
-                </select>
-              </div>
-
-              <Input
-                label="Reason for Role Change"
-                value={roleReason}
-                onChange={(e) => setRoleReason(e.target.value)}
-                placeholder="e.g. Approved Agent onboarding application"
-                required
-              />
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsRoleModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" size="sm" isLoading={isUpdatingRole}>
-                  Confirm Role Change
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
-
-      {/* Direct User Notification Modal */}
-      {isNotifyModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="blue" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-4)' }}>
-              Send Notification to User
-            </h2>
-            <form onSubmit={handleSendNotification} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>Channel</label>
-                <select
-                  value={notifyChannel}
-                  onChange={(e) => setNotifyChannel(e.target.value as any)}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-surface)',
-                    color: 'var(--color-text-primary)',
-                    border: '1px solid var(--color-border-default)',
-                  }}
-                >
-                  <option value="EMAIL">Email Relay</option>
-                  <option value="SMS">SMS Gateway</option>
-                  <option value="IN_APP">In-App Notification</option>
-                </select>
-              </div>
-
-              <Input
-                label="Subject"
-                value={notifySubject}
-                onChange={(e) => setNotifySubject(e.target.value)}
-                placeholder="Important account update"
-                required
-              />
-
-              <div>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>Message Content</label>
-                <textarea
-                  value={notifyMessage}
-                  onChange={(e) => setNotifyMessage(e.target.value)}
-                  rows={4}
-                  required
-                  placeholder="Enter the body of the notification..."
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-surface)',
-                    color: 'var(--color-text-primary)',
-                    border: '1px solid var(--color-border-default)',
-                    fontFamily: 'inherit',
-                    fontSize: 'var(--font-size-xs)',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsNotifyModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" size="sm" isLoading={isSendingNotify}>
-                  Send Notification
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
-
-      {/* Suspension Modal */}
-      {isSuspendModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="red" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
-              Suspend User Account
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Suspension immediately prevents storefront checkouts and authentication.
-            </p>
-
-            <form onSubmit={handleExecuteSuspend} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <Input
-                label="Mandatory Reason for Suspension"
-                value={suspendReason}
-                onChange={(e) => setSuspendReason(e.target.value)}
-                placeholder="e.g. Fraudulent transaction activity flagged"
-                required
-              />
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer', marginTop: 'var(--space-2)' }}>
-                <input
-                  type="checkbox"
-                  checked={suspendRevokeSessions}
-                  onChange={(e) => setSuspendRevokeSessions(e.target.checked)}
-                />
-                Revoke all active device & API sessions
-              </label>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsSuspendModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="danger" size="sm" isLoading={isSuspending}>
-                  Suspend Account
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
-
-      {/* Export Dossier Modal (11.4.15) */}
-      {isExportModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="blue" style={{ maxWidth: '440px', width: '100%', padding: 'var(--space-6)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: '0 0 var(--space-2)' }}>
-              Export User Dossier
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Generates full account record (profile, orders, ledger, activity) excluding secrets.
-            </p>
-
-            <form onSubmit={handleExportDossier} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>Format</label>
-                <select
-                  value={exportFormat}
-                  onChange={(e) => setExportFormat(e.target.value as any)}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-surface)',
-                    color: 'var(--color-text-primary)',
-                    border: '1px solid var(--color-border-default)',
-                  }}
-                >
-                  <option value="JSON">JSON Format</option>
-                  <option value="CSV">CSV Format</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsExportModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" size="sm" isLoading={isExporting}>
-                  Download Dossier
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
-
-      {/* EDIT CUSTOM BUNDLE PRICE MODAL */}
-      {editingPricingProduct && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="cyan" style={{ maxWidth: '480px', width: '100%', padding: 'var(--space-6)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <div>
-                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, margin: 0 }}>
-                  Set Custom Bundle Price
-                </h3>
-                <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', margin: '0.125rem 0 0' }}>
-                  {editingPricingProduct.productName} ({editingPricingProduct.network})
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setEditingPricingProduct(null)}>Close</Button>
             </div>
 
-            <form onSubmit={handleSaveCustomPricing} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', padding: 'var(--space-3)', backgroundColor: 'var(--color-surface-subtle)', borderRadius: 'var(--radius-md)', fontSize: 'var(--font-size-xs)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-muted)' }}>Standard Retail Price:</span>
-                  <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {(editingPricingProduct.basePricePesewas / 100).toFixed(2)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-muted)' }}>Default Agent Wholesale:</span>
-                  <span style={{ fontFamily: 'var(--font-mono)' }}>GH₵ {(editingPricingProduct.defaultAgentPricePesewas / 100).toFixed(2)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-muted)' }}>User Current Role:</span>
-                  <span style={{ fontWeight: 700 }}>{userDetail?.user?.role?.toUpperCase() || 'CUSTOMER'}</span>
-                </div>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input
+                type="checkbox"
+                id="customPriceActive"
+                checked={editCustomPriceActive}
+                onChange={(e) => setEditCustomPriceActive(e.target.checked)}
+              />
+              <label htmlFor="customPriceActive" style={{ fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                Enable this custom pricing override immediately
+              </label>
+            </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, marginBottom: 'var(--space-1)' }}>
-                  Custom Price for this User (GH₵)
-                </label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  required
-                  placeholder="e.g. 4.50"
-                  value={editCustomPriceGhs}
-                  onChange={(e) => setEditCustomPriceGhs(e.target.value)}
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <input
-                  type="checkbox"
-                  id="customPriceActive"
-                  checked={editCustomPriceActive}
-                  onChange={(e) => setEditCustomPriceActive(e.target.checked)}
-                />
-                <label htmlFor="customPriceActive" style={{ fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
-                  Enable this custom pricing override immediately
-                </label>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setEditingPricingProduct(null)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" size="sm" isLoading={isSavingPricing}>
-                  Save Custom Price
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setEditingPricingProduct(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" size="sm" isLoading={isSavingPricing}>
+                Save Custom Price
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );
 };
+
+export default AdminUserDetailPage;
