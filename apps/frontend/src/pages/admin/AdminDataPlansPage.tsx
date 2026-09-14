@@ -149,9 +149,12 @@ export const AdminDataPlansPage: React.FC = () => {
 
   const primaryButtonStyle: React.CSSProperties = {
     ...tactileButtonStyle,
-    backgroundColor: 'var(--color-brand-primary)',
-    color: '#fff',
-    border: '1px solid var(--color-brand-primary)',
+    background: 'linear-gradient(180deg, var(--color-primary-bright, #22C55E) 0%, var(--color-primary, #16A34A) 100%)',
+    backgroundColor: 'var(--color-brand, #16A34A)',
+    color: '#FFFFFF',
+    border: '1px solid rgba(255, 255, 255, 0.25)',
+    boxShadow: 'var(--shadow-tactile-btn, 0 4px 14px rgba(22, 163, 74, 0.35))',
+    fontWeight: 700,
   };
 
   const selectStyle: React.CSSProperties = {

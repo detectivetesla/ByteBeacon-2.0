@@ -208,6 +208,8 @@
   --color-primary-soft: var(--color-brand-surface);
   --color-primary-border: var(--color-brand-border);
   --color-primary-shadow: var(--color-brand-shadow);
+  --color-brand-primary: var(--color-brand);
+  --color-brand-primary-hover: var(--color-brand-hover);
 
   --color-status-success: var(--color-success);
   --color-status-success-bg: var(--color-success-surface);

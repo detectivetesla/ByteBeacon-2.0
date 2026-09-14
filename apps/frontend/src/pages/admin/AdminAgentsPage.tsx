@@ -127,6 +127,16 @@ export const AdminAgentsPage: React.FC = () => {
     boxShadow: 'var(--shadow-tactile-sm)',
   };
 
+  const primaryButtonStyle: React.CSSProperties = {
+    ...tactileButtonStyle,
+    background: 'linear-gradient(180deg, var(--color-primary-bright, #22C55E) 0%, var(--color-primary, #16A34A) 100%)',
+    backgroundColor: 'var(--color-brand, #16A34A)',
+    color: '#FFFFFF',
+    border: '1px solid rgba(255, 255, 255, 0.25)',
+    boxShadow: 'var(--shadow-tactile-btn, 0 4px 14px rgba(22, 163, 74, 0.35))',
+    fontWeight: 700,
+  };
+
   const selectStyle: React.CSSProperties = {
     padding: '0.45rem 0.75rem',
     borderRadius: 'var(--radius-md)',
@@ -489,12 +499,8 @@ export const AdminAgentsPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsCreateModalOpen(true)}
-            style={{
-              ...tactileButtonStyle,
-              backgroundColor: 'var(--color-brand-primary)',
-              color: '#fff',
-              border: '1px solid var(--color-brand-primary)',
-            }}
+            style={primaryButtonStyle}
+            title="Register New Agent Reseller"
           >
             <Plus size={14} />
             <span>Register Agent</span>
@@ -1214,10 +1220,7 @@ export const AdminAgentsPage: React.FC = () => {
               onClick={handleCreateAgent}
               disabled={isCreating}
               style={{
-                ...tactileButtonStyle,
-                backgroundColor: 'var(--color-brand-primary)',
-                color: '#fff',
-                border: '1px solid var(--color-brand-primary)',
+                ...primaryButtonStyle,
                 opacity: isCreating ? 0.6 : 1,
               }}
             >
@@ -1268,10 +1271,7 @@ export const AdminAgentsPage: React.FC = () => {
               onClick={handleUpdateStatus}
               disabled={isUpdatingStatus}
               style={{
-                ...tactileButtonStyle,
-                backgroundColor: 'var(--color-brand-primary)',
-                color: '#fff',
-                border: '1px solid var(--color-brand-primary)',
+                ...primaryButtonStyle,
                 opacity: isUpdatingStatus ? 0.6 : 1,
               }}
             >
@@ -1342,10 +1342,7 @@ export const AdminAgentsPage: React.FC = () => {
               onClick={handleAdjustWallet}
               disabled={isAdjustingWallet}
               style={{
-                ...tactileButtonStyle,
-                backgroundColor: 'var(--color-brand-primary)',
-                color: '#fff',
-                border: '1px solid var(--color-brand-primary)',
+                ...primaryButtonStyle,
                 opacity: isAdjustingWallet ? 0.6 : 1,
               }}
             >
@@ -1416,10 +1413,7 @@ export const AdminAgentsPage: React.FC = () => {
               onClick={handleSaveCustomPricing}
               disabled={isSavingPricing}
               style={{
-                ...tactileButtonStyle,
-                backgroundColor: 'var(--color-brand-primary)',
-                color: '#fff',
-                border: '1px solid var(--color-brand-primary)',
+                ...primaryButtonStyle,
                 opacity: isSavingPricing ? 0.6 : 1,
               }}
             >
