@@ -67,11 +67,13 @@ export const apiKeysApi = {
 
   getApiUsage: async (params?: {
     mode?: 'all' | 'live' | 'sandbox';
+    keyId?: string;
     page?: number;
     limit?: number;
   }): Promise<AgentApiUsageResponse> => {
     const query = new URLSearchParams();
     if (params?.mode) query.set('mode', params.mode);
+    if (params?.keyId) query.set('keyId', params.keyId);
     if (params?.page) query.set('page', String(params.page));
     if (params?.limit) query.set('limit', String(params.limit));
     const qs = query.toString() ? `?${query.toString()}` : '';

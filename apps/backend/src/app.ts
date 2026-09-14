@@ -283,8 +283,9 @@ export function createApp(options: AppOptions = {}) {
       return payload;
     }
 
-    if (typeof payload === 'string' && payload.length > 0) {
-      return payload
+    let outgoingPayload = payload;
+    if (!isAdminRoute && typeof payload === 'string' && payload.length > 0) {
+      outgoingPayload = payload
         .replace(/https?:\/\/api\.getmorepaylessdatahouse\.net(\/api\/v1)?/gi, 'https://api.bytebeacon.com/api/v1')
         .replace(/https?:\/\/www\.getmorepaylessdatahouse\.net(\/agent\/api)?/gi, '/agent/api')
         .replace(/getmorepaylessdatahouse\.net/gi, 'bytebeacon.com')
@@ -298,7 +299,18 @@ export function createApp(options: AppOptions = {}) {
         .replace(/Portal-02/gi, 'ByteBeacon');
     }
 
-    return payload;
+    try {
+      (request as any)._responsePayload =
+        typeof outgoingPayload === 'string'
+          ? outgoingPayload
+          : Buffer.isBuffer(outgoingPayload)
+          ? outgoingPayload.toString('utf8')
+          : null;
+    } catch {
+      // Non-blocking fallback
+    }
+
+    return outgoingPayload;
   });
 
   // 4. Initialize Core & Security Services with test fallbacks

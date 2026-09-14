@@ -34,6 +34,21 @@ const mockUsageData = {
     { method: 'GET' as const, path: '/api/v1/agent/orders', count: 34023 },
     { method: 'GET' as const, path: '/api/v1/agent/beneficiaries', count: 4897 },
   ],
+  apiKeysUsage: [
+    {
+      id: 'key_123',
+      name: 'Agent Live Key',
+      keyPrefix: 'ak_live_7xa9b8c1',
+      environment: 'LIVE' as const,
+      status: 'ACTIVE',
+      totalCalls: 1250,
+      successCount: 1245,
+      failureCount: 5,
+      successRatePercent: 99,
+      lastUsedAt: '2026-09-09T00:49:47.000Z',
+      avgLatencyMs: 42,
+    },
+  ],
   recentRequests: {
     items: [
       {
@@ -44,6 +59,14 @@ const mockUsageData = {
         path: '/api/v1/agent/orders',
         statusCode: 200,
         latencyMs: 10,
+        keyId: 'key_123',
+        keyName: 'Agent Live Key',
+        keyPrefix: 'ak_live_7xa9b8c1',
+        ipAddress: '197.251.130.45',
+        userAgent: 'ByteBeacon-SDK/2.0',
+        requestHeaders: { 'content-type': 'application/json', host: 'api.bytebeacon.com' },
+        requestPayload: null,
+        responsePayload: '{"success":true,"orders":[]}',
       },
       {
         id: 'req_1_2',
@@ -53,6 +76,11 @@ const mockUsageData = {
         path: '/api/v1/agent/beneficiaries',
         statusCode: 200,
         latencyMs: 238,
+        keyId: 'key_123',
+        keyName: 'Agent Live Key',
+        keyPrefix: 'ak_live_7xa9b8c1',
+        ipAddress: '197.251.130.45',
+        userAgent: 'ByteBeacon-SDK/2.0',
       },
     ],
     total: 209111,
@@ -230,5 +258,70 @@ describe('AgentApiUsagePage Suite', () => {
     expect(screen.getByText('0 live · 0 sandbox')).toBeInTheDocument();
     expect(screen.getByText('0 total')).toBeInTheDocument();
     expect(screen.getByText('No recent API requests found for this mode filter.')).toBeInTheDocument();
+  });
+
+  it('renders API keys attribution breakdown section and supports key filtering', async () => {
+    vi.mocked(apiKeysApi.getApiUsage).mockResolvedValue(mockUsageData as any);
+
+    render(
+      <MemoryRouter>
+        <AgentApiUsagePage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Agent API Keys & Attribution')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Agent Live Key')).toBeInTheDocument();
+    expect(screen.getByText('ak_live_7xa9b8c1...')).toBeInTheDocument();
+    expect(screen.getByText('1,250')).toBeInTheDocument();
+    expect(screen.getByText('99%')).toBeInTheDocument();
+
+    // Click on key card to activate filter
+    fireEvent.click(screen.getByText('Agent Live Key'));
+    await waitFor(() => {
+      expect(apiKeysApi.getApiUsage).toHaveBeenCalledWith(
+        expect.objectContaining({ keyId: 'key_123' }),
+      );
+    });
+  });
+
+  it('opens Request & Response Inspector modal upon clicking a request row', async () => {
+    vi.mocked(apiKeysApi.getApiUsage).mockResolvedValue(mockUsageData as any);
+
+    render(
+      <MemoryRouter>
+        <AgentApiUsagePage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText('/api/v1/agent/orders').length).toBeGreaterThan(0);
+    });
+
+    // Click on inspect button
+    const inspectBtn = screen.getAllByRole('button', { name: /Inspect →/i })[0];
+    fireEvent.click(inspectBtn);
+
+    // Modal opens
+    await waitFor(() => {
+      expect(screen.getByText('Overview')).toBeInTheDocument();
+      expect(screen.getByText('Request & Headers')).toBeInTheDocument();
+      expect(screen.getByText('Response Payload')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('197.251.130.45')).toBeInTheDocument();
+    expect(screen.getByText('ByteBeacon-SDK/2.0')).toBeInTheDocument();
+
+    // Switch to Response tab
+    fireEvent.click(screen.getByText('Response Payload'));
+    expect(screen.getByText('{"success":true,"orders":[]}')).toBeInTheDocument();
+
+    // Close modal
+    fireEvent.click(screen.getByRole('button', { name: /^Close$/i }));
+    await waitFor(() => {
+      expect(screen.queryByText('Response Payload')).not.toBeInTheDocument();
+    });
   });
 });

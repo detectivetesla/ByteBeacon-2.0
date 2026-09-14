@@ -29,11 +29,13 @@ describe('API Usage Telemetry Suite', () => {
         executedQueries.push({ sql: query, params });
         const sql = query.replace(/\s+/g, ' ');
 
-        if (sql.includes('SELECT id, agent_id, owner_user_id, environment FROM api_keys WHERE key_prefix = $1')) {
+        if (sql.includes('FROM api_keys WHERE key_prefix = $1')) {
           if (params[0] === 'ak_live_testpref') {
             return Promise.resolve({
               rows: [{
                 id: testKeyId,
+                name: 'Agent Main Production Key',
+                key_prefix: 'ak_live_testpref',
                 agent_id: testAgentId,
                 owner_user_id: testAgentUserId,
                 environment: 'LIVE',
@@ -55,7 +57,7 @@ describe('API Usage Telemetry Suite', () => {
           });
         }
 
-        if (sql.includes('SELECT id::text FROM api_keys WHERE agent_id::text = ANY($1::text[])')) {
+        if (sql.includes('SELECT id::text FROM api_keys')) {
           return Promise.resolve({
             rows: [{ id: testKeyId }],
           });
@@ -98,6 +100,23 @@ describe('API Usage Telemetry Suite', () => {
           });
         }
 
+        if (sql.includes('FROM api_keys k')) {
+          return Promise.resolve({
+            rows: [{
+              id: testKeyId,
+              name: 'Agent Main Production Key',
+              keyPrefix: 'ak_live_testpref',
+              environment: 'LIVE',
+              status: 'ACTIVE',
+              lastUsedAt: new Date().toISOString(),
+              totalCalls: '5',
+              successCount: '5',
+              failureCount: '0',
+              avgLatencyMs: '22',
+            }],
+          });
+        }
+
         if (sql.includes('SELECT COUNT(*) as total FROM api_usage_metrics m')) {
           return Promise.resolve({
             rows: [{ total: '5' }],
@@ -115,6 +134,17 @@ describe('API Usage Telemetry Suite', () => {
                 path: '/api/v1/agent/orders',
                 statusCode: 200,
                 latencyMs: 15,
+                ipAddress: '127.0.0.1',
+                userAgent: 'ByteBeacon-Agent/2.0',
+                keyId: testKeyId,
+                keyName: 'Agent Main Production Key',
+                keyPrefix: 'ak_live_testpref',
+                requestHeaders: { 'content-type': 'application/json' },
+                requestPayload: { bundleId: 'bundle-data-5gb' },
+                responseHeaders: { 'content-type': 'application/json' },
+                responsePayload: { success: true, orderId: 'ord-123' },
+                errorCode: null,
+                errorMessage: null,
               },
             ],
           });
@@ -165,27 +195,42 @@ describe('API Usage Telemetry Suite', () => {
         telemetryService.recordMetric({
           keyId: testKeyId,
           keyPrefix: 'ak_live_testpref',
+          keyName: 'Agent Main Production Key',
           userId: testAgentUserId,
+          agentId: testAgentId,
           environment: 'LIVE',
           endpoint: '/api/v1/orders',
           method: 'POST',
           statusCode: 201,
           responseTimeMs: 85,
           ipAddress: '127.0.0.1',
+          userAgent: 'ByteBeacon-Agent/2.0',
+          requestHeaders: { 'content-type': 'application/json' },
+          requestPayload: { bundleId: 'bundle-test', password: 'plain-secret-password' },
+          responseHeaders: { 'x-correlation-id': 'req-123' },
+          responsePayload: { success: true, token: 'secret-jwt-token' },
         }),
       ).resolves.not.toThrow();
 
       const insertQuery = executedQueries.find((q) => q.sql.includes('INSERT INTO api_usage_metrics'));
       expect(insertQuery).toBeDefined();
-      expect(insertQuery?.params[4]).toBe('/api/v1/orders');
-      expect(insertQuery?.params[5]).toBe('POST');
-      expect(insertQuery?.params[6]).toBe(201);
-      expect(insertQuery?.params[7]).toBe(85);
+      expect(insertQuery?.params[0]).toBe(testKeyId);
+      expect(insertQuery?.params[1]).toBe('ak_live_testpref');
+      expect(insertQuery?.params[2]).toBe('Agent Main Production Key');
+      expect(insertQuery?.params[4]).toBe(testAgentUserId);
+      expect(insertQuery?.params[5]).toBe(testAgentId);
+      expect(insertQuery?.params[6]).toBe('LIVE');
+      expect(insertQuery?.params[7]).toBe('/api/v1/orders');
+      expect(insertQuery?.params[8]).toBe('POST');
+      expect(insertQuery?.params[9]).toBe(201);
+      expect(insertQuery?.params[10]).toBe(85);
+      expect(insertQuery?.params[11]).toBe('127.0.0.1');
+      expect(insertQuery?.params[12]).toBe('ByteBeacon-Agent/2.0');
     });
   });
 
   describe('GET /api/v1/agent/api-usage Route', () => {
-    it('returns real aggregated metrics and daily series for authenticated agent', async () => {
+    it('returns real aggregated metrics, apiKeysUsage attribution, and daily series for authenticated agent', async () => {
       const authToken = tokenService.signAccessToken({
         sub: testAgentUserId,
         email: 'agent@test.com',
@@ -213,6 +258,15 @@ describe('API Usage Telemetry Suite', () => {
       expect(json.data.overview.failureRatePercent).toBe(0);
       expect(json.data.overview.avgLatencyMs).toBe(22);
 
+      // Verify individual agent API key attribution
+      expect(json.data.apiKeysUsage).toBeDefined();
+      expect(json.data.apiKeysUsage).toHaveLength(1);
+      expect(json.data.apiKeysUsage[0].id).toBe(testKeyId);
+      expect(json.data.apiKeysUsage[0].name).toBe('Agent Main Production Key');
+      expect(json.data.apiKeysUsage[0].keyPrefix).toBe('ak_live_testpref');
+      expect(json.data.apiKeysUsage[0].totalCalls).toBe(5);
+      expect(json.data.apiKeysUsage[0].successRatePercent).toBe(100);
+
       // Verify daily data
       expect(json.data.daily).toHaveLength(7);
       expect(json.data.daily[1].total).toBe(1);
@@ -222,11 +276,41 @@ describe('API Usage Telemetry Suite', () => {
       expect(json.data.topEndpoints[0].path).toBe('/api/v1/agent/orders');
       expect(json.data.topEndpoints[0].count).toBe(3);
 
-      // Verify recent requests pagination
+      // Verify recent requests pagination and full inspection payloads
       expect(json.data.recentRequests.total).toBe(5);
       expect(json.data.recentRequests.items).toHaveLength(1);
-      expect(json.data.recentRequests.items[0].path).toBe('/api/v1/agent/orders');
-      expect(json.data.recentRequests.items[0].latencyMs).toBe(15);
+      const item = json.data.recentRequests.items[0];
+      expect(item.path).toBe('/api/v1/agent/orders');
+      expect(item.latencyMs).toBe(15);
+      expect(item.keyId).toBe(testKeyId);
+      expect(item.keyName).toBe('Agent Main Production Key');
+      expect(item.keyPrefix).toBe('ak_live_testpref');
+      expect(item.ipAddress).toBe('127.0.0.1');
+      expect(item.userAgent).toBe('ByteBeacon-Agent/2.0');
+      expect(item.requestPayload).toEqual({ bundleId: 'bundle-data-5gb' });
+      expect(item.responsePayload).toEqual({ success: true, orderId: 'ord-123' });
+    });
+
+    it('filters usage by specific keyId when provided', async () => {
+      const authToken = tokenService.signAccessToken({
+        sub: testAgentUserId,
+        email: 'agent@test.com',
+        role: 'agent' as any,
+        domain: 'COMMERCE' as any,
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/v1/agent/api-usage?keyId=${testKeyId}&mode=live`,
+        headers: {
+          authorization: `Bearer ${authToken}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const json = JSON.parse(response.payload);
+      expect(json.success).toBe(true);
+      expect(json.data.recentRequests.items).toHaveLength(1);
     });
 
     it('returns accurate clean zero state when database has 0 records', async () => {

@@ -2956,6 +2956,20 @@ export interface AgentApiTopEndpointItem {
   count: number;
 }
 
+export interface AgentApiKeyUsageItem {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  environment: 'LIVE' | 'SANDBOX';
+  status: string;
+  totalCalls: number;
+  successCount: number;
+  failureCount: number;
+  successRatePercent: number;
+  lastUsedAt: string | null;
+  avgLatencyMs: number;
+}
+
 export interface AgentApiRequestLogItem {
   id: string;
   timestamp: string;
@@ -2964,12 +2978,24 @@ export interface AgentApiRequestLogItem {
   path: string;
   statusCode: number;
   latencyMs: number;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  keyId?: string | null;
+  keyName?: string | null;
+  keyPrefix?: string | null;
+  requestHeaders?: Record<string, string> | null;
+  requestPayload?: string | null;
+  responseHeaders?: Record<string, string> | null;
+  responsePayload?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
 }
 
 export interface AgentApiUsageResponse {
   overview: AgentApiUsageOverviewDto;
   daily: AgentApiDailyUsageItem[];
   topEndpoints: AgentApiTopEndpointItem[];
+  apiKeysUsage?: AgentApiKeyUsageItem[];
   recentRequests: {
     items: AgentApiRequestLogItem[];
     total: number;
@@ -2978,3 +3004,4 @@ export interface AgentApiUsageResponse {
     totalPages: number;
   };
 }
+

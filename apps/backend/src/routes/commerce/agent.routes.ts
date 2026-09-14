@@ -2881,6 +2881,7 @@ export async function agentRoutes(
 
   interface AgentApiUsageQuery {
     mode?: 'all' | 'live' | 'sandbox';
+    keyId?: string;
     page?: string;
     limit?: string;
   }
@@ -2890,7 +2891,7 @@ export async function agentRoutes(
     req: FastifyRequest<{ Querystring: AgentApiUsageQuery }>,
     reply: FastifyReply,
   ) => {
-    const { mode = 'all', page = '1', limit = '20' } = req.query || {};
+    const { mode = 'all', keyId, page = '1', limit = '20' } = req.query || {};
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const offset = (pageNum - 1) * limitNum;
@@ -2927,12 +2928,19 @@ export async function agentRoutes(
       // Non-blocking fallback
     }
 
-    // 3. Environment filter clause for recent requests
+    // 3. Environment & Key filter clauses
     let envClause = '';
     if (mode === 'live') {
       envClause = "AND m.environment = 'LIVE'";
     } else if (mode === 'sandbox') {
       envClause = "AND (m.environment = 'TEST' OR m.environment = 'SANDBOX')";
+    }
+
+    let specificKeyClause = '';
+    const queryParams: any[] = [candidateUserIds, candidateKeyIds];
+    if (keyId && candidateKeyIds.includes(keyId)) {
+      queryParams.push(keyId);
+      specificKeyClause = `AND m.key_id = $${queryParams.length}`;
     }
 
     // 4. Query 7-day Overview
@@ -2950,9 +2958,9 @@ export async function agentRoutes(
         (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
         OR
         (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
-      )
+      ) ${specificKeyClause}
       AND m.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`,
-      [candidateUserIds, candidateKeyIds],
+      queryParams,
     ).catch(() => ({ rows: [] }));
 
     const ov = overviewRes.rows[0] || {};
@@ -2977,10 +2985,10 @@ export async function agentRoutes(
           (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
           OR
           (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
-        )
+        ) ${specificKeyClause}
       GROUP BY d.day
       ORDER BY d.day ASC`,
-      [candidateUserIds, candidateKeyIds],
+      queryParams,
     ).catch(() => ({ rows: [] }));
 
     let dailyItems = (dailyRes.rows || []).map((r: any) => ({
@@ -3019,15 +3027,54 @@ export async function agentRoutes(
         (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
         OR
         (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
-      )
+      ) ${specificKeyClause}
       AND m.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
       GROUP BY m.method, m.endpoint
       ORDER BY count DESC
       LIMIT 5`,
-      [candidateUserIds, candidateKeyIds],
+      queryParams,
     ).catch(() => ({ rows: [] }));
 
-    // 7. Query Recent Requests Count & Page
+    // 7. Query Agent API Keys with usage metrics
+    const apiKeysUsageRes = await db.query(
+      `SELECT
+        k.id,
+        k.name,
+        k.key_prefix as "keyPrefix",
+        CASE WHEN k.environment = 'TEST' OR k.environment = 'SANDBOX' THEN 'SANDBOX' ELSE 'LIVE' END as environment,
+        k.status,
+        k.last_used_at as "lastUsedAt",
+        COUNT(m.id) as "totalCalls",
+        COUNT(CASE WHEN m.status_code >= 200 AND m.status_code < 400 THEN 1 END) as "successCount",
+        COUNT(CASE WHEN m.status_code >= 400 THEN 1 END) as "failureCount",
+        COALESCE(ROUND(AVG(m.response_time_ms)), 0) as "avgLatencyMs"
+      FROM api_keys k
+      LEFT JOIN api_usage_metrics m ON m.key_id = k.id
+      WHERE k.agent_id::text = ANY($1::text[]) OR k.owner_user_id::text = ANY($1::text[])
+      GROUP BY k.id, k.name, k.key_prefix, k.environment, k.status, k.last_used_at, k.created_at
+      ORDER BY k.created_at DESC`,
+      [candidateUserIds],
+    ).catch(() => ({ rows: [] }));
+
+    const apiKeysUsage = (apiKeysUsageRes.rows || []).map((r: any) => {
+      const total = parseInt(r.totalCalls || '0', 10);
+      const successes = parseInt(r.successCount || '0', 10);
+      return {
+        id: r.id,
+        name: r.name,
+        keyPrefix: r.keyPrefix,
+        environment: r.environment,
+        status: r.status || 'ACTIVE',
+        totalCalls: total,
+        successCount: successes,
+        failureCount: parseInt(r.failureCount || '0', 10),
+        successRatePercent: total > 0 ? Math.round((successes / total) * 100) : 100,
+        lastUsedAt: r.lastUsedAt ? new Date(r.lastUsedAt).toISOString() : null,
+        avgLatencyMs: parseInt(r.avgLatencyMs || '0', 10),
+      };
+    });
+
+    // 8. Query Recent Requests Count & Page
     const recentTotalRes = await db.query(
       `SELECT COUNT(*) as total 
       FROM api_usage_metrics m 
@@ -3035,10 +3082,14 @@ export async function agentRoutes(
         (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
         OR
         (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
-      ) ${envClause}`,
-      [candidateUserIds, candidateKeyIds],
+      ) ${envClause} ${specificKeyClause}`,
+      queryParams,
     ).catch(() => ({ rows: [{ total: '0' }] }));
     const recentTotal = parseInt(recentTotalRes.rows[0]?.total || '0', 10);
+
+    const recentItemsParams = [...queryParams, limitNum, offset];
+    const limitParamIdx = recentItemsParams.length - 1;
+    const offsetParamIdx = recentItemsParams.length;
 
     const recentItemsRes = await db.query(
       `SELECT
@@ -3048,17 +3099,56 @@ export async function agentRoutes(
         m.method,
         m.endpoint as path,
         m.status_code as "statusCode",
-        ROUND(m.response_time_ms) as "latencyMs"
+        ROUND(m.response_time_ms) as "latencyMs",
+        m.ip_address as "ipAddress",
+        COALESCE(m.user_agent, '') as "userAgent",
+        m.key_id as "keyId",
+        COALESCE(m.key_name, k.name, '') as "keyName",
+        COALESCE(m.key_prefix, k.key_prefix, '') as "keyPrefix",
+        m.request_headers as "requestHeaders",
+        m.request_payload as "requestPayload",
+        m.response_headers as "responseHeaders",
+        m.response_payload as "responsePayload",
+        m.error_code as "errorCode",
+        m.error_message as "errorMessage"
       FROM api_usage_metrics m
+      LEFT JOIN api_keys k ON k.id = m.key_id
       WHERE (
         (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
         OR
         (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
-      ) ${envClause}
+      ) ${envClause} ${specificKeyClause}
       ORDER BY m.created_at DESC
-      LIMIT $3 OFFSET $4`,
-      [candidateUserIds, candidateKeyIds, limitNum, offset],
-    ).catch(() => ({ rows: [] }));
+      LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
+      recentItemsParams,
+    ).catch(async () => {
+      return db.query(
+        `SELECT
+          m.id,
+          m.created_at as timestamp,
+          CASE WHEN m.environment = 'LIVE' THEN 'live' ELSE 'sandbox' END as mode,
+          m.method,
+          m.endpoint as path,
+          m.status_code as "statusCode",
+          ROUND(m.response_time_ms) as "latencyMs",
+          m.ip_address as "ipAddress",
+          m.key_id as "keyId",
+          COALESCE(k.name, '') as "keyName",
+          COALESCE(k.key_prefix, '') as "keyPrefix",
+          m.error_code as "errorCode",
+          m.error_message as "errorMessage"
+        FROM api_usage_metrics m
+        LEFT JOIN api_keys k ON k.id = m.key_id
+        WHERE (
+          (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
+          OR
+          (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+        ) ${envClause} ${specificKeyClause}
+        ORDER BY m.created_at DESC
+        LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
+        recentItemsParams,
+      ).catch(() => ({ rows: [] }));
+    });
 
     return reply.send({
       success: true,
@@ -3078,6 +3168,7 @@ export async function agentRoutes(
           path: r.path,
           count: parseInt(r.count || '0', 10),
         })),
+        apiKeysUsage,
         recentRequests: {
           items: recentItemsRes.rows || [],
           total: recentTotal,
