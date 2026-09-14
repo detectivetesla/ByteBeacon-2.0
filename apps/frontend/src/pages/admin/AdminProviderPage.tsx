@@ -34,6 +34,7 @@ import {
   Settings,
   Lock,
   Sliders,
+  Link2,
 } from 'lucide-react';
 
 import { AddProviderWizardModal } from '../../components/admin/telecom/AddProviderWizardModal.js';
@@ -45,6 +46,64 @@ import { ProviderIncidentModal } from '../../components/admin/telecom/ProviderIn
 import { NetworkEditModal } from '../../components/admin/telecom/NetworkEditModal.js';
 
 type TabType = 'networks' | 'providers' | 'health' | 'routing' | 'webhooks' | 'tests' | 'incidents';
+
+/* ── Standardised tactile button styles ─────────────────────── */
+const tactileButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.375rem',
+  padding: '0.4rem 0.85rem',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 600,
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--color-border-default)',
+  backgroundColor: 'var(--color-bg-surface-elevated)',
+  color: 'var(--color-text-primary)',
+  cursor: 'pointer',
+  boxShadow: 'var(--shadow-tactile-btn, 0 1px 2px rgba(0,0,0,.08))',
+  transition: 'all var(--transition-fast)',
+  whiteSpace: 'nowrap' as const,
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  ...tactileButtonStyle,
+  background: 'linear-gradient(180deg, var(--color-primary-bright, #22C55E) 0%, var(--color-primary, #16A34A) 100%)',
+  backgroundColor: '#16A34A',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255,255,255,0.18)',
+  fontWeight: 700,
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  ...tactileButtonStyle,
+  background: 'linear-gradient(180deg, #EF4444 0%, #DC2626 100%)',
+  backgroundColor: '#DC2626',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255,255,255,0.18)',
+  fontWeight: 700,
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: '0.4rem 0.65rem',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 600,
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--color-border-default)',
+  backgroundColor: 'var(--color-bg-surface-elevated)',
+  color: 'var(--color-text-primary)',
+  minWidth: '155px',
+  cursor: 'pointer',
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '0.5rem 0.75rem',
+  backgroundColor: 'var(--color-bg-surface-elevated)',
+  border: '1px solid var(--color-border-default)',
+  borderRadius: 'var(--radius-md)',
+  color: 'var(--color-text-primary)',
+  fontSize: 'var(--font-size-xs)',
+};
 
 export const AdminProviderPage: React.FC = () => {
   const { user } = useAuth();
@@ -249,19 +308,21 @@ export const AdminProviderPage: React.FC = () => {
     toastSuccess('Telecom Telemetry Refreshed', 'Live carrier networks & provider registry synchronized.');
   };
 
-  const tabs: { id: TabType; label: string; count?: number }[] = [
-    { id: 'networks', label: 'Carrier Networks', count: networks.length },
-    { id: 'providers', label: 'Provider Registry', count: providers.length },
-    { id: 'health', label: 'Provider Health & Telemetry' },
-    { id: 'routing', label: 'Routing & Authoritative Switch' },
-    { id: 'webhooks', label: 'Webhooks & Callbacks' },
-    { id: 'tests', label: 'Diagnostics & Sandbox' },
-    { id: 'incidents', label: 'Incidents & Status', count: incidents.filter((i) => i.status !== 'RESOLVED').length },
+  const openIncidents = incidents.filter((i) => i.status !== 'RESOLVED').length;
+
+  const tabs: { id: TabType; label: string; icon: React.ReactNode; count?: number }[] = [
+    { id: 'networks', label: 'Carrier Networks', icon: <Radio size={14} />, count: networks.length },
+    { id: 'providers', label: 'Provider Registry', icon: <Server size={14} />, count: providers.length },
+    { id: 'health', label: 'Health & Telemetry', icon: <Activity size={14} /> },
+    { id: 'routing', label: 'Routing & Switch', icon: <Sliders size={14} /> },
+    { id: 'webhooks', label: 'Webhooks', icon: <Link2 size={14} /> },
+    { id: 'tests', label: 'Diagnostics', icon: <Terminal size={14} /> },
+    { id: 'incidents', label: 'Incidents', icon: <AlertTriangle size={14} />, count: openIncidents },
   ];
 
   return (
-    <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* 1. Header & Actions */}
+    <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+      {/* ═══ 1. HEADER & ACTIONS ═══ */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <TactileIcon icon={Cpu} color="security" size="lg" />
@@ -284,29 +345,27 @@ export const AdminProviderPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
             onClick={fetchControlPlaneData}
             disabled={isLoading}
-            leftIcon={<RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />}
+            style={{ ...tactileButtonStyle, opacity: isLoading ? 0.7 : 1 }}
           >
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
             {isLoading ? 'Syncing...' : 'Refresh'}
-          </Button>
+          </button>
 
-          <Button
-            variant="primary"
-            size="sm"
+          <button
             onClick={() => setIsAddWizardOpen(true)}
-            leftIcon={<Plus size={14} />}
+            style={primaryButtonStyle}
           >
+            <Plus size={14} />
             Add Telecom Provider
-          </Button>
+          </button>
         </div>
       </div>
 
-      {/* 2. Top Telemetry KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
+      {/* ═══ 2. TOP TELEMETRY KPI CARDS ═══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Authoritative Provider"
           value={overview?.authoritativeProvider || 'DataHouse'}
@@ -337,21 +396,23 @@ export const AdminProviderPage: React.FC = () => {
         />
         <MetricCard
           title="Open Incidents"
-          value={`${incidents.filter((i) => i.status !== 'RESOLVED').length} active`}
-          subvalue={incidents.some((i) => i.status !== 'RESOLVED') ? 'Degraded routes detected' : 'All carrier routes healthy'}
-          accent={incidents.some((i) => i.status !== 'RESOLVED') ? 'amber' : 'green'}
-          icon={<TactileIcon icon={AlertTriangle} color={incidents.some((i) => i.status !== 'RESOLVED') ? 'speed' : 'security'} size="sm" />}
+          value={`${openIncidents} active`}
+          subvalue={openIncidents > 0 ? 'Degraded routes detected' : 'All carrier routes healthy'}
+          accent={openIncidents > 0 ? 'amber' : 'green'}
+          icon={<TactileIcon icon={AlertTriangle} color={openIncidents > 0 ? 'speed' : 'security'} size="sm" />}
         />
       </div>
 
-      {/* 3. 7-Tab Navigation Bar */}
+      {/* ═══ 3. TACTILE SEGMENTED TAB SWITCHER ═══ */}
       <div
         style={{
           display: 'flex',
           gap: '0.25rem',
-          borderBottom: '1px solid var(--color-border-default)',
+          padding: '0.25rem',
+          backgroundColor: 'var(--color-bg-surface-muted)',
+          borderRadius: 'var(--radius-xl)',
+          border: '1px solid var(--color-border-default)',
           overflowX: 'auto',
-          paddingBottom: '0.25rem',
         }}
       >
         {tabs.map((tab) => {
@@ -363,30 +424,32 @@ export const AdminProviderPage: React.FC = () => {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.625rem 1rem',
+                gap: '0.375rem',
+                padding: '0.5rem 0.875rem',
                 fontSize: 'var(--font-size-xs)',
                 fontWeight: isActive ? 700 : 600,
-                color: isActive ? 'var(--color-brand)' : 'var(--color-text-secondary)',
-                backgroundColor: isActive ? 'var(--color-brand-surface)' : 'transparent',
+                color: isActive ? 'var(--color-text-on-brand, #FFFFFF)' : 'var(--color-text-secondary)',
+                backgroundColor: isActive ? 'var(--color-brand)' : 'transparent',
                 border: 'none',
-                borderBottom: isActive ? '2px solid var(--color-brand)' : '2px solid transparent',
-                borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                borderRadius: 'var(--radius-lg)',
                 cursor: 'pointer',
                 transition: 'all var(--transition-fast)',
                 whiteSpace: 'nowrap',
+                boxShadow: isActive ? 'var(--shadow-tactile-btn, 0 1px 3px rgba(0,0,0,.12))' : 'none',
               }}
             >
+              {tab.icon}
               {tab.label}
               {tab.count !== undefined && (
                 <span
                   style={{
-                    padding: '0.125rem 0.4rem',
+                    padding: '0.0625rem 0.375rem',
                     fontSize: 'var(--font-size-3xs)',
                     fontWeight: 700,
                     borderRadius: 'var(--radius-full)',
-                    backgroundColor: isActive ? 'var(--color-brand)' : 'var(--color-bg-surface-muted)',
+                    backgroundColor: isActive ? 'rgba(255,255,255,0.25)' : 'var(--color-bg-surface-elevated)',
                     color: isActive ? '#FFFFFF' : 'var(--color-text-muted)',
+                    lineHeight: 1.4,
                   }}
                 >
                   {tab.count}
@@ -397,7 +460,7 @@ export const AdminProviderPage: React.FC = () => {
         })}
       </div>
 
-      {/* TAB 1: CARRIER NETWORKS */}
+      {/* ═══ TAB 1: CARRIER NETWORKS ═══ */}
       {activeTab === 'networks' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -410,9 +473,10 @@ export const AdminProviderPage: React.FC = () => {
               </p>
             </div>
             {networks.length === 0 && (
-              <Button size="sm" variant="ghost" onClick={handleInitializeDefaults} leftIcon={<Zap size={14} />}>
+              <button onClick={handleInitializeDefaults} style={tactileButtonStyle}>
+                <Zap size={14} />
                 Initialize Ghanaian MNOs
-              </Button>
+              </button>
             )}
           </div>
 
@@ -478,22 +542,19 @@ export const AdminProviderPage: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', gap: '0.5rem', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                    <button
                       onClick={() => setSelectedNetworkForEdit(net)}
-                      style={{ flex: 1 }}
-                      leftIcon={<Settings size={14} />}
+                      style={{ ...tactileButtonStyle, flex: 1, justifyContent: 'center' }}
                     >
+                      <Settings size={14} />
                       Configure
-                    </Button>
-                    <Button
-                      variant={net.isActive ? 'danger' : 'primary'}
-                      size="sm"
+                    </button>
+                    <button
                       onClick={() => handleToggleNetwork(net.code)}
+                      style={{ ...(net.isActive ? dangerButtonStyle : primaryButtonStyle), flex: 'none', padding: '0.4rem 1rem' }}
                     >
                       {net.isActive ? 'Disable' : 'Enable'}
-                    </Button>
+                    </button>
                   </div>
                 </Card>
               );
@@ -502,7 +563,7 @@ export const AdminProviderPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: PROVIDER REGISTRY */}
+      {/* ═══ TAB 2: PROVIDER REGISTRY ═══ */}
       {activeTab === 'providers' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -514,9 +575,10 @@ export const AdminProviderPage: React.FC = () => {
                 All registered multi-carrier aggregators and direct MNO adapters loaded into ByteBeacon.
               </p>
             </div>
-            <Button size="sm" variant="primary" onClick={() => setIsAddWizardOpen(true)} leftIcon={<Plus size={14} />}>
+            <button onClick={() => setIsAddWizardOpen(true)} style={primaryButtonStyle}>
+              <Plus size={14} />
               Register New Adapter
-            </Button>
+            </button>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 'var(--space-4)' }}>
@@ -576,18 +638,18 @@ export const AdminProviderPage: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
-                  <Button size="sm" variant="ghost" onClick={() => setSelectedProviderForDossier(prov)}>
+                  <button onClick={() => setSelectedProviderForDossier(prov)} style={{ ...tactileButtonStyle, justifyContent: 'center', padding: '0.35rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}>
                     Dossier
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setSelectedProviderForTest(prov)}>
-                    ⚡ Test
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setSelectedProviderForCaps(prov)}>
-                    🔍 Caps
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setSelectedProviderForSandbox(prov)}>
-                    🧪 Sbx
-                  </Button>
+                  </button>
+                  <button onClick={() => setSelectedProviderForTest(prov)} style={{ ...tactileButtonStyle, justifyContent: 'center', padding: '0.35rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}>
+                    <Zap size={12} /> Test
+                  </button>
+                  <button onClick={() => setSelectedProviderForCaps(prov)} style={{ ...tactileButtonStyle, justifyContent: 'center', padding: '0.35rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}>
+                    <Sliders size={12} /> Caps
+                  </button>
+                  <button onClick={() => setSelectedProviderForSandbox(prov)} style={{ ...tactileButtonStyle, justifyContent: 'center', padding: '0.35rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}>
+                    <Terminal size={12} /> Sbx
+                  </button>
                 </div>
               </Card>
             ))}
@@ -595,7 +657,7 @@ export const AdminProviderPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 3: HEALTH & TELEMETRY */}
+      {/* ═══ TAB 3: HEALTH & TELEMETRY ═══ */}
       {activeTab === 'health' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div>
@@ -663,14 +725,13 @@ export const AdminProviderPage: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                  <button
                     onClick={() => setSelectedProviderForTest(p)}
-                    leftIcon={<Zap size={14} />}
+                    style={tactileButtonStyle}
                   >
+                    <Zap size={14} />
                     Run Diagnostic Probe
-                  </Button>
+                  </button>
                 </div>
               </Card>
             ))}
@@ -678,7 +739,7 @@ export const AdminProviderPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 4: ROUTING & AUTHORITATIVE SWITCH */}
+      {/* ═══ TAB 4: ROUTING & AUTHORITATIVE SWITCH ═══ */}
       {activeTab === 'routing' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           {/* Section 1: Routing Matrix */}
@@ -724,15 +785,15 @@ export const AdminProviderPage: React.FC = () => {
             </div>
 
             {/* Edit Routing Form */}
-            <form onSubmit={handleUpdateRouting} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-3)', alignItems: 'end', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
-              <div>
+            <form onSubmit={handleUpdateRouting} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
+              <div style={{ flex: '1 1 150px', minWidth: '150px' }}>
                 <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
                   Carrier Network
                 </label>
                 <select
                   value={selectedRoutingNet}
                   onChange={(e) => setSelectedRoutingNet(e.target.value as NetworkProvider)}
-                  style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+                  style={selectStyle}
                 >
                   <option value={NetworkProvider.MTN}>MTN Ghana</option>
                   <option value={NetworkProvider.TELECEL}>Telecel Ghana</option>
@@ -740,14 +801,14 @@ export const AdminProviderPage: React.FC = () => {
                 </select>
               </div>
 
-              <div>
+              <div style={{ flex: '1 1 150px', minWidth: '150px' }}>
                 <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
                   Primary Adapter
                 </label>
                 <select
                   value={selectedPrimary}
                   onChange={(e) => setSelectedPrimary(e.target.value)}
-                  style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+                  style={selectStyle}
                 >
                   {providers.map((p) => (
                     <option key={p.id} value={p.name}>
@@ -757,14 +818,14 @@ export const AdminProviderPage: React.FC = () => {
                 </select>
               </div>
 
-              <div>
+              <div style={{ flex: '1 1 150px', minWidth: '150px' }}>
                 <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
                   Fallback Adapter
                 </label>
                 <select
                   value={selectedFallback}
                   onChange={(e) => setSelectedFallback(e.target.value)}
-                  style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+                  style={selectStyle}
                 >
                   {providers.map((p) => (
                     <option key={p.id} value={p.name}>
@@ -774,9 +835,9 @@ export const AdminProviderPage: React.FC = () => {
                 </select>
               </div>
 
-              <Button type="submit" variant="primary" disabled={isUpdatingRouting} style={{ width: '100%' }}>
+              <button type="submit" disabled={isUpdatingRouting} style={{ ...primaryButtonStyle, padding: '0.5rem 1.25rem' }}>
                 {isUpdatingRouting ? 'Saving...' : 'Update Carrier Routing'}
-              </Button>
+              </button>
             </form>
           </Card>
 
@@ -805,7 +866,7 @@ export const AdminProviderPage: React.FC = () => {
                 <select
                   value={targetSwitchProvider}
                   onChange={(e) => setTargetSwitchProvider(e.target.value)}
-                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+                  style={selectStyle}
                 >
                   {providers.map((p) => (
                     <option key={p.id} value={p.name}>
@@ -815,14 +876,14 @@ export const AdminProviderPage: React.FC = () => {
                 </select>
               </div>
 
-              <Button
-                variant="primary"
+              <button
                 onClick={handleValidateSwitch}
                 disabled={isValidatingSwitch}
-                leftIcon={<Zap size={14} />}
+                style={{ ...primaryButtonStyle, opacity: isValidatingSwitch ? 0.7 : 1 }}
               >
+                <Zap size={14} />
                 {isValidatingSwitch ? 'Verifying Pre-Flight Checklist...' : 'Run Pre-Flight Validation'}
-              </Button>
+              </button>
             </div>
 
             {switchValidation && (
@@ -877,23 +938,22 @@ export const AdminProviderPage: React.FC = () => {
                         value={switchReason}
                         onChange={(e) => setSwitchReason(e.target.value)}
                         placeholder="e.g. Scheduled migration to primary carrier interconnect"
-                        style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+                        style={inputStyle}
                       />
                     </div>
 
-                    <Button
-                      variant="primary"
+                    <button
                       onClick={handleExecuteSwitch}
                       disabled={isSwitching || !switchReason || !isSuperAdmin}
-                      style={{ width: '100%' }}
-                      leftIcon={isSuperAdmin ? <ShieldCheck size={14} /> : <Lock size={14} />}
+                      style={{ ...primaryButtonStyle, width: '100%', justifyContent: 'center', padding: '0.55rem 1rem', opacity: (isSwitching || !switchReason || !isSuperAdmin) ? 0.6 : 1 }}
                     >
+                      {isSuperAdmin ? <ShieldCheck size={14} /> : <Lock size={14} />}
                       {isSwitching
                         ? 'Executing Atomic Authority Switch...'
                         : isSuperAdmin
                         ? `Promote ${switchValidation.targetProvider} to Authoritative Fulfiller`
                         : 'Super Admin Authorization Required'}
-                    </Button>
+                    </button>
                   </div>
                 )}
               </div>
@@ -902,7 +962,7 @@ export const AdminProviderPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 5: WEBHOOKS */}
+      {/* ═══ TAB 5: WEBHOOKS ═══ */}
       {activeTab === 'webhooks' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div>
@@ -932,14 +992,13 @@ export const AdminProviderPage: React.FC = () => {
                       <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-brand)', fontWeight: 700 }}>
                         {url}
                       </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
+                      <button
                         onClick={() => handleCopyWebhook(url, p.slug)}
-                        leftIcon={copiedSlug === p.slug ? <Check size={12} /> : <Copy size={12} />}
+                        style={{ ...tactileButtonStyle, padding: '0.2rem 0.5rem', fontSize: 'var(--font-size-2xs)' }}
                       >
+                        {copiedSlug === p.slug ? <Check size={12} /> : <Copy size={12} />}
                         {copiedSlug === p.slug ? 'Copied' : 'Copy'}
-                      </Button>
+                      </button>
                     </div>
                   </div>
 
@@ -970,7 +1029,7 @@ export const AdminProviderPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 6: TESTS (3-TIER DIAGNOSTICS) */}
+      {/* ═══ TAB 6: TESTS (3-TIER DIAGNOSTICS) ═══ */}
       {activeTab === 'tests' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div>
@@ -998,33 +1057,27 @@ export const AdminProviderPage: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                  <button
                     onClick={() => setSelectedProviderForTest(p)}
-                    leftIcon={<Zap size={14} />}
-                    style={{ justifyContent: 'flex-start' }}
+                    style={{ ...tactileButtonStyle, justifyContent: 'flex-start' }}
                   >
-                    ⚡ Test Connection (DNS, TLS, Auth)
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                    <Zap size={14} />
+                    Test Connection (DNS, TLS, Auth)
+                  </button>
+                  <button
                     onClick={() => setSelectedProviderForCaps(p)}
-                    leftIcon={<Sliders size={14} />}
-                    style={{ justifyContent: 'flex-start' }}
+                    style={{ ...tactileButtonStyle, justifyContent: 'flex-start' }}
                   >
-                    🔍 Test Capabilities (12-Feature Audit)
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                    <Sliders size={14} />
+                    Test Capabilities (12-Feature Audit)
+                  </button>
+                  <button
                     onClick={() => setSelectedProviderForSandbox(p)}
-                    leftIcon={<Terminal size={14} />}
-                    style={{ justifyContent: 'flex-start' }}
+                    style={{ ...tactileButtonStyle, justifyContent: 'flex-start' }}
                   >
-                    🧪 Run Sandbox Transaction Test
-                  </Button>
+                    <Terminal size={14} />
+                    Run Sandbox Transaction Test
+                  </button>
                 </div>
               </Card>
             ))}
@@ -1032,7 +1085,7 @@ export const AdminProviderPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 7: INCIDENTS */}
+      {/* ═══ TAB 7: INCIDENTS ═══ */}
       {activeTab === 'incidents' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1044,17 +1097,16 @@ export const AdminProviderPage: React.FC = () => {
                 Active degraded carrier routes and mitigation audit trail.
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="danger"
+            <button
               onClick={() => {
                 setSelectedIncidentForEdit(null);
                 setIsIncidentModalOpen(true);
               }}
-              leftIcon={<AlertTriangle size={14} />}
+              style={dangerButtonStyle}
             >
+              <AlertTriangle size={14} />
               Report Incident
-            </Button>
+            </button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
@@ -1086,16 +1138,15 @@ export const AdminProviderPage: React.FC = () => {
                     </span>
                   </div>
 
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                  <button
                     onClick={() => {
                       setSelectedIncidentForEdit(inc);
                       setIsIncidentModalOpen(true);
                     }}
+                    style={tactileButtonStyle}
                   >
                     Manage Incident
-                  </Button>
+                  </button>
                 </Card>
               ))
             ) : (
@@ -1109,7 +1160,7 @@ export const AdminProviderPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODALS */}
+      {/* ═══ MODALS ═══ */}
       <AddProviderWizardModal
         isOpen={isAddWizardOpen}
         onClose={() => setIsAddWizardOpen(false)}

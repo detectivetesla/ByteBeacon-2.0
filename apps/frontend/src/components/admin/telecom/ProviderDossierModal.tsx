@@ -5,9 +5,8 @@ import {
 } from '@bytebeacon/shared';
 import { adminApi } from '../../../api/admin.api.js';
 import { Modal } from '../../ui/Modal/Modal.js';
-import { Button } from '../../ui/Button/Button.js';
 import { Badge, NetworkBadge } from '../../ui/Badge/Badge.js';
-import { ShieldCheck, RotateCcw } from 'lucide-react';
+import { ShieldCheck, RotateCcw, Activity, Sliders, Radio } from 'lucide-react';
 
 interface ProviderDossierModalProps {
   provider: TelecomProviderDetailDto;
@@ -15,6 +14,51 @@ interface ProviderDossierModalProps {
   onClose: () => void;
   onRefresh: () => void;
 }
+
+const tactileButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.375rem',
+  padding: '0.4rem 0.85rem',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 600,
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--color-border-default)',
+  backgroundColor: 'var(--color-bg-surface-elevated)',
+  color: 'var(--color-text-primary)',
+  cursor: 'pointer',
+  boxShadow: 'var(--shadow-tactile-btn, 0 1px 2px rgba(0,0,0,.08))',
+  transition: 'all var(--transition-fast)',
+  whiteSpace: 'nowrap',
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  ...tactileButtonStyle,
+  background: 'linear-gradient(180deg, var(--color-primary-bright, #22C55E) 0%, var(--color-primary, #16A34A) 100%)',
+  backgroundColor: '#16A34A',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255,255,255,0.18)',
+  fontWeight: 700,
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  ...tactileButtonStyle,
+  background: 'linear-gradient(180deg, #EF4444 0%, #DC2626 100%)',
+  backgroundColor: '#DC2626',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255,255,255,0.18)',
+  fontWeight: 700,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '0.5rem 0.75rem',
+  backgroundColor: 'var(--color-bg-surface)',
+  border: '1px solid var(--color-border-default)',
+  borderRadius: 'var(--radius-md)',
+  color: 'var(--color-text-primary)',
+  fontSize: 'var(--font-size-xs)',
+};
 
 export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
   provider,
@@ -85,12 +129,22 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
         {/* Tab switcher */}
-        <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--color-border-default)' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: '0.25rem',
+            padding: '0.25rem',
+            backgroundColor: 'var(--color-bg-surface-muted)',
+            borderRadius: 'var(--radius-xl)',
+            border: '1px solid var(--color-border-default)',
+            overflowX: 'auto',
+          }}
+        >
           {[
-            { id: 'overview', label: 'Overview & Telemetry' },
-            { id: 'credentials', label: 'Credentials Vault' },
-            { id: 'capabilities', label: 'Capabilities' },
-            { id: 'networks', label: 'Carrier Mappings' },
+            { id: 'overview', label: 'Overview & Telemetry', icon: <Activity size={14} /> },
+            { id: 'credentials', label: 'Credentials Vault', icon: <ShieldCheck size={14} /> },
+            { id: 'capabilities', label: 'Capabilities', icon: <Sliders size={14} /> },
+            { id: 'networks', label: 'Carrier Mappings', icon: <Radio size={14} /> },
           ].map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -99,18 +153,23 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
                 type="button"
                 onClick={() => setActiveTab(tab.id as any)}
                 style={{
-                  padding: '0.5rem 0.875rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  padding: '0.45rem 0.75rem',
                   fontSize: 'var(--font-size-xs)',
                   fontWeight: isActive ? 700 : 600,
-                  color: isActive ? 'var(--color-brand)' : 'var(--color-text-secondary)',
-                  backgroundColor: isActive ? 'var(--color-brand-surface)' : 'transparent',
+                  color: isActive ? 'var(--color-text-on-brand, #FFFFFF)' : 'var(--color-text-secondary)',
+                  backgroundColor: isActive ? 'var(--color-brand)' : 'transparent',
                   border: 'none',
-                  borderBottom: isActive ? '2px solid var(--color-brand)' : '2px solid transparent',
-                  borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                  borderRadius: 'var(--radius-lg)',
                   cursor: 'pointer',
                   transition: 'all var(--transition-fast)',
+                  whiteSpace: 'nowrap',
+                  boxShadow: isActive ? 'var(--shadow-tactile-btn, 0 1px 3px rgba(0,0,0,.12))' : 'none',
                 }}
               >
+                {tab.icon}
                 {tab.label}
               </button>
             );
@@ -186,14 +245,14 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
               <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
                 Server-side encrypted credential store. Keys are masked to prevent exposure.
               </span>
-              <Button
-                size="sm"
-                variant="ghost"
+              <button
+                type="button"
                 onClick={() => setRotateMode(!rotateMode)}
-                leftIcon={<RotateCcw size={14} />}
+                style={tactileButtonStyle}
               >
+                <RotateCcw size={14} />
                 {rotateMode ? 'Cancel' : 'Rotate API Key'}
-              </Button>
+              </button>
             </div>
 
             {rotateMode && (
@@ -210,7 +269,7 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
                     value={rotateData.newApiKey}
                     onChange={(e) => setRotateData({ ...rotateData, newApiKey: e.target.value })}
                     placeholder="Enter new API key"
-                    style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+                    style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }}
                   />
                 </div>
                 <div>
@@ -222,18 +281,18 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
                     value={rotateData.reason}
                     onChange={(e) => setRotateData({ ...rotateData, reason: e.target.value })}
                     placeholder="e.g. Scheduled quarterly rotation or key compromise mitigation"
-                    style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}
+                    style={inputStyle}
                   />
                 </div>
-                <Button
-                  variant="primary"
-                  size="sm"
+                <button
+                  type="button"
                   onClick={handleRotate}
                   disabled={isRotating}
-                  leftIcon={<ShieldCheck size={14} />}
+                  style={primaryButtonStyle}
                 >
+                  <ShieldCheck size={14} />
                   {isRotating ? 'Rotating...' : 'Confirm Key Rotation in Vault'}
-                </Button>
+                </button>
               </div>
             )}
 
@@ -344,9 +403,9 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-default)' }}>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {!provider.isAuthoritative && (
-              <Button
-                variant="danger"
-                size="sm"
+              <button
+                type="button"
+                style={dangerButtonStyle}
                 onClick={async () => {
                   if (!window.confirm(`Are you sure you want to delete provider "${provider.name}"?`)) return;
                   try {
@@ -359,11 +418,11 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
                 }}
               >
                 Delete Provider
-              </Button>
+              </button>
             )}
-            <Button
-              variant={provider.status === 'ACTIVE' ? 'outline' : 'primary'}
-              size="sm"
+            <button
+              type="button"
+              style={provider.status === 'ACTIVE' ? tactileButtonStyle : primaryButtonStyle}
               onClick={async () => {
                 const nextStatus = provider.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
                 try {
@@ -375,12 +434,12 @@ export const ProviderDossierModal: React.FC<ProviderDossierModalProps> = ({
                 }
               }}
             >
-              {provider.status === 'ACTIVE' ? 'Disable' : 'Enable'}
-            </Button>
+              {provider.status === 'ACTIVE' ? 'Disable Provider' : 'Enable Provider'}
+            </button>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <button type="button" style={tactileButtonStyle} onClick={onClose}>
             Close Dossier
-          </Button>
+          </button>
         </div>
       </div>
     </Modal>
