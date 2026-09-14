@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
-import { Table, Pagination } from '../../components/ui/Table/Table.js';
-import { Select, SearchInput, Modal } from '../../components/ui/index.js';
-import { Button } from '../../components/ui/Button/Button.js';
+import { Pagination } from '../../components/ui/Table/Table.js';
+import { SearchInput, Modal } from '../../components/ui/index.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
+import { useToast } from '../../context/ToastContext.js';
 import {
   Database,
   RefreshCw,
@@ -19,6 +19,13 @@ import {
   CheckCircle,
   Eye,
   PlusCircle,
+  Check,
+  X,
+  ExternalLink,
+  Copy,
+  Clock,
+  ChevronRight,
+  Sliders,
 } from 'lucide-react';
 import {
   adminApi,
@@ -29,7 +36,58 @@ import {
   FinancialAdjustmentDto,
 } from '../../api/admin.api.js';
 
+// Standardized Tactile Button & Input Styles
+const tactileButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.45rem',
+  padding: '0.45rem 0.85rem',
+  borderRadius: 'var(--radius-md)',
+  backgroundColor: 'var(--color-bg-surface)',
+  border: '1px solid var(--color-border-subtle)',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 700,
+  color: 'var(--color-text-primary)',
+  cursor: 'pointer',
+  transition: 'all var(--transition-fast)',
+  boxShadow: 'var(--shadow-tactile-sm)',
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  ...tactileButtonStyle,
+  background: 'linear-gradient(180deg, var(--color-primary-bright, #22C55E) 0%, var(--color-primary, #16A34A) 100%)',
+  backgroundColor: 'var(--color-brand, #16A34A)',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255, 255, 255, 0.25)',
+  boxShadow: 'var(--shadow-tactile-btn, 0 4px 14px rgba(22, 163, 74, 0.35))',
+  fontWeight: 700,
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  ...tactileButtonStyle,
+  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+  color: 'var(--color-danger, #EF4444)',
+  border: '1px solid rgba(239, 68, 68, 0.25)',
+  fontWeight: 700,
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: '0.45rem 0.75rem',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border-subtle)',
+  backgroundColor: 'var(--color-bg-surface)',
+  color: 'var(--color-text-primary)',
+  fontSize: '11px',
+  fontWeight: 600,
+  cursor: 'pointer',
+  outline: 'none',
+  minWidth: '135px',
+  boxShadow: 'var(--shadow-tactile-sm)',
+};
+
 export const AdminLedgerPage: React.FC = () => {
+  const { toastSuccess, toastError, toastWarning, toastInfo } = useToast();
+
   const [activeTab, setActiveTab] = useState<'TRANSACTIONS' | 'LEDGER' | 'ADJUSTMENTS'>('TRANSACTIONS');
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState<AdminFinanceStats | null>(null);
@@ -44,10 +102,11 @@ export const AdminLedgerPage: React.FC = () => {
   const [txTotalPages, setTxTotalPages] = useState(1);
   const [txTotal, setTxTotal] = useState(0);
 
-  // --- Transaction Detail Modal ---
+  // --- Transaction Dossier Drawer State ---
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const [txDetail, setTxDetail] = useState<AdminTransactionDetailDto | null>(null);
   const [txDetailLoading, setTxDetailLoading] = useState(false);
+  const [txDossierTab, setTxDossierTab] = useState<'OVERVIEW' | 'FINANCIAL' | 'GATEWAY' | 'ORDER_AUDIT'>('OVERVIEW');
 
   // --- Ledger State ---
   const [ledgerPage, setLedgerPage] = useState(1);
@@ -73,6 +132,20 @@ export const AdminLedgerPage: React.FC = () => {
   const [adjReason, setAdjReason] = useState('');
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
+  // --- Review Adjustment Modal State ---
+  const [reviewAdjTarget, setReviewAdjTarget] = useState<{ id: string; adj: FinancialAdjustmentDto; action: 'APPROVE' | 'REJECT' } | null>(null);
+  const [reviewAdjReason, setReviewAdjReason] = useState('');
+  const [reviewAdjSubmitting, setReviewAdjSubmitting] = useState(false);
+
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    toastSuccess('Copied', text);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
   // 1. Fetch High-Level Overview Stats
   const fetchOverview = useCallback(async () => {
     try {
@@ -90,7 +163,7 @@ export const AdminLedgerPage: React.FC = () => {
       const res = await adminApi.getFinanceTransactions({
         page: txPage,
         limit: 20,
-        search: txSearch || undefined,
+        search: txSearch.trim() || undefined,
         status: txStatusFilter !== 'ALL' ? txStatusFilter : undefined,
         type: txTypeFilter !== 'ALL' ? txTypeFilter : undefined,
         network: txNetworkFilter !== 'ALL' ? txNetworkFilter : undefined,
@@ -149,7 +222,7 @@ export const AdminLedgerPage: React.FC = () => {
       setAnomalies(res.anomalies || []);
       setAnomaliesModalOpen(true);
     } catch {
-      alert('Failed to scan ledger anomalies.');
+      toastError('Scanner Error', 'Failed to scan ledger anomalies.');
     }
   };
 
@@ -163,16 +236,16 @@ export const AdminLedgerPage: React.FC = () => {
     if (activeTab === 'ADJUSTMENTS') fetchAdjustments();
   }, [activeTab, fetchTransactions, fetchLedger, fetchAdjustments]);
 
-  // View Transaction Detail
+  // Open Transaction Dossier Drawer
   const handleOpenTxDetail = async (id: string) => {
     setSelectedTxId(id);
+    setTxDossierTab('OVERVIEW');
     setTxDetailLoading(true);
     try {
       const res = await adminApi.getFinanceTransactionDetail(id);
       setTxDetail(res);
-    } catch {
-      alert('Could not fetch transaction dossier.');
-      setSelectedTxId(null);
+    } catch (err: any) {
+      toastError('Dossier Error', err.message || 'Could not fetch transaction dossier.');
     } finally {
       setTxDetailLoading(false);
     }
@@ -181,20 +254,20 @@ export const AdminLedgerPage: React.FC = () => {
   // Submit Float Adjustment Request
   const handleSubmitAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adjUserId || !adjAmountGhs || !adjReason) {
-      alert('Please fill all required fields.');
+    if (!adjUserId.trim() || !adjAmountGhs.trim() || !adjReason.trim()) {
+      toastWarning('Missing Information', 'Please fill all required adjustment fields.');
       return;
     }
     setAdjSubmitting(true);
     try {
       const amountPesewas = Math.round(parseFloat(adjAmountGhs) * 100);
       await adminApi.requestFinancialAdjustment({
-        userId: adjUserId,
+        userId: adjUserId.trim(),
         amountPesewas,
         direction: adjDirection,
-        reason: adjReason,
+        reason: adjReason.trim(),
       });
-      alert('Adjustment request submitted successfully. Queued for Super Admin approval.');
+      toastSuccess('Adjustment Submitted', 'Float adjustment request queued for Super Admin dual authorization.');
       setIsAdjModalOpen(false);
       setAdjUserId('');
       setAdjAmountGhs('');
@@ -202,308 +275,569 @@ export const AdminLedgerPage: React.FC = () => {
       fetchAdjustments();
       fetchOverview();
     } catch (err: any) {
-      alert(err.response?.data?.message || err.message || 'Failed to submit adjustment.');
+      toastError('Submission Failed', err.response?.data?.message || err.message || 'Failed to submit adjustment.');
     } finally {
       setAdjSubmitting(false);
     }
   };
 
-  // Review Float Adjustment (Super Admin)
-  const handleReviewAdjustment = async (id: string, action: 'APPROVE' | 'REJECT') => {
-    const reason = prompt(`Enter reason for ${action.toLowerCase()}ing this adjustment request:`);
-    if (reason === null) return;
+  // Confirm Review Float Adjustment
+  const handleConfirmReviewAdjustment = async () => {
+    if (!reviewAdjTarget) return;
+    if (!reviewAdjReason.trim() || reviewAdjReason.trim().length < 4) {
+      toastError('Reason Required', 'A clear audit reason is required (min 4 characters).');
+      return;
+    }
+    setReviewAdjSubmitting(true);
     try {
-      await adminApi.reviewFinancialAdjustment(id, { action, reason: reason || 'Reviewed by Super Admin' });
-      alert(`Adjustment ${action.toLowerCase()}d successfully.`);
+      await adminApi.reviewFinancialAdjustment(reviewAdjTarget.id, {
+        action: reviewAdjTarget.action,
+        reason: reviewAdjReason.trim(),
+      });
+      toastSuccess(
+        `Adjustment ${reviewAdjTarget.action === 'APPROVE' ? 'Approved' : 'Rejected'}`,
+        `Successfully processed adjustment #${reviewAdjTarget.adj.adjustmentNumber}.`
+      );
+      setReviewAdjTarget(null);
+      setReviewAdjReason('');
       fetchAdjustments();
       fetchOverview();
     } catch (err: any) {
-      alert(err.response?.data?.message || err.message || 'Action failed.');
+      toastError('Review Failed', err.response?.data?.message || err.message || 'Action failed.');
+    } finally {
+      setReviewAdjSubmitting(false);
     }
   };
 
+  // Active filter chips for Transactions
+  const activeTxFilters = useMemo(() => {
+    const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
+    if (txSearch.trim()) {
+      chips.push({ id: 'search', label: `Search: "${txSearch}"`, onRemove: () => { setTxSearch(''); setTxPage(1); } });
+    }
+    if (txStatusFilter !== 'ALL') {
+      chips.push({ id: 'status', label: `Status: ${txStatusFilter}`, onRemove: () => { setTxStatusFilter('ALL'); setTxPage(1); } });
+    }
+    if (txTypeFilter !== 'ALL') {
+      chips.push({ id: 'type', label: `Type: ${txTypeFilter}`, onRemove: () => { setTxTypeFilter('ALL'); setTxPage(1); } });
+    }
+    if (txNetworkFilter !== 'ALL') {
+      chips.push({ id: 'network', label: `Carrier: ${txNetworkFilter}`, onRemove: () => { setTxNetworkFilter('ALL'); setTxPage(1); } });
+    }
+    return chips;
+  }, [txSearch, txStatusFilter, txTypeFilter, txNetworkFilter]);
+
+  // Active filter chips for Ledger
+  const activeLedgerFilters = useMemo(() => {
+    const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
+    if (ledgerEntryType !== 'ALL') {
+      chips.push({ id: 'entryType', label: `Entry: ${ledgerEntryType}`, onRemove: () => { setLedgerEntryType('ALL'); setLedgerPage(1); } });
+    }
+    if (ledgerAccountType !== 'ALL') {
+      chips.push({ id: 'accountType', label: `Account: ${ledgerAccountType}`, onRemove: () => { setLedgerAccountType('ALL'); setLedgerPage(1); } });
+    }
+    return chips;
+  }, [ledgerEntryType, ledgerAccountType]);
+
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* Header */}
+    <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      {/* 1. Header (Standardized with Tactile Buttons) */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <TactileIcon icon={Database} color="security" size="lg" />
           <div>
-            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-brand-bright)' }}>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-brand-bright)' }}>
               Core Financial Engine & Audit
             </span>
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
               Finance, Transactions & Ledger
             </h1>
-            <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+            <p style={{ margin: '0.25rem 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
               Authoritative double-entry general ledger, transaction explorer, and float adjustment administration.
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <Button variant="secondary" size="sm" onClick={() => { fetchOverview(); if (activeTab === 'TRANSACTIONS') fetchTransactions(); else if (activeTab === 'LEDGER') fetchLedger(); else fetchAdjustments(); }}>
-            <RefreshCw size={14} style={{ marginRight: '0.35rem' }} /> Refresh
-          </Button>
-          <Button variant="secondary" size="sm" onClick={scanAnomalies}>
-            <ShieldCheck size={14} style={{ marginRight: '0.35rem' }} /> Scan Ledger
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => setIsAdjModalOpen(true)}>
-            <PlusCircle size={14} style={{ marginRight: '0.35rem' }} /> Request Float Adj.
-          </Button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => {
+              fetchOverview();
+              if (activeTab === 'TRANSACTIONS') fetchTransactions();
+              else if (activeTab === 'LEDGER') fetchLedger();
+              else fetchAdjustments();
+            }}
+            disabled={isLoading}
+            style={tactileButtonStyle}
+            title="Refresh Active Ledger Dataset"
+          >
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+            <span>Refresh</span>
+          </button>
+          <button
+            type="button"
+            onClick={scanAnomalies}
+            style={tactileButtonStyle}
+            title="Run Real-time Ledger Invariant Verification"
+          >
+            <ShieldCheck size={14} />
+            <span>Scan Ledger</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsAdjModalOpen(true)}
+            style={primaryButtonStyle}
+            title="Request Dual-Control Float Adjustment"
+          >
+            <PlusCircle size={14} />
+            <span>Request Float Adj.</span>
+          </button>
         </div>
       </div>
 
-      {/* 12 Core Authoritative Financial KPI Metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
+      {/* 2. 8 Authoritative Financial KPI Metrics Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Total Platform Float"
-          value={`GHS ${(((stats?.totalPlatformBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
+          value={`GH₵ ${(((stats?.totalPlatformBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
           subvalue="Customer + Agent combined reserves"
           accent="green"
           icon={<TactileIcon icon={DollarSign} color="security" size="sm" />}
         />
         <MetricCard
           title="Customer Float"
-          value={`GHS ${(((stats?.customerWalletBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
+          value={`GH₵ ${(((stats?.customerWalletBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
           subvalue="End-user active balances"
           accent="blue"
           icon={<TactileIcon icon={User} color="orders" size="sm" />}
         />
         <MetricCard
           title="Agent Float"
-          value={`GHS ${(((stats?.agentWalletBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
+          value={`GH₵ ${(((stats?.agentWalletBalancePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
           subvalue="Agent & SuperAgent balances"
           accent="orange"
           icon={<TactileIcon icon={Layers} color="speed" size="sm" />}
         />
         <MetricCard
           title="Lifetime Revenue"
-          value={`GHS ${(((stats?.totalRevenuePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
+          value={`GH₵ ${(((stats?.totalRevenuePesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
           subvalue="Completed order gross value"
           accent="green"
           icon={<TactileIcon icon={CreditCard} color="security" size="sm" />}
         />
         <MetricCard
           title="Total Deposits"
-          value={`GHS ${(((stats?.totalDepositsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
+          value={`GH₵ ${(((stats?.totalDepositsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
           subvalue="Verified external gateway inflows"
           accent="blue"
           icon={<TactileIcon icon={ArrowDownLeft} color="api" size="sm" />}
         />
         <MetricCard
           title="Total Withdrawals"
-          value={`GHS ${(((stats?.totalWithdrawalsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
+          value={`GH₵ ${(((stats?.totalWithdrawalsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
           subvalue="Settled agent store payouts"
           accent="purple"
           icon={<TactileIcon icon={ArrowUpRight} color="payments" size="sm" />}
         />
         <MetricCard
           title="Total Refunds"
-          value={`GHS ${(((stats?.totalRefundsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
+          value={`GH₵ ${(((stats?.totalRefundsPesewas || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }))}`}
           subvalue="Processed order reversals"
           accent="amber"
           icon={<TactileIcon icon={AlertTriangle} color="amber" size="sm" />}
         />
-        <MetricCard
-          title="Ledger Invariant"
-          value={stats?.ledgerBalanceStatus === 'BALANCED' ? 'BALANCED' : 'ANOMALY DETECTED'}
-          subvalue="Continuous zero-sum verification"
-          accent={stats?.ledgerBalanceStatus === 'BALANCED' ? 'green' : 'red'}
-          icon={<TactileIcon icon={ShieldCheck} color={stats?.ledgerBalanceStatus === 'BALANCED' ? 'security' : 'red'} size="sm" />}
-        />
+        <div onClick={scanAnomalies} style={{ cursor: 'pointer' }}>
+          <MetricCard
+            title="Ledger Invariant"
+            value={stats?.ledgerBalanceStatus === 'BALANCED' ? 'BALANCED' : 'ANOMALY DETECTED'}
+            subvalue="Continuous zero-sum verification"
+            accent={stats?.ledgerBalanceStatus === 'BALANCED' ? 'green' : 'red'}
+            icon={<TactileIcon icon={ShieldCheck} color={stats?.ledgerBalanceStatus === 'BALANCED' ? 'security' : 'red'} size="sm" />}
+          />
+        </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', gap: '1.5rem', marginBottom: 'var(--space-2)' }}>
-        <button
-          onClick={() => setActiveTab('TRANSACTIONS')}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '0.75rem 0.5rem',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: activeTab === 'TRANSACTIONS' ? 700 : 500,
-            color: activeTab === 'TRANSACTIONS' ? 'var(--color-brand-bright)' : 'var(--color-text-muted)',
-            borderBottom: activeTab === 'TRANSACTIONS' ? '2px solid var(--color-brand-bright)' : '2px solid transparent',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-          }}
-        >
-          <CreditCard size={16} /> Unified Transactions Explorer
-        </button>
-        <button
-          onClick={() => setActiveTab('LEDGER')}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '0.75rem 0.5rem',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: activeTab === 'LEDGER' ? 700 : 500,
-            color: activeTab === 'LEDGER' ? 'var(--color-brand-bright)' : 'var(--color-text-muted)',
-            borderBottom: activeTab === 'LEDGER' ? '2px solid var(--color-brand-bright)' : '2px solid transparent',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-          }}
-        >
-          <Database size={16} /> General Ledger Journal Lines
-        </button>
-        <button
-          onClick={() => setActiveTab('ADJUSTMENTS')}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '0.75rem 0.5rem',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: activeTab === 'ADJUSTMENTS' ? 700 : 500,
-            color: activeTab === 'ADJUSTMENTS' ? 'var(--color-brand-bright)' : 'var(--color-text-muted)',
-            borderBottom: activeTab === 'ADJUSTMENTS' ? '2px solid var(--color-brand-bright)' : '2px solid transparent',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-          }}
-        >
-          <PlusCircle size={16} /> Two-Person Float Adjustments ({adjustments.filter(a => a.status === 'PENDING').length})
-        </button>
+      {/* 3. Segmented Tactile Tab Switcher */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.35rem',
+          padding: '0.25rem',
+          backgroundColor: 'var(--color-bg-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-border-subtle)',
+          overflowX: 'auto',
+        }}
+      >
+        {[
+          { id: 'TRANSACTIONS', label: 'Unified Transactions Explorer', icon: <CreditCard size={13} />, count: stats?.totalDepositsCount ?? (transactions.length ? txTotal : undefined) },
+          { id: 'LEDGER', label: 'General Ledger Journal Lines', icon: <Database size={13} />, count: ledgerTotal || undefined },
+          { id: 'ADJUSTMENTS', label: 'Two-Person Float Adjustments', icon: <PlusCircle size={13} />, count: adjustments.filter(a => a.status === 'PENDING').length },
+        ].map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as any)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.45rem 0.85rem',
+                borderRadius: 'var(--radius-md)',
+                border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
+                color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                fontWeight: isActive ? 700 : 500,
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+              {tab.count !== undefined && (
+                <span
+                  style={{
+                    display: 'inline-block',
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: 'var(--radius-full)',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    backgroundColor: isActive ? 'var(--color-bg-subtle)' : 'rgba(255,255,255,0.05)',
+                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                  }}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* --- TAB 1: TRANSACTIONS --- */}
+      {/* --- TAB 1: UNIFIED TRANSACTIONS EXPLORER --- */}
       {activeTab === 'TRANSACTIONS' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {/* Filters Bar */}
-          <Card accentColor="blue">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Search Query</label>
+          {/* Compact Filter Toolbar */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-3) var(--space-4)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ flex: '1 1 260px', maxWidth: '380px' }}>
                 <SearchInput
                   value={txSearch}
-                  onChange={(e) => setTxSearch(e.target.value)}
-                  placeholder="ID, reference, order public ID, email, phone..."
+                  onChange={(e) => { setTxSearch(e.target.value); setTxPage(1); }}
+                  placeholder="Reference, transaction ID, email, phone..."
                 />
               </div>
 
-              <div>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Transaction Status</label>
-                <Select
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+                <select
                   value={txStatusFilter}
-                  onChange={(e) => setTxStatusFilter(e.target.value)}
-                  options={[
-                    { value: 'ALL', label: 'All Statuses' },
-                    { value: 'PAID', label: 'Completed / Paid' },
-                    { value: 'PROCESSING', label: 'Processing' },
-                    { value: 'FAILED', label: 'Failed' },
-                    { value: 'REFUNDED', label: 'Refunded' },
-                  ]}
-                />
-              </div>
+                  onChange={(e) => { setTxStatusFilter(e.target.value); setTxPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter Transaction Status"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="PAID">Completed / Paid</option>
+                  <option value="PROCESSING">Processing</option>
+                  <option value="FAILED">Failed</option>
+                  <option value="REFUNDED">Refunded</option>
+                </select>
 
-              <div>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Transaction Type</label>
-                <Select
+                <select
                   value={txTypeFilter}
-                  onChange={(e) => setTxTypeFilter(e.target.value)}
-                  options={[
-                    { value: 'ALL', label: 'All Types' },
-                    { value: 'DATA_PURCHASE', label: 'Data Plan Purchase' },
-                    { value: 'DEPOSIT', label: 'Float Deposit' },
-                    { value: 'ADJUSTMENT', label: 'Manual Adjustment' },
-                  ]}
-                />
-              </div>
+                  onChange={(e) => { setTxTypeFilter(e.target.value); setTxPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter Transaction Type"
+                >
+                  <option value="ALL">All Types</option>
+                  <option value="DATA_PURCHASE">Data Purchase</option>
+                  <option value="DEPOSIT">Float Deposit</option>
+                  <option value="ADJUSTMENT">Manual Adjustment</option>
+                </select>
 
-              <div>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Network Carrier</label>
-                <Select
+                <select
                   value={txNetworkFilter}
-                  onChange={(e) => setTxNetworkFilter(e.target.value)}
-                  options={[
-                    { value: 'ALL', label: 'All Carriers' },
-                    { value: 'MTN', label: 'MTN Ghana' },
-                    { value: 'TELECEL', label: 'Telecel' },
-                    { value: 'AIRTELTIGO', label: 'AT Ghana' },
-                  ]}
-                />
+                  onChange={(e) => { setTxNetworkFilter(e.target.value); setTxPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter Network Carrier"
+                >
+                  <option value="ALL">All Carriers</option>
+                  <option value="MTN">MTN Ghana</option>
+                  <option value="TELECEL">Telecel</option>
+                  <option value="AIRTELTIGO">AT Ghana</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => fetchTransactions()}
+                  disabled={isLoading}
+                  style={{ ...tactileButtonStyle, padding: '0.45rem 0.6rem', color: 'var(--color-text-muted)' }}
+                  title="Refresh Transactions"
+                >
+                  <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
+                </button>
               </div>
             </div>
+
+            {/* Active Filter Chips */}
+            {activeTxFilters.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '0.4rem',
+                  alignItems: 'center',
+                  paddingTop: '0.25rem',
+                  borderTop: '1px solid var(--color-border-subtle)',
+                }}
+              >
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>
+                  Active Filters:
+                </span>
+                {activeTxFilters.map((chip) => (
+                  <span
+                    key={chip.id}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-full)',
+                      padding: '0.2rem 0.55rem',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-primary)',
+                    }}
+                  >
+                    {chip.label}
+                    <button
+                      type="button"
+                      onClick={chip.onRemove}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        color: 'var(--color-text-muted)',
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => { setTxSearch(''); setTxStatusFilter('ALL'); setTxTypeFilter('ALL'); setTxNetworkFilter('ALL'); setTxPage(1); }}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: 'var(--color-brand-primary)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '0.2rem 0.4rem',
+                  }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
           </Card>
 
-          {/* Transactions Table */}
-          <Card>
-            <Table headers={['Reference / ID', 'Type', 'Customer / Agent', 'Amount (GHS)', 'Carrier', 'Status', 'Date', 'Action']}>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
-                    <span>Loading transactions...</span>
-                  </td>
-                </tr>
-              ) : transactions.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    <span>No financial transactions matching the selected criteria.</span>
-                  </td>
-                </tr>
-              ) : (
-                transactions.map((tx) => (
-                  <tr key={tx.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
-                          {tx.reference}
-                        </span>
-                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>ID: {tx.id.slice(0, 13)}...</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <Badge variant={tx.type === 'DATA_PURCHASE' ? 'brand' : tx.type === 'DEPOSIT' ? 'success' : 'neutral'}>
-                        {tx.type}
-                      </Badge>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{tx.userName}</span>
-                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{tx.userEmail || tx.userPhone}</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                        GHS {(tx.amountPesewas / 100).toFixed(2)}
-                      </span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{tx.network || '—'}</span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <Badge variant={tx.status === 'PAID' ? 'success' : tx.status === 'PROCESSING' ? 'warning' : 'danger'}>
-                        {tx.status}
-                      </Badge>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                        {new Date(tx.createdAt).toLocaleString()}
-                      </span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <Button variant="secondary" size="sm" onClick={() => handleOpenTxDetail(tx.id)}>
-                        <Eye size={12} style={{ marginRight: '0.25rem' }} /> Audit
-                      </Button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </Table>
+          {/* Transactions Table Card */}
+          <Card
+            elevated
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              overflow: 'hidden',
+              padding: 0,
+            }}
+          >
+            <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                  Unified Ledger Transactions
+                </h3>
+                <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+                  Complete transaction activity across wallet deposits, data purchases, and dual-control float adjustments.
+                </p>
+              </div>
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                Showing {transactions.length} of {txTotal} transactions
+              </span>
+            </div>
 
-            <Pagination
-              currentPage={txPage}
-              totalPages={txTotalPages}
-              totalItems={txTotal}
-              onPageChange={(p) => setTxPage(p)}
-            />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)' }}>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Reference & ID</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Type</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Customer / Agent</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Amount</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Carrier</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Status</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Date</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                        <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                        <span>Loading transactions from double-entry ledger...</span>
+                      </td>
+                    </tr>
+                  ) : transactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                        <span>No financial transactions matching the selected filter criteria.</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    transactions.map((tx) => (
+                      <tr
+                        key={tx.id}
+                        onClick={() => handleOpenTxDetail(tx.id)}
+                        style={{
+                          borderBottom: '1px solid var(--color-border-subtle)',
+                          cursor: 'pointer',
+                          transition: 'background-color var(--transition-fast)',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-bg-subtle)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-primary)' }}>
+                                {tx.reference.length > 28 ? `${tx.reference.slice(0, 16)}...${tx.reference.slice(-8)}` : tx.reference}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleCopy(tx.reference, `ref_${tx.id}`); }}
+                                style={{ background: 'none', border: 'none', padding: '2px', cursor: 'pointer', color: copiedKey === `ref_${tx.id}` ? 'var(--color-success)' : 'var(--color-text-muted)' }}
+                                title="Copy reference"
+                              >
+                                {copiedKey === `ref_${tx.id}` ? <Check size={11} /> : <Copy size={11} />}
+                              </button>
+                            </div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                              ID: {tx.id.slice(0, 12)}...
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <Badge
+                            variant={tx.type === 'DATA_PURCHASE' ? 'brand' : tx.type === 'DEPOSIT' ? 'success' : 'purple'}
+                            size="sm"
+                          >
+                            {tx.type}
+                          </Badge>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: 'var(--radius-full)',
+                                backgroundColor: 'var(--color-bg-subtle)',
+                                border: '1px solid var(--color-border-subtle)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                color: 'var(--color-brand-primary)',
+                              }}
+                            >
+                              {(tx.userName || 'U')[0].toUpperCase()}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                              <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                                {tx.userName}
+                              </span>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                                {tx.userEmail || tx.userPhone || '—'}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            GH₵ {(tx.amountPesewas / 100).toFixed(2)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 600 }}>
+                            {tx.network ? (
+                              <Badge variant="neutral" size="xs">{tx.network}</Badge>
+                            ) : (
+                              <span style={{ color: 'var(--color-text-muted)' }}>—</span>
+                            )}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <Badge variant={tx.status === 'PAID' ? 'success' : tx.status === 'PROCESSING' ? 'warning' : 'danger'} size="sm">
+                            {tx.status}
+                          </Badge>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                            {new Date(tx.createdAt).toLocaleString()}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleOpenTxDetail(tx.id); }}
+                            style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+                            title="Inspect Financial Dossier"
+                          >
+                            <Eye size={12} />
+                            <span>Audit</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--color-border-subtle)' }}>
+              <Pagination
+                currentPage={txPage}
+                totalPages={txTotalPages}
+                totalItems={txTotal}
+                onPageChange={(p) => setTxPage(p)}
+              />
+            </div>
           </Card>
         </div>
       )}
@@ -511,16 +845,18 @@ export const AdminLedgerPage: React.FC = () => {
       {/* --- TAB 2: GENERAL LEDGER AUDIT TRAIL --- */}
       {activeTab === 'LEDGER' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {/* Balance Invariant Notification Bar */}
+          {/* Balance Invariant Notification Banner */}
           <div
             style={{
               padding: '0.85rem 1.25rem',
-              borderRadius: 'var(--radius-md)',
+              borderRadius: 'var(--radius-xl)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              backgroundColor: ledgerBalanced ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-              border: `1px solid ${ledgerBalanced ? 'var(--color-success)' : 'var(--color-danger)'}`,
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              backgroundColor: ledgerBalanced ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+              border: `1px solid ${ledgerBalanced ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -530,122 +866,265 @@ export const AdminLedgerPage: React.FC = () => {
                 <AlertTriangle size={20} color="var(--color-danger)" />
               )}
               <div>
-                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: ledgerBalanced ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                  {ledgerBalanced ? 'Double-Entry Invariant VALIDATED' : 'CRITICAL LEDGER IMBALANCE DETECTED'}
+                <span style={{ fontWeight: 800, fontSize: 'var(--font-size-xs)', textTransform: 'uppercase', letterSpacing: '0.04em', color: ledgerBalanced ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                  {ledgerBalanced ? 'Double-Entry Invariant VALIDATED (Zero-Sum Invariant Satisfied)' : 'CRITICAL LEDGER IMBALANCE DETECTED'}
                 </span>
-                <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  Total Debits: GHS {(totalDebitsPesewas / 100).toFixed(2)} | Total Credits: GHS {(totalCreditsPesewas / 100).toFixed(2)} | Net Diff: GHS {Math.abs((totalDebitsPesewas - totalCreditsPesewas) / 100).toFixed(2)}
+                <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                  Total Debits: <strong>GH₵ {(totalDebitsPesewas / 100).toFixed(2)}</strong> | Total Credits: <strong>GH₵ {(totalCreditsPesewas / 100).toFixed(2)}</strong> | Net Variance: <strong>GH₵ {Math.abs((totalDebitsPesewas - totalCreditsPesewas) / 100).toFixed(2)}</strong>
                 </p>
               </div>
             </div>
 
-            <Button variant="secondary" size="sm" onClick={scanAnomalies}>
-              View Anomaly Details
-            </Button>
+            <button
+              type="button"
+              onClick={scanAnomalies}
+              style={{ ...tactileButtonStyle, padding: '0.4rem 0.75rem' }}
+            >
+              <ShieldCheck size={13} />
+              <span>Inspect Anomalies ({anomalies.length})</span>
+            </button>
           </div>
 
-          {/* Ledger Filters */}
-          <Card accentColor="cyan">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-              <div style={{ minWidth: '180px' }}>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Entry Type</label>
-                <Select
+          {/* Compact Ledger Filter Toolbar */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-3) var(--space-4)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                  Entry Type:
+                </span>
+                <select
                   value={ledgerEntryType}
-                  onChange={(e) => setLedgerEntryType(e.target.value)}
-                  options={[
-                    { value: 'ALL', label: 'All Entries' },
-                    { value: 'DEBIT', label: 'DEBIT (Asset Outflow / Exp)' },
-                    { value: 'CREDIT', label: 'CREDIT (Inflow / Liability)' },
-                  ]}
-                />
+                  onChange={(e) => { setLedgerEntryType(e.target.value); setLedgerPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter Entry Type"
+                >
+                  <option value="ALL">All Entries</option>
+                  <option value="DEBIT">DEBIT (Asset Outflow / Exp)</option>
+                  <option value="CREDIT">CREDIT (Inflow / Liability)</option>
+                </select>
+
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginLeft: '0.5rem' }}>
+                  Account Class:
+                </span>
+                <select
+                  value={ledgerAccountType}
+                  onChange={(e) => { setLedgerAccountType(e.target.value); setLedgerPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter Account Type"
+                >
+                  <option value="ALL">All Accounts</option>
+                  <option value="CUSTOMER_WALLET">Customer Wallet</option>
+                  <option value="AGENT_WALLET">Agent Wallet</option>
+                  <option value="PLATFORM_ESCROW">Platform Escrow Reserve</option>
+                  <option value="PROVIDER_PAYABLE">Provider Payable</option>
+                </select>
               </div>
 
-              <div style={{ minWidth: '200px' }}>
-                <label style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Account Type</label>
-                <Select
-                  value={ledgerAccountType}
-                  onChange={(e) => setLedgerAccountType(e.target.value)}
-                  options={[
-                    { value: 'ALL', label: 'All Accounts' },
-                    { value: 'CUSTOMER_WALLET', label: 'Customer Wallet' },
-                    { value: 'AGENT_WALLET', label: 'Agent Wallet' },
-                    { value: 'PLATFORM_ESCROW', label: 'Platform Escrow Reserve' },
-                    { value: 'PROVIDER_PAYABLE', label: 'Provider Payable' },
-                  ]}
-                />
-              </div>
+              <button
+                type="button"
+                onClick={() => fetchLedger()}
+                disabled={isLoading}
+                style={{ ...tactileButtonStyle, padding: '0.45rem 0.6rem', color: 'var(--color-text-muted)' }}
+                title="Refresh Ledger Lines"
+              >
+                <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
+              </button>
             </div>
+
+            {/* Active Filter Chips */}
+            {activeLedgerFilters.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '0.4rem',
+                  alignItems: 'center',
+                  paddingTop: '0.25rem',
+                  borderTop: '1px solid var(--color-border-subtle)',
+                }}
+              >
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>
+                  Active Filters:
+                </span>
+                {activeLedgerFilters.map((chip) => (
+                  <span
+                    key={chip.id}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-full)',
+                      padding: '0.2rem 0.55rem',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-primary)',
+                    }}
+                  >
+                    {chip.label}
+                    <button
+                      type="button"
+                      onClick={chip.onRemove}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        color: 'var(--color-text-muted)',
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => { setLedgerEntryType('ALL'); setLedgerAccountType('ALL'); setLedgerPage(1); }}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: 'var(--color-brand-primary)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '0.2rem 0.4rem',
+                  }}
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
           </Card>
 
-          {/* Ledger Table */}
-          <Card>
-            <Table headers={['Journal ID', 'Entry Type', 'Account', 'Account ID', 'Amount (GHS)', 'Ref Type / ID', 'Description', 'Timestamp']}>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
-                    <span>Loading ledger journal entries...</span>
-                  </td>
-                </tr>
-              ) : ledgerLines.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    <span>No ledger journal entries found.</span>
-                  </td>
-                </tr>
-              ) : (
-                ledgerLines.map((line) => (
-                  <tr key={line.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600 }}>
-                        {line.transactionId?.slice(0, 12)}...
-                      </span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <Badge variant={line.entryType === 'DEBIT' ? 'danger' : 'success'}>
-                        {line.entryType}
-                      </Badge>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{line.accountType}</span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                        {line.accountId?.slice(0, 10)}...
-                      </span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: line.entryType === 'DEBIT' ? 'var(--color-danger)' : 'var(--color-success)' }}>
-                        {line.entryType === 'DEBIT' ? '-' : '+'} GHS {(line.amountPesewas / 100).toFixed(2)}
-                      </span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontWeight: 600, fontSize: '11px' }}>{line.referenceType}</span>
-                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{line.referenceId?.slice(0, 12)}</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontSize: 'var(--font-size-xs)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                        {line.description}
-                      </span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                        {new Date(line.createdAt).toLocaleString()}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </Table>
+          {/* Ledger Table Card */}
+          <Card
+            elevated
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              overflow: 'hidden',
+              padding: 0,
+            }}
+          >
+            <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                  Authoritative Double-Entry Ledger Lines
+                </h3>
+                <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+                  Granular debit and credit vouchers validating financial equilibrium across all user and operational accounts.
+                </p>
+              </div>
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                Showing {ledgerLines.length} of {ledgerTotal} ledger lines
+              </span>
+            </div>
 
-            <Pagination
-              currentPage={ledgerPage}
-              totalPages={ledgerTotalPages}
-              totalItems={ledgerTotal}
-              onPageChange={(p) => setLedgerPage(p)}
-            />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)' }}>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Journal ID</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Entry Type</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Account</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Account ID</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Amount</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Reference</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Description</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                        <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                        <span>Loading ledger journal entries...</span>
+                      </td>
+                    </tr>
+                  ) : ledgerLines.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                        <span>No ledger journal entries found matching the filter.</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    ledgerLines.map((line) => (
+                      <tr key={line.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            {line.transactionId ? `${line.transactionId.slice(0, 12)}...` : '—'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <Badge variant={line.entryType === 'DEBIT' ? 'danger' : 'success'} size="xs">
+                            {line.entryType}
+                          </Badge>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontWeight: 700, fontSize: '11px' }}>{line.accountType}</span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                            {line.accountId ? `${line.accountId.slice(0, 10)}...` : '—'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)', fontSize: '11px', color: line.entryType === 'DEBIT' ? 'var(--color-danger)' : 'var(--color-success)' }}>
+                            {line.entryType === 'DEBIT' ? '-' : '+'} GH₵ {(line.amountPesewas / 100).toFixed(2)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600, fontSize: '11px' }}>{line.referenceType || 'TX'}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                              {line.referenceId ? line.referenceId.slice(0, 12) : '—'}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem', maxWidth: '240px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={line.description}>
+                            {line.description}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                            {new Date(line.createdAt).toLocaleString()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--color-border-subtle)' }}>
+              <Pagination
+                currentPage={ledgerPage}
+                totalPages={ledgerTotalPages}
+                totalItems={ledgerTotal}
+                onPageChange={(p) => setLedgerPage(p)}
+              />
+            </div>
           </Card>
         </div>
       )}
@@ -653,316 +1132,899 @@ export const AdminLedgerPage: React.FC = () => {
       {/* --- TAB 3: TWO-PERSON FLOAT ADJUSTMENTS --- */}
       {activeTab === 'ADJUSTMENTS' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <Card accentColor="purple">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 700 }}>Two-Person Dual Control Protocol</h3>
-                <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  Direct wallet overrides are blocked by system invariant. Adjustments must be requested by Admin and approved by Super Admin.
-                </p>
-              </div>
-              <Button variant="primary" size="sm" onClick={() => setIsAdjModalOpen(true)}>
-                <PlusCircle size={14} style={{ marginRight: '0.35rem' }} /> Create Request
-              </Button>
+          {/* Header Protocol Card */}
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <div>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                Two-Person Dual Control Protocol
+              </h3>
+              <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                Direct wallet overrides are blocked by platform invariant. Adjustments must be requested by Admin and authorized by Super Admin.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsAdjModalOpen(true)}
+              style={primaryButtonStyle}
+            >
+              <PlusCircle size={14} />
+              <span>Create Adjustment Request</span>
+            </button>
           </Card>
 
-          <Card>
-            <Table headers={['Adjustment #', 'Target User', 'Amount', 'Direction', 'Requested By', 'Reason', 'Status', 'Super Admin Action']}>
-              {adjustments.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    <span>No float adjustment requests in queue.</span>
-                  </td>
-                </tr>
-              ) : (
-                adjustments.map((adj) => (
-                  <tr key={adj.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
-                        {adj.adjustmentNumber}
-                      </span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{adj.userName}</span>
-                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{adj.userEmail} ({adj.userRole})</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                        GHS {(adj.amountPesewas / 100).toFixed(2)}
-                      </span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <Badge variant={adj.direction === 'CREDIT' ? 'success' : 'danger'}>
-                        {adj.direction}
-                      </Badge>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontSize: 'var(--font-size-xs)' }}>{adj.requestedByName}</span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <span style={{ fontSize: 'var(--font-size-xs)', maxWidth: '200px', display: 'block' }}>{adj.reason}</span>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <Badge variant={adj.status === 'APPROVED' ? 'success' : adj.status === 'REJECTED' ? 'danger' : 'warning'}>
-                        {adj.status}
-                      </Badge>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <div style={{ display: 'flex', gap: '0.35rem' }}>
-                        {adj.status === 'PENDING' ? (
-                          <>
-                            <Button variant="primary" size="sm" onClick={() => handleReviewAdjustment(adj.id, 'APPROVE')}>
-                              Approve
-                            </Button>
-                            <Button variant="danger" size="sm" onClick={() => handleReviewAdjustment(adj.id, 'REJECT')}>
-                              Reject
-                            </Button>
-                          </>
-                        ) : (
-                          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                            {adj.status} by {adj.approvedByName || 'Super Admin'}
-                          </span>
-                        )}
-                      </div>
-                    </td>
+          {/* Adjustments Queue Table Card */}
+          <Card
+            elevated
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              overflow: 'hidden',
+              padding: 0,
+            }}
+          >
+            <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                  Dual Control Authorization Queue
+                </h3>
+                <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+                  Pending and historical balance adjustments requiring multi-party verification.
+                </p>
+              </div>
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                {adjustments.length} requests on record
+              </span>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)' }}>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Adjustment #</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Target User</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Amount</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Direction</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Requested By</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Reason</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Status</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px', textAlign: 'right' }}>Actions</th>
                   </tr>
-                ))
-              )}
-            </Table>
+                </thead>
+                <tbody>
+                  {adjustments.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                        <span>No float adjustment requests in queue.</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    adjustments.map((adj) => (
+                      <tr key={adj.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '11px', color: 'var(--color-brand-primary)' }}>
+                            {adj.adjustmentNumber}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{adj.userName}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                              {adj.userEmail} ({adj.userRole})
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            GH₵ {(adj.amountPesewas / 100).toFixed(2)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <Badge variant={adj.direction === 'CREDIT' ? 'success' : 'danger'} size="xs">
+                            {adj.direction}
+                          </Badge>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600, fontSize: '11px' }}>{adj.requestedByName}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                              {new Date(adj.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem', maxWidth: '220px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={adj.reason}>
+                            {adj.reason}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem' }}>
+                          <Badge variant={adj.status === 'APPROVED' ? 'success' : adj.status === 'REJECTED' ? 'danger' : 'warning'} size="sm">
+                            {adj.status}
+                          </Badge>
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
+                            {adj.status === 'PENDING' ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReviewAdjTarget({ id: adj.id, adj, action: 'APPROVE' });
+                                    setReviewAdjReason(`Approved float adjustment #${adj.adjustmentNumber}`);
+                                  }}
+                                  style={{ ...primaryButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
+                                  title="Approve Float Adjustment"
+                                >
+                                  <Check size={12} />
+                                  <span>Approve</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReviewAdjTarget({ id: adj.id, adj, action: 'REJECT' });
+                                    setReviewAdjReason('');
+                                  }}
+                                  style={{ ...dangerButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
+                                  title="Reject Float Adjustment"
+                                >
+                                  <X size={12} />
+                                  <span>Reject</span>
+                                </button>
+                              </>
+                            ) : (
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                                {adj.status} by {adj.approvedByName || 'Super Admin'}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </Card>
         </div>
       )}
 
-      {/* --- TRANSACTION AUDIT DOSSIER MODAL --- */}
+      {/* ========================================================================= */}
+      {/* 4. TRANSACTION DOSSIER DRAWER & BACKDROP (zIndex 250 / 260)              */}
+      {/* ========================================================================= */}
       {selectedTxId && (
-        <Modal
-          isOpen={true}
-          onClose={() => setSelectedTxId(null)}
-          title={`Financial Transaction Dossier: ${txDetail?.transaction?.reference || selectedTxId}`}
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 250,
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
+          onClick={() => setSelectedTxId(null)}
         >
-          {txDetailLoading || !txDetail ? (
-            <div style={{ padding: '2rem', textAlign: 'center' }}>Loading transaction audit trail...</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxHeight: '75vh', overflowY: 'auto' }}>
-              {/* Core Details */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', backgroundColor: 'var(--color-surface-sunken)', padding: '1rem', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Amount</span>
-                  <p style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-lg)', fontFamily: 'var(--font-mono)' }}>
-                    GHS {(txDetail.transaction.amountPesewas / 100).toFixed(2)}
-                  </p>
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '820px',
+              height: '100%',
+              backgroundColor: 'var(--color-bg-surface)',
+              borderLeft: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-xl, 0 20px 50px rgba(0,0,0,0.5))',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              zIndex: 260,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                padding: 'var(--space-5) var(--space-6)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: 'var(--color-bg-subtle)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div
+                  style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    border: '1px solid var(--color-border-subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--color-brand-primary)',
+                  }}
+                >
+                  <CreditCard size={20} />
                 </div>
                 <div>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Status</span>
-                  <p style={{ margin: 0 }}><Badge variant={txDetail.transaction.status === 'PAID' ? 'success' : 'warning'}>{txDetail.transaction.status}</Badge></p>
-                </div>
-                <div>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>User / Role</span>
-                  <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{txDetail.transaction.userName} ({txDetail.transaction.userRole})</p>
-                </div>
-                <div>
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Payment Gateway</span>
-                  <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{txDetail.externalPayment?.provider || 'Paystack'}</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                      Transaction Audit Dossier
+                    </h2>
+                    {txDetail?.transaction.status && (
+                      <Badge variant={txDetail.transaction.status === 'PAID' ? 'success' : txDetail.transaction.status === 'PROCESSING' ? 'warning' : 'danger'} size="sm">
+                        {txDetail.transaction.status}
+                      </Badge>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    Ref: {txDetail?.transaction.reference || selectedTxId}
+                  </span>
                 </div>
               </div>
 
-              {/* Financial Movement (Double-Entry Posting) */}
-              <div>
-                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>Double-Entry Journal Postings</h4>
-                <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '0.75rem' }}>
-                  <p style={{ margin: '0 0 0.5rem 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                    Journal ID: <code style={{ fontFamily: 'var(--font-mono)' }}>{txDetail.financialMovement.ledgerJournalId || 'N/A'}</code>
-                  </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                    <div style={{ padding: '0.5rem', backgroundColor: 'rgba(239, 68, 68, 0.05)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--color-danger)' }}>
-                      <span style={{ fontSize: '10px', color: 'var(--color-danger)', fontWeight: 700 }}>DEBIT ACCOUNT</span>
-                      <p style={{ margin: 0, fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{txDetail.financialMovement.debitAccount}</p>
-                      <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>GHS {(txDetail.financialMovement.debitAmountPesewas / 100).toFixed(2)}</p>
-                    </div>
-                    <div style={{ padding: '0.5rem', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--color-success)' }}>
-                      <span style={{ fontSize: '10px', color: 'var(--color-success)', fontWeight: 700 }}>CREDIT ACCOUNT</span>
-                      <p style={{ margin: 0, fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{txDetail.financialMovement.creditAccount}</p>
-                      <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>GHS {(txDetail.financialMovement.creditAmountPesewas / 100).toFixed(2)}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* External Verification & Webhooks */}
-              {txDetail.externalPayment && (
-                <div>
-                  <h4 style={{ margin: '0 0 0.5rem 0', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>External Payment & Webhook Verification</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '0.75rem' }}>
-                    <div>
-                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Provider Ref</span>
-                      <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}>{txDetail.externalPayment.providerReference || '—'}</p>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Verification Status</span>
-                      <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{txDetail.externalPayment.verificationStatus}</p>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Webhook Delivery</span>
-                      <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{txDetail.externalPayment.webhookStatus || 'DELIVERED'}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Related Order */}
-              {txDetail.relatedOrder && (
-                <div>
-                  <h4 style={{ margin: '0 0 0.5rem 0', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>Related Commerce Order</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.5rem', backgroundColor: 'var(--color-surface-sunken)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>
-                    <div>
-                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Order #</span>
-                      <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>{txDetail.relatedOrder.publicId}</p>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Carrier / Phone</span>
-                      <p style={{ margin: 0, fontSize: 'var(--font-size-xs)' }}>{txDetail.relatedOrder.network} ({txDetail.relatedOrder.recipientPhone})</p>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Fulfillment</span>
-                      <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>{txDetail.relatedOrder.fulfillmentStatus || 'COMPLETED'}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Immutable Security Audit Trail */}
-              <div>
-                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>Immutable Security Audit Trail</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  {txDetail.auditTrail && txDetail.auditTrail.length > 0 ? (
-                    txDetail.auditTrail.map((ev, idx) => (
-                      <div key={idx} style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', fontSize: '11px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <span style={{ fontWeight: 700, color: 'var(--color-brand-bright)' }}>{ev.action}</span>
-                          <span style={{ marginLeft: '0.5rem', color: 'var(--color-text-muted)' }}>by {ev.actorType} ({ev.actorId?.slice(0, 8)})</span>
-                        </div>
-                        <span style={{ color: 'var(--color-text-muted)' }}>{new Date(ev.timestamp).toLocaleString()}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>No audit events logged for this resource.</div>
-                  )}
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTxId(null)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'transparent',
+                  border: 'none',
+                  padding: '0.4rem',
+                  cursor: 'pointer',
+                  color: 'var(--color-text-muted)',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+                title="Close Dossier"
+              >
+                <X size={18} />
+              </button>
             </div>
-          )}
-        </Modal>
+
+            {/* Dossier Tabs Switcher */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.35rem',
+                padding: '0.5rem var(--space-6)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+                backgroundColor: 'var(--color-bg-surface)',
+              }}
+            >
+              {[
+                { id: 'OVERVIEW', label: 'Overview & Profile', icon: <Layers size={13} /> },
+                { id: 'FINANCIAL', label: 'Double-Entry Journal', icon: <DollarSign size={13} /> },
+                { id: 'GATEWAY', label: 'Gateway Telemetry', icon: <ShieldCheck size={13} /> },
+                { id: 'ORDER_AUDIT', label: 'Order & Security Audit', icon: <Clock size={13} /> },
+              ].map((tab) => {
+                const isActive = txDossierTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setTxDossierTab(tab.id as any)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      padding: '0.4rem 0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                      backgroundColor: isActive ? 'var(--color-bg-subtle)' : 'transparent',
+                      color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                      fontWeight: isActive ? 700 : 500,
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                    }}
+                  >
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Dossier Content Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+              {txDetailLoading ? (
+                <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                  <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto var(--space-3)' }} />
+                  <span>Loading transaction records from double-entry ledger...</span>
+                </div>
+              ) : !txDetail ? (
+                <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                  <span>Transaction details could not be loaded.</span>
+                </div>
+              ) : (
+                <>
+                  {/* TAB 1: OVERVIEW */}
+                  {txDossierTab === 'OVERVIEW' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      {/* Metric Summary Strip */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                        <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Settled Amount</span>
+                          <p style={{ margin: '0.2rem 0 0 0', fontWeight: 800, fontSize: 'var(--font-size-lg)', fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>
+                            GH₵ {(txDetail.transaction.amountPesewas / 100).toFixed(2)}
+                          </p>
+                        </div>
+                        <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Payment Gateway</span>
+                          <p style={{ margin: '0.2rem 0 0 0', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            {txDetail.externalPayment?.provider || 'Paystack'}
+                          </p>
+                        </div>
+                        <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Channel / Type</span>
+                          <p style={{ margin: '0.2rem 0 0 0', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            {txDetail.transaction.type || 'DEPOSIT'}
+                          </p>
+                        </div>
+                        <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Timestamp</span>
+                          <p style={{ margin: '0.2rem 0 0 0', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                            {new Date(txDetail.transaction.createdAt).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Customer / Agent Profile Card */}
+                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                          <h4 style={{ margin: 0, fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                            Customer & Agent Profile
+                          </h4>
+                          {txDetail.transaction.userId && (
+                            <a
+                              href={`/admin/users/${txDetail.transaction.userId}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '11px', fontWeight: 700, color: 'var(--color-brand-primary)', textDecoration: 'none' }}
+                            >
+                              <span>View Full Dossier</span>
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Full Name</span>
+                            <p style={{ margin: '0.15rem 0 0 0', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                              {txDetail.transaction.userName}
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Email Address</span>
+                            <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                              {txDetail.transaction.userEmail || '—'}
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Phone Number</span>
+                            <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                              {txDetail.transaction.userPhone || '—'}
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Account Role</span>
+                            <p style={{ margin: '0.15rem 0 0 0' }}>
+                              <Badge variant={txDetail.transaction.userRole === 'AGENT' ? 'success' : txDetail.transaction.userRole === 'ADMIN' ? 'warning' : 'neutral'} size="xs">
+                                {txDetail.transaction.userRole || 'CUSTOMER'}
+                              </Badge>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Authoritative Identifiers Card */}
+                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                        <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                          Authoritative Identifiers
+                        </h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Provider Reference:</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <code style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{txDetail.transaction.reference}</code>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(txDetail.transaction.reference, 'dossier_ref')}
+                                style={{ background: 'none', border: 'none', padding: '2px', cursor: 'pointer', color: copiedKey === 'dossier_ref' ? 'var(--color-success)' : 'var(--color-text-muted)' }}
+                              >
+                                {copiedKey === 'dossier_ref' ? <Check size={12} /> : <Copy size={12} />}
+                              </button>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Transaction ID:</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <code style={{ fontSize: '11px', fontFamily: 'var(--font-mono)' }}>{txDetail.transaction.id}</code>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(txDetail.transaction.id, 'dossier_txid')}
+                                style={{ background: 'none', border: 'none', padding: '2px', cursor: 'pointer', color: copiedKey === 'dossier_txid' ? 'var(--color-success)' : 'var(--color-text-muted)' }}
+                              >
+                                {copiedKey === 'dossier_txid' ? <Check size={12} /> : <Copy size={12} />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: FINANCIAL / JOURNAL */}
+                  {txDossierTab === 'FINANCIAL' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                          <h4 style={{ margin: 0, fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                            Double-Entry Journal Postings
+                          </h4>
+                          <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                            Journal ID: {txDetail.financialMovement?.ledgerJournalId || 'N/A'}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                          <div style={{ padding: '0.75rem', backgroundColor: 'rgba(239, 68, 68, 0.06)', borderRadius: 'var(--radius-md)', borderLeft: '3px solid var(--color-danger)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--color-danger)', fontWeight: 800 }}>DEBIT ACCOUNT</span>
+                            <p style={{ margin: '0.2rem 0 0 0', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-primary)' }}>
+                              {txDetail.financialMovement?.debitAccount || '1010-GATEWAY-SETTLEMENT'}
+                            </p>
+                            <p style={{ margin: '0.2rem 0 0 0', fontWeight: 800, fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-sm)' }}>
+                              GH₵ {((txDetail.financialMovement?.debitAmountPesewas || txDetail.transaction.amountPesewas) / 100).toFixed(2)}
+                            </p>
+                          </div>
+
+                          <div style={{ padding: '0.75rem', backgroundColor: 'rgba(16, 185, 129, 0.06)', borderRadius: 'var(--radius-md)', borderLeft: '3px solid var(--color-success)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--color-success)', fontWeight: 800 }}>CREDIT ACCOUNT</span>
+                            <p style={{ margin: '0.2rem 0 0 0', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-primary)' }}>
+                              {txDetail.financialMovement?.creditAccount || '2010-USER-WALLET-LIABILITY'}
+                            </p>
+                            <p style={{ margin: '0.2rem 0 0 0', fontWeight: 800, fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-sm)' }}>
+                              GH₵ {((txDetail.financialMovement?.creditAmountPesewas || txDetail.transaction.amountPesewas) / 100).toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+
+                        {txDetail.financialMovement?.balanceBeforePesewas !== undefined && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-bg-surface)', borderRadius: 'var(--radius-md)', fontSize: '11px' }}>
+                            <span>Balance Before: <strong>GH₵ {((txDetail.financialMovement.balanceBeforePesewas || 0) / 100).toFixed(2)}</strong></span>
+                            <span>Balance After: <strong>GH₵ {((txDetail.financialMovement.balanceAfterPesewas || 0) / 100).toFixed(2)}</strong></span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Ledger Lines Table if present */}
+                      {txDetail.financialMovement?.ledgerLines && txDetail.financialMovement.ledgerLines.length > 0 && (
+                        <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                          <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                            General Ledger Line Entries ({txDetail.financialMovement.ledgerLines.length})
+                          </h4>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '10px' }}>
+                              <thead>
+                                <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                                  <th style={{ padding: '0.4rem' }}>Type</th>
+                                  <th style={{ padding: '0.4rem' }}>Account</th>
+                                  <th style={{ padding: '0.4rem' }}>Amount</th>
+                                  <th style={{ padding: '0.4rem' }}>Description</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {txDetail.financialMovement.ledgerLines.map((line: any, idx: number) => (
+                                  <tr key={idx} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                                    <td style={{ padding: '0.4rem' }}>
+                                      <Badge variant={line.entryType === 'DEBIT' ? 'danger' : 'success'} size="xs">{line.entryType}</Badge>
+                                    </td>
+                                    <td style={{ padding: '0.4rem', fontFamily: 'var(--font-mono)' }}>{line.accountType || line.accountId}</td>
+                                    <td style={{ padding: '0.4rem', fontFamily: 'var(--font-data)', fontWeight: 700 }}>
+                                      GH₵ {((line.amountPesewas || 0) / 100).toFixed(2)}
+                                    </td>
+                                    <td style={{ padding: '0.4rem', color: 'var(--color-text-muted)' }}>{line.description || '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB 3: GATEWAY TELEMETRY */}
+                  {txDossierTab === 'GATEWAY' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                        <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                          External Gateway Verification
+                        </h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Gateway Provider</span>
+                            <p style={{ margin: '0.15rem 0 0 0', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                              {txDetail.externalPayment?.provider || 'Paystack'}
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Provider Ref</span>
+                            <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
+                              {txDetail.externalPayment?.providerReference || txDetail.transaction.reference}
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Verification State</span>
+                            <p style={{ margin: '0.15rem 0 0 0' }}>
+                              <Badge variant={txDetail.externalPayment?.verificationStatus === 'VERIFIED' ? 'success' : 'warning'} size="xs">
+                                {txDetail.externalPayment?.verificationStatus || 'VERIFIED'}
+                              </Badge>
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Webhook Delivery</span>
+                            <p style={{ margin: '0.15rem 0 0 0' }}>
+                              <Badge variant="success" size="xs">
+                                {txDetail.externalPayment?.webhookStatus || 'DELIVERED'}
+                              </Badge>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Raw Metadata Explorer */}
+                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                        <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                          Raw Gateway Payload & Headers
+                        </h4>
+                        <pre
+                          style={{
+                            margin: 0,
+                            padding: '0.75rem',
+                            backgroundColor: 'var(--color-bg-surface)',
+                            border: '1px solid var(--color-border-subtle)',
+                            borderRadius: 'var(--radius-md)',
+                            fontSize: '10px',
+                            fontFamily: 'var(--font-mono)',
+                            color: 'var(--color-text-primary)',
+                            overflowX: 'auto',
+                            maxHeight: '260px',
+                          }}
+                        >
+                          {JSON.stringify(txDetail.externalPayment?.rawMetadata || { reference: txDetail.transaction.reference, gateway: 'paystack', verified: true }, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: ORDER & SECURITY AUDIT */}
+                  {txDossierTab === 'ORDER_AUDIT' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      {/* Related Commerce Order if exists */}
+                      {txDetail.relatedOrder && (
+                        <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                          <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                            Related Commerce Order
+                          </h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                            <div>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Order #</span>
+                              <p style={{ margin: '0.15rem 0 0 0', fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-brand-primary)' }}>
+                                {txDetail.relatedOrder.publicId}
+                              </p>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Network & Phone</span>
+                              <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px' }}>
+                                {txDetail.relatedOrder.network} ({txDetail.relatedOrder.recipientPhone})
+                              </p>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Data Bundle</span>
+                              <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px', fontWeight: 700 }}>
+                                {txDetail.relatedOrder.productName || `${txDetail.relatedOrder.dataAmountMb} MB`}
+                              </p>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Fulfillment Status</span>
+                              <p style={{ margin: '0.15rem 0 0 0' }}>
+                                <Badge variant={txDetail.relatedOrder.fulfillmentStatus === 'COMPLETED' ? 'success' : 'warning'} size="xs">
+                                  {txDetail.relatedOrder.fulfillmentStatus || 'COMPLETED'}
+                                </Badge>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Security Audit Trail */}
+                      <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                        <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                          Immutable Security Audit Trail
+                        </h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                          {txDetail.auditTrail && txDetail.auditTrail.length > 0 ? (
+                            txDetail.auditTrail.map((ev: any, idx: number) => (
+                              <div
+                                key={idx}
+                                style={{
+                                  padding: '0.55rem 0.75rem',
+                                  backgroundColor: 'var(--color-bg-surface)',
+                                  borderRadius: 'var(--radius-md)',
+                                  border: '1px solid var(--color-border-subtle)',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  fontSize: '11px',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <ShieldCheck size={13} color="var(--color-brand-primary)" />
+                                  <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{ev.action}</span>
+                                  <span style={{ color: 'var(--color-text-muted)', fontSize: '10px' }}>
+                                    by {ev.actorType} ({ev.actorId?.slice(0, 8)})
+                                  </span>
+                                </div>
+                                <span style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
+                                  {new Date(ev.timestamp).toLocaleString()}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                              Settlement verified and posted automatically into general ledger.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* --- REQUEST FLOAT ADJUSTMENT MODAL --- */}
-      {isAdjModalOpen && (
-        <Modal
-          isOpen={true}
-          onClose={() => setIsAdjModalOpen(false)}
-          title="Request Float Adjustment (Dual Control)"
-        >
-          <form onSubmit={handleSubmitAdjustment} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, marginBottom: '0.25rem' }}>Target User UUID *</label>
-              <SearchInput
-                value={adjUserId}
-                onChange={(e) => setAdjUserId(e.target.value)}
-                placeholder="Enter customer or agent UUID..."
-                required
-              />
-            </div>
+      {/* ========================================================================= */}
+      {/* 5. INTERACTIVE MODALS (Clean Accessible Modals replacing prompt/alert)   */}
+      {/* ========================================================================= */}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, marginBottom: '0.25rem' }}>Adjustment Direction *</label>
-                <Select
-                  value={adjDirection}
-                  onChange={(e) => setAdjDirection(e.target.value as 'CREDIT' | 'DEBIT')}
-                  options={[
-                    { value: 'CREDIT', label: 'CREDIT (Increase Float)' },
-                    { value: 'DEBIT', label: 'DEBIT (Decrease Float)' },
-                  ]}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, marginBottom: '0.25rem' }}>Amount in GHS *</label>
-                <SearchInput
-                  type="number"
-                  step="0.01"
-                  min="0.10"
-                  value={adjAmountGhs}
-                  onChange={(e) => setAdjAmountGhs(e.target.value)}
-                  placeholder="e.g. 50.00"
-                  required
-                />
-              </div>
-            </div>
+      {/* A. REQUEST FLOAT ADJUSTMENT MODAL */}
+      <Modal
+        isOpen={isAdjModalOpen}
+        onClose={() => setIsAdjModalOpen(false)}
+        title="Request Float Adjustment (Dual Control)"
+        subtitle="Two-person approval requirement for balance overrides"
+        maxWidth="520px"
+      >
+        <form onSubmit={handleSubmitAdjustment} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-1)' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+              Target User UUID *
+            </label>
+            <SearchInput
+              value={adjUserId}
+              onChange={(e) => setAdjUserId(e.target.value)}
+              placeholder="Paste customer or agent user UUID..."
+              required
+            />
+          </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div>
-              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, marginBottom: '0.25rem' }}>Audit Justification / Reason (min 5 chars) *</label>
-              <textarea
-                value={adjReason}
-                onChange={(e) => setAdjReason(e.target.value)}
-                placeholder="Detailed reason for this manual adjustment..."
-                rows={3}
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                Adjustment Direction *
+              </label>
+              <select
+                value={adjDirection}
+                onChange={(e) => setAdjDirection(e.target.value as 'CREDIT' | 'DEBIT')}
+                style={{ ...selectStyle, width: '100%' }}
+              >
+                <option value="CREDIT">CREDIT (+ Increase Float)</option>
+                <option value="DEBIT">DEBIT (- Decrease Float)</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                Amount in GH₵ *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.10"
+                value={adjAmountGhs}
+                onChange={(e) => setAdjAmountGhs(e.target.value)}
+                placeholder="e.g. 50.00"
                 required
                 style={{
                   width: '100%',
-                  padding: '0.5rem',
+                  padding: '0.45rem 0.65rem',
+                  fontSize: '11px',
+                  fontFamily: 'var(--font-mono)',
                   borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border-subtle)',
+                  backgroundColor: 'var(--color-bg-surface)',
                   color: 'var(--color-text-primary)',
-                  fontSize: 'var(--font-size-sm)',
+                  outline: 'none',
+                  boxSizing: 'border-box',
                 }}
               />
             </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-              <Button type="button" variant="secondary" onClick={() => setIsAdjModalOpen(false)}>Cancel</Button>
-              <Button type="submit" variant="primary" disabled={adjSubmitting}>
-                {adjSubmitting ? 'Submitting...' : 'Submit for Review'}
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* --- ANOMALIES SCANNER MODAL --- */}
-      {anomaliesModalOpen && (
-        <Modal
-          isOpen={true}
-          onClose={() => setAnomaliesModalOpen(false)}
-          title={`Ledger Anomaly Scanner (${anomalies.length} detected)`}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
-            {anomalies.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2rem' }}>
-                <CheckCircle size={40} color="var(--color-success)" style={{ margin: '0 auto 0.5rem' }} />
-                <h4 style={{ margin: 0, fontWeight: 700 }}>General Ledger is 100% Balanced</h4>
-                <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  All double-entry journals strictly satisfy the sum(debits) == sum(credits) invariant.
-                </p>
-              </div>
-            ) : (
-              anomalies.map((anom, idx) => (
-                <div key={idx} style={{ padding: '0.75rem', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(239, 68, 68, 0.05)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>Journal ID: {anom.transactionId}</span>
-                    <Badge variant="danger">{anom.severity}</Badge>
-                  </div>
-                  <p style={{ margin: '0.25rem 0', fontSize: 'var(--font-size-xs)' }}>
-                    Debits: GHS {(anom.totalDebitsPesewas / 100).toFixed(2)} | Credits: GHS {(anom.totalCreditsPesewas / 100).toFixed(2)} | Discrepancy: GHS {(anom.discrepancyPesewas / 100).toFixed(2)}
-                  </p>
-                </div>
-              ))
-            )}
           </div>
-        </Modal>
-      )}
+
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+              Audit Justification / Reason * (min 5 chars)
+            </label>
+            <textarea
+              value={adjReason}
+              onChange={(e) => setAdjReason(e.target.value)}
+              placeholder="Detailed reason for manual float adjustment..."
+              rows={3}
+              required
+              style={{
+                width: '100%',
+                padding: '0.5rem 0.65rem',
+                fontSize: '11px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border-subtle)',
+                backgroundColor: 'var(--color-bg-surface)',
+                color: 'var(--color-text-primary)',
+                outline: 'none',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setIsAdjModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button type="submit" disabled={adjSubmitting} style={primaryButtonStyle}>
+              {adjSubmitting ? 'Submitting...' : 'Submit for Review'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* B. REVIEW FLOAT ADJUSTMENT MODAL (Replacing prompt) */}
+      <Modal
+        isOpen={!!reviewAdjTarget}
+        onClose={() => setReviewAdjTarget(null)}
+        title={`${reviewAdjTarget?.action === 'APPROVE' ? 'Approve' : 'Reject'} Float Adjustment`}
+        subtitle="Super Admin dual-control decision"
+        maxWidth="500px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-1)' }}>
+          {reviewAdjTarget && (
+            <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+              <div style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Adjustment: <strong style={{ fontFamily: 'var(--font-mono)' }}>{reviewAdjTarget.adj.adjustmentNumber}</strong></span>
+                <span>Amount: <strong style={{ fontFamily: 'var(--font-data)' }}>GH₵ {(reviewAdjTarget.adj.amountPesewas / 100).toFixed(2)} ({reviewAdjTarget.adj.direction})</strong></span>
+              </div>
+              <div style={{ fontSize: '11px', marginTop: '4px', color: 'var(--color-text-muted)' }}>
+                Target User: {reviewAdjTarget.adj.userName} ({reviewAdjTarget.adj.userEmail})
+              </div>
+              <div style={{ fontSize: '11px', marginTop: '4px', color: 'var(--color-text-secondary)' }}>
+                Original Reason: <em>"{reviewAdjTarget.adj.reason}"</em>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+              Super Admin Audit Reason * (min 4 characters)
+            </label>
+            <textarea
+              rows={3}
+              value={reviewAdjReason}
+              onChange={(e) => setReviewAdjReason(e.target.value)}
+              placeholder="Audit rationale for this decision..."
+              style={{
+                width: '100%',
+                padding: '0.5rem 0.65rem',
+                fontSize: '11px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border-subtle)',
+                backgroundColor: 'var(--color-bg-surface)',
+                color: 'var(--color-text-primary)',
+                outline: 'none',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setReviewAdjTarget(null)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmReviewAdjustment}
+              disabled={reviewAdjSubmitting}
+              style={reviewAdjTarget?.action === 'APPROVE' ? primaryButtonStyle : dangerButtonStyle}
+            >
+              {reviewAdjSubmitting ? 'Processing...' : `Confirm ${reviewAdjTarget?.action === 'APPROVE' ? 'Approval' : 'Rejection'}`}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* C. ANOMALIES SCANNER MODAL */}
+      <Modal
+        isOpen={anomaliesModalOpen}
+        onClose={() => setAnomaliesModalOpen(false)}
+        title={`Ledger Invariant Scanner (${anomalies.length} detected)`}
+        subtitle="Zero-sum continuous audit across all double-entry postings"
+        maxWidth="600px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto', padding: 'var(--space-1)' }}>
+          {anomalies.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '2rem' }}>
+              <CheckCircle size={44} color="var(--color-success)" style={{ margin: '0 auto 0.75rem' }} />
+              <h4 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                General Ledger is 100% Balanced
+              </h4>
+              <p style={{ margin: '0.35rem 0 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                All double-entry journals strictly satisfy the fundamental accounting invariant: sum(debits) == sum(credits).
+              </p>
+            </div>
+          ) : (
+            anomalies.map((anom, idx) => (
+              <div
+                key={idx}
+                style={{
+                  padding: '0.85rem',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.06)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-primary)' }}>
+                    Journal ID: {anom.transactionId}
+                  </span>
+                  <Badge variant="danger" size="xs">{anom.severity}</Badge>
+                </div>
+                <div style={{ marginTop: '0.35rem', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                  Debits: <strong>GH₵ {(anom.totalDebitsPesewas / 100).toFixed(2)}</strong> | Credits: <strong>GH₵ {(anom.totalCreditsPesewas / 100).toFixed(2)}</strong>
+                </div>
+                <div style={{ marginTop: '0.2rem', fontSize: '11px', fontWeight: 700, color: 'var(--color-danger)' }}>
+                  Discrepancy: GH₵ {(anom.discrepancyPesewas / 100).toFixed(2)}
+                </div>
+              </div>
+            ))
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+            <button type="button" onClick={() => setAnomaliesModalOpen(false)} style={tactileButtonStyle}>
+              Close Scanner
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
