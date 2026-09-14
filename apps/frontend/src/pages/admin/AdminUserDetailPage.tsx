@@ -158,11 +158,6 @@ export const AdminUserDetailPage: React.FC = () => {
     }
   }, [id, toastError]);
 
-  useEffect(() => {
-    fetchUser();
-    fetchUserPricing();
-  }, [fetchUser, fetchUserPricing]);
-
   const fetchUserPricing = useCallback(async () => {
     if (!id) return;
     setIsLoadingPricing(true);
@@ -175,6 +170,11 @@ export const AdminUserDetailPage: React.FC = () => {
       setIsLoadingPricing(false);
     }
   }, [id, toastError]);
+
+  useEffect(() => {
+    fetchUser();
+    fetchUserPricing();
+  }, [fetchUser, fetchUserPricing]);
 
   useEffect(() => {
     if (activeTab === 'pricing') {
