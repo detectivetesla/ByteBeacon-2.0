@@ -395,6 +395,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         background: 'var(--gradient-portal-mesh, var(--gradient-portal-bg, var(--color-bg-base)))',
         backgroundAttachment: 'fixed',
         width: '100%',
+        alignItems: 'stretch',
       }}
     >
       <style>{`
@@ -403,24 +404,32 @@ export const AppShell: React.FC<AppShellProps> = ({
           background: var(--sidebar-bg-gradient);
           border-right: 1px solid var(--sidebar-border);
           box-shadow: 2px 0 16px rgba(0, 0, 0, 0.25);
+          flex-shrink: 0;
+          transition: width 250ms cubic-bezier(0.16, 1, 0.3, 1);
+          min-height: 100vh;
+          align-self: stretch;
+          position: relative;
+          z-index: 40;
+        }
+
+        .app-desktop-sidebar-inner {
+          position: sticky;
+          top: 0;
+          height: 100vh;
+          max-height: 100vh;
           display: flex;
           flex-direction: column;
           justifyContent: space-between;
           padding: var(--space-5) ${collapsed ? 'var(--space-2)' : 'var(--space-4)'};
-          flex-shrink: 0;
-          transition: width 250ms cubic-bezier(0.16, 1, 0.3, 1), padding 250ms ease;
-          position: sticky;
-          top: 0;
-          height: 100vh;
           overflow-y: auto;
           overflow-x: hidden;
-          z-index: 40;
+          transition: padding 250ms ease;
         }
 
-        .app-desktop-sidebar::-webkit-scrollbar {
+        .app-desktop-sidebar-inner::-webkit-scrollbar {
           width: 4px;
         }
-        .app-desktop-sidebar::-webkit-scrollbar-thumb {
+        .app-desktop-sidebar-inner::-webkit-scrollbar-thumb {
           background: var(--sidebar-scrollbar-thumb);
           border-radius: 4px;
         }
@@ -453,7 +462,8 @@ export const AppShell: React.FC<AppShellProps> = ({
           1. DESKTOP COLLAPSIBLE SIDEBAR
           ========================================================================= */}
       <aside className="app-desktop-sidebar">
-        <div>
+        <div className="app-desktop-sidebar-inner">
+          <div>
           {/* Logo & Portal Branding */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', marginBottom: 'var(--space-6)' }}>
             <Link
@@ -604,6 +614,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               </button>
             )}
           </div>
+        </div>
         </div>
       </aside>
 

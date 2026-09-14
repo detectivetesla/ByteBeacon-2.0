@@ -49,6 +49,7 @@ export const StoreLayout: React.FC = () => {
         backgroundAttachment: 'fixed',
         color: 'var(--color-text-primary)',
         fontFamily: 'var(--font-sans)',
+        alignItems: 'stretch',
       }}
     >
       {/* 1. Desktop Sidebar */}
@@ -58,18 +59,30 @@ export const StoreLayout: React.FC = () => {
           minWidth: isCollapsed ? '72px' : '260px',
           background: 'var(--sidebar-bg-gradient)',
           borderRight: '1px solid var(--sidebar-border)',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
+          flexShrink: 0,
           transition: 'width 200ms cubic-bezier(0.4, 0, 0.2, 1)',
-          position: 'sticky',
-          top: 0,
-          height: '100vh',
+          minHeight: '100vh',
+          alignSelf: 'stretch',
+          position: 'relative',
           zIndex: 40,
           boxShadow: '2px 0 16px rgba(0, 0, 0, 0.25)',
         }}
         className="store-sidebar-desktop"
       >
+        <div
+          className="store-sidebar-desktop-inner"
+          style={{
+            position: 'sticky',
+            top: 0,
+            height: '100vh',
+            maxHeight: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+          }}
+        >
         {/* Top Header & Logo */}
         <div>
           <div
@@ -288,6 +301,7 @@ export const StoreLayout: React.FC = () => {
               <ExternalLink size={15} />
             </a>
           )}
+        </div>
         </div>
       </aside>
 
