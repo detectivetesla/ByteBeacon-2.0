@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Input } from '../../components/ui/Input/Input.js';
-import { Select } from '../../components/ui/Select/Select.js';
+import { SearchInput, Avatar } from '../../components/ui/index.js';
 import { Modal } from '../../components/ui/Modal/Modal.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -36,12 +36,20 @@ import {
   UserX,
   Sliders,
   ExternalLink,
+  X,
+  ChevronRight,
+  Check,
+  Filter,
+  Layers,
+  FileText,
+  AlertCircle,
+  Building,
 } from 'lucide-react';
 
 export const AdminAgentsPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
 
-  // State
+  // Primary State
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'SUSPENDED' | 'API' | 'PRICING'>('ALL');
   const [stats, setStats] = useState<AdminAgentStats | null>(null);
   const [agents, setAgents] = useState<AdminAgentListItem[]>([]);
@@ -50,7 +58,7 @@ export const AdminAgentsPage: React.FC = () => {
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalAgents, setTotalAgents] = useState<number>(0);
 
-  // Filters
+  // Filters State
   const [search, setSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [storeFilter, setStoreFilter] = useState<string>('ALL');
@@ -62,7 +70,9 @@ export const AdminAgentsPage: React.FC = () => {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agentDetail, setAgentDetail] = useState<AdminAgentDetail | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState<boolean>(false);
-  const [dossierTab, setDossierTab] = useState<'OVERVIEW' | 'PROFILE' | 'WALLET' | 'ORDERS' | 'PRICING' | 'STORE' | 'API' | 'SUBAGENTS' | 'CUSTOMERS' | 'AUDIT'>('OVERVIEW');
+  const [dossierTab, setDossierTab] = useState<
+    'OVERVIEW' | 'WALLET' | 'ORDERS' | 'PRICING' | 'STORE' | 'API' | 'SUBAGENTS' | 'CUSTOMERS' | 'AUDIT'
+  >('OVERVIEW');
 
   // Create Agent Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
@@ -99,6 +109,37 @@ export const AdminAgentsPage: React.FC = () => {
   const [customPricingList, setCustomPricingList] = useState<AgentCustomPricingItemDto[]>([]);
   const [customPriceEdits, setCustomPriceEdits] = useState<Record<string, string>>({});
   const [isSavingPricing, setIsSavingPricing] = useState<boolean>(false);
+
+  // Common Button Styles
+  const tactileButtonStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.45rem',
+    padding: '0.45rem 0.85rem',
+    borderRadius: 'var(--radius-md)',
+    backgroundColor: 'var(--color-bg-surface)',
+    border: '1px solid var(--color-border-subtle)',
+    fontSize: 'var(--font-size-xs)',
+    fontWeight: 700,
+    color: 'var(--color-text-primary)',
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
+    boxShadow: 'var(--shadow-tactile-sm)',
+  };
+
+  const selectStyle: React.CSSProperties = {
+    padding: '0.45rem 0.75rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--color-border-subtle)',
+    backgroundColor: 'var(--color-bg-surface)',
+    color: 'var(--color-text-primary)',
+    fontSize: '11px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    outline: 'none',
+    minWidth: '125px',
+    boxShadow: 'var(--shadow-tactile-sm)',
+  };
 
   // Fetch Stats
   const fetchStats = useCallback(async () => {
@@ -306,6 +347,9 @@ export const AdminAgentsPage: React.FC = () => {
       await adminApi.updateAgentCustomPricing(pricingTargetAgent.id, { pricing: pricingPayload });
       toastSuccess('Pricing Saved', `Custom wholesale pricing updated for '${pricingTargetAgent.fullName}'.`);
       setIsPricingModalOpen(false);
+      if (selectedAgentId === pricingTargetAgent.id) {
+        openAgentDossier(pricingTargetAgent.id);
+      }
     } catch (err: any) {
       toastError('Failed to save pricing', err.message || 'Could not update pricing');
     } finally {
@@ -323,6 +367,101 @@ export const AdminAgentsPage: React.FC = () => {
     }
   };
 
+  // Active Filter Pills
+  const activeFilters = useMemo(() => {
+    const filters: Array<{ id: string; label: string; onRemove: () => void }> = [];
+
+    if (search.trim()) {
+      filters.push({
+        id: 'search',
+        label: `Search: "${search.trim()}"`,
+        onRemove: () => setSearch(''),
+      });
+    }
+
+    if (statusFilter !== 'ALL') {
+      filters.push({
+        id: 'status',
+        label: `Status: ${statusFilter}`,
+        onRemove: () => setStatusFilter('ALL'),
+      });
+    }
+
+    if (storeFilter !== 'ALL') {
+      const labels: Record<string, string> = {
+        HAS_STORE: 'Has Storefront',
+        NO_STORE: 'No Storefront',
+        ACTIVE_STORE: 'Active Store',
+        PENDING_STORE: 'Pending Store',
+        SUSPENDED_STORE: 'Suspended Store',
+      };
+      filters.push({
+        id: 'store',
+        label: `Store: ${labels[storeFilter] || storeFilter}`,
+        onRemove: () => setStoreFilter('ALL'),
+      });
+    }
+
+    if (apiFilter !== 'ALL') {
+      filters.push({
+        id: 'api',
+        label: `API: ${apiFilter === 'ENABLED' ? 'Enabled' : 'Disabled'}`,
+        onRemove: () => setApiFilter('ALL'),
+      });
+    }
+
+    if (financialFilter !== 'ALL') {
+      const labels: Record<string, string> = {
+        POSITIVE: 'Positive Float',
+        ZERO: 'Zero Float',
+        NEGATIVE: 'Negative / Anomaly',
+      };
+      filters.push({
+        id: 'financial',
+        label: `Balance: ${labels[financialFilter] || financialFilter}`,
+        onRemove: () => setFinancialFilter('ALL'),
+      });
+    }
+
+    if (dateRange !== 'ALL') {
+      const labels: Record<string, string> = {
+        '7d': 'Last 7 Days',
+        '30d': 'Last 30 Days',
+        '90d': 'Last 90 Days',
+      };
+      filters.push({
+        id: 'dateRange',
+        label: `Period: ${labels[dateRange] || dateRange}`,
+        onRemove: () => setDateRange('ALL'),
+      });
+    }
+
+    return filters;
+  }, [search, statusFilter, storeFilter, apiFilter, financialFilter, dateRange]);
+
+  const handleResetFilters = () => {
+    setSearch('');
+    setStatusFilter('ALL');
+    setStoreFilter('ALL');
+    setApiFilter('ALL');
+    setFinancialFilter('ALL');
+    setDateRange('ALL');
+    setPage(1);
+  };
+
+  const getTierBadgeVariant = (tier?: string): 'neutral' | 'info' | 'warning' | 'purple' => {
+    switch ((tier || '').toUpperCase()) {
+      case 'ENTERPRISE':
+        return 'purple';
+      case 'GOLD':
+        return 'warning';
+      case 'SILVER':
+        return 'info';
+      default:
+        return 'neutral';
+    }
+  };
+
   return (
     <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', padding: 'var(--space-4)' }}>
       {/* Header */}
@@ -336,29 +475,48 @@ export const AdminAgentsPage: React.FC = () => {
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Agent & Reseller Administration
             </h1>
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
               Authoritative management of agent accounts, float liabilities, storefronts, API keys, custom wholesale pricing, and sub-agents.
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download size={14} style={{ marginRight: '6px' }} />
-            Export CSV
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => setIsCreateModalOpen(true)}>
-            <Plus size={14} style={{ marginRight: '6px' }} />
-            Register Agent
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => { fetchStats(); fetchAgents(); }} disabled={isLoading}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" onClick={handleExport} style={tactileButtonStyle}>
+            <Download size={14} />
+            <span>Export CSV</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsCreateModalOpen(true)}
+            style={{
+              ...tactileButtonStyle,
+              backgroundColor: 'var(--color-brand-primary)',
+              color: '#fff',
+              border: '1px solid var(--color-brand-primary)',
+            }}
+          >
+            <Plus size={14} />
+            <span>Register Agent</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { fetchStats(); fetchAgents(); }}
+            disabled={isLoading}
+            style={{
+              ...tactileButtonStyle,
+              padding: '0.45rem 0.6rem',
+              color: 'var(--color-text-muted)',
+            }}
+            title="Refresh Data"
+          >
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-          </Button>
+          </button>
         </div>
       </div>
 
-      {/* 8 KPI Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
+      {/* 8 KPI Summary Cards (Standard Auto-fit Grid) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Total Agents"
           value={stats ? stats.totalAgents.toLocaleString() : '—'}
@@ -417,285 +575,538 @@ export const AdminAgentsPage: React.FC = () => {
         />
       </div>
 
-      {/* Internal Navigation Tabs */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)' }}>
+      {/* Internal Navigation Tabs (Standard Tactile Segmented Bar) */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.35rem',
+          padding: '0.25rem',
+          backgroundColor: 'var(--color-bg-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-border-subtle)',
+          overflowX: 'auto',
+        }}
+      >
         {[
-          { id: 'ALL', label: 'All Registered Agents' },
-          { id: 'PENDING', label: 'Pending Applications' },
-          { id: 'SUSPENDED', label: 'Suspended / Restricted' },
-          { id: 'API', label: 'API Developer Access' },
-          { id: 'PRICING', label: 'Custom Pricing' },
-        ].map((tab) => (
-          <Button
-            key={tab.id}
-            variant={activeTab === tab.id ? 'primary' : 'ghost'}
-            size="sm"
-            onClick={() => { setActiveTab(tab.id as any); setPage(1); }}
-            style={{ borderRadius: 'var(--radius-full)', padding: '0.4rem 1.1rem' }}
-          >
-            {tab.label}
-          </Button>
-        ))}
+          { id: 'ALL', label: 'All Registered Agents', count: stats?.totalAgents ?? totalAgents, icon: <Users size={13} /> },
+          { id: 'PENDING', label: 'Pending Applications', count: stats?.pendingAgents ?? 0, icon: <Clock size={13} /> },
+          { id: 'SUSPENDED', label: 'Suspended / Restricted', count: stats?.suspendedAgents ?? 0, icon: <UserX size={13} /> },
+          { id: 'API', label: 'API Developer Access', count: stats?.agentsWithApi ?? 0, icon: <Key size={13} /> },
+          { id: 'PRICING', label: 'Custom Wholesale Pricing', count: undefined, icon: <Sliders size={13} /> },
+        ].map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => { setActiveTab(tab.id as any); setPage(1); }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.45rem 0.85rem',
+                borderRadius: 'var(--radius-md)',
+                border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
+                color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                fontWeight: isActive ? 700 : 500,
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+              {tab.count !== undefined && (
+                <span
+                  style={{
+                    display: 'inline-block',
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: 'var(--radius-full)',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    backgroundColor: isActive ? 'var(--color-bg-subtle)' : 'rgba(255,255,255,0.05)',
+                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                  }}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Main Table Card */}
-      <Card elevated accentColor="orange" style={{ padding: 'var(--space-5)' }}>
-        {/* Filter Bar */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ minWidth: '280px', flex: 1 }}>
-              <Input
-                placeholder="Search by agent name, email, phone, business, slug, or ID..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                leftIcon={<Search size={15} color="var(--color-text-muted)" />}
-              />
-            </div>
+      {/* Standardized Filter Card (Compact, Non-overlapping, Clean Inline Row) */}
+      <Card
+        elevated
+        style={{
+          padding: 'var(--space-4) var(--space-5)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-3)',
+        }}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', justifyContent: 'space-between' }}>
+          <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
+            <SearchInput
+              value={search}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setSearch(e.target.value); setPage(1); }}
+              placeholder="Search by agent name, email, phone, business, slug, or ID..."
+            />
+          </div>
 
-            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-              <Select
-                value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All Statuses' },
-                  { value: 'ACTIVE', label: 'Active' },
-                  { value: 'PENDING', label: 'Pending' },
-                  { value: 'SUSPENDED', label: 'Suspended' },
-                  { value: 'RESTRICTED', label: 'Restricted' },
-                  { value: 'DISABLED', label: 'Disabled' },
-                ]}
-              />
-              <Select
-                value={storeFilter}
-                onChange={(e) => { setStoreFilter(e.target.value); setPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All Storefronts' },
-                  { value: 'HAS_STORE', label: 'Has Storefront' },
-                  { value: 'NO_STORE', label: 'No Storefront' },
-                  { value: 'ACTIVE_STORE', label: 'Active Store' },
-                  { value: 'PENDING_STORE', label: 'Pending Store' },
-                  { value: 'SUSPENDED_STORE', label: 'Suspended Store' },
-                ]}
-              />
-              <Select
-                value={apiFilter}
-                onChange={(e) => { setApiFilter(e.target.value); setPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All API Access' },
-                  { value: 'ENABLED', label: 'API Enabled' },
-                  { value: 'DISABLED', label: 'API Disabled' },
-                ]}
-              />
-              <Select
-                value={financialFilter}
-                onChange={(e) => { setFinancialFilter(e.target.value); setPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All Balances' },
-                  { value: 'POSITIVE', label: 'Positive Balance' },
-                  { value: 'ZERO', label: 'Zero Balance' },
-                  { value: 'NEGATIVE', label: 'Negative / Anomaly' },
-                ]}
-              />
-              <Select
-                value={dateRange}
-                onChange={(e) => { setDateRange(e.target.value); setPage(1); }}
-                options={[
-                  { value: 'ALL', label: 'All Registration Dates' },
-                  { value: '7d', label: 'Last 7 Days' },
-                  { value: '30d', label: 'Last 30 Days' },
-                  { value: '90d', label: 'Last 90 Days' },
-                ]}
-              />
-            </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
+            {/* Status Dropdown */}
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+              style={selectStyle}
+              aria-label="Filter by Status"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="PENDING">Pending</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="RESTRICTED">Restricted</option>
+              <option value="DISABLED">Disabled</option>
+            </select>
+
+            {/* Storefront Dropdown */}
+            <select
+              value={storeFilter}
+              onChange={(e) => { setStoreFilter(e.target.value); setPage(1); }}
+              style={selectStyle}
+              aria-label="Filter by Storefront"
+            >
+              <option value="ALL">All Storefronts</option>
+              <option value="HAS_STORE">Has Storefront</option>
+              <option value="NO_STORE">No Storefront</option>
+              <option value="ACTIVE_STORE">Active Store</option>
+              <option value="PENDING_STORE">Pending Store</option>
+              <option value="SUSPENDED_STORE">Suspended Store</option>
+            </select>
+
+            {/* API Access Dropdown */}
+            <select
+              value={apiFilter}
+              onChange={(e) => { setApiFilter(e.target.value); setPage(1); }}
+              style={selectStyle}
+              aria-label="Filter by API Access"
+            >
+              <option value="ALL">All API Access</option>
+              <option value="ENABLED">API Enabled</option>
+              <option value="DISABLED">API Disabled</option>
+            </select>
+
+            {/* Balances Dropdown */}
+            <select
+              value={financialFilter}
+              onChange={(e) => { setFinancialFilter(e.target.value); setPage(1); }}
+              style={selectStyle}
+              aria-label="Filter by Wallet Float"
+            >
+              <option value="ALL">All Balances</option>
+              <option value="POSITIVE">Positive Float</option>
+              <option value="ZERO">Zero Float</option>
+              <option value="NEGATIVE">Negative / Anomaly</option>
+            </select>
+
+            {/* Date Range Dropdown */}
+            <select
+              value={dateRange}
+              onChange={(e) => { setDateRange(e.target.value); setPage(1); }}
+              style={selectStyle}
+              aria-label="Filter by Registration Date"
+            >
+              <option value="ALL">All Registration Dates</option>
+              <option value="7d">Last 7 Days</option>
+              <option value="30d">Last 30 Days</option>
+              <option value="90d">Last 90 Days</option>
+            </select>
           </div>
         </div>
 
-        {/* Table View */}
-        <Table
-          columns={[
-            {
-              header: 'Agent & Business',
-              accessor: 'fullName',
-              render: (row: AdminAgentListItem) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <div style={{
-                    width: '36px', height: '36px', borderRadius: '50%',
-                    background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800,
-                    color: 'var(--color-brand)', fontSize: 'var(--font-size-xs)'
-                  }}>
-                    {row.fullName.charAt(0).toUpperCase()}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                      {row.fullName}
-                    </span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                      {row.businessName} {row.slug && `• /${row.slug}`}
-                    </span>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              header: 'Contact Info',
-              accessor: 'email',
-              render: (row: AdminAgentListItem) => (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span style={{ fontSize: 'var(--font-size-xs)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Mail size={12} color="var(--color-text-muted)" /> {row.email}
-                  </span>
-                  {row.phone && (
-                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      <Phone size={10} style={{ display: 'inline', marginRight: '3px' }} />{row.phone}
-                    </span>
-                  )}
-                </div>
-              ),
-            },
-            {
-              header: 'Status',
-              accessor: 'status',
-              render: (row: AdminAgentListItem) => {
-                let badgeVariant: 'success' | 'danger' | 'warning' | 'info' | 'default' = 'default';
-                if (row.status === 'ACTIVE') badgeVariant = 'success';
-                else if (row.status === 'SUSPENDED' || row.status === 'DISABLED') badgeVariant = 'danger';
-                else if (row.status === 'PENDING') badgeVariant = 'warning';
-                else if (row.status === 'RESTRICTED') badgeVariant = 'info';
+        {/* Active Filter Chips */}
+        {activeFilters.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.4rem',
+              alignItems: 'center',
+              paddingTop: '0.25rem',
+              borderTop: '1px solid var(--color-border-subtle)',
+            }}
+          >
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>
+              Active Filters:
+            </span>
+            {activeFilters.map((af) => (
+              <span
+                key={af.id}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-full)',
+                  padding: '0.2rem 0.55rem',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: 'var(--color-text-primary)',
+                }}
+              >
+                {af.label}
+                <button
+                  type="button"
+                  onClick={af.onRemove}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    color: 'var(--color-text-muted)',
+                  }}
+                  title="Remove filter"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
 
-                return <Badge variant={badgeVariant} size="sm">{row.status}</Badge>;
-              },
-            },
-            {
-              header: 'Storefront',
-              accessor: 'storeStatus',
-              render: (row: AdminAgentListItem) => {
-                if (!row.hasStore) {
-                  return <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>None</span>;
-                }
-                const isStoreActive = row.storeStatus === 'ACTIVE';
-                return (
-                  <Badge variant={isStoreActive ? 'success' : 'warning'} size="sm">
-                    {row.storeName ? `${row.storeName}` : row.storeStatus}
-                  </Badge>
-                );
-              },
-            },
-            {
-              header: 'Wallet Float',
-              accessor: 'walletBalancePesewas',
-              render: (row: AdminAgentListItem) => (
-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: row.walletBalancePesewas >= 0 ? 'var(--color-brand)' : 'var(--color-danger)', fontSize: 'var(--font-size-sm)' }}>
-                  GH₵ {(row.walletBalancePesewas / 100).toFixed(2)}
-                </span>
-              ),
-            },
-            {
-              header: 'Sales & Orders',
-              accessor: 'ordersCount',
-              render: (row: AdminAgentListItem) => (
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
-                    {row.ordersCount.toLocaleString()} orders
-                  </span>
-                  <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    GH₵ {(row.revenuePesewas / 100).toFixed(2)}
-                  </span>
-                </div>
-              ),
-            },
-            {
-              header: 'API Access',
-              accessor: 'apiEnabled',
-              render: (row: AdminAgentListItem) => (
-                <Badge variant={row.apiEnabled ? 'info' : 'default'} size="sm">
-                  {row.apiEnabled ? `${row.activeKeysCount} Active Key(s)` : 'Disabled'}
-                </Badge>
-              ),
-            },
-            {
-              header: 'Joined',
-              accessor: 'createdAt',
-              render: (row: AdminAgentListItem) => (
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(row.createdAt).toLocaleDateString()}
-                </span>
-              ),
-            },
-            {
-              header: 'Actions',
-              accessor: 'id',
-              render: (row: AdminAgentListItem) => (
-                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                  <Button variant="outline" size="sm" onClick={() => openAgentDossier(row.id)}>
-                    <Eye size={13} style={{ marginRight: '4px' }} />
-                    Dossier
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setWalletTargetAgent(row);
-                      setIsWalletModalOpen(true);
-                    }}
-                    title="Adjust Wallet"
-                  >
-                    <DollarSign size={14} color="var(--color-brand)" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => openCustomPricingModal(row)}
-                    title="Wholesale Pricing"
-                  >
-                    <Sliders size={14} color="var(--color-speed-bright)" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setStatusTargetAgent(row);
-                      setNewStatus(row.status as any);
-                      setIsStatusModalOpen(true);
-                    }}
-                    title="Change Status"
-                  >
-                    <Shield size={14} color="var(--color-text-muted)" />
-                  </Button>
-                </div>
-              ),
-            },
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: 'var(--color-brand-primary)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0.2rem 0.4rem',
+              }}
+            >
+              Reset Filters
+            </button>
+          </div>
+        )}
+      </Card>
+
+      {/* Main Agent Table Card */}
+      <Card
+        elevated
+        style={{
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          overflow: 'hidden',
+          padding: 0,
+        }}
+      >
+        <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div>
+            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+              Authorized Reseller & Agent Directory
+            </h3>
+            <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+              Authoritative float balances, merchant storefronts, developer API credentials, and hierarchical sub-agents.
+            </p>
+          </div>
+          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+            Showing {agents.length} of {totalAgents} records
+          </span>
+        </div>
+
+        <Table
+          minWidth="1180px"
+          headers={[
+            'Agent & Business',
+            'Contact Info',
+            'Status',
+            'Storefront',
+            'Wallet Float',
+            'Sales & Orders',
+            'API Access',
+            'Joined Date',
+            'Actions',
           ]}
-          data={agents}
-          keyExtractor={(row) => row.id}
-          emptyMessage={isLoading ? 'Loading agents from authoritative database...' : 'No agents match your filter criteria.'}
-        />
+        >
+          {isLoading ? (
+            <tr>
+              <td colSpan={9} style={{ padding: 'var(--space-10) var(--space-4)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                <p style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>Loading agents from database...</p>
+              </td>
+            </tr>
+          ) : agents.length === 0 ? (
+            <tr>
+              <td colSpan={9} style={{ padding: 'var(--space-10) var(--space-4)', textAlign: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+                  <div
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '50%',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--color-text-muted)',
+                    }}
+                  >
+                    <UserX size={24} />
+                  </div>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                    No Agents Found
+                  </p>
+                  <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', maxWidth: '420px' }}>
+                    No agent records match the current filter criteria or search query.
+                  </p>
+                </div>
+              </td>
+            </tr>
+          ) : (
+            agents.map((row) => {
+              const floatGhs = (row.walletBalancePesewas / 100).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              });
+              const revenueGhs = (row.revenuePesewas / 100).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              });
+
+              let statusVariant: 'success' | 'danger' | 'warning' | 'info' | 'default' = 'default';
+              if (row.status === 'ACTIVE') statusVariant = 'success';
+              else if (row.status === 'SUSPENDED' || row.status === 'DISABLED') statusVariant = 'danger';
+              else if (row.status === 'PENDING') statusVariant = 'warning';
+              else if (row.status === 'RESTRICTED') statusVariant = 'info';
+
+              return (
+                <tr key={row.id} style={{ borderBottom: '1px solid var(--color-border-subtle)', transition: 'background-color var(--transition-fast)' }}>
+                  {/* Agent & Business */}
+                  <td style={{ padding: '0.85rem 1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <Avatar name={row.fullName} size="sm" status={row.status === 'ACTIVE' ? 'online' : 'offline'} />
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            {row.fullName}
+                          </span>
+                          {row.agentTier && row.agentTier !== 'STANDARD' && (
+                            <Badge variant={getTierBadgeVariant(row.agentTier)} size="sm">
+                              {row.agentTier}
+                            </Badge>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '0.1rem' }}>
+                          {row.businessName} {row.slug && <span style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>• /{row.slug}</span>}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Contact Info */}
+                  <td style={{ padding: '0.85rem 1rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-primary)' }}>
+                        <Mail size={11} color="var(--color-text-muted)" /> {row.email}
+                      </span>
+                      {row.phone && (
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          <Phone size={10} style={{ display: 'inline', marginRight: '3px' }} />{row.phone}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Status */}
+                  <td style={{ padding: '0.85rem 1rem' }}>
+                    <Badge variant={statusVariant} size="sm" dot>
+                      {row.status}
+                    </Badge>
+                  </td>
+
+                  {/* Storefront */}
+                  <td style={{ padding: '0.85rem 1rem' }}>
+                    {row.hasStore ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <Badge variant={row.storeStatus === 'ACTIVE' ? 'success' : 'warning'} size="sm">
+                          <Store size={10} style={{ marginRight: '3px' }} />
+                          {row.storeName || row.storeStatus}
+                        </Badge>
+                        {row.storeSlug && (
+                          <a
+                            href={`/store/${row.storeSlug}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center' }}
+                            title="Open storefront in new tab"
+                          >
+                            <ExternalLink size={11} />
+                          </a>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>None</span>
+                    )}
+                  </td>
+
+                  {/* Wallet Float */}
+                  <td style={{ padding: '0.85rem 1rem' }}>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontWeight: 700,
+                        color: row.walletBalancePesewas >= 0 ? 'var(--color-success)' : 'var(--color-danger)',
+                        fontSize: 'var(--font-size-xs)',
+                      }}
+                    >
+                      GH₵ {floatGhs}
+                    </span>
+                  </td>
+
+                  {/* Sales & Orders */}
+                  <td style={{ padding: '0.85rem 1rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 700, fontSize: '11px', color: 'var(--color-text-primary)' }}>
+                        {row.ordersCount.toLocaleString()} orders
+                      </span>
+                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        GH₵ {revenueGhs}
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* API Access */}
+                  <td style={{ padding: '0.85rem 1rem' }}>
+                    <Badge variant={row.apiEnabled ? 'info' : 'neutral'} size="sm">
+                      {row.apiEnabled ? `${row.activeKeysCount} Active Key(s)` : 'Disabled'}
+                    </Badge>
+                  </td>
+
+                  {/* Joined Date */}
+                  <td style={{ padding: '0.85rem 1rem', fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {new Date(row.createdAt).toLocaleDateString()}
+                  </td>
+
+                  {/* Actions */}
+                  <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => openAgentDossier(row.id)}
+                        style={{
+                          ...tactileButtonStyle,
+                          padding: '0.35rem 0.65rem',
+                          fontSize: '11px',
+                        }}
+                      >
+                        <Eye size={12} />
+                        <span>Dossier</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWalletTargetAgent(row);
+                          setIsWalletModalOpen(true);
+                        }}
+                        style={{
+                          ...tactileButtonStyle,
+                          padding: '0.35rem 0.5rem',
+                          color: 'var(--color-brand-primary)',
+                        }}
+                        title="Adjust Float Balance"
+                      >
+                        <DollarSign size={13} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => openCustomPricingModal(row)}
+                        style={{
+                          ...tactileButtonStyle,
+                          padding: '0.35rem 0.5rem',
+                          color: 'var(--color-speed-bright)',
+                        }}
+                        title="Custom Wholesale Pricing"
+                      >
+                        <Sliders size={13} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStatusTargetAgent(row);
+                          setNewStatus(row.status as any);
+                          setIsStatusModalOpen(true);
+                        }}
+                        style={{
+                          ...tactileButtonStyle,
+                          padding: '0.35rem 0.5rem',
+                          color: 'var(--color-text-muted)',
+                        }}
+                        title="Change Account Status"
+                      >
+                        <Shield size={13} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </Table>
 
         {/* Pagination Bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.25rem', borderTop: '1px solid var(--color-border-subtle)', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
             Showing {agents.length} of {totalAgents} registered agents
           </span>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <Button
-              variant="outline"
-              size="sm"
+          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <button
+              type="button"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
+              style={{
+                ...tactileButtonStyle,
+                padding: '0.35rem 0.65rem',
+                opacity: page <= 1 ? 0.5 : 1,
+                cursor: page <= 1 ? 'not-allowed' : 'pointer',
+              }}
             >
               Previous
-            </Button>
-            <span style={{ display: 'flex', alignItems: 'center', padding: '0 0.5rem', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+            </button>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-primary)', padding: '0 0.5rem' }}>
               Page {page} of {totalPages}
             </span>
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              style={{
+                ...tactileButtonStyle,
+                padding: '0.35rem 0.65rem',
+                opacity: page >= totalPages ? 0.5 : 1,
+                cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+              }}
             >
               Next
-            </Button>
+            </button>
           </div>
         </div>
       </Card>
@@ -705,6 +1116,7 @@ export const AdminAgentsPage: React.FC = () => {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         title="Register New Agent Reseller"
+        maxWidth="600px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
           <div>
@@ -758,19 +1170,19 @@ export const AdminAgentsPage: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
             <div>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Agent Tier</label>
-              <Select
+              <select
                 value={createForm.agentTier}
                 onChange={(e) => setCreateForm({ ...createForm, agentTier: e.target.value })}
-                options={[
-                  { value: 'STANDARD', label: 'Standard Agent' },
-                  { value: 'SILVER', label: 'Silver Agent' },
-                  { value: 'GOLD', label: 'Gold SuperAgent' },
-                  { value: 'ENTERPRISE', label: 'Enterprise API Partner' },
-                ]}
-              />
+                style={{ ...selectStyle, width: '100%' }}
+              >
+                <option value="STANDARD">Standard Agent</option>
+                <option value="SILVER">Silver Agent</option>
+                <option value="GOLD">Gold SuperAgent</option>
+                <option value="ENTERPRISE">Enterprise API Partner</option>
+              </select>
             </div>
             <div>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Initial Temporary Password</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Initial Password</label>
               <Input
                 type="password"
                 value={createForm.initialPassword}
@@ -780,24 +1192,37 @@ export const AdminAgentsPage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 'var(--space-1)' }}>
             <input
               type="checkbox"
               id="enableApiCheck"
               checked={createForm.enableApiAccess}
               onChange={(e) => setCreateForm({ ...createForm, enableApiAccess: e.target.checked })}
-              style={{ width: '16px', height: '16px' }}
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
             />
             <label htmlFor="enableApiCheck" style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: 'pointer' }}>
               Grant Developer API Access Immediately
             </label>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleCreateAgent} disabled={isCreating}>
-              {isCreating ? 'Registering Agent...' : 'Confirm Registration'}
-            </Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-4)' }}>
+            <button type="button" onClick={() => setIsCreateModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateAgent}
+              disabled={isCreating}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: 'var(--color-brand-primary)',
+                color: '#fff',
+                border: '1px solid var(--color-brand-primary)',
+                opacity: isCreating ? 0.6 : 1,
+              }}
+            >
+              {isCreating ? 'Registering...' : 'Confirm Registration'}
+            </button>
           </div>
         </div>
       </Modal>
@@ -807,21 +1232,22 @@ export const AdminAgentsPage: React.FC = () => {
         isOpen={isStatusModalOpen}
         onClose={() => setIsStatusModalOpen(false)}
         title={`Change Status: ${statusTargetAgent?.fullName || 'Agent'}`}
+        maxWidth="520px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
           <div>
             <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>New Operational Status *</label>
-            <Select
+            <select
               value={newStatus}
               onChange={(e) => setNewStatus(e.target.value as any)}
-              options={[
-                { value: 'ACTIVE', label: 'ACTIVE — Fully Authorized' },
-                { value: 'PENDING', label: 'PENDING — Under Verification' },
-                { value: 'SUSPENDED', label: 'SUSPENDED — Block All Commerce & API' },
-                { value: 'RESTRICTED', label: 'RESTRICTED — Limited Fulfillment' },
-                { value: 'DISABLED', label: 'DISABLED — Terminated Account' },
-              ]}
-            />
+              style={{ ...selectStyle, width: '100%' }}
+            >
+              <option value="ACTIVE">ACTIVE — Fully Authorized</option>
+              <option value="PENDING">PENDING — Under Verification</option>
+              <option value="SUSPENDED">SUSPENDED — Block All Commerce & API</option>
+              <option value="RESTRICTED">RESTRICTED — Limited Fulfillment</option>
+              <option value="DISABLED">DISABLED — Terminated Account</option>
+            </select>
           </div>
 
           <div>
@@ -829,15 +1255,28 @@ export const AdminAgentsPage: React.FC = () => {
             <Input
               value={statusReason}
               onChange={(e) => setStatusReason(e.target.value)}
-              placeholder="e.g. Agent KYC verified, or suspended due to suspicious chargebacks"
+              placeholder="e.g. Agent KYC verified, or suspended due to dispute"
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsStatusModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleUpdateStatus} disabled={isUpdatingStatus}>
-              {isUpdatingStatus ? 'Updating Status...' : 'Apply Status Change'}
-            </Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-4)' }}>
+            <button type="button" onClick={() => setIsStatusModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleUpdateStatus}
+              disabled={isUpdatingStatus}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: 'var(--color-brand-primary)',
+                color: '#fff',
+                border: '1px solid var(--color-brand-primary)',
+                opacity: isUpdatingStatus ? 0.6 : 1,
+              }}
+            >
+              {isUpdatingStatus ? 'Updating...' : 'Apply Status Change'}
+            </button>
           </div>
         </div>
       </Modal>
@@ -846,12 +1285,13 @@ export const AdminAgentsPage: React.FC = () => {
       <Modal
         isOpen={isWalletModalOpen}
         onClose={() => setIsWalletModalOpen(false)}
-        title={`Wallet Adjustment: ${walletTargetAgent?.fullName || 'Agent'}`}
+        title={`Wallet Float Adjustment: ${walletTargetAgent?.fullName || 'Agent'}`}
+        maxWidth="540px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
-          <div style={{ background: 'var(--color-bg-secondary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Current Authoritative Balance:</span>
-            <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
+          <div style={{ background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Current Authoritative Float Balance:</span>
+            <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-success)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
               GH₵ {((walletTargetAgent?.walletBalancePesewas || 0) / 100).toFixed(2)}
             </div>
           </div>
@@ -859,14 +1299,14 @@ export const AdminAgentsPage: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
             <div>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Adjustment Direction</label>
-              <Select
+              <select
                 value={adjDirection}
                 onChange={(e) => setAdjDirection(e.target.value as any)}
-                options={[
-                  { value: 'CREDIT', label: 'CREDIT (Increase Float)' },
-                  { value: 'DEBIT', label: 'DEBIT (Decrease Float)' },
-                ]}
-              />
+                style={{ ...selectStyle, width: '100%' }}
+              >
+                <option value="CREDIT">CREDIT (Increase Float)</option>
+                <option value="DEBIT">DEBIT (Decrease Float)</option>
+              </select>
             </div>
             <div>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Amount in GHS *</label>
@@ -885,37 +1325,51 @@ export const AdminAgentsPage: React.FC = () => {
             <Input
               value={adjReason}
               onChange={(e) => setAdjReason(e.target.value)}
-              placeholder="e.g. Direct bank float deposit confirmation ref #99812"
+              placeholder="e.g. Bank deposit voucher confirmation ref #12345"
             />
           </div>
 
-          <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', background: 'var(--color-bg-tertiary)', padding: 'var(--space-2)', borderRadius: 'var(--radius-sm)' }}>
-            🔒 Invariant: This action posts a balanced double-entry voucher pairing <code>CUSTOMER_WALLET</code> against <code>PLATFORM_RESERVE</code>. Direct database mutations are forbidden.
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', background: 'var(--color-bg-subtle)', padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-sm)' }}>
+            🔒 Invariant: This operation posts a double-entry ledger entry between <code>CUSTOMER_WALLET</code> and <code>PLATFORM_RESERVE</code>.
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsWalletModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleAdjustWallet} disabled={isAdjustingWallet}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-4)' }}>
+            <button type="button" onClick={() => setIsWalletModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAdjustWallet}
+              disabled={isAdjustingWallet}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: 'var(--color-brand-primary)',
+                color: '#fff',
+                border: '1px solid var(--color-brand-primary)',
+                opacity: isAdjustingWallet ? 0.6 : 1,
+              }}
+            >
               {isAdjustingWallet ? 'Posting Voucher...' : 'Execute Balanced Adjustment'}
-            </Button>
+            </button>
           </div>
         </div>
       </Modal>
 
-      {/* CUSTOM PRICING MODAL */}
+      {/* CUSTOM WHOLESALE PRICING MODAL */}
       <Modal
         isOpen={isPricingModalOpen}
         onClose={() => setIsPricingModalOpen(false)}
         title={`Custom Wholesale Pricing: ${pricingTargetAgent?.fullName || 'Agent'}`}
+        maxWidth="760px"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)', maxHeight: '70vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)', maxHeight: '72vh', overflowY: 'auto' }}>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
-            Override standard wholesale prices for this specific agent. Leave empty to use the default agent price.
+            Override standard wholesale prices for this specific agent. Leave empty to use default agent wholesale pricing.
           </p>
 
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', textAlign: 'left' }}>
+              <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', textAlign: 'left', color: 'var(--color-text-muted)' }}>
                 <th style={{ padding: '8px' }}>Plan / SKU</th>
                 <th style={{ padding: '8px' }}>Network</th>
                 <th style={{ padding: '8px' }}>Retail Price</th>
@@ -931,11 +1385,11 @@ export const AdminAgentsPage: React.FC = () => {
 
                 return (
                   <tr key={plan.productId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: '8px', fontWeight: 600 }}>{plan.productName}</td>
+                    <td style={{ padding: '8px', fontWeight: 600, color: 'var(--color-text-primary)' }}>{plan.productName}</td>
                     <td style={{ padding: '8px' }}>
-                      <Badge variant="default" size="sm">{plan.network}</Badge>
+                      <Badge variant="neutral" size="sm">{plan.network}</Badge>
                     </td>
-                    <td style={{ padding: '8px', fontFamily: 'var(--font-mono)' }}>GH₵ {retailGhs}</td>
+                    <td style={{ padding: '8px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>GH₵ {retailGhs}</td>
                     <td style={{ padding: '8px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>GH₵ {defaultWholesaleGhs}</td>
                     <td style={{ padding: '8px' }}>
                       <Input
@@ -944,7 +1398,7 @@ export const AdminAgentsPage: React.FC = () => {
                         placeholder={defaultWholesaleGhs}
                         value={val}
                         onChange={(e) => setCustomPriceEdits({ ...customPriceEdits, [plan.productId]: e.target.value })}
-                        style={{ height: '30px', fontSize: '12px' }}
+                        style={{ height: '32px', fontSize: '11px', fontFamily: 'var(--font-mono)' }}
                       />
                     </td>
                   </tr>
@@ -953,475 +1407,678 @@ export const AdminAgentsPage: React.FC = () => {
             </tbody>
           </table>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-4)' }}>
-            <Button variant="ghost" onClick={() => setIsPricingModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={handleSaveCustomPricing} disabled={isSavingPricing}>
-              {isSavingPricing ? 'Saving Pricing...' : 'Save Wholesale Rules'}
-            </Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-4)' }}>
+            <button type="button" onClick={() => setIsPricingModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveCustomPricing}
+              disabled={isSavingPricing}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: 'var(--color-brand-primary)',
+                color: '#fff',
+                border: '1px solid var(--color-brand-primary)',
+                opacity: isSavingPricing ? 0.6 : 1,
+              }}
+            >
+              {isSavingPricing ? 'Saving...' : 'Save Wholesale Rules'}
+            </button>
           </div>
         </div>
       </Modal>
 
-      {/* AGENT DOSSIER DRAWER */}
+      {/* AGENT DOSSIER DRAWER & BACKDROP (Non-Overlapping, zIndex 250/260) */}
       {selectedAgentId && (
-        <div style={{
-          position: 'fixed', top: 0, right: 0, bottom: 0, width: '100%', maxWidth: '850px',
-          background: 'var(--color-bg-primary)', borderLeft: '1px solid var(--color-border-subtle)',
-          boxShadow: 'var(--shadow-2xl)', zIndex: 1000, display: 'flex', flexDirection: 'column',
-          overflow: 'hidden', animation: 'slideInRight 0.25s ease-out'
-        }}>
-          {/* Drawer Header */}
-          <div style={{ padding: 'var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--color-bg-secondary)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'var(--color-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '18px' }}>
-                {agentDetail?.agent.fullName?.charAt(0).toUpperCase() || 'A'}
-              </div>
-              <div>
-                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
-                  {agentDetail?.agent.fullName || 'Loading Agent...'}
-                </h2>
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  {agentDetail?.agent.businessName} • {agentDetail?.agent.email}
-                </span>
-              </div>
-            </div>
-
-            <Button variant="ghost" size="sm" onClick={() => setSelectedAgentId(null)}>
-              ✕ Close
-            </Button>
-          </div>
-
-          {/* Drawer Tabs */}
-          <div style={{ display: 'flex', gap: 'var(--space-2)', padding: 'var(--space-3) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', overflowX: 'auto', background: 'var(--color-bg-primary)' }}>
-            {[
-              { id: 'OVERVIEW', label: 'Overview' },
-              { id: 'WALLET', label: 'Wallet & Ledger' },
-              { id: 'ORDERS', label: 'Orders History' },
-              { id: 'PRICING', label: 'Custom Pricing' },
-              { id: 'STORE', label: 'Storefront' },
-              { id: 'API', label: 'API Keys' },
-              { id: 'SUBAGENTS', label: 'Sub-Agents' },
-              { id: 'CUSTOMERS', label: 'Customers' },
-              { id: 'AUDIT', label: 'Audit Trail' },
-            ].map((t) => (
-              <Button
-                key={t.id}
-                variant={dossierTab === t.id ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setDossierTab(t.id as any)}
-                style={{ fontSize: '12px', whiteSpace: 'nowrap' }}
-              >
-                {t.label}
-              </Button>
-            ))}
-          </div>
-
-          {/* Drawer Body */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-            {isLoadingDetail ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-                <RefreshCw size={24} className="animate-spin" color="var(--color-brand)" />
-              </div>
-            ) : agentDetail ? (
-              <>
-                {dossierTab === 'OVERVIEW' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    {/* Snapshot Cards */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Wallet Float</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-brand)' }}>
-                          GH₵ {(agentDetail.wallet.balancePesewas / 100).toFixed(2)}
-                        </div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total Orders</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800 }}>
-                          {agentDetail.ordersSummary.total.toLocaleString()}
-                        </div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Gross Revenue</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-purple-bright)' }}>
-                          GH₵ {(agentDetail.wallet.totalRevenuePesewas / 100).toFixed(2)}
-                        </div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Sub-Agents</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800 }}>
-                          {agentDetail.subAgents.length}
-                        </div>
-                      </Card>
-                    </div>
-
-                    {/* Agent Status & Actions */}
-                    <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <span style={{ fontSize: '12px', fontWeight: 700 }}>Operational Status: </span>
-                        <Badge variant={agentDetail.agent.status === 'ACTIVE' ? 'success' : 'danger'}>
-                          {agentDetail.agent.status}
-                        </Badge>
-                      </div>
-                      <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setWalletTargetAgent(agentDetail.agent);
-                            setIsWalletModalOpen(true);
-                          }}
-                        >
-                          <DollarSign size={13} style={{ marginRight: '4px' }} />
-                          Adjust Float
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setStatusTargetAgent(agentDetail.agent);
-                            setNewStatus(agentDetail.agent.status as any);
-                            setIsStatusModalOpen(true);
-                          }}
-                        >
-                          <Shield size={13} style={{ marginRight: '4px' }} />
-                          Change Status
-                        </Button>
-                      </div>
-                    </Card>
-
-                    {/* Recent Orders in Dossier */}
-                    <div>
-                      <h3 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px' }}>Recent Order Activity</h3>
-                      <Table
-                        columns={[
-                          { header: 'Public ID', accessor: 'publicId' },
-                          { header: 'Recipient', accessor: 'recipientPhone' },
-                          { header: 'Network', accessor: 'network' },
-                          { header: 'Amount', accessor: 'amountPesewas', render: (r: any) => `GH₵ ${(r.amountPesewas / 100).toFixed(2)}` },
-                          { header: 'Status', accessor: 'orderStatus', render: (r: any) => <Badge variant={r.orderStatus === 'COMPLETED' ? 'success' : 'warning'} size="sm">{r.orderStatus}</Badge> },
-                          { header: 'Date', accessor: 'createdAt', render: (r: any) => new Date(r.createdAt).toLocaleDateString() },
-                        ]}
-                        data={agentDetail.recentOrders}
-                        keyExtractor={(r: any) => r.id}
-                        emptyMessage="No recent orders for this agent."
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {dossierTab === 'WALLET' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-                      <Card style={{ padding: 'var(--space-4)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Authoritative Wallet Balance</span>
-                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-brand)' }}>
-                          GH₵ {(agentDetail.wallet.balancePesewas / 100).toFixed(2)}
-                        </div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-4)' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Ledger-Derived Balance</span>
-                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                          GH₵ {(agentDetail.wallet.ledgerBalancePesewas / 100).toFixed(2)}
-                        </div>
-                      </Card>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 'var(--space-3)' }}>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total Deposited</span>
-                        <div style={{ fontWeight: 700 }}>GH₵ {(agentDetail.wallet.totalDepositsPesewas / 100).toFixed(2)}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total Purchases</span>
-                        <div style={{ fontWeight: 700 }}>GH₵ {(agentDetail.wallet.totalSpentPesewas / 100).toFixed(2)}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total Withdrawals</span>
-                        <div style={{ fontWeight: 700 }}>GH₵ {(agentDetail.wallet.totalWithdrawalsPesewas / 100).toFixed(2)}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total Refunds</span>
-                        <div style={{ fontWeight: 700 }}>GH₵ {(agentDetail.wallet.totalRefundsPesewas / 100).toFixed(2)}</div>
-                      </Card>
-                    </div>
-
-                    <Button variant="primary" onClick={() => { setWalletTargetAgent(agentDetail.agent); setIsWalletModalOpen(true); }}>
-                      <DollarSign size={14} style={{ marginRight: '6px' }} />
-                      Make Controlled Double-Entry Float Adjustment
-                    </Button>
-                  </div>
-                )}
-
-                {dossierTab === 'ORDERS' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 'var(--space-3)' }}>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total Orders</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800 }}>{agentDetail.ordersSummary.total.toLocaleString()}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Completed</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-success)' }}>{agentDetail.ordersSummary.completed.toLocaleString()}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Processing</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-warning)' }}>{agentDetail.ordersSummary.processing.toLocaleString()}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Failed</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-danger)' }}>{agentDetail.ordersSummary.failed.toLocaleString()}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Refunded</span>
-                        <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-text-muted)' }}>{agentDetail.ordersSummary.refunded.toLocaleString()}</div>
-                      </Card>
-                    </div>
-
-                    <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>Agent Order History</h3>
-                    <Table
-                      columns={[
-                        { header: 'Public ID', accessor: 'publicId', render: (r: any) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700 }}>{r.publicId || r.id}</span> },
-                        { header: 'Recipient', accessor: 'recipientPhone', render: (r: any) => <span>{r.recipientPhone || 'N/A'}</span> },
-                        { header: 'Network', accessor: 'network', render: (r: any) => <Badge variant="info" size="sm">{r.network || 'UNKNOWN'}</Badge> },
-                        { header: 'Data', accessor: 'dataAmountMb', render: (r: any) => <span>{r.dataAmountMb >= 1000 ? `${(r.dataAmountMb / 1000).toFixed(1)} GB` : `${r.dataAmountMb} MB`}</span> },
-                        { header: 'Amount', accessor: 'amountPesewas', render: (r: any) => `GH₵ ${(r.amountPesewas / 100).toFixed(2)}` },
-                        { header: 'Order Status', accessor: 'orderStatus', render: (r: any) => <Badge variant={r.orderStatus === 'COMPLETED' ? 'success' : r.orderStatus === 'FAILED' ? 'danger' : 'warning'} size="sm">{r.orderStatus}</Badge> },
-                        { header: 'Payment Status', accessor: 'paymentStatus', render: (r: any) => <Badge variant={r.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">{r.paymentStatus}</Badge> },
-                        { header: 'Date', accessor: 'createdAt', render: (r: any) => new Date(r.createdAt).toLocaleString() },
-                      ]}
-                      data={agentDetail.recentOrders}
-                      keyExtractor={(r: any) => r.id}
-                      emptyMessage="No order records found for this agent."
-                    />
-                  </div>
-                )}
-
-                {dossierTab === 'PRICING' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 700 }}>Wholesale Price Overrides</span>
-                      <Button variant="outline" size="sm" onClick={() => openCustomPricingModal(agentDetail.agent)}>
-                        <Sliders size={13} style={{ marginRight: '4px' }} />
-                        Edit Wholesale Rules
-                      </Button>
-                    </div>
-
-                    <Table
-                      columns={[
-                        { header: 'Product Name', accessor: 'productName' },
-                        { header: 'Network', accessor: 'network' },
-                        { header: 'Retail Price', accessor: 'basePricePesewas', render: (r: any) => `GH₵ ${(r.basePricePesewas / 100).toFixed(2)}` },
-                        { header: 'Default Wholesale', accessor: 'defaultAgentPricePesewas', render: (r: any) => `GH₵ ${(r.defaultAgentPricePesewas / 100).toFixed(2)}` },
-                        { header: 'Custom Wholesale', accessor: 'customPricePesewas', render: (r: any) => r.customPricePesewas ? <span style={{ fontWeight: 800, color: 'var(--color-brand)' }}>GH₵ ${(r.customPricePesewas / 100).toFixed(2)}</span> : <span style={{ color: 'var(--color-text-muted)' }}>Default</span> },
-                        { header: 'Effective Margin', accessor: 'effectivePricePesewas', render: (r: any) => `GH₵ ${((r.basePricePesewas - r.effectivePricePesewas) / 100).toFixed(2)}` },
-                      ]}
-                      data={agentDetail.customPricing}
-                      keyExtractor={(r: any) => r.productId}
-                      emptyMessage="No custom pricing overrides defined for this agent."
-                    />
-                  </div>
-                )}
-
-                {dossierTab === 'STORE' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    {agentDetail.storeSummary ? (
-                      <>
-                        <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                            <div style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-md)', background: agentDetail.storeSummary.primaryColor || 'var(--color-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                              <Store size={24} />
-                            </div>
-                            <div>
-                              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0 }}>{agentDetail.storeSummary.storeName || 'Custom Storefront'}</h3>
-                              <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
-                                Slug: <code style={{ fontFamily: 'var(--font-mono)' }}>{agentDetail.storeSummary.slug}</code>
-                              </span>
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                            <a
-                              href={`/store/${agentDetail.storeSummary.slug}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ textDecoration: 'none' }}
-                            >
-                              <Button variant="primary" size="sm">
-                                <ExternalLink size={13} style={{ marginRight: '4px' }} />
-                                View Live Storefront
-                              </Button>
-                            </a>
-                          </div>
-                        </Card>
-
-                        {/* Store Statistics */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--space-3)' }}>
-                          <Card style={{ padding: 'var(--space-3)' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Store Status</span>
-                            <div style={{ marginTop: '4px' }}>
-                              <Badge variant={agentDetail.storeSummary.storeStatus === 'ACTIVE' ? 'success' : 'warning'}>
-                                {agentDetail.storeSummary.storeStatus}
-                              </Badge>
-                            </div>
-                          </Card>
-                          <Card style={{ padding: 'var(--space-3)' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Approval Status</span>
-                            <div style={{ marginTop: '4px' }}>
-                              <Badge variant={agentDetail.storeSummary.approvalStatus === 'APPROVED' ? 'success' : 'warning'}>
-                                {agentDetail.storeSummary.approvalStatus}
-                              </Badge>
-                            </div>
-                          </Card>
-                          <Card style={{ padding: 'var(--space-3)' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Products Listed</span>
-                            <div style={{ fontSize: '18px', fontWeight: 800 }}>{agentDetail.storeSummary.productsCount}</div>
-                          </Card>
-                          <Card style={{ padding: 'var(--space-3)' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Storefront Sales</span>
-                            <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-brand)' }}>
-                              GH₵ {(agentDetail.storeSummary.totalSalesPesewas / 100).toFixed(2)}
-                            </div>
-                          </Card>
-                        </div>
-
-                        {/* Store Info & Branding Details */}
-                        <Card style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                          <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0 }}>Store Details & Contact Metadata</h4>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', fontSize: '12px' }}>
-                            <div>
-                              <span style={{ color: 'var(--color-text-muted)' }}>Tagline: </span>
-                              <strong>{agentDetail.storeSummary.tagline || 'None'}</strong>
-                            </div>
-                            <div>
-                              <span style={{ color: 'var(--color-text-muted)' }}>Contact Email: </span>
-                              <strong>{agentDetail.storeSummary.contactEmail || agentDetail.agent.email}</strong>
-                            </div>
-                            <div>
-                              <span style={{ color: 'var(--color-text-muted)' }}>Contact Phone: </span>
-                              <strong>{agentDetail.storeSummary.contactPhone || agentDetail.agent.phone || 'N/A'}</strong>
-                            </div>
-                            <div>
-                              <span style={{ color: 'var(--color-text-muted)' }}>WhatsApp Contact: </span>
-                              <strong>{agentDetail.storeSummary.contactWhatsapp || 'N/A'}</strong>
-                            </div>
-                            <div>
-                              <span style={{ color: 'var(--color-text-muted)' }}>Brand Colors: </span>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', verticalAlign: 'middle' }}>
-                                <span style={{ width: '14px', height: '14px', borderRadius: '3px', background: agentDetail.storeSummary.primaryColor || '#0066FF', display: 'inline-block', border: '1px solid rgba(0,0,0,0.1)' }} />
-                                <span style={{ width: '14px', height: '14px', borderRadius: '3px', background: agentDetail.storeSummary.accentColor || '#00E599', display: 'inline-block', border: '1px solid rgba(0,0,0,0.1)' }} />
-                              </span>
-                            </div>
-                            <div>
-                              <span style={{ color: 'var(--color-text-muted)' }}>Activation Fee: </span>
-                              <strong>GH₵ {((agentDetail.storeSummary.activationFeePesewas || 50000) / 100).toFixed(2)} ({agentDetail.storeSummary.paymentStatus || 'PAID'})</strong>
-                            </div>
-                          </div>
-                          {agentDetail.storeSummary.description && (
-                            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--color-text-secondary)', background: 'var(--color-bg-secondary)', padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-sm)' }}>
-                              {agentDetail.storeSummary.description}
-                            </div>
-                          )}
-                        </Card>
-                      </>
-                    ) : (
-                      <Card style={{ padding: 'var(--space-6)', textAlign: 'center' }}>
-                        <Store size={36} color="var(--color-text-muted)" style={{ margin: '0 auto var(--space-3) auto' }} />
-                        <h4 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 6px 0' }}>No Active Storefront</h4>
-                        <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', margin: 0 }}>
-                          This agent has not registered or activated an online storefront yet.
-                        </p>
-                      </Card>
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 250,
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
+          onClick={() => setSelectedAgentId(null)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '860px',
+              height: '100%',
+              backgroundColor: 'var(--color-bg-surface)',
+              borderLeft: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-2xl)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              animation: 'slideInRight 0.25s ease-out',
+              zIndex: 260,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--color-bg-subtle)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <Avatar name={agentDetail?.agent.fullName || 'Agent'} size="md" status={agentDetail?.agent.status === 'ACTIVE' ? 'online' : 'offline'} />
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                      {agentDetail?.agent.fullName || 'Loading Agent Dossier...'}
+                    </h2>
+                    {agentDetail?.agent.status && (
+                      <Badge variant={agentDetail.agent.status === 'ACTIVE' ? 'success' : 'danger'} size="sm" dot>
+                        {agentDetail.agent.status}
+                      </Badge>
                     )}
                   </div>
-                )}
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                    {agentDetail?.agent.businessName} • {agentDetail?.agent.email} {agentDetail?.agent.phone ? `• ${agentDetail?.agent.phone}` : ''}
+                  </span>
+                </div>
+              </div>
 
-                {dossierTab === 'API' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <span style={{ fontSize: '13px', fontWeight: 700 }}>Developer API Keys</span>
-                        <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
-                          Keys belong to the agent. Full secrets are never displayed.
-                        </p>
+              <button
+                type="button"
+                onClick={() => setSelectedAgentId(null)}
+                style={{
+                  ...tactileButtonStyle,
+                  padding: '0.35rem 0.65rem',
+                }}
+              >
+                <X size={14} />
+                <span>Close</span>
+              </button>
+            </div>
+
+            {/* Drawer Sub-Page Tabs */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.3rem',
+                padding: '0.4rem var(--space-5)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+                overflowX: 'auto',
+                backgroundColor: 'var(--color-bg-subtle)',
+              }}
+            >
+              {[
+                { id: 'OVERVIEW', label: 'Overview', icon: <Eye size={12} /> },
+                { id: 'WALLET', label: 'Wallet & Float', icon: <DollarSign size={12} /> },
+                { id: 'ORDERS', label: 'Orders History', icon: <TrendingUp size={12} /> },
+                { id: 'PRICING', label: 'Custom Pricing', icon: <Sliders size={12} /> },
+                { id: 'STORE', label: 'Storefront', icon: <Store size={12} /> },
+                { id: 'API', label: 'API Keys', icon: <Key size={12} /> },
+                { id: 'SUBAGENTS', label: `Sub-Agents (${agentDetail?.subAgents?.length || 0})`, icon: <Users size={12} /> },
+                { id: 'CUSTOMERS', label: `Customers (${agentDetail?.customers?.length || 0})`, icon: <UserCheck size={12} /> },
+                { id: 'AUDIT', label: 'Audit Trail', icon: <Shield size={12} /> },
+              ].map((t) => {
+                const isActive = dossierTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setDossierTab(t.id as any)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      padding: '0.35rem 0.65rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                      backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
+                      color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                      fontWeight: isActive ? 700 : 500,
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                      transition: 'all var(--transition-fast)',
+                    }}
+                  >
+                    {t.icon}
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Drawer Body Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              {isLoadingDetail ? (
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '300px', gap: '1rem' }}>
+                  <RefreshCw size={24} className="animate-spin" color="var(--color-brand-primary)" />
+                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Loading authoritative agent dossier...</span>
+                </div>
+              ) : agentDetail ? (
+                <>
+                  {/* TAB: OVERVIEW */}
+                  {dossierTab === 'OVERVIEW' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      {/* Snapshot Cards */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
+                        <Card elevated style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Wallet Float Balance</span>
+                          <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-success)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                            GH₵ {((agentDetail.wallet.balancePesewas || 0) / 100).toFixed(2)}
+                          </div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Total Reseller Orders</span>
+                          <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '4px' }}>
+                            {agentDetail.ordersSummary.total.toLocaleString()}
+                          </div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Gross Processed Volume</span>
+                          <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-brand-primary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                            GH₵ {((agentDetail.wallet.totalRevenuePesewas || 0) / 100).toFixed(2)}
+                          </div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Sub-Agents Network</span>
+                          <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '4px' }}>
+                            {agentDetail.subAgents.length}
+                          </div>
+                        </Card>
                       </div>
-                    </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>API Status</span>
-                        <div style={{ fontWeight: 800, color: agentDetail.apiSummary.enabled ? 'var(--color-brand)' : 'var(--color-text-muted)' }}>
-                          {agentDetail.apiSummary.enabled ? '● Enabled' : '○ Disabled'}
+                      {/* Agent Operational Quick Controls */}
+                      <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>Operational Reseller Status:</span>
+                          <div style={{ marginTop: '3px' }}>
+                            <Badge variant={agentDetail.agent.status === 'ACTIVE' ? 'success' : 'danger'} size="sm" dot>
+                              {agentDetail.agent.status}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWalletTargetAgent(agentDetail.agent);
+                              setIsWalletModalOpen(true);
+                            }}
+                            style={tactileButtonStyle}
+                          >
+                            <DollarSign size={13} color="var(--color-brand-primary)" />
+                            <span>Adjust Float</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStatusTargetAgent(agentDetail.agent);
+                              setNewStatus(agentDetail.agent.status as any);
+                              setIsStatusModalOpen(true);
+                            }}
+                            style={tactileButtonStyle}
+                          >
+                            <Shield size={13} color="var(--color-text-muted)" />
+                            <span>Change Status</span>
+                          </button>
                         </div>
                       </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Active Keys</span>
-                        <div style={{ fontWeight: 800 }}>{agentDetail.apiSummary.activeKeys}</div>
-                      </Card>
-                      <Card style={{ padding: 'var(--space-3)' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Success Rate</span>
-                        <div style={{ fontWeight: 800, color: 'var(--color-success)' }}>{agentDetail.apiSummary.successRate.toFixed(1)}%</div>
-                      </Card>
+
+                      {/* Recent Orders in Dossier */}
+                      <div>
+                        <h3 style={{ fontSize: '13px', fontWeight: 800, marginBottom: '8px', textTransform: 'uppercase', color: 'var(--color-text-primary)' }}>
+                          Recent Order Activity
+                        </h3>
+                        <Table
+                          minWidth="700px"
+                          headers={['Public ID', 'Recipient', 'Network', 'Amount', 'Status', 'Date']}
+                        >
+                          {(agentDetail.recentOrders || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={6} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '11px' }}>
+                                No recent orders recorded for this reseller.
+                              </td>
+                            </tr>
+                          ) : (
+                            agentDetail.recentOrders.map((r: any) => (
+                              <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                                <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700 }}>
+                                  {r.publicId || r.id}
+                                </td>
+                                <td style={{ padding: '0.65rem 0.85rem', fontSize: '11px' }}>
+                                  {r.recipientPhone || 'N/A'}
+                                </td>
+                                <td style={{ padding: '0.65rem 0.85rem' }}>
+                                  <Badge variant="neutral" size="sm">{r.network || 'UNKNOWN'}</Badge>
+                                </td>
+                                <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700 }}>
+                                  GH₵ {((r.amountPesewas || 0) / 100).toFixed(2)}
+                                </td>
+                                <td style={{ padding: '0.65rem 0.85rem' }}>
+                                  <Badge variant={r.orderStatus === 'COMPLETED' ? 'success' : r.orderStatus === 'FAILED' ? 'danger' : 'warning'} size="sm">
+                                    {r.orderStatus}
+                                  </Badge>
+                                </td>
+                                <td style={{ padding: '0.65rem 0.85rem', fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                  {new Date(r.createdAt).toLocaleDateString()}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </Table>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {dossierTab === 'SUBAGENTS' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>Hierarchical Sub-Agents ({agentDetail.subAgents.length})</h3>
-                    <Table
-                      columns={[
-                        { header: 'Sub-Agent', accessor: 'fullName' },
-                        { header: 'Business', accessor: 'businessName' },
-                        { header: 'Status', accessor: 'status', render: (r: any) => <Badge variant={r.status === 'ACTIVE' ? 'success' : 'danger'} size="sm">{r.status}</Badge> },
-                        { header: 'Orders', accessor: 'ordersCount' },
-                        { header: 'Revenue', accessor: 'revenuePesewas', render: (r: any) => `GH₵ ${(r.revenuePesewas / 100).toFixed(2)}` },
-                        { header: 'Joined', accessor: 'createdAt', render: (r: any) => new Date(r.createdAt).toLocaleDateString() },
-                      ]}
-                      data={agentDetail.subAgents}
-                      keyExtractor={(r) => r.id}
-                      emptyMessage="This agent has no registered sub-agents."
-                    />
-                  </div>
-                )}
+                  {/* TAB: WALLET */}
+                  {dossierTab === 'WALLET' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                        <Card elevated style={{ padding: 'var(--space-4)' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Authoritative Float Balance</span>
+                          <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-success)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                            GH₵ {((agentDetail.wallet.balancePesewas || 0) / 100).toFixed(2)}
+                          </div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-4)' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Ledger-Derived Balance</span>
+                          <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                            GH₵ {((agentDetail.wallet.ledgerBalancePesewas || 0) / 100).toFixed(2)}
+                          </div>
+                        </Card>
+                      </div>
 
-                {dossierTab === 'CUSTOMERS' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>Tenant Isolated Customers ({agentDetail.customers.length})</h3>
-                    <Table
-                      columns={[
-                        { header: 'Customer', accessor: 'fullName' },
-                        { header: 'Email', accessor: 'email' },
-                        { header: 'Phone', accessor: 'phone' },
-                        { header: 'Orders', accessor: 'ordersCount' },
-                        { header: 'Spent', accessor: 'spentPesewas', render: (r: any) => `GH₵ ${(r.spentPesewas / 100).toFixed(2)}` },
-                        { header: 'Last Order', accessor: 'lastOrderDate', render: (r: any) => r.lastOrderDate ? new Date(r.lastOrderDate).toLocaleDateString() : 'N/A' },
-                      ]}
-                      data={agentDetail.customers}
-                      keyExtractor={(r) => r.id}
-                      emptyMessage="No direct customer relationships recorded for this agent."
-                    />
-                  </div>
-                )}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 'var(--space-3)' }}>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Deposits</span>
+                          <div style={{ fontWeight: 700, fontSize: '13px', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>GH₵ {((agentDetail.wallet.totalDepositsPesewas || 0) / 100).toFixed(2)}</div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Purchases</span>
+                          <div style={{ fontWeight: 700, fontSize: '13px', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>GH₵ {((agentDetail.wallet.totalSpentPesewas || 0) / 100).toFixed(2)}</div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Withdrawals</span>
+                          <div style={{ fontWeight: 700, fontSize: '13px', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>GH₵ {((agentDetail.wallet.totalWithdrawalsPesewas || 0) / 100).toFixed(2)}</div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Refunds</span>
+                          <div style={{ fontWeight: 700, fontSize: '13px', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>GH₵ {((agentDetail.wallet.totalRefundsPesewas || 0) / 100).toFixed(2)}</div>
+                        </Card>
+                      </div>
 
-                {dossierTab === 'AUDIT' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>Security & Administrative Audit Stream</h3>
-                    <Table
-                      columns={[
-                        { header: 'Action', accessor: 'action', render: (r: any) => <Badge variant="info" size="sm">{r.action}</Badge> },
-                        { header: 'Correlation ID', accessor: 'correlationId', render: (r: any) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>{r.correlationId}</span> },
-                        { header: 'Timestamp', accessor: 'occurredAt', render: (r: any) => new Date(r.occurredAt).toLocaleString() },
-                      ]}
-                      data={agentDetail.auditLogs}
-                      keyExtractor={(r: any) => r.id}
-                      emptyMessage="No audit logs recorded for this agent."
-                    />
-                  </div>
-                )}
-              </>
-            ) : null}
+                      <button
+                        type="button"
+                        onClick={() => { setWalletTargetAgent(agentDetail.agent); setIsWalletModalOpen(true); }}
+                        style={{
+                          ...tactileButtonStyle,
+                          backgroundColor: 'var(--color-brand-primary)',
+                          color: '#fff',
+                          border: 'none',
+                          justifyContent: 'center',
+                          padding: '0.65rem 1rem',
+                        }}
+                      >
+                        <DollarSign size={14} />
+                        <span>Make Controlled Double-Entry Float Adjustment</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* TAB: ORDERS */}
+                  {dossierTab === 'ORDERS' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 'var(--space-3)' }}>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Total</span>
+                          <div style={{ fontSize: '16px', fontWeight: 800, marginTop: '2px' }}>{agentDetail.ordersSummary.total.toLocaleString()}</div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Completed</span>
+                          <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-success)', marginTop: '2px' }}>{agentDetail.ordersSummary.completed.toLocaleString()}</div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Processing</span>
+                          <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-warning)', marginTop: '2px' }}>{agentDetail.ordersSummary.processing.toLocaleString()}</div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Failed</span>
+                          <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-danger)', marginTop: '2px' }}>{agentDetail.ordersSummary.failed.toLocaleString()}</div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Refunded</span>
+                          <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-text-muted)', marginTop: '2px' }}>{agentDetail.ordersSummary.refunded.toLocaleString()}</div>
+                        </Card>
+                      </div>
+
+                      <Table
+                        minWidth="800px"
+                        headers={['Public ID', 'Recipient', 'Network', 'Data Size', 'Amount', 'Order Status', 'Payment', 'Date']}
+                      >
+                        {(agentDetail.recentOrders || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={8} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '11px' }}>
+                              No order records found for this agent.
+                            </td>
+                          </tr>
+                        ) : (
+                          agentDetail.recentOrders.map((r: any) => (
+                            <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                              <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700 }}>
+                                {r.publicId || r.id}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '11px' }}>
+                                {r.recipientPhone || 'N/A'}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                <Badge variant="neutral" size="sm">{r.network || 'UNKNOWN'}</Badge>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '11px' }}>
+                                {r.dataAmountMb >= 1000 ? `${(r.dataAmountMb / 1000).toFixed(1)} GB` : `${r.dataAmountMb} MB`}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700 }}>
+                                GH₵ {((r.amountPesewas || 0) / 100).toFixed(2)}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                <Badge variant={r.orderStatus === 'COMPLETED' ? 'success' : r.orderStatus === 'FAILED' ? 'danger' : 'warning'} size="sm">
+                                  {r.orderStatus}
+                                </Badge>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                <Badge variant={r.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
+                                  {r.paymentStatus}
+                                </Badge>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                {new Date(r.createdAt).toLocaleDateString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </Table>
+                    </div>
+                  )}
+
+                  {/* TAB: PRICING */}
+                  {dossierTab === 'PRICING' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-text-primary)' }}>Wholesale Price Overrides</span>
+                          <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>Custom discount tiers applied to this agent's purchases.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openCustomPricingModal(agentDetail.agent)}
+                          style={tactileButtonStyle}
+                        >
+                          <Sliders size={13} />
+                          <span>Edit Wholesale Rules</span>
+                        </button>
+                      </div>
+
+                      <Table
+                        minWidth="700px"
+                        headers={['Product Name', 'Network', 'Retail Price', 'Default Wholesale', 'Custom Wholesale', 'Effective Margin']}
+                      >
+                        {(agentDetail.customPricing || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '11px' }}>
+                              No custom pricing overrides configured for this agent. Default rates apply.
+                            </td>
+                          </tr>
+                        ) : (
+                          agentDetail.customPricing.map((r: any) => (
+                            <tr key={r.productId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                              <td style={{ padding: '0.65rem 0.85rem', fontWeight: 600, fontSize: '11px' }}>{r.productName}</td>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                <Badge variant="neutral" size="sm">{r.network}</Badge>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                                GH₵ {((r.basePricePesewas || 0) / 100).toFixed(2)}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                                GH₵ {((r.defaultAgentPricePesewas || 0) / 100).toFixed(2)}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                {r.customPricePesewas ? (
+                                  <span style={{ fontWeight: 800, color: 'var(--color-brand-primary)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                                    GH₵ {(r.customPricePesewas / 100).toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--color-text-muted)', fontSize: '11px' }}>Default</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-success)' }}>
+                                GH₵ {(((r.basePricePesewas || 0) - (r.effectivePricePesewas || 0)) / 100).toFixed(2)}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </Table>
+                    </div>
+                  )}
+
+                  {/* TAB: STOREFRONT */}
+                  {dossierTab === 'STORE' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      {agentDetail.storeSummary ? (
+                        <>
+                          <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                              <div style={{ width: '44px', height: '44px', borderRadius: 'var(--radius-md)', background: agentDetail.storeSummary.primaryColor || 'var(--color-brand-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                <Store size={22} />
+                              </div>
+                              <div>
+                                <h3 style={{ fontSize: '14px', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
+                                  {agentDetail.storeSummary.storeName || 'Custom Storefront'}
+                                </h3>
+                                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                                  Slug: <code style={{ fontFamily: 'var(--font-mono)' }}>{agentDetail.storeSummary.slug}</code>
+                                </span>
+                              </div>
+                            </div>
+                            <div>
+                              <a
+                                href={`/store/${agentDetail.storeSummary.slug}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ textDecoration: 'none' }}
+                              >
+                                <button type="button" style={tactileButtonStyle}>
+                                  <ExternalLink size={13} />
+                                  <span>View Live Storefront</span>
+                                </button>
+                              </a>
+                            </div>
+                          </Card>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--space-3)' }}>
+                            <Card elevated style={{ padding: 'var(--space-3)' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Store Status</span>
+                              <div style={{ marginTop: '4px' }}>
+                                <Badge variant={agentDetail.storeSummary.storeStatus === 'ACTIVE' ? 'success' : 'warning'} size="sm">
+                                  {agentDetail.storeSummary.storeStatus}
+                                </Badge>
+                              </div>
+                            </Card>
+                            <Card elevated style={{ padding: 'var(--space-3)' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Approval Status</span>
+                              <div style={{ marginTop: '4px' }}>
+                                <Badge variant={agentDetail.storeSummary.approvalStatus === 'APPROVED' ? 'success' : 'warning'} size="sm">
+                                  {agentDetail.storeSummary.approvalStatus}
+                                </Badge>
+                              </div>
+                            </Card>
+                            <Card elevated style={{ padding: 'var(--space-3)' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Products Listed</span>
+                              <div style={{ fontSize: '16px', fontWeight: 800, marginTop: '2px' }}>{agentDetail.storeSummary.productsCount}</div>
+                            </Card>
+                            <Card elevated style={{ padding: 'var(--space-3)' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Storefront Sales</span>
+                              <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-brand-primary)', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>
+                                GH₵ {((agentDetail.storeSummary.totalSalesPesewas || 0) / 100).toFixed(2)}
+                              </div>
+                            </Card>
+                          </div>
+                        </>
+                      ) : (
+                        <Card elevated style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                          <Store size={36} color="var(--color-text-muted)" style={{ margin: '0 auto var(--space-3) auto' }} />
+                          <h4 style={{ fontSize: '14px', fontWeight: 700, margin: '0 0 4px 0', color: 'var(--color-text-primary)' }}>No Active Storefront</h4>
+                          <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: 0 }}>
+                            This reseller has not provisioned an online branded storefront yet.
+                          </p>
+                        </Card>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB: API */}
+                  {dossierTab === 'API' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-text-primary)' }}>Developer API Integration</span>
+                        <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>API credentials belonging to this reseller.</p>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--space-3)' }}>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>API Status</span>
+                          <div style={{ fontWeight: 800, fontSize: '14px', color: agentDetail.apiSummary.enabled ? 'var(--color-success)' : 'var(--color-text-muted)', marginTop: '2px' }}>
+                            {agentDetail.apiSummary.enabled ? '● Enabled' : '○ Disabled'}
+                          </div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Active Keys</span>
+                          <div style={{ fontWeight: 800, fontSize: '16px', marginTop: '2px' }}>{agentDetail.apiSummary.activeKeys}</div>
+                        </Card>
+                        <Card elevated style={{ padding: 'var(--space-3)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Success Rate</span>
+                          <div style={{ fontWeight: 800, fontSize: '16px', color: 'var(--color-success)', marginTop: '2px' }}>{agentDetail.apiSummary.successRate.toFixed(1)}%</div>
+                        </Card>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB: SUBAGENTS */}
+                  {dossierTab === 'SUBAGENTS' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-text-primary)' }}>Hierarchical Sub-Agents ({agentDetail.subAgents.length})</span>
+                        <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>Downline resellers recruited or managed by this agent.</p>
+                      </div>
+                      <Table
+                        minWidth="700px"
+                        headers={['Sub-Agent', 'Business', 'Status', 'Orders', 'Revenue', 'Joined']}
+                      >
+                        {(agentDetail.subAgents || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '11px' }}>
+                              This agent has no registered sub-agents in their downline.
+                            </td>
+                          </tr>
+                        ) : (
+                          agentDetail.subAgents.map((r: any) => (
+                            <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                              <td style={{ padding: '0.65rem 0.85rem', fontWeight: 600, fontSize: '11px' }}>{r.fullName}</td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '11px' }}>{r.businessName}</td>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                <Badge variant={r.status === 'ACTIVE' ? 'success' : 'danger'} size="sm">
+                                  {r.status}
+                                </Badge>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '11px' }}>{r.ordersCount}</td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                                GH₵ {((r.revenuePesewas || 0) / 100).toFixed(2)}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                {new Date(r.createdAt).toLocaleDateString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </Table>
+                    </div>
+                  )}
+
+                  {/* TAB: CUSTOMERS */}
+                  {dossierTab === 'CUSTOMERS' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-text-primary)' }}>Direct Customers ({agentDetail.customers.length})</span>
+                        <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>Customers affiliated with this agent storefront.</p>
+                      </div>
+                      <Table
+                        minWidth="700px"
+                        headers={['Customer', 'Email', 'Phone', 'Orders', 'Spent', 'Last Order']}
+                      >
+                        {(agentDetail.customers || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '11px' }}>
+                              No direct customers associated with this agent.
+                            </td>
+                          </tr>
+                        ) : (
+                          agentDetail.customers.map((r: any) => (
+                            <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                              <td style={{ padding: '0.65rem 0.85rem', fontWeight: 600, fontSize: '11px' }}>{r.fullName}</td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '11px' }}>{r.email}</td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>{r.phone}</td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '11px' }}>{r.ordersCount}</td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                                GH₵ {((r.spentPesewas || 0) / 100).toFixed(2)}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                {r.lastOrderDate ? new Date(r.lastOrderDate).toLocaleDateString() : 'N/A'}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </Table>
+                    </div>
+                  )}
+
+                  {/* TAB: AUDIT TRAIL */}
+                  {dossierTab === 'AUDIT' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--color-text-primary)' }}>Security & Administrative Audit Stream</span>
+                        <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>Audit events referencing this agent.</p>
+                      </div>
+                      <Table
+                        minWidth="700px"
+                        headers={['Action', 'Correlation ID', 'Timestamp']}
+                      >
+                        {(agentDetail.auditLogs || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={3} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '11px' }}>
+                              No audit events recorded for this agent.
+                            </td>
+                          </tr>
+                        ) : (
+                          agentDetail.auditLogs.map((r: any) => (
+                            <tr key={r.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                <Badge variant="info" size="sm">{r.action}</Badge>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                                {r.correlationId}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                {new Date(r.occurredAt).toLocaleString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </Table>
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 };
+export default AdminAgentsPage;

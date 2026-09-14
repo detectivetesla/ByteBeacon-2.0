@@ -54,9 +54,7 @@ export async function adminAgentsRoutes(
   // Helper to map DB row to AdminAgentListItem
   const mapAgentRow = (r: any): AdminAgentListItem => {
     const rawWallet = r.walletBalancePesewas ?? r.wallet_balance_pesewas ?? 0;
-    const walletBalancePesewas = typeof rawWallet === 'string'
-      ? Math.round(parseFloat(rawWallet) * 100)
-      : Math.round(Number(rawWallet));
+    const walletBalancePesewas = Math.round(Number(rawWallet) || 0);
 
     const agentId = r.id || r.userId || r.user_id;
     const fallbackSlug = `agent-${String(agentId || '').slice(0, 8)}`;
