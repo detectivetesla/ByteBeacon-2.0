@@ -132,6 +132,21 @@ export async function adminAnalyticsRoutes(
         return { rows: [] };
       });
 
+      // 3.5 Timeline data for charts
+      const timelineRes = await db.query(`
+        SELECT 
+          TO_CHAR(date_trunc('day', created_at), 'YYYY-MM-DD') as "date",
+          COUNT(*) as "orders",
+          COALESCE(SUM(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') != 'COMPLETED' THEN amount_pesewas ELSE 0 END), 0) as "volumePesewas"
+        FROM orders
+        WHERE ($1::int = 0 OR ($1::int = 1 AND created_at >= CURRENT_DATE) OR ($1::int > 1 AND created_at >= CURRENT_TIMESTAMP - (INTERVAL '1 day' * $1::int)))
+        GROUP BY date_trunc('day', created_at)
+        ORDER BY date_trunc('day', created_at) ASC
+      `, [days]).catch((err) => {
+        app.log.warn({ err }, '[ADMIN_ANALYTICS] Timeline query error');
+        return { rows: [] };
+      });
+
       // 4. Financial float & wallet liabilities
       const walletLiabilitiesRes = await db.query(`
         SELECT 
@@ -398,6 +413,16 @@ export async function adminAnalyticsRoutes(
             status: 'ACTIVE',
             createdAt: u.createdAt.toISOString(),
           })),
+          timeline: Array.from({ length: 7 }).map((_, i) => {
+            const d = new Date();
+            d.setDate(d.getDate() - (6 - i));
+            return {
+              date: d.toISOString().slice(0, 10),
+              label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              orders: Math.round(4 + i * 2 + (i % 3)),
+              volumePesewas: Math.round((30 + i * 15 + (i % 2) * 10) * 100),
+            };
+          }),
         };
       }
 
@@ -556,6 +581,12 @@ export async function adminAnalyticsRoutes(
             webhooks: 'OPERATIONAL',
           },
           alerts,
+          timeline: synData?.timeline || timelineRes.rows.map((r: any) => ({
+            date: r.date,
+            label: r.date ? new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
+            orders: parseInt(r.orders || '0', 10),
+            volumePesewas: parseInt(r.volumePesewas || '0', 10),
+          })),
           recentOrders: synData?.recentOrders || recentOrdersRes.rows.map((r: any) => ({
             ...r,
             amountPesewas: parseInt(r.amountPesewas || '0', 10),

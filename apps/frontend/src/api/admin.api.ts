@@ -620,6 +620,12 @@ export interface AdminAnalyticsOverview {
     source: string;
     actionPath?: string;
   }>;
+  timeline?: Array<{
+    date: string;
+    label: string;
+    orders: number;
+    volumePesewas: number;
+  }>;
   recentOrders?: any[];
   recentUsers?: any[];
 }
