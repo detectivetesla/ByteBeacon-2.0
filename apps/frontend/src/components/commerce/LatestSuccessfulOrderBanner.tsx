@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Clock, RefreshCw } from 'lucide-react';
 import { ordersApi } from '../../api/orders.api.js';
 import { LatestSuccessfulOrderDto, LatestSuccessfulOrdersResponse, NetworkProvider } from '@bytebeacon/shared';
@@ -9,7 +9,7 @@ export interface LatestSuccessfulOrderBannerProps {
    */
   network?: NetworkProvider | string;
   /**
-   * Layout variant: full (default banner matching reference spec) or compact
+   * Layout variant: full (default minimal banner matching system spec) or compact
    */
   variant?: 'full' | 'compact';
   /**
@@ -35,32 +35,67 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
 }) => {
   const [telemetryData, setTelemetryData] = useState<LatestSuccessfulOrdersResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const isFetchingRef = useRef<boolean>(false);
 
   const fetchTelemetry = useCallback(async (net?: string) => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       setIsLoading(true);
       const res = await ordersApi.getLatestSuccessfulOrder(net);
-      if (res) {
-        setTelemetryData(res);
+      const payload = (res as any)?.data || res;
+      if (payload && (payload.latest || payload.byNetwork)) {
+        setTelemetryData(payload);
       }
     } catch {
-      // Non-blocking fallback: do not crash parent view on telemetry error
+      // Non-blocking fallback: retains existing state
     } finally {
       setIsLoading(false);
+      isFetchingRef.current = false;
     }
   }, []);
 
-  // Fetch once on mount and when network carrier changes
+  // Periodic real-time polling and window event listeners
   useEffect(() => {
     fetchTelemetry(network);
-  }, [network, fetchTelemetry]);
 
-  // Periodic subtle background refresh every 60 seconds
-  useEffect(() => {
-    const timer = setInterval(() => {
+    // 12-second real-time polling interval when document is visible
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchTelemetry(network);
+      }
+    }, 12000);
+
+    const handleWindowActive = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchTelemetry(network);
+      }
+    };
+
+    const handleOrderEvent = () => {
       fetchTelemetry(network);
-    }, 60000);
-    return () => clearInterval(timer);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleWindowActive);
+      window.addEventListener('visibilitychange', handleWindowActive);
+      window.addEventListener('order-created', handleOrderEvent);
+      window.addEventListener('order-completed', handleOrderEvent);
+      window.addEventListener('orders-updated', handleOrderEvent);
+      window.addEventListener('telemetry-refresh', handleOrderEvent);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleWindowActive);
+        window.removeEventListener('visibilitychange', handleWindowActive);
+        window.removeEventListener('order-created', handleOrderEvent);
+        window.removeEventListener('order-completed', handleOrderEvent);
+        window.removeEventListener('orders-updated', handleOrderEvent);
+        window.removeEventListener('telemetry-refresh', handleOrderEvent);
+      }
+    };
   }, [network, fetchTelemetry]);
 
   // Normalize requested network carrier
@@ -76,15 +111,21 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
       networkDisplayName: normNetwork === 'TELECEL' ? 'Telecel' : normNetwork === 'AIRTELTIGO' || normNetwork === 'AT' ? 'AT' : 'MTN',
       placedAt: new Date(Date.now() - 14 * 60000).toISOString(),
       deliveredAt: new Date(Date.now() - 6 * 60000).toISOString(),
-      placedAtFormatted: 'Sep 13, 11:55 PM',
-      deliveredAtFormatted: 'Sep 14, 12:03 AM',
+      placedAtFormatted: 'Aug 13, 11:57 AM',
+      deliveredAtFormatted: 'Aug 13, 1:23 PM',
       durationSeconds: 480,
       durationMinutes: 8,
       durationDisplay: 'Took about 8 mins.',
-      estimatedDeliveryDisplay: 'Est. delivery: Less than 10 mins.',
+      estimatedDeliveryDisplay: 'Est. delivery: 30 - 60 mins.',
     };
 
   const displayName = activeTelemetry.networkDisplayName || activeTelemetry.network;
+
+  const handleManualRefresh = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    fetchTelemetry(network);
+  };
 
   if (variant === 'compact') {
     return (
@@ -93,46 +134,88 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
         role="region"
         aria-label="Latest order delivery status"
         style={{
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid rgba(34, 197, 94, 0.25)',
-          backgroundColor: 'rgba(34, 197, 94, 0.08)',
-          padding: 'var(--space-2) var(--space-3)',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--color-border-subtle)',
+          borderLeft: '3px solid var(--color-brand)',
+          backgroundColor: 'var(--color-bg-surface)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          padding: '0.45rem 0.75rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 'var(--space-2)',
           flexWrap: 'wrap',
+          transition: 'all var(--transition-normal)',
           ...style,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: '#14532d' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+          <span
+            style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              backgroundColor: '#22C55E',
+              boxShadow: '0 0 6px rgba(34, 197, 94, 0.8)',
+              display: 'inline-block',
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
             Latest {displayName} Order:
           </span>
-          <span style={{ fontSize: 'var(--font-size-2xs)', color: '#15803d' }}>
+          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-brand)', fontWeight: 700 }}>
             {activeTelemetry.durationDisplay}
           </span>
         </div>
 
-        {showEstimatedBadge && (
-          <span
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          {showEstimatedBadge && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: '9999px',
+                backgroundColor: 'rgba(239, 68, 68, 0.10)',
+                border: '1px solid rgba(239, 68, 68, 0.22)',
+                color: '#DC2626',
+                fontSize: '10px',
+                fontWeight: 700,
+                letterSpacing: '0.01em',
+              }}
+            >
+              <Clock size={10} strokeWidth={2.4} />
+              <span>{activeTelemetry.estimatedDeliveryDisplay}</span>
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            title="Refresh real-time telemetry"
+            aria-label="Refresh real-time telemetry"
             style={{
+              background: 'none',
+              border: 'none',
+              padding: '2px',
+              cursor: 'pointer',
+              color: 'var(--color-text-muted)',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '4px',
-              padding: '2px 8px',
-              borderRadius: '9999px',
-              backgroundColor: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.22)',
-              color: '#dc2626',
-              fontSize: '10px',
-              fontWeight: 700,
+              justifyContent: 'center',
             }}
           >
-            <Clock size={10} strokeWidth={2.4} />
-            <span>{activeTelemetry.estimatedDeliveryDisplay}</span>
-          </span>
-        )}
+            <RefreshCw
+              size={11}
+              strokeWidth={2.4}
+              style={{
+                animation: isLoading ? 'spin 0.8s linear infinite' : 'none',
+              }}
+            />
+          </button>
+        </div>
       </div>
     );
   }
@@ -144,97 +227,183 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
       aria-label="Latest order delivery status"
       style={{
         borderRadius: 'var(--radius-xl)',
-        border: '1px solid rgba(34, 197, 94, 0.28)',
-        backgroundColor: 'rgba(34, 197, 94, 0.08)',
-        padding: 'var(--space-4) var(--space-5)',
+        border: '1px solid var(--color-border-subtle)',
+        borderLeft: '4px solid var(--color-brand)',
+        backgroundColor: 'var(--color-bg-surface)',
+        padding: '0.85rem 1.25rem',
         display: 'flex',
         flexDirection: 'column',
-        gap: '0.35rem',
+        gap: '0.45rem',
         boxShadow: 'var(--shadow-tactile-sm)',
         transition: 'all var(--transition-normal)',
         position: 'relative',
         ...style,
       }}
     >
-      {/* 1. Header Title */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3
-          style={{
-            margin: 0,
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 800,
-            color: '#14532d',
-            letterSpacing: '-0.01em',
-          }}
-        >
-          Latest {displayName} Successful Order
-        </h3>
+      <style>{`
+        @keyframes telemetryPulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.35; transform: scale(0.85); }
+        }
+      `}</style>
 
-        {isLoading && (
-          <RefreshCw
-            size={13}
-            style={{
-              color: '#16a34a',
-              animation: 'spin 1s linear infinite',
-              opacity: 0.7,
-            }}
-          />
-        )}
-      </div>
-
-      {/* 2. Timestamps Subtitle */}
+      {/* Row 1: Header + Live Indicator + Est Delivery Badge + Refresh */}
       <div
         style={{
-          fontSize: 'var(--font-size-xs)',
-          color: '#15803d',
-          fontWeight: 500,
-          lineHeight: 1.4,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.75rem',
+          flexWrap: 'wrap',
         }}
       >
-        Placed at{' '}
-        <strong style={{ fontWeight: 800, color: '#14532d' }}>
-          {activeTelemetry.placedAtFormatted}
-        </strong>
-        , Delivered at{' '}
-        <strong style={{ fontWeight: 800, color: '#14532d' }}>
-          {activeTelemetry.deliveredAtFormatted}
-        </strong>
-      </div>
-
-      {/* 3. Duration */}
-      <div
-        style={{
-          fontSize: '11px',
-          color: '#16a34a',
-          fontWeight: 500,
-        }}
-      >
-        {activeTelemetry.durationDisplay}
-      </div>
-
-      {/* 4. Est. Delivery Badge */}
-      {showEstimatedBadge && (
-        <div style={{ marginTop: '0.2rem', display: 'flex', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
           <span
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: '5px',
-              padding: '3px 10px',
+              padding: '2px 7px',
               borderRadius: '9999px',
-              backgroundColor: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.22)',
-              color: '#dc2626',
-              fontSize: '11px',
-              fontWeight: 700,
-              letterSpacing: '0.01em',
+              backgroundColor: 'var(--color-brand-surface)',
+              border: '1px solid var(--color-brand-border)',
+              fontSize: '10px',
+              fontWeight: 800,
+              color: 'var(--color-brand)',
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase',
             }}
           >
-            <Clock size={12} strokeWidth={2.4} />
-            <span>{activeTelemetry.estimatedDeliveryDisplay}</span>
+            <span
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                backgroundColor: '#22C55E',
+                boxShadow: '0 0 6px rgba(34, 197, 94, 0.8)',
+                display: 'inline-block',
+                animation: 'telemetryPulse 2s ease-in-out infinite',
+              }}
+            />
+            Live SLA
           </span>
+
+          <h3
+            style={{
+              margin: 0,
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 800,
+              color: 'var(--color-text-primary)',
+              letterSpacing: '-0.01em',
+            }}
+          >
+            Latest {displayName} Successful Order
+          </h3>
         </div>
-      )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {showEstimatedBadge && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '3px 10px',
+                borderRadius: '9999px',
+                backgroundColor: 'rgba(239, 68, 68, 0.10)',
+                border: '1px solid rgba(239, 68, 68, 0.22)',
+                color: '#DC2626',
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '0.01em',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <Clock size={12} strokeWidth={2.4} />
+              <span>{activeTelemetry.estimatedDeliveryDisplay}</span>
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            title="Refresh real-time telemetry"
+            aria-label="Refresh real-time telemetry"
+            style={{
+              background: 'none',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xs)',
+              padding: '3px 5px',
+              cursor: 'pointer',
+              color: 'var(--color-text-muted)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all var(--transition-fast)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--color-brand)';
+              e.currentTarget.style.borderColor = 'var(--color-brand-border)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--color-text-muted)';
+              e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+            }}
+          >
+            <RefreshCw
+              size={12}
+              strokeWidth={2.2}
+              style={{
+                animation: isLoading ? 'spin 0.8s linear infinite' : 'none',
+              }}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* Row 2: Timestamps + Duration */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.6rem',
+          flexWrap: 'wrap',
+          fontSize: 'var(--font-size-xs)',
+          color: 'var(--color-text-secondary)',
+          fontWeight: 500,
+          lineHeight: 1.4,
+        }}
+      >
+        <span>
+          Placed at{' '}
+          <strong style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>
+            {activeTelemetry.placedAtFormatted}
+          </strong>
+          , Delivered at{' '}
+          <strong style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>
+            {activeTelemetry.deliveredAtFormatted}
+          </strong>
+        </span>
+
+        <span style={{ color: 'var(--color-border-strong)', fontSize: '10px' }}>•</span>
+
+        <span
+          style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            color: 'var(--color-brand)',
+            backgroundColor: 'var(--color-brand-surface)',
+            padding: '1px 8px',
+            borderRadius: 'var(--radius-full)',
+            border: '1px solid var(--color-brand-border)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+        >
+          {activeTelemetry.durationDisplay}
+        </span>
+      </div>
     </div>
   );
 };

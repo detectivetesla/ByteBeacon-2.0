@@ -285,6 +285,9 @@ export async function orderRoutes(
     req: FastifyRequest<{ Querystring: { network?: string } }>,
     reply: FastifyReply,
   ) => {
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    reply.header('Pragma', 'no-cache');
+    reply.header('Expires', '0');
     const { network } = req.query || {};
     const telemetry = await getLatestSuccessfulOrdersTelemetry(db, network);
 
