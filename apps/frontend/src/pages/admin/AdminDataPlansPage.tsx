@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   NetworkProvider,
   CatalogProductDto,
@@ -14,9 +14,8 @@ import {
 import { adminApi } from '../../api/admin.api.js';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
-import { Input, Select } from '../../components/ui/index.js';
+import { Input, SearchInput, Modal } from '../../components/ui/index.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -26,7 +25,6 @@ import {
   RefreshCw,
   Download,
   Filter,
-  Search,
   CheckCircle,
   AlertTriangle,
   XCircle,
@@ -40,6 +38,10 @@ import {
   X,
   Trash2,
   Store,
+  Clock,
+  ChevronRight,
+  Database,
+  ArrowRight,
 } from 'lucide-react';
 
 export const AdminDataPlansPage: React.FC = () => {
@@ -128,6 +130,44 @@ export const AdminDataPlansPage: React.FC = () => {
   const [selectedPlanDetail, setSelectedPlanDetail] = useState<AdminCatalogPlanDetail | null>(null);
   const [detailTab, setDetailTab] = useState<'OVERVIEW' | 'ANALYTICS' | 'ORDERS' | 'PRICE_HISTORY'>('OVERVIEW');
 
+  // Common Button Styles matching AdminAgentsPage design system
+  const tactileButtonStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.45rem',
+    padding: '0.45rem 0.85rem',
+    borderRadius: 'var(--radius-md)',
+    backgroundColor: 'var(--color-bg-surface)',
+    border: '1px solid var(--color-border-subtle)',
+    fontSize: 'var(--font-size-xs)',
+    fontWeight: 700,
+    color: 'var(--color-text-primary)',
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
+    boxShadow: 'var(--shadow-tactile-sm)',
+  };
+
+  const primaryButtonStyle: React.CSSProperties = {
+    ...tactileButtonStyle,
+    backgroundColor: 'var(--color-brand-primary)',
+    color: '#fff',
+    border: '1px solid var(--color-brand-primary)',
+  };
+
+  const selectStyle: React.CSSProperties = {
+    padding: '0.45rem 0.75rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--color-border-subtle)',
+    backgroundColor: 'var(--color-bg-surface)',
+    color: 'var(--color-text-primary)',
+    fontSize: '11px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    outline: 'none',
+    minWidth: '125px',
+    boxShadow: 'var(--shadow-tactile-sm)',
+  };
+
   // 8. Fetch Stats
   const fetchStats = useCallback(async () => {
     try {
@@ -202,6 +242,7 @@ export const AdminDataPlansPage: React.FC = () => {
       const res = await adminApi.getCatalogPlanDetail(id);
       if (res) {
         setSelectedPlanDetail(res);
+        setDetailTab('OVERVIEW');
       }
     } catch (err: any) {
       toastError('Failed to load plan details', err.message);
@@ -430,24 +471,6 @@ export const AdminDataPlansPage: React.FC = () => {
     }
   };
 
-  // Trigger Provider Catalog Sync
-  const handleTriggerSync = async () => {
-    setSyncLoading(true);
-    try {
-      const res = await adminApi.triggerProviderCatalogSync({
-        autoApply: false,
-        network: networkFilter !== 'ALL' ? networkFilter : undefined,
-      });
-
-      toastSuccess('Sync Complete', `Synchronized DataHouse catalog: ${res?.discrepancyCount || 0} discrepancies found.`);
-      loadSyncBatches();
-    } catch (err: any) {
-      toastError('Sync Failed', err.message);
-    } finally {
-      setSyncLoading(false);
-    }
-  };
-
   // Load Sync Batches
   const loadSyncBatches = async () => {
     try {
@@ -467,6 +490,24 @@ export const AdminDataPlansPage: React.FC = () => {
   const handleOpenSyncModal = () => {
     setIsSyncModalOpen(true);
     loadSyncBatches();
+  };
+
+  // Trigger Provider Catalog Sync
+  const handleTriggerSync = async () => {
+    setSyncLoading(true);
+    try {
+      const res = await adminApi.triggerProviderCatalogSync({
+        autoApply: false,
+        network: networkFilter !== 'ALL' ? networkFilter : undefined,
+      });
+
+      toastSuccess('Sync Complete', `Synchronized DataHouse catalog: ${res?.discrepancyCount || 0} discrepancies found.`);
+      loadSyncBatches();
+    } catch (err: any) {
+      toastError('Sync Failed', err.message);
+    } finally {
+      setSyncLoading(false);
+    }
   };
 
   // Apply Sync Batch
@@ -674,10 +715,122 @@ export const AdminDataPlansPage: React.FC = () => {
 
   const margins = calcFormMargins();
 
+  // Active filter chips calculation
+  const activeFilters = useMemo(() => {
+    const filters: Array<{ id: string; label: string; onRemove: () => void }> = [];
+
+    if (search.trim()) {
+      filters.push({
+        id: 'search',
+        label: `Search: "${search}"`,
+        onRemove: () => setSearch(''),
+      });
+    }
+
+    if (networkFilter !== 'ALL') {
+      filters.push({
+        id: 'network',
+        label: `Network: ${networkFilter}`,
+        onRemove: () => setNetworkFilter('ALL'),
+      });
+    }
+
+    if (statusFilter !== 'ALL') {
+      filters.push({
+        id: 'status',
+        label: `Status: ${statusFilter}`,
+        onRemove: () => setStatusFilter('ALL'),
+      });
+    }
+
+    if (providerStatusFilter !== 'ALL') {
+      filters.push({
+        id: 'providerStatus',
+        label: `Prov State: ${providerStatusFilter}`,
+        onRemove: () => setProviderStatusFilter('ALL'),
+      });
+    }
+
+    if (providerFilter !== 'ALL') {
+      filters.push({
+        id: 'provider',
+        label: `Provider: ${providerFilter}`,
+        onRemove: () => setProviderFilter('ALL'),
+      });
+    }
+
+    if (customerFilter !== 'ALL') {
+      filters.push({
+        id: 'customer',
+        label: `Customer: ${customerFilter === 'AVAILABLE' ? 'Enabled' : 'Hidden'}`,
+        onRemove: () => setCustomerFilter('ALL'),
+      });
+    }
+
+    if (agentFilter !== 'ALL') {
+      filters.push({
+        id: 'agent',
+        label: `Agent: ${agentFilter === 'AVAILABLE' ? 'Enabled' : 'Hidden'}`,
+        onRemove: () => setAgentFilter('ALL'),
+      });
+    }
+
+    if (storeFilter !== 'ALL') {
+      filters.push({
+        id: 'store',
+        label: `Store: ${storeFilter === 'AVAILABLE' ? 'Enabled' : 'Hidden'}`,
+        onRemove: () => setStoreFilter('ALL'),
+      });
+    }
+
+    if (minPrice) {
+      filters.push({
+        id: 'minPrice',
+        label: `Min: GH₵ ${minPrice}`,
+        onRemove: () => setMinPrice(''),
+      });
+    }
+
+    if (maxPrice) {
+      filters.push({
+        id: 'maxPrice',
+        label: `Max: GH₵ ${maxPrice}`,
+        onRemove: () => setMaxPrice(''),
+      });
+    }
+
+    return filters;
+  }, [
+    search,
+    networkFilter,
+    statusFilter,
+    providerStatusFilter,
+    providerFilter,
+    customerFilter,
+    agentFilter,
+    storeFilter,
+    minPrice,
+    maxPrice,
+  ]);
+
+  const handleResetFilters = () => {
+    setSearch('');
+    setNetworkFilter('ALL');
+    setStatusFilter('ALL');
+    setProviderStatusFilter('ALL');
+    setProviderFilter('ALL');
+    setCustomerFilter('ALL');
+    setAgentFilter('ALL');
+    setStoreFilter('ALL');
+    setMinPrice('');
+    setMaxPrice('');
+    setPagination((prev) => ({ ...prev, page: 1 }));
+  };
+
   return (
-    <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', padding: 'var(--space-4)' }}>
       {/* 1. Header & Actions */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <TactileIcon icon={ShoppingBag} color="speed" size="lg" />
           <div>
@@ -687,65 +840,74 @@ export const AdminDataPlansPage: React.FC = () => {
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Data Plans & Catalog Pricing
             </h1>
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
-              Manage, price, publish, and monitor all data bundles available across ByteBeacon.
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+              Manage, price, publish, and monitor all telecom data bundles available across ByteBeacon.
             </p>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
+            onClick={() => handleExport('csv')}
+            style={tactileButtonStyle}
+            title="Export catalog as CSV"
+          >
+            <Download size={14} />
+            <span>Export CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenSyncModal}
+            style={tactileButtonStyle}
+            title="Review DataHouse catalog differences"
+          >
+            <Zap size={14} />
+            <span>Sync Provider</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsBulkPricingOpen(true)}
+            style={tactileButtonStyle}
+            title="Open bulk markup adjustment calculator"
+          >
+            <Sliders size={14} />
+            <span>Bulk Pricing</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            style={primaryButtonStyle}
+            title="Create new data plan"
+          >
+            <Plus size={14} />
+            <span>Add Data Plan</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => {
               fetchPlans();
               fetchStats();
             }}
-            leftIcon={<RefreshCw size={14} className={loading ? 'animate-spin' : ''} />}
+            disabled={loading}
+            style={{
+              ...tactileButtonStyle,
+              padding: '0.45rem 0.6rem',
+              color: 'var(--color-text-muted)',
+            }}
+            title="Refresh Data"
           >
-            Refresh
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleOpenSyncModal}
-            leftIcon={<Zap size={14} />}
-          >
-            Sync Provider Catalog
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsBulkPricingOpen(true)}
-            leftIcon={<Sliders size={14} />}
-          >
-            Bulk Pricing
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleExport('csv')}
-            leftIcon={<Download size={14} />}
-          >
-            Export
-          </Button>
-
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleOpenCreate}
-            leftIcon={<Plus size={14} />}
-          >
-            Add Data Plan
-          </Button>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
         </div>
       </div>
 
-      {/* 2. Summary KPI Metric Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
+      {/* 2. Summary KPI Metric Cards (8 cards in auto-fit grid) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Total Plans"
           value={stats ? stats.totalPlans.toString() : '—'}
@@ -768,14 +930,14 @@ export const AdminDataPlansPage: React.FC = () => {
           icon={<TactileIcon icon={XCircle} color="red" size="sm" />}
         />
         <MetricCard
-          title="Customer Plans"
+          title="Customer Retail"
           value={stats ? stats.customerPlans.toString() : '—'}
           subvalue="Retail web & app"
           accent="cyan"
           icon={<TactileIcon icon={Globe} color="speed" size="sm" />}
         />
         <MetricCard
-          title="Agent Plans"
+          title="Agent Wholesale"
           value={stats ? stats.agentPlans.toString() : '—'}
           subvalue="Wholesale portal"
           accent="orange"
@@ -784,9 +946,9 @@ export const AdminDataPlansPage: React.FC = () => {
         <MetricCard
           title="Storefront Plans"
           value={stats ? stats.storePlans.toString() : '—'}
-          subvalue="Reseller stores"
+          subvalue="Reseller storefronts"
           accent="purple"
-          icon={<TactileIcon icon={ShoppingBag} color="api" size="sm" />}
+          icon={<TactileIcon icon={Store} color="api" size="sm" />}
         />
         <MetricCard
           title="Provider Synced"
@@ -804,219 +966,471 @@ export const AdminDataPlansPage: React.FC = () => {
         />
       </div>
 
-      {/* 3. Filter Bar & Search */}
-      <Card elevated accentColor="amber" style={{ padding: 'var(--space-4)' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          {/* Top Channel Switcher Tabs */}
-          <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <Button
-              variant={activeChannelTab === 'ALL' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => handleSelectChannelTab('ALL')}
-              leftIcon={<Layers size={14} />}
+      {/* 3. Segmented Channel View Switcher Bar */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.35rem',
+          padding: '0.25rem',
+          backgroundColor: 'var(--color-bg-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-border-subtle)',
+          overflowX: 'auto',
+        }}
+      >
+        {[
+          { id: 'ALL', label: 'All Bundles', count: stats?.totalPlans ?? pagination.total, icon: <Layers size={13} /> },
+          { id: 'CUSTOMER', label: 'Customer Retail', count: stats?.customerPlans ?? 0, icon: <Globe size={13} /> },
+          { id: 'AGENT', label: 'Agent Wholesale', count: stats?.agentPlans ?? 0, icon: <TrendingUp size={13} /> },
+          { id: 'STORE', label: 'Storefront Resale', count: stats?.storePlans ?? 0, icon: <Store size={13} /> },
+        ].map((tab) => {
+          const isActive = activeChannelTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => handleSelectChannelTab(tab.id as any)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.45rem 0.85rem',
+                borderRadius: 'var(--radius-md)',
+                border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
+                color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                fontWeight: isActive ? 700 : 500,
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                transition: 'all var(--transition-fast)',
+              }}
             >
-              All Bundles ({stats?.totalPlans ?? plans.length})
-            </Button>
-            <Button
-              variant={activeChannelTab === 'CUSTOMER' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => handleSelectChannelTab('CUSTOMER')}
-              leftIcon={<Globe size={14} />}
-            >
-              Customer Retail ({stats?.customerPlans ?? 0})
-            </Button>
-            <Button
-              variant={activeChannelTab === 'AGENT' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => handleSelectChannelTab('AGENT')}
-              leftIcon={<TrendingUp size={14} />}
-            >
-              Agent Wholesale ({stats?.agentPlans ?? 0})
-            </Button>
-            <Button
-              variant={activeChannelTab === 'STORE' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => handleSelectChannelTab('STORE')}
-              leftIcon={<Store size={14} />}
-            >
-              Storefront Resale ({stats?.storePlans ?? 0})
-            </Button>
-          </div>
-
-          {/* Carrier Network Filter & Search Bar */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-              {['ALL', NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO].map((net) => (
-                <Button
-                  key={net}
-                  variant={networkFilter === net ? 'primary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setNetworkFilter(net)}
-                >
-                  {net === 'ALL' ? 'All Networks' : net}
-                </Button>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: '260px', maxWidth: '460px' }}>
-              <div style={{ position: 'relative', width: '100%' }}>
-                <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
-                <input
-                  type="text"
-                  placeholder="Search plans, codes, SKU, network, provider..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+              {tab.icon}
+              <span>{tab.label}</span>
+              {tab.count !== undefined && (
+                <span
                   style={{
-                    width: '100%',
-                    padding: '0.45rem 0.5rem 0.45rem 2rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--color-border)',
-                    backgroundColor: 'var(--color-bg-subtle)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 'var(--font-size-xs)',
+                    display: 'inline-block',
+                    padding: '0.1rem 0.4rem',
+                    borderRadius: 'var(--radius-full)',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    backgroundColor: isActive ? 'var(--color-bg-subtle)' : 'rgba(255,255,255,0.05)',
+                    color: isActive ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
                   }}
-                />
-              </div>
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-              <Button
-                variant={showAdvancedFilters ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                leftIcon={<Filter size={13} />}
-              >
-                Filters
-              </Button>
-            </div>
+      {/* 4. Compact Standardized Filter Card */}
+      <Card
+        elevated
+        style={{
+          padding: 'var(--space-4) var(--space-5)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-3)',
+        }}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.65rem', justifyContent: 'space-between' }}>
+          {/* Search bar */}
+          <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
+            <SearchInput
+              value={search}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setSearch(e.target.value);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              placeholder="Search plans, codes, SKU, network, provider..."
+            />
           </div>
 
-          {/* Expandable Advanced Filters */}
-          {showAdvancedFilters && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--space-3)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-subtle)' }}>
-              <Select
-                label="ByteBeacon Status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                options={[
-                  { value: 'ALL', label: 'All Statuses' },
-                  { value: 'ACTIVE', label: 'Active' },
-                  { value: 'DISABLED', label: 'Disabled' },
-                  { value: 'ARCHIVED', label: 'Archived' },
-                  { value: 'DRAFT', label: 'Draft' },
-                ]}
-              />
+          {/* Primary Dropdowns */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
+            {/* Carrier Network */}
+            <select
+              value={networkFilter}
+              onChange={(e) => {
+                setNetworkFilter(e.target.value);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              style={selectStyle}
+              aria-label="Filter by Network"
+            >
+              <option value="ALL">All Networks</option>
+              <option value={NetworkProvider.MTN}>MTN Ghana</option>
+              <option value={NetworkProvider.TELECEL}>Telecel Ghana</option>
+              <option value={NetworkProvider.AIRTELTIGO}>AirtelTigo</option>
+            </select>
 
-              <Select
-                label="Provider Status"
-                value={providerStatusFilter}
-                onChange={(e) => setProviderStatusFilter(e.target.value)}
-                options={[
-                  { value: 'ALL', label: 'All Provider States' },
-                  { value: 'AVAILABLE', label: 'Available' },
-                  { value: 'UNAVAILABLE', label: 'Unavailable' },
-                  { value: 'PROVIDER_REMOVED', label: 'Provider Removed' },
-                  { value: 'SYNC_ERROR', label: 'Sync Error' },
-                ]}
-              />
+            {/* ByteBeacon Status */}
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              style={selectStyle}
+              aria-label="Filter by Status"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="DISABLED">Disabled</option>
+              <option value="ARCHIVED">Archived</option>
+              <option value="DRAFT">Draft</option>
+            </select>
 
-              <Select
-                label="Provider"
-                value={providerFilter}
-                onChange={(e) => setProviderFilter(e.target.value)}
-                options={[
-                  { value: 'ALL', label: 'All Providers' },
-                  { value: 'DataHouse', label: 'DataHouse' },
-                  { value: 'GMPL', label: 'GMPL' },
-                ]}
-              />
+            {/* Provider Status */}
+            <select
+              value={providerStatusFilter}
+              onChange={(e) => {
+                setProviderStatusFilter(e.target.value);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              style={selectStyle}
+              aria-label="Filter by Provider Status"
+            >
+              <option value="ALL">All Provider States</option>
+              <option value="AVAILABLE">Available</option>
+              <option value="UNAVAILABLE">Unavailable</option>
+              <option value="PROVIDER_REMOVED">Provider Removed</option>
+              <option value="SYNC_ERROR">Sync Error</option>
+            </select>
 
-              <Select
-                label="Customer Access"
-                value={customerFilter}
-                onChange={(e) => setCustomerFilter(e.target.value)}
-                options={[
-                  { value: 'ALL', label: 'All' },
-                  { value: 'AVAILABLE', label: 'Customer Available' },
-                  { value: 'HIDDEN', label: 'Customer Hidden' },
-                ]}
-              />
+            {/* Provider Name */}
+            <select
+              value={providerFilter}
+              onChange={(e) => {
+                setProviderFilter(e.target.value);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              style={selectStyle}
+              aria-label="Filter by Provider"
+            >
+              <option value="ALL">All Providers</option>
+              <option value="DataHouse">DataHouse</option>
+              <option value="GMPL">GMPL</option>
+            </select>
 
-              <Select
-                label="Agent Access"
-                value={agentFilter}
-                onChange={(e) => setAgentFilter(e.target.value)}
-                options={[
-                  { value: 'ALL', label: 'All' },
-                  { value: 'AVAILABLE', label: 'Agent Available' },
-                  { value: 'HIDDEN', label: 'Agent Hidden' },
-                ]}
-              />
-
-              <Select
-                label="Store Access"
-                value={storeFilter}
-                onChange={(e) => setStoreFilter(e.target.value)}
-                options={[
-                  { value: 'ALL', label: 'All' },
-                  { value: 'AVAILABLE', label: 'Store Available' },
-                  { value: 'HIDDEN', label: 'Store Hidden' },
-                ]}
-              />
-
-              <Input
-                label="Min Price (GHS)"
-                type="number"
-                value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value)}
-                placeholder="0.00"
-              />
-
-              <Input
-                label="Max Price (GHS)"
-                type="number"
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value)}
-                placeholder="100.00"
-              />
-            </div>
-          )}
-
-          {/* Bulk Selection Bar */}
-          {selectedPlanIds.length > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.85rem', backgroundColor: 'rgba(0, 102, 255, 0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-brand)', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-brand)' }}>
-                {selectedPlanIds.length} plans selected
-              </span>
-
-              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                <Button variant="primary" size="sm" onClick={() => setIsBulkPricingOpen(true)} leftIcon={<Sliders size={13} />}>
-                  Bulk Pricing
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleExecuteBulkAction('ACTIVATE')} disabled={bulkProcessing}>
-                  Activate
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleExecuteBulkAction('DISABLE')} disabled={bulkProcessing}>
-                  Disable
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleExecuteBulkAction('ENABLE_CUSTOMER')} disabled={bulkProcessing} leftIcon={<Globe size={13} />}>
-                  Enable Customer
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleExecuteBulkAction('ENABLE_AGENT')} disabled={bulkProcessing} leftIcon={<TrendingUp size={13} />}>
-                  Enable Agent
-                </Button>
-                <Button variant="danger" size="sm" onClick={() => setIsBulkDeleteModalOpen(true)} disabled={bulkProcessing} leftIcon={<Trash2 size={13} />}>
-                  Delete Selected
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedPlanIds([])}>
-                  Clear
-                </Button>
-              </div>
-            </div>
-          )}
+            {/* Advanced Filters Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: showAdvancedFilters ? 'var(--color-bg-subtle)' : 'var(--color-bg-surface)',
+                borderColor: showAdvancedFilters ? 'var(--color-border-focus)' : 'var(--color-border-subtle)',
+              }}
+              title="Toggle channel visibility & price filters"
+            >
+              <Filter size={13} />
+              <span>More Filters</span>
+            </button>
+          </div>
         </div>
+
+        {/* Expandable Advanced Filters Row */}
+        {showAdvancedFilters && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.65rem',
+              alignItems: 'center',
+              paddingTop: 'var(--space-3)',
+              borderTop: '1px solid var(--color-border-subtle)',
+            }}
+          >
+            {/* Customer Channel Filter */}
+            <select
+              value={customerFilter}
+              onChange={(e) => {
+                setCustomerFilter(e.target.value);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              style={selectStyle}
+              aria-label="Filter by Customer Channel"
+            >
+              <option value="ALL">Customer Channel: All</option>
+              <option value="AVAILABLE">Customer: Published</option>
+              <option value="HIDDEN">Customer: Hidden</option>
+            </select>
+
+            {/* Agent Wholesale Filter */}
+            <select
+              value={agentFilter}
+              onChange={(e) => {
+                setAgentFilter(e.target.value);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              style={selectStyle}
+              aria-label="Filter by Agent Wholesale"
+            >
+              <option value="ALL">Agent Wholesale: All</option>
+              <option value="AVAILABLE">Agent: Published</option>
+              <option value="HIDDEN">Agent: Hidden</option>
+            </select>
+
+            {/* Storefront Filter */}
+            <select
+              value={storeFilter}
+              onChange={(e) => {
+                setStoreFilter(e.target.value);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              style={selectStyle}
+              aria-label="Filter by Storefront"
+            >
+              <option value="ALL">Store Resale: All</option>
+              <option value="AVAILABLE">Store: Published</option>
+              <option value="HIDDEN">Store: Hidden</option>
+            </select>
+
+            {/* Price Inputs */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Price (GHS):</span>
+              <input
+                type="number"
+                placeholder="Min"
+                value={minPrice}
+                onChange={(e) => {
+                  setMinPrice(e.target.value);
+                  setPagination((p) => ({ ...p, page: 1 }));
+                }}
+                style={{
+                  width: '75px',
+                  padding: '0.4rem 0.55rem',
+                  fontSize: '11px',
+                  fontFamily: 'var(--font-mono)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border-subtle)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  outline: 'none',
+                }}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>–</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={maxPrice}
+                onChange={(e) => {
+                  setMaxPrice(e.target.value);
+                  setPagination((p) => ({ ...p, page: 1 }));
+                }}
+                style={{
+                  width: '75px',
+                  padding: '0.4rem 0.55rem',
+                  fontSize: '11px',
+                  fontFamily: 'var(--font-mono)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border-subtle)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  outline: 'none',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Active Filter Chips & Clear */}
+        {activeFilters.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.4rem',
+              alignItems: 'center',
+              paddingTop: '0.25rem',
+              borderTop: '1px solid var(--color-border-subtle)',
+            }}
+          >
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>
+              Active Filters:
+            </span>
+            {activeFilters.map((af) => (
+              <span
+                key={af.id}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-full)',
+                  padding: '0.2rem 0.55rem',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: 'var(--color-text-primary)',
+                }}
+              >
+                {af.label}
+                <button
+                  type="button"
+                  onClick={af.onRemove}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    color: 'var(--color-text-muted)',
+                  }}
+                  title="Remove filter"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: 'var(--color-brand-primary)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0.2rem 0.4rem',
+              }}
+            >
+              Reset Filters
+            </button>
+          </div>
+        )}
+
+        {/* Bulk Action Bar (When items selected) */}
+        {selectedPlanIds.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '0.65rem 0.95rem',
+              backgroundColor: 'rgba(0, 102, 255, 0.08)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-brand)',
+              flexWrap: 'wrap',
+              gap: '0.5rem',
+            }}
+          >
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-brand)' }}>
+              {selectedPlanIds.length} plans selected
+            </span>
+
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setIsBulkPricingOpen(true)}
+                style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+              >
+                <Sliders size={12} />
+                <span>Bulk Pricing</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExecuteBulkAction('ACTIVATE')}
+                disabled={bulkProcessing}
+                style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+              >
+                <span>Activate</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExecuteBulkAction('DISABLE')}
+                disabled={bulkProcessing}
+                style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+              >
+                <span>Disable</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExecuteBulkAction('ENABLE_CUSTOMER')}
+                disabled={bulkProcessing}
+                style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+              >
+                <Globe size={12} />
+                <span>Enable Retail</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExecuteBulkAction('ENABLE_AGENT')}
+                disabled={bulkProcessing}
+                style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
+              >
+                <TrendingUp size={12} />
+                <span>Enable Wholesale</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteModalOpen(true)}
+                disabled={bulkProcessing}
+                style={{
+                  ...tactileButtonStyle,
+                  padding: '0.35rem 0.65rem',
+                  fontSize: '11px',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  color: 'var(--color-danger)',
+                  borderColor: 'rgba(239, 68, 68, 0.3)',
+                }}
+              >
+                <Trash2 size={12} />
+                <span>Delete Selected</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPlanIds([])}
+                style={{ ...tactileButtonStyle, padding: '0.35rem 0.55rem', fontSize: '11px' }}
+              >
+                <span>Clear</span>
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
 
-      {/* 4. Plans Primary Table */}
-      <Card elevated accentColor="amber" style={{ padding: 'var(--space-4)' }}>
+      {/* 5. Plans Primary Table Card */}
+      <Card
+        elevated
+        style={{
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          overflow: 'hidden',
+          padding: 0,
+        }}
+      >
+        <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div>
+            <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+              Commercial Data Bundles & Channel Matrix
+            </h3>
+            <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+              Authoritative pricing, provider mappings, validity periods, and retail / wholesale margins.
+            </p>
+          </div>
+          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+            Showing {plans.length} of {pagination.total} plans
+          </span>
+        </div>
+
         <div style={{ overflowX: 'auto' }}>
           <Table
             columns={[
@@ -1026,6 +1440,7 @@ export const AdminDataPlansPage: React.FC = () => {
                     type="checkbox"
                     checked={plans.length > 0 && selectedPlanIds.length === plans.length}
                     onChange={toggleSelectAll}
+                    style={{ cursor: 'pointer' }}
                   />
                 ),
                 accessor: 'id',
@@ -1034,14 +1449,16 @@ export const AdminDataPlansPage: React.FC = () => {
                     type="checkbox"
                     checked={selectedPlanIds.includes(row.id)}
                     onChange={() => toggleSelectPlan(row.id)}
+                    style={{ cursor: 'pointer' }}
                   />
                 ),
+                width: '40px',
               },
               {
                 header: 'Plan / SKU',
                 accessor: 'name',
                 render: (row) => (
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                       <span style={{ fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
                         {row.name}
@@ -1052,8 +1469,8 @@ export const AdminDataPlansPage: React.FC = () => {
                         </Badge>
                       )}
                     </div>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      {row.sku}
+                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      SKU: {row.sku}
                     </span>
                   </div>
                 ),
@@ -1080,11 +1497,11 @@ export const AdminDataPlansPage: React.FC = () => {
                 header: 'Size & Validity',
                 accessor: 'dataAmountMb',
                 render: (row) => (
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <span style={{ fontWeight: 800, fontSize: 'var(--font-size-xs)' }}>
                       {(row.dataAmountMb / 1024).toFixed(row.dataAmountMb % 1024 === 0 ? 0 : 1)} GB
                     </span>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
                       {row.validityDesc || `${row.validityDays} Days`}
                     </span>
                   </div>
@@ -1115,26 +1532,26 @@ export const AdminDataPlansPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={(e) => handleToggleCustomerVisibility(row, e)}
-                          title={row.availableForCustomer ? 'Available for Customer (Click to toggle)' : 'Hidden from Customer (Click to toggle)'}
+                          title={row.availableForCustomer ? 'Customer Retail Published (Click to hide)' : 'Hidden from Retail (Click to publish)'}
                           style={{
                             border: 'none',
                             background: row.availableForCustomer ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
                             color: row.availableForCustomer ? '#10B981' : '#EF4444',
-                            borderRadius: '4px',
-                            padding: '2px 4px',
+                            borderRadius: 'var(--radius-full)',
+                            padding: '2px 6px',
                             cursor: 'pointer',
                             fontSize: '10px',
                             fontWeight: 700,
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '2px',
+                            gap: '3px',
                           }}
                         >
                           <Globe size={10} />
-                          {row.availableForCustomer ? 'Retail' : 'Hidden'}
+                          <span>{row.availableForCustomer ? 'Retail' : 'Hidden'}</span>
                         </button>
                       </div>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-3xs)', color: '#10B981', fontWeight: 600 }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: '#10B981', fontWeight: 600 }}>
                         Margin: +GH₵ {(margin / 100).toFixed(2)} ({pct}%)
                       </span>
                     </div>
@@ -1161,26 +1578,26 @@ export const AdminDataPlansPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={(e) => handleToggleAgentVisibility(row, e)}
-                          title={row.availableForAgent ? 'Available for Agent (Click to toggle)' : 'Hidden from Agent (Click to toggle)'}
+                          title={row.availableForAgent ? 'Agent Wholesale Published (Click to hide)' : 'Hidden from Agents (Click to publish)'}
                           style={{
                             border: 'none',
                             background: row.availableForAgent ? 'rgba(0, 102, 255, 0.12)' : 'rgba(239, 68, 68, 0.12)',
                             color: row.availableForAgent ? 'var(--color-brand)' : '#EF4444',
-                            borderRadius: '4px',
-                            padding: '2px 4px',
+                            borderRadius: 'var(--radius-full)',
+                            padding: '2px 6px',
                             cursor: 'pointer',
                             fontSize: '10px',
                             fontWeight: 700,
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '2px',
+                            gap: '3px',
                           }}
                         >
                           <TrendingUp size={10} />
-                          {row.availableForAgent ? 'Wholesale' : 'Hidden'}
+                          <span>{row.availableForAgent ? 'Wholesale' : 'Hidden'}</span>
                         </button>
                       </div>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-brand)', fontWeight: 600 }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-brand)', fontWeight: 600 }}>
                         Margin: +GH₵ {(margin / 100).toFixed(2)} ({pct}%)
                       </span>
                     </div>
@@ -1211,42 +1628,51 @@ export const AdminDataPlansPage: React.FC = () => {
                 header: 'Actions',
                 accessor: 'id',
                 render: (row) => (
-                  <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                  <div style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
+                    <button
+                      type="button"
                       onClick={() => handleInspectPlan(row.id)}
-                      leftIcon={<Eye size={12} />}
+                      style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
                       title="View Plan Dossier"
                     >
-                      Dossier
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                      <Eye size={12} />
+                      <span>Dossier</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleOpenEdit(row)}
-                      leftIcon={<Edit3 size={12} />}
+                      style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
                       title="Edit Pricing & Channels"
                     >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                      <Edit3 size={12} />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleToggleStatus(row)}
-                      style={{ fontSize: 'var(--font-size-3xs)' }}
+                      style={{
+                        ...tactileButtonStyle,
+                        padding: '0.35rem 0.55rem',
+                        fontSize: '11px',
+                        color: row.status === 'ACTIVE' ? 'var(--color-danger)' : 'var(--color-emerald)',
+                      }}
+                      title={row.status === 'ACTIVE' ? 'Disable plan' : 'Enable plan'}
                     >
                       {row.status === 'ACTIVE' ? 'Disable' : 'Enable'}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
+                    </button>
+                    <button
+                      type="button"
                       onClick={(e) => handlePromptDelete(row, e)}
-                      leftIcon={<Trash2 size={12} />}
+                      style={{
+                        ...tactileButtonStyle,
+                        padding: '0.35rem 0.55rem',
+                        fontSize: '11px',
+                        color: 'var(--color-danger)',
+                      }}
                       title="Delete / Archive Plan"
                     >
-                      Delete
-                    </Button>
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ),
               },
@@ -1258,381 +1684,440 @@ export const AdminDataPlansPage: React.FC = () => {
         </div>
 
         {/* Pagination Bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-4)', flexWrap: 'wrap', gap: '1rem' }}>
-          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.25rem', borderTop: '1px solid var(--color-border-subtle)', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
             Showing {plans.length} of {pagination.total} plans (Page {pagination.page} of {pagination.totalPages})
           </span>
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <Button
-              variant="ghost"
-              size="sm"
+          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <button
+              type="button"
               disabled={pagination.page <= 1}
-              onClick={() => setPagination((prev) => ({ ...prev, page: prev.page - 1 }))}
+              onClick={() => setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+              style={{
+                ...tactileButtonStyle,
+                padding: '0.35rem 0.65rem',
+                opacity: pagination.page <= 1 ? 0.5 : 1,
+                cursor: pagination.page <= 1 ? 'not-allowed' : 'pointer',
+              }}
             >
               Previous
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
+            </button>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-primary)', padding: '0 0.5rem' }}>
+              Page {pagination.page} of {pagination.totalPages}
+            </span>
+            <button
+              type="button"
               disabled={pagination.page >= pagination.totalPages}
-              onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))}
+              onClick={() => setPagination((prev) => ({ ...prev, page: Math.min(pagination.totalPages, prev.page + 1) }))}
+              style={{
+                ...tactileButtonStyle,
+                padding: '0.35rem 0.65rem',
+                opacity: pagination.page >= pagination.totalPages ? 0.5 : 1,
+                cursor: pagination.page >= pagination.totalPages ? 'not-allowed' : 'pointer',
+              }}
             >
               Next
-            </Button>
+            </button>
           </div>
         </div>
       </Card>
 
-      {/* 5. Create / Edit Data Plan Modal */}
-      {isCreateModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="amber" style={{ maxWidth: '640px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 'var(--space-6)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, margin: 0 }}>
-                {editingPlan ? 'Edit Data Plan' : 'Create Data Plan'}
-              </h2>
-              <Button variant="ghost" size="sm" onClick={() => setIsCreateModalOpen(false)}>
-                <X size={16} />
-              </Button>
+      {/* ========================================================================= */}
+      {/* 6. MODALS (Non-overlapping, rendered at high z-index via Modal component) */}
+      {/* ========================================================================= */}
+
+      {/* A. Create / Edit Data Plan Modal */}
+      <Modal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        title={editingPlan ? `Edit Plan: ${formData.name}` : 'Create New Data Plan'}
+        maxWidth="680px"
+      >
+        <form onSubmit={handleSavePlan} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          {/* Basic Details */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Plan Name *</label>
+              <Input
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g. 5GB Non-Expiry"
+                required
+              />
             </div>
 
-            <form onSubmit={handleSavePlan} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              {/* Basic Details */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-                <Input
-                  label="Plan Name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g. 5GB Non-Expiry"
-                  required
-                />
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Network Carrier *</label>
+              <select
+                value={formData.network}
+                onChange={(e) => setFormData({ ...formData, network: e.target.value as NetworkProvider })}
+                style={{ ...selectStyle, width: '100%' }}
+              >
+                <option value={NetworkProvider.MTN}>MTN Ghana</option>
+                <option value={NetworkProvider.TELECEL}>Telecel Ghana</option>
+                <option value={NetworkProvider.AIRTELTIGO}>AirtelTigo</option>
+              </select>
+            </div>
+          </div>
 
-                <Select
-                  label="Network Carrier"
-                  value={formData.network}
-                  onChange={(e) => setFormData({ ...formData, network: e.target.value as NetworkProvider })}
-                  options={[
-                    { value: NetworkProvider.MTN, label: 'MTN Ghana' },
-                    { value: NetworkProvider.TELECEL, label: 'Telecel Ghana' },
-                    { value: NetworkProvider.AIRTELTIGO, label: 'AirtelTigo' },
-                  ]}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Data Volume (MB) *</label>
+              <Input
+                type="number"
+                value={formData.dataAmountMb}
+                onChange={(e) => setFormData({ ...formData, dataAmountMb: parseInt(e.target.value, 10) || 1024 })}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Validity (Days) *</label>
+              <Input
+                type="number"
+                value={formData.validityDays}
+                onChange={(e) => setFormData({ ...formData, validityDays: parseInt(e.target.value, 10) || 30 })}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Validity Display</label>
+              <Input
+                value={formData.validityDesc}
+                onChange={(e) => setFormData({ ...formData, validityDesc: e.target.value })}
+                placeholder="Non-Expiry"
+              />
+            </div>
+          </div>
+
+          {/* Provider Mapping Identifiers */}
+          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+              Telecom Provider Mapping (DataHouse Authority)
+            </span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Provider Name</label>
+                <Input
+                  value={formData.providerName}
+                  onChange={(e) => setFormData({ ...formData, providerName: e.target.value })}
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Provider Plan ID</label>
                 <Input
-                  label="Data Volume (MB)"
+                  value={formData.providerPlanId}
+                  onChange={(e) => setFormData({ ...formData, providerPlanId: e.target.value })}
+                  placeholder="dh_mtn_5gb"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Pricing Section with Margin Spread */}
+          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-brand)', letterSpacing: '0.04em' }}>
+              Multi-Tier Pricing & Spread Calculations
+            </span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Provider Cost (GHS) *</label>
+                <Input
                   type="number"
-                  value={formData.dataAmountMb}
-                  onChange={(e) => setFormData({ ...formData, dataAmountMb: parseInt(e.target.value, 10) || 1024 })}
+                  step="0.01"
+                  value={formData.providerPriceGhs}
+                  onChange={(e) => setFormData({ ...formData, providerPriceGhs: e.target.value })}
                   required
                 />
+              </div>
 
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Customer Retail Price (GHS) *</label>
                 <Input
-                  label="Validity Days"
                   type="number"
-                  value={formData.validityDays}
-                  onChange={(e) => setFormData({ ...formData, validityDays: parseInt(e.target.value, 10) || 30 })}
+                  step="0.01"
+                  value={formData.customerPriceGhs}
+                  onChange={(e) => setFormData({ ...formData, customerPriceGhs: e.target.value })}
                   required
                 />
+                <span style={{ fontSize: '10px', color: '#10B981', fontWeight: 700, display: 'block', marginTop: '2px' }}>
+                  Customer Margin: +GH₵ {margins.custMargin.toFixed(2)} ({margins.custPct}%)
+                </span>
+              </div>
 
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Agent Wholesale Price (GHS)</label>
                 <Input
-                  label="Validity Display"
-                  value={formData.validityDesc}
-                  onChange={(e) => setFormData({ ...formData, validityDesc: e.target.value })}
-                  placeholder="Non-Expiry"
+                  type="number"
+                  step="0.01"
+                  value={formData.agentPriceGhs}
+                  onChange={(e) => setFormData({ ...formData, agentPriceGhs: e.target.value })}
+                />
+                <span style={{ fontSize: '10px', color: 'var(--color-brand)', fontWeight: 700, display: 'block', marginTop: '2px' }}>
+                  Agent Margin: +GH₵ {margins.agentMargin.toFixed(2)} ({margins.agentPct}%)
+                </span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Store Default Price (GHS)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.storePriceGhs}
+                  onChange={(e) => setFormData({ ...formData, storePriceGhs: e.target.value })}
+                />
+                <span style={{ fontSize: '10px', color: '#10B981', fontWeight: 700, display: 'block', marginTop: '2px' }}>
+                  Store Margin: +GH₵ {margins.storeMargin.toFixed(2)} ({margins.storePct}%)
+                </span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Agent Min Resale Cap (GHS)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Optional lower limit"
+                  value={formData.agentMinPriceGhs}
+                  onChange={(e) => setFormData({ ...formData, agentMinPriceGhs: e.target.value })}
                 />
               </div>
 
-              {/* Provider Mapping Identifiers */}
-              <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border-subtle)' }}>
-                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                  Telecom Provider Mapping (DataHouse Authority)
-                </span>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
-                  <Input
-                    label="Provider Name"
-                    value={formData.providerName}
-                    onChange={(e) => setFormData({ ...formData, providerName: e.target.value })}
-                  />
-
-                  <Input
-                    label="Provider Plan ID"
-                    value={formData.providerPlanId}
-                    onChange={(e) => setFormData({ ...formData, providerPlanId: e.target.value })}
-                    placeholder="dh_mtn_5gb"
-                  />
-                </div>
-              </div>
-
-              {/* Pricing Section with Margin Spread */}
-              <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border-subtle)' }}>
-                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-brand)' }}>
-                  Multi-Tier Pricing & Spread Calculations
-                </span>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
-                  <Input
-                    label="Provider Cost (GHS)"
-                    type="number"
-                    step="0.01"
-                    value={formData.providerPriceGhs}
-                    onChange={(e) => setFormData({ ...formData, providerPriceGhs: e.target.value })}
-                    required
-                  />
-
-                  <div>
-                    <Input
-                      label="Customer Retail Price (GHS)"
-                      type="number"
-                      step="0.01"
-                      value={formData.customerPriceGhs}
-                      onChange={(e) => setFormData({ ...formData, customerPriceGhs: e.target.value })}
-                      required
-                    />
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: '#10B981', fontWeight: 700 }}>
-                      Customer Margin: +GH₵ {margins.custMargin.toFixed(2)} ({margins.custPct}%)
-                    </span>
-                  </div>
-
-                  <div>
-                    <Input
-                      label="Agent Wholesale Price (GHS)"
-                      type="number"
-                      step="0.01"
-                      value={formData.agentPriceGhs}
-                      onChange={(e) => setFormData({ ...formData, agentPriceGhs: e.target.value })}
-                    />
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-brand)', fontWeight: 700 }}>
-                      Agent Margin: +GH₵ {margins.agentMargin.toFixed(2)} ({margins.agentPct}%)
-                    </span>
-                  </div>
-
-                  <div>
-                    <Input
-                      label="Store Default Price (GHS)"
-                      type="number"
-                      step="0.01"
-                      value={formData.storePriceGhs}
-                      onChange={(e) => setFormData({ ...formData, storePriceGhs: e.target.value })}
-                    />
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: '#10B981', fontWeight: 700 }}>
-                      Store Margin: +GH₵ {margins.storeMargin.toFixed(2)} ({margins.storePct}%)
-                    </span>
-                  </div>
-
-                  <div>
-                    <Input
-                      label="Agent Min Resale Cap (GHS)"
-                      type="number"
-                      step="0.01"
-                      placeholder="Optional lower limit"
-                      value={formData.agentMinPriceGhs}
-                      onChange={(e) => setFormData({ ...formData, agentMinPriceGhs: e.target.value })}
-                    />
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                      Minimum allowed agent resale price
-                    </span>
-                  </div>
-
-                  <div>
-                    <Input
-                      label="Agent Max Resale Cap (GHS)"
-                      type="number"
-                      step="0.01"
-                      placeholder="Optional upper limit"
-                      value={formData.agentMaxPriceGhs}
-                      onChange={(e) => setFormData({ ...formData, agentMaxPriceGhs: e.target.value })}
-                    />
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                      Maximum allowed agent resale price
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Independent Channel Visibility */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>Channel Publishing & Access Controls</span>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.availableForCustomer}
-                      onChange={(e) => setFormData({ ...formData, availableForCustomer: e.target.checked })}
-                    />
-                    <span>Customer Retail Portal</span>
-                  </label>
-
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.availableForAgent}
-                      onChange={(e) => setFormData({ ...formData, availableForAgent: e.target.checked })}
-                    />
-                    <span>Agent Wholesale Portal</span>
-                  </label>
-
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.availableForStore}
-                      onChange={(e) => setFormData({ ...formData, availableForStore: e.target.checked })}
-                    />
-                    <span>Agent Storefronts</span>
-                  </label>
-
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.availableForApi}
-                      onChange={(e) => setFormData({ ...formData, availableForApi: e.target.checked })}
-                    />
-                    <span>Developer REST API</span>
-                  </label>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={formData.popular}
-                    onChange={(e) => setFormData({ ...formData, popular: e.target.checked })}
-                  />
-                  <span>Mark as Popular Bundle</span>
-                </label>
-              </div>
-
-              {editingPlan && (
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Agent Max Resale Cap (GHS)</label>
                 <Input
-                  label="Change Reason (Audit Trail)"
-                  value={formData.changeReason}
-                  onChange={(e) => setFormData({ ...formData, changeReason: e.target.value })}
-                  placeholder="e.g. Updating customer retail and agent wholesale rates"
-                  required
+                  type="number"
+                  step="0.01"
+                  placeholder="Optional upper limit"
+                  value={formData.agentMaxPriceGhs}
+                  onChange={(e) => setFormData({ ...formData, agentMaxPriceGhs: e.target.value })}
                 />
-              )}
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setIsCreateModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" size="sm">
-                  {editingPlan ? 'Save Changes' : 'Create Plan'}
-                </Button>
               </div>
-            </form>
-          </Card>
-        </div>
-      )}
+            </div>
+          </div>
 
-      {/* Single Plan Delete Confirmation Modal */}
-      {isDeleteModalOpen && planToDelete && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="red" style={{ maxWidth: '480px', width: '100%', padding: 'var(--space-6)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: 'var(--space-3)' }}>
+          {/* Publishing & Visibility Controls */}
+          <div>
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: 'var(--space-2)' }}>Channel Publishing Controls</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.availableForCustomer}
+                  onChange={(e) => setFormData({ ...formData, availableForCustomer: e.target.checked })}
+                />
+                <span>Customer Retail Portal</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.availableForAgent}
+                  onChange={(e) => setFormData({ ...formData, availableForAgent: e.target.checked })}
+                />
+                <span>Agent Wholesale Portal</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.availableForStore}
+                  onChange={(e) => setFormData({ ...formData, availableForStore: e.target.checked })}
+                />
+                <span>Agent Storefronts</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.availableForApi}
+                  onChange={(e) => setFormData({ ...formData, availableForApi: e.target.checked })}
+                />
+                <span>Developer REST API</span>
+              </label>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formData.popular}
+                onChange={(e) => setFormData({ ...formData, popular: e.target.checked })}
+              />
+              <span>Mark as Popular Bundle</span>
+            </label>
+          </div>
+
+          {editingPlan && (
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Change Reason (Audit Trail) *</label>
+              <Input
+                value={formData.changeReason}
+                onChange={(e) => setFormData({ ...formData, changeReason: e.target.value })}
+                placeholder="e.g. Updating customer retail and agent wholesale rates"
+                required
+              />
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-3)' }}>
+            <button type="button" onClick={() => setIsCreateModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button type="submit" style={primaryButtonStyle}>
+              {editingPlan ? 'Save Changes' : 'Create Plan'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* B. Single Plan Delete Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen && !!planToDelete}
+        onClose={() => setIsDeleteModalOpen(false)}
+        title="Delete Data Plan"
+        maxWidth="480px"
+      >
+        {planToDelete && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <TactileIcon icon={Trash2} color="red" size="md" />
               <div>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                  Delete Data Plan
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  {planToDelete.name} ({planToDelete.network} - {planToDelete.sku})
                 </h3>
-                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
                   Permanent Removal or Archival Protection
                 </span>
               </div>
             </div>
 
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: '0 0 var(--space-4)' }}>
-              Are you sure you want to delete <strong>{planToDelete.name}</strong> ({planToDelete.network} - {planToDelete.sku})?
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: 0 }}>
+              Are you sure you want to delete this data plan bundle?
               <br />
-              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                Note: If previous orders exist for this bundle, it will be safely archived to preserve financial and customer history.
+              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block', marginTop: '6px' }}>
+                Note: If historical orders exist for this bundle, it will be safely archived to protect audit trails and customer records.
               </span>
             </p>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-              <Button variant="ghost" size="sm" onClick={() => setIsDeleteModalOpen(false)} disabled={deleteLoading}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={deleteLoading}
+                style={tactileButtonStyle}
+              >
                 Cancel
-              </Button>
-              <Button variant="danger" size="sm" onClick={handleDeletePlan} disabled={deleteLoading} leftIcon={<Trash2 size={14} />}>
+              </button>
+              <button
+                type="button"
+                onClick={handleDeletePlan}
+                disabled={deleteLoading}
+                style={{
+                  ...tactileButtonStyle,
+                  backgroundColor: 'var(--color-danger)',
+                  color: '#fff',
+                  borderColor: 'var(--color-danger)',
+                }}
+              >
                 {deleteLoading ? 'Deleting...' : 'Confirm Delete'}
-              </Button>
+              </button>
             </div>
-          </Card>
+          </div>
+        )}
+      </Modal>
+
+      {/* C. Bulk Delete Modal */}
+      <Modal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        title={`Delete ${selectedPlanIds.length} Data Plans`}
+        maxWidth="480px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <TactileIcon icon={Trash2} color="red" size="md" />
+            <div>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                Batch Removal & Archival
+              </h3>
+              <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                Affects {selectedPlanIds.length} selected bundles
+              </span>
+            </div>
+          </div>
+
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: 0 }}>
+            Are you sure you want to delete all <strong>{selectedPlanIds.length}</strong> selected data plans?
+          </p>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteModalOpen(false)}
+              disabled={bulkProcessing}
+              style={tactileButtonStyle}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmBulkDelete}
+              disabled={bulkProcessing}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: 'var(--color-danger)',
+                color: '#fff',
+                borderColor: 'var(--color-danger)',
+              }}
+            >
+              {bulkProcessing ? 'Deleting...' : `Delete ${selectedPlanIds.length} Plans`}
+            </button>
+          </div>
         </div>
-      )}
+      </Modal>
 
-      {/* Bulk Delete Modal */}
-      {isBulkDeleteModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="red" style={{ maxWidth: '480px', width: '100%', padding: 'var(--space-6)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: 'var(--space-3)' }}>
-              <TactileIcon icon={Trash2} color="red" size="md" />
-              <div>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                  Delete {selectedPlanIds.length} Data Plans
-                </h3>
-                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                  Batch Removal & Archival
-                </span>
-              </div>
-            </div>
+      {/* D. Bulk Pricing Calculator Modal */}
+      <Modal
+        isOpen={isBulkPricingOpen}
+        onClose={() => setIsBulkPricingOpen(false)}
+        title="Bulk Pricing Markup Calculator"
+        maxWidth="700px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
+            Apply percentage markup adjustments across {selectedPlanIds.length > 0 ? `${selectedPlanIds.length} selected plans` : 'all active catalog plans'}.
+          </p>
 
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: '0 0 var(--space-4)' }}>
-              Are you sure you want to delete all <strong>{selectedPlanIds.length}</strong> selected data plans?
-            </p>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-              <Button variant="ghost" size="sm" onClick={() => setIsBulkDeleteModalOpen(false)} disabled={bulkProcessing}>
-                Cancel
-              </Button>
-              <Button variant="danger" size="sm" onClick={handleConfirmBulkDelete} disabled={bulkProcessing} leftIcon={<Trash2 size={14} />}>
-                {bulkProcessing ? 'Deleting...' : `Delete ${selectedPlanIds.length} Plans`}
-              </Button>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* 6. Bulk Pricing Calculator Modal */}
-      {isBulkPricingOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="amber" style={{ maxWidth: '680px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 'var(--space-6)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, margin: 0 }}>
-                Bulk Pricing Markup Calculator
-              </h2>
-              <Button variant="ghost" size="sm" onClick={() => setIsBulkPricingOpen(false)}>
-                <X size={16} />
-              </Button>
-            </div>
-
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-4)' }}>
-              Apply percentage or absolute markup adjustments across {selectedPlanIds.length > 0 ? `${selectedPlanIds.length} selected plans` : 'all active catalog plans'}.
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Customer Markup (%)</label>
               <Input
-                label="Customer Markup (%)"
                 type="number"
                 step="0.1"
                 placeholder="+5.0"
                 value={customerMarkupPct}
                 onChange={(e) => setCustomerMarkupPct(e.target.value)}
               />
+            </div>
 
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Agent Markup (%)</label>
               <Input
-                label="Agent Markup (%)"
                 type="number"
                 step="0.1"
                 placeholder="+2.0"
                 value={agentMarkupPct}
                 onChange={(e) => setAgentMarkupPct(e.target.value)}
               />
+            </div>
 
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Store Markup (%)</label>
               <Input
-                label="Store Markup (%)"
                 type="number"
                 step="0.1"
                 placeholder="+3.0"
@@ -1640,477 +2125,626 @@ export const AdminDataPlansPage: React.FC = () => {
                 onChange={(e) => setStoreMarkupPct(e.target.value)}
               />
             </div>
+          </div>
 
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handlePreviewBulkPricing}
-              disabled={previewLoading}
-              leftIcon={<Eye size={13} />}
-              style={{ marginBottom: 'var(--space-4)' }}
-            >
-              {previewLoading ? 'Calculating Impact...' : 'Preview Price Adjustments'}
-            </Button>
+          <button
+            type="button"
+            onClick={handlePreviewBulkPricing}
+            disabled={previewLoading}
+            style={{ ...tactileButtonStyle, alignSelf: 'flex-start' }}
+          >
+            <Eye size={13} />
+            <span>{previewLoading ? 'Calculating Impact...' : 'Preview Price Adjustments'}</span>
+          </button>
 
-            {bulkPricingPreview && (
-              <div style={{ marginBottom: 'var(--space-4)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>
-                    Affected Plans: {bulkPricingPreview.length}
-                  </span>
-                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: '#10B981' }}>
-                    Est. Daily Revenue Diff: +GH₵ {(bulkPricingDiffTotal / 100).toFixed(2)}
-                  </span>
-                </div>
-
-                <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}>
-                  <table style={{ width: '100%', fontSize: 'var(--font-size-3xs)', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: 'var(--color-bg-subtle)', textAlign: 'left' }}>
-                        <th style={{ padding: '0.4rem' }}>Plan</th>
-                        <th style={{ padding: '0.4rem' }}>Current Customer</th>
-                        <th style={{ padding: '0.4rem' }}>New Customer</th>
-                        <th style={{ padding: '0.4rem' }}>Current Agent</th>
-                        <th style={{ padding: '0.4rem' }}>New Agent</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bulkPricingPreview.map((p) => (
-                        <tr key={p.id} style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
-                          <td style={{ padding: '0.4rem', fontWeight: 600 }}>{p.network} {p.name}</td>
-                          <td style={{ padding: '0.4rem' }}>GH₵ {(p.currentBasePricePesewas / 100).toFixed(2)}</td>
-                          <td style={{ padding: '0.4rem', fontWeight: 700, color: '#10B981' }}>GH₵ {(p.newBasePricePesewas / 100).toFixed(2)}</td>
-                          <td style={{ padding: '0.4rem' }}>{p.currentAgentPricePesewas ? `GH₵ ${(p.currentAgentPricePesewas / 100).toFixed(2)}` : '—'}</td>
-                          <td style={{ padding: '0.4rem', fontWeight: 700, color: 'var(--color-brand)' }}>{p.newAgentPricePesewas ? `GH₵ ${(p.newAgentPricePesewas / 100).toFixed(2)}` : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            <Input
-              label="Mandatory Reason for Bulk Pricing Update"
-              value={bulkPricingReason}
-              onChange={(e) => setBulkPricingReason(e.target.value)}
-              placeholder="e.g. Carrier tariff adjustment"
-              required
-            />
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-4)' }}>
-              <Button variant="ghost" size="sm" onClick={() => setIsBulkPricingOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={bulkProcessing || !bulkPricingPreview || bulkPricingReason.trim().length < 5}
-                onClick={handleApplyBulkPricing}
-              >
-                {bulkProcessing ? 'Applying Changes...' : 'Confirm & Apply Bulk Pricing'}
-              </Button>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* 7. Provider Sync Drawer & Review Modal */}
-      {isSyncModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 'var(--space-4)' }}>
-          <Card elevated accentColor="amber" style={{ maxWidth: '800px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 'var(--space-6)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <div>
-                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, margin: 0 }}>
-                  DataHouse Provider Catalog Synchronization
-                </h2>
-                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                  DataHouse is authoritative for telecom fulfillment. Review provider catalog diffs before accepting updates.
+          {bulkPricingPreview && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>
+                  Affected Plans: {bulkPricingPreview.length}
+                </span>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: '#10B981' }}>
+                  Est. Daily Revenue Diff: +GH₵ {(bulkPricingDiffTotal / 100).toFixed(2)}
                 </span>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setIsSyncModalOpen(false)}>
-                <X size={16} />
-              </Button>
-            </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
-              <Button
-                variant={syncTab === 'DIFF' ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setSyncTab('DIFF')}
-              >
-                Sync Diff Review
-              </Button>
-              <Button
-                variant={syncTab === 'HISTORY' ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setSyncTab('HISTORY')}
-              >
-                Sync History
-              </Button>
-              <div style={{ marginLeft: 'auto' }}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleTriggerSync}
-                  disabled={syncLoading}
-                  leftIcon={<RefreshCw size={13} className={syncLoading ? 'animate-spin' : ''} />}
-                >
-                  {syncLoading ? 'Fetching DataHouse...' : 'Trigger Sync Now'}
-                </Button>
-              </div>
-            </div>
-
-            {syncTab === 'DIFF' && activeSyncBatch && (
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
-                  <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Matched Plans</span>
-                    <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800 }}>{activeSyncBatch.matchedPlans}</h3>
-                  </div>
-                  <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Price Shifts</span>
-                    <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-warning-bright)' }}>{activeSyncBatch.changedPlansCount}</h3>
-                  </div>
-                  <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>New Plans</span>
-                    <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: '#10B981' }}>{activeSyncBatch.newPlansCount}</h3>
-                  </div>
-                  <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Removed Plans</span>
-                    <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-danger)' }}>{activeSyncBatch.removedPlansCount}</h3>
-                  </div>
-                </div>
-
-                {activeSyncBatch.items && activeSyncBatch.items.length > 0 ? (
-                  <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--space-4)' }}>
-                    <table style={{ width: '100%', fontSize: 'var(--font-size-3xs)', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: 'var(--color-bg-subtle)', textAlign: 'left' }}>
-                          <th style={{ padding: '0.4rem' }}>Type</th>
-                          <th style={{ padding: '0.4rem' }}>Plan</th>
-                          <th style={{ padding: '0.4rem' }}>Current Prov. Cost</th>
-                          <th style={{ padding: '0.4rem' }}>New Prov. Cost</th>
-                          <th style={{ padding: '0.4rem' }}>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {activeSyncBatch.items.map((item) => (
-                          <tr key={item.id} style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
-                            <td style={{ padding: '0.4rem' }}>
-                              <Badge variant={item.changeType === 'NEW_PLAN' ? 'success' : (item.changeType === 'PRICE_CHANGE' ? 'warning' : 'danger')} size="sm">
-                                {item.changeType}
-                              </Badge>
-                            </td>
-                            <td style={{ padding: '0.4rem', fontWeight: 600 }}>{item.network} {item.planName}</td>
-                            <td style={{ padding: '0.4rem' }}>
-                              {item.currentProviderPricePesewas ? `GH₵ ${(item.currentProviderPricePesewas / 100).toFixed(2)}` : 'N/A'}
-                            </td>
-                            <td style={{ padding: '0.4rem', fontWeight: 700 }}>
-                              GH₵ {(item.newProviderPricePesewas / 100).toFixed(2)}
-                            </td>
-                            <td style={{ padding: '0.4rem' }}>
-                              <Badge variant={item.status === 'ACCEPTED' ? 'success' : (item.status === 'REJECTED' ? 'danger' : 'neutral')} size="sm">
-                                {item.status}
-                              </Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', textAlign: 'center', padding: 'var(--space-4)' }}>
-                    ✓ No discrepancies detected. ByteBeacon catalog is in full synchronization with DataHouse.
-                  </p>
-                )}
-
-                {activeSyncBatch.status === 'PENDING_REVIEW' && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                    <Button variant="primary" size="sm" onClick={() => handleApplySyncBatch(activeSyncBatch.id)}>
-                      Accept & Project Diff
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {syncTab === 'HISTORY' && (
-              <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                <table style={{ width: '100%', fontSize: 'var(--font-size-3xs)', borderCollapse: 'collapse' }}>
+              <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ backgroundColor: 'var(--color-bg-subtle)', textAlign: 'left' }}>
-                      <th style={{ padding: '0.4rem' }}>Batch ID</th>
-                      <th style={{ padding: '0.4rem' }}>Provider</th>
-                      <th style={{ padding: '0.4rem' }}>Discrepancies</th>
-                      <th style={{ padding: '0.4rem' }}>Status</th>
-                      <th style={{ padding: '0.4rem' }}>Date</th>
+                      <th style={{ padding: '0.4rem 0.6rem' }}>Plan</th>
+                      <th style={{ padding: '0.4rem 0.6rem' }}>Current Cust.</th>
+                      <th style={{ padding: '0.4rem 0.6rem' }}>New Cust.</th>
+                      <th style={{ padding: '0.4rem 0.6rem' }}>Current Agent</th>
+                      <th style={{ padding: '0.4rem 0.6rem' }}>New Agent</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {syncBatches.map((b) => (
-                      <tr key={b.id} style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
-                        <td style={{ padding: '0.4rem', fontFamily: 'var(--font-mono)' }}>{b.id.slice(0, 8)}...</td>
-                        <td style={{ padding: '0.4rem' }}>{b.providerName}</td>
-                        <td style={{ padding: '0.4rem', fontWeight: 700 }}>{b.discrepancyCount}</td>
-                        <td style={{ padding: '0.4rem' }}>
-                          <Badge variant={b.status === 'APPLIED' ? 'success' : (b.status === 'REJECTED' ? 'danger' : 'warning')} size="sm">
-                            {b.status}
-                          </Badge>
-                        </td>
-                        <td style={{ padding: '0.4rem' }}>{new Date(b.createdAt).toLocaleString()}</td>
+                    {bulkPricingPreview.map((p) => (
+                      <tr key={p.id} style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+                        <td style={{ padding: '0.4rem 0.6rem', fontWeight: 600 }}>{p.network} {p.name}</td>
+                        <td style={{ padding: '0.4rem 0.6rem' }}>GH₵ {(p.currentBasePricePesewas / 100).toFixed(2)}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', fontWeight: 700, color: '#10B981' }}>GH₵ {(p.newBasePricePesewas / 100).toFixed(2)}</td>
+                        <td style={{ padding: '0.4rem 0.6rem' }}>{p.currentAgentPricePesewas ? `GH₵ ${(p.currentAgentPricePesewas / 100).toFixed(2)}` : '—'}</td>
+                        <td style={{ padding: '0.4rem 0.6rem', fontWeight: 700, color: 'var(--color-brand)' }}>{p.newAgentPricePesewas ? `GH₵ ${(p.newAgentPricePesewas / 100).toFixed(2)}` : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
-          </Card>
-        </div>
-      )}
+            </div>
+          )}
 
-      {/* 8. Individual Plan Dossier Drawer */}
+          <div>
+            <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Mandatory Reason for Bulk Pricing Update *</label>
+            <Input
+              value={bulkPricingReason}
+              onChange={(e) => setBulkPricingReason(e.target.value)}
+              placeholder="e.g. Carrier tariff adjustment"
+              required
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+            <button type="button" onClick={() => setIsBulkPricingOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkProcessing || !bulkPricingPreview || bulkPricingReason.trim().length < 5}
+              onClick={handleApplyBulkPricing}
+              style={{
+                ...primaryButtonStyle,
+                opacity: bulkProcessing || !bulkPricingPreview || bulkPricingReason.trim().length < 5 ? 0.6 : 1,
+              }}
+            >
+              {bulkProcessing ? 'Applying Changes...' : 'Confirm & Apply Bulk Pricing'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* E. Provider Sync & Review Modal */}
+      <Modal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        title="DataHouse Provider Catalog Synchronization"
+        maxWidth="820px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: 0 }}>
+            DataHouse is authoritative for telecom fulfillment. Review provider catalog diffs before accepting updates into ByteBeacon.
+          </p>
+
+          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => setSyncTab('DIFF')}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: syncTab === 'DIFF' ? 'var(--color-brand-primary)' : 'var(--color-bg-surface)',
+                color: syncTab === 'DIFF' ? '#fff' : 'var(--color-text-primary)',
+              }}
+            >
+              Sync Diff Review
+            </button>
+            <button
+              type="button"
+              onClick={() => setSyncTab('HISTORY')}
+              style={{
+                ...tactileButtonStyle,
+                backgroundColor: syncTab === 'HISTORY' ? 'var(--color-brand-primary)' : 'var(--color-bg-surface)',
+                color: syncTab === 'HISTORY' ? '#fff' : 'var(--color-text-primary)',
+              }}
+            >
+              Sync History
+            </button>
+            <div style={{ marginLeft: 'auto' }}>
+              <button
+                type="button"
+                onClick={handleTriggerSync}
+                disabled={syncLoading}
+                style={tactileButtonStyle}
+              >
+                <RefreshCw size={13} className={syncLoading ? 'animate-spin' : ''} />
+                <span>{syncLoading ? 'Fetching DataHouse...' : 'Trigger Sync Now'}</span>
+              </button>
+            </div>
+          </div>
+
+          {syncTab === 'DIFF' && activeSyncBatch && (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+                <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Matched Plans</span>
+                  <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800 }}>{activeSyncBatch.matchedPlans}</h3>
+                </div>
+                <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Price Shifts</span>
+                  <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-warning-bright)' }}>{activeSyncBatch.changedPlansCount}</h3>
+                </div>
+                <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>New Plans</span>
+                  <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: '#10B981' }}>{activeSyncBatch.newPlansCount}</h3>
+                </div>
+                <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Removed Plans</span>
+                  <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-danger)' }}>{activeSyncBatch.removedPlansCount}</h3>
+                </div>
+              </div>
+
+              {activeSyncBatch.items && activeSyncBatch.items.length > 0 ? (
+                <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-4)' }}>
+                  <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: 'var(--color-bg-subtle)', textAlign: 'left' }}>
+                        <th style={{ padding: '0.4rem 0.6rem' }}>Type</th>
+                        <th style={{ padding: '0.4rem 0.6rem' }}>Plan</th>
+                        <th style={{ padding: '0.4rem 0.6rem' }}>Current Prov. Cost</th>
+                        <th style={{ padding: '0.4rem 0.6rem' }}>New Prov. Cost</th>
+                        <th style={{ padding: '0.4rem 0.6rem' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeSyncBatch.items.map((item) => (
+                        <tr key={item.id} style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+                          <td style={{ padding: '0.4rem 0.6rem' }}>
+                            <Badge variant={item.changeType === 'NEW_PLAN' ? 'success' : (item.changeType === 'PRICE_CHANGE' ? 'warning' : 'danger')} size="sm">
+                              {item.changeType}
+                            </Badge>
+                          </td>
+                          <td style={{ padding: '0.4rem 0.6rem', fontWeight: 600 }}>{item.network} {item.planName}</td>
+                          <td style={{ padding: '0.4rem 0.6rem' }}>
+                            {item.currentProviderPricePesewas ? `GH₵ ${(item.currentProviderPricePesewas / 100).toFixed(2)}` : 'N/A'}
+                          </td>
+                          <td style={{ padding: '0.4rem 0.6rem', fontWeight: 700 }}>
+                            GH₵ {(item.newProviderPricePesewas / 100).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '0.4rem 0.6rem' }}>
+                            <Badge variant={item.status === 'ACCEPTED' ? 'success' : (item.status === 'REJECTED' ? 'danger' : 'neutral')} size="sm">
+                              {item.status}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', textAlign: 'center', padding: 'var(--space-4)' }}>
+                  ✓ No discrepancies detected. ByteBeacon catalog is in full synchronization with DataHouse.
+                </p>
+              )}
+
+              {activeSyncBatch.status === 'PENDING_REVIEW' && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleApplySyncBatch(activeSyncBatch.id)}
+                    style={primaryButtonStyle}
+                  >
+                    Accept & Project Diff
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {syncTab === 'HISTORY' && (
+            <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'var(--color-bg-subtle)', textAlign: 'left' }}>
+                    <th style={{ padding: '0.4rem 0.6rem' }}>Batch ID</th>
+                    <th style={{ padding: '0.4rem 0.6rem' }}>Provider</th>
+                    <th style={{ padding: '0.4rem 0.6rem' }}>Discrepancies</th>
+                    <th style={{ padding: '0.4rem 0.6rem' }}>Status</th>
+                    <th style={{ padding: '0.4rem 0.6rem' }}>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {syncBatches.map((b) => (
+                    <tr key={b.id} style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: '0.4rem 0.6rem', fontFamily: 'var(--font-mono)' }}>{b.id.slice(0, 8)}...</td>
+                      <td style={{ padding: '0.4rem 0.6rem' }}>{b.providerName}</td>
+                      <td style={{ padding: '0.4rem 0.6rem', fontWeight: 700 }}>{b.discrepancyCount}</td>
+                      <td style={{ padding: '0.4rem 0.6rem' }}>
+                        <Badge variant={b.status === 'APPLIED' ? 'success' : (b.status === 'REJECTED' ? 'danger' : 'warning')} size="sm">
+                          {b.status}
+                        </Badge>
+                      </td>
+                      <td style={{ padding: '0.4rem 0.6rem' }}>{new Date(b.createdAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* 7. INDIVIDUAL PLAN DOSSIER DRAWER & BACKDROP (Non-Overlapping, zIndex 250/260) */}
+      {/* ========================================================================= */}
       {selectedPlanDetail && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'flex-end', zIndex: 1000 }}>
-          <div style={{ width: '100%', maxWidth: '640px', backgroundColor: 'var(--color-bg-surface)', height: '100%', overflowY: 'auto', padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', boxShadow: 'var(--shadow-xl)' }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 250,
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
+          onClick={() => setSelectedPlanDetail(null)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '740px',
+              height: '100%',
+              backgroundColor: 'var(--color-bg-surface)',
+              borderLeft: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-xl, 0 20px 50px rgba(0,0,0,0.5))',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              zIndex: 260,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                padding: 'var(--space-5) var(--space-6)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: 'var(--color-bg-subtle)',
+              }}
+            >
               <div>
-                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-warning-bright)' }}>
-                  Plan Dossier & Rate Analysis
-                </span>
-                <h2 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 800 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <Badge
+                    variant={
+                      selectedPlanDetail.network === NetworkProvider.MTN
+                        ? 'warning'
+                        : selectedPlanDetail.network === NetworkProvider.TELECEL
+                        ? 'danger'
+                        : 'info'
+                    }
+                    size="sm"
+                  >
+                    {selectedPlanDetail.network}
+                  </Badge>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    SKU: {selectedPlanDetail.sku}
+                  </span>
+                </div>
+                <h2 style={{ margin: 0, fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
                   {selectedPlanDetail.name}
                 </h2>
-                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  SKU: {selectedPlanDetail.sku} | ID: {selectedPlanDetail.id}
-                </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <Button
-                  variant="ghost"
-                  size="sm"
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <button
+                  type="button"
                   onClick={() => {
                     const matchedPlan = plans.find((p) => p.id === selectedPlanDetail.id);
                     if (matchedPlan) handleOpenEdit(matchedPlan);
                   }}
-                  leftIcon={<Edit3 size={13} />}
+                  style={{ ...tactileButtonStyle, padding: '0.35rem 0.65rem', fontSize: '11px' }}
                 >
-                  Edit
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
+                  <Edit3 size={12} />
+                  <span>Edit</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     const matchedPlan = plans.find((p) => p.id === selectedPlanDetail.id);
                     if (matchedPlan) handlePromptDelete(matchedPlan);
                   }}
-                  leftIcon={<Trash2 size={13} />}
+                  style={{
+                    ...tactileButtonStyle,
+                    padding: '0.35rem 0.65rem',
+                    fontSize: '11px',
+                    color: 'var(--color-danger)',
+                  }}
                 >
-                  Delete
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedPlanDetail(null)}>
+                  <Trash2 size={12} />
+                  <span>Delete</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlanDetail(null)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: 'none',
+                    padding: '0.4rem',
+                    cursor: 'pointer',
+                    color: 'var(--color-text-muted)',
+                    borderRadius: 'var(--radius-sm)',
+                  }}
+                  title="Close Dossier"
+                >
                   <X size={18} />
-                </Button>
+                </button>
               </div>
             </div>
 
-            {/* Dossier Tabs */}
-            <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)' }}>
-              {(['OVERVIEW', 'ANALYTICS', 'ORDERS', 'PRICE_HISTORY'] as const).map((tab) => (
-                <Button
-                  key={tab}
-                  variant={detailTab === tab ? 'primary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setDetailTab(tab)}
-                  style={{ fontSize: 'var(--font-size-2xs)' }}
-                >
-                  {tab.replace('_', ' ')}
-                </Button>
-              ))}
+            {/* Dossier Segmented Tabs Bar */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.35rem',
+                padding: '0.75rem var(--space-6)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+                backgroundColor: 'var(--color-bg-surface)',
+                overflowX: 'auto',
+              }}
+            >
+              {(['OVERVIEW', 'ANALYTICS', 'ORDERS', 'PRICE_HISTORY'] as const).map((tab) => {
+                const isActive = detailTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setDetailTab(tab)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      padding: '0.4rem 0.85rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                      backgroundColor: isActive ? 'var(--color-bg-subtle)' : 'transparent',
+                      color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                      fontWeight: isActive ? 700 : 500,
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                      transition: 'all var(--transition-fast)',
+                    }}
+                  >
+                    {tab.replace('_', ' ')}
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Tab 1: Overview */}
-            {detailTab === 'OVERVIEW' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                <Card elevated accentColor="amber" style={{ padding: 'var(--space-4)' }}>
-                  <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>
-                    Commercial Rate Card & Margins
-                  </h4>
+            {/* Drawer Scrollable Content */}
+            <div style={{ padding: 'var(--space-6)', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              {/* Tab 1: Overview */}
+              {detailTab === 'OVERVIEW' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                  {/* Commercial Rate Card */}
+                  <Card elevated style={{ padding: 'var(--space-4)' }}>
+                    <h4 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Commercial Rate Card & Spread Margins
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Provider Base Cost</span>
+                        <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}>
+                          GH₵ {((selectedPlanDetail.providerPricePesewas || 0) / 100).toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Customer Retail Price</span>
+                        <p style={{ margin: 0, fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                          GH₵ {(selectedPlanDetail.basePricePesewas / 100).toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Agent Wholesale Price</span>
+                        <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)', color: 'var(--color-brand)' }}>
+                          {selectedPlanDetail.agentPricePesewas ? `GH₵ ${(selectedPlanDetail.agentPricePesewas / 100).toFixed(2)}` : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Customer Retail Margin</span>
+                        <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)', color: '#10B981' }}>
+                          +GH₵ {(selectedPlanDetail.customerMarginPesewas / 100).toFixed(2)} ({selectedPlanDetail.customerMarginPct}%)
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* Channel Visibility Matrix */}
+                  <Card elevated style={{ padding: 'var(--space-4)' }}>
+                    <h4 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Publishing Channel Matrix
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                        <Badge variant={selectedPlanDetail.availableForCustomer ? 'success' : 'neutral'} size="sm">
+                          {selectedPlanDetail.availableForCustomer ? 'ENABLED' : 'DISABLED'}
+                        </Badge>
+                        <span>Customer UI Portal</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                        <Badge variant={selectedPlanDetail.availableForAgent ? 'success' : 'neutral'} size="sm">
+                          {selectedPlanDetail.availableForAgent ? 'ENABLED' : 'DISABLED'}
+                        </Badge>
+                        <span>Agent Wholesale Portal</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                        <Badge variant={selectedPlanDetail.availableForStore ? 'success' : 'neutral'} size="sm">
+                          {selectedPlanDetail.availableForStore ? 'ENABLED' : 'DISABLED'}
+                        </Badge>
+                        <span>Agent Storefronts</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
+                        <Badge variant={selectedPlanDetail.availableForApi ? 'success' : 'neutral'} size="sm">
+                          {selectedPlanDetail.availableForApi ? 'ENABLED' : 'DISABLED'}
+                        </Badge>
+                        <span>Developer REST API</span>
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* Provider Authority Mapping */}
+                  <Card elevated style={{ padding: 'var(--space-4)' }}>
+                    <h4 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Telecom Provider Fulfillment Mapping
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Authority Provider</span>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                          {selectedPlanDetail.providerName || 'DataHouse'}
+                        </p>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Provider Plan ID</span>
+                        <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>
+                          {selectedPlanDetail.providerPlanId || '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>DataHouse Validity</span>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+                          {selectedPlanDetail.validityDesc || `${selectedPlanDetail.validityDays} Days`}
+                        </p>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Operational Status</span>
+                        <p style={{ margin: 0 }}>
+                          <Badge variant={selectedPlanDetail.status === 'ACTIVE' ? 'success' : 'neutral'} size="sm">
+                            {selectedPlanDetail.status}
+                          </Badge>
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+              )}
+
+              {/* Tab 2: Analytics */}
+              {detailTab === 'ANALYTICS' && selectedPlanDetail.analytics && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-                    <div>
-                      <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Provider Cost</span>
-                      <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                        GH₵ {((selectedPlanDetail.providerPricePesewas || 0) / 100).toFixed(2)}
+                    <MetricCard
+                      title="Lifetime Volume"
+                      value={selectedPlanDetail.analytics.lifetimeOrders.toString()}
+                      subvalue={`GH₵ ${(selectedPlanDetail.analytics.lifetimeRevenuePesewas / 100).toFixed(2)}`}
+                      accent="blue"
+                    />
+                    <MetricCard
+                      title="Fulfillment Success"
+                      value={`${selectedPlanDetail.analytics.successRatePct}%`}
+                      subvalue={`${selectedPlanDetail.analytics.successfulOrders} fulfilled`}
+                      accent="green"
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-2)' }}>
+                    <div style={{ padding: '0.65rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Today</span>
+                      <p style={{ margin: '2px 0 0 0', fontWeight: 800, fontSize: 'var(--font-size-sm)' }}>
+                        {selectedPlanDetail.analytics.todayOrders} orders
                       </p>
                     </div>
-                    <div>
-                      <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Customer Retail Price</span>
-                      <p style={{ margin: 0, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>
-                        GH₵ {(selectedPlanDetail.basePricePesewas / 100).toFixed(2)}
+                    <div style={{ padding: '0.65rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Last 7 Days</span>
+                      <p style={{ margin: '2px 0 0 0', fontWeight: 800, fontSize: 'var(--font-size-sm)' }}>
+                        {selectedPlanDetail.analytics.last7DaysOrders} orders
                       </p>
                     </div>
-                    <div>
-                      <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Agent Wholesale Price</span>
-                      <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--color-brand)' }}>
-                        {selectedPlanDetail.agentPricePesewas ? `GH₵ ${(selectedPlanDetail.agentPricePesewas / 100).toFixed(2)}` : '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Customer Margin</span>
-                      <p style={{ margin: 0, fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#10B981' }}>
-                        +GH₵ {(selectedPlanDetail.customerMarginPesewas / 100).toFixed(2)} ({selectedPlanDetail.customerMarginPct}%)
+                    <div style={{ padding: '0.65rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Last 30 Days</span>
+                      <p style={{ margin: '2px 0 0 0', fontWeight: 800, fontSize: 'var(--font-size-sm)' }}>
+                        {selectedPlanDetail.analytics.last30DaysOrders} orders
                       </p>
                     </div>
                   </div>
-                </Card>
+                </div>
+              )}
 
-                <Card elevated accentColor="blue" style={{ padding: 'var(--space-4)' }}>
-                  <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>
-                    Channel Visibility Matrix
+              {/* Tab 3: Order History */}
+              {detailTab === 'ORDERS' && (
+                <div>
+                  <h4 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Recent Orders for {selectedPlanDetail.name}
                   </h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
-                      <Badge variant={selectedPlanDetail.availableForCustomer ? 'success' : 'neutral'} size="sm">
-                        {selectedPlanDetail.availableForCustomer ? 'ENABLED' : 'DISABLED'}
-                      </Badge>
-                      <span>Customer UI</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
-                      <Badge variant={selectedPlanDetail.availableForAgent ? 'success' : 'neutral'} size="sm">
-                        {selectedPlanDetail.availableForAgent ? 'ENABLED' : 'DISABLED'}
-                      </Badge>
-                      <span>Agent Portal</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
-                      <Badge variant={selectedPlanDetail.availableForStore ? 'success' : 'neutral'} size="sm">
-                        {selectedPlanDetail.availableForStore ? 'ENABLED' : 'DISABLED'}
-                      </Badge>
-                      <span>Storefronts</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: 'var(--font-size-xs)' }}>
-                      <Badge variant={selectedPlanDetail.availableForApi ? 'success' : 'neutral'} size="sm">
-                        {selectedPlanDetail.availableForApi ? 'ENABLED' : 'DISABLED'}
-                      </Badge>
-                      <span>Developer API</span>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            )}
-
-            {/* Tab 2: Analytics */}
-            {detailTab === 'ANALYTICS' && selectedPlanDetail.analytics && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-                  <MetricCard
-                    title="Lifetime Volume"
-                    value={selectedPlanDetail.analytics.lifetimeOrders.toString()}
-                    subvalue={`GH₵ ${(selectedPlanDetail.analytics.lifetimeRevenuePesewas / 100).toFixed(2)}`}
-                    accent="blue"
-                  />
-                  <MetricCard
-                    title="Fulfillment Success"
-                    value={`${selectedPlanDetail.analytics.successRatePct}%`}
-                    subvalue={`${selectedPlanDetail.analytics.successfulOrders} fulfilled`}
-                    accent="green"
-                  />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-2)' }}>
-                  <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Today</span>
-                    <p style={{ margin: 0, fontWeight: 700 }}>{selectedPlanDetail.analytics.todayOrders} orders</p>
-                  </div>
-                  <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Last 7 Days</span>
-                    <p style={{ margin: 0, fontWeight: 700 }}>{selectedPlanDetail.analytics.last7DaysOrders} orders</p>
-                  </div>
-                  <div style={{ padding: '0.5rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Last 30 Days</span>
-                    <p style={{ margin: 0, fontWeight: 700 }}>{selectedPlanDetail.analytics.last30DaysOrders} orders</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tab 3: Order History */}
-            {detailTab === 'ORDERS' && (
-              <div>
-                <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>
-                  Recent Orders for {selectedPlanDetail.name}
-                </h4>
-                {selectedPlanDetail.recentOrders && selectedPlanDetail.recentOrders.length > 0 ? (
-                  <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
-                    <table style={{ width: '100%', fontSize: 'var(--font-size-3xs)', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: 'var(--color-bg-subtle)', textAlign: 'left' }}>
-                          <th style={{ padding: '0.4rem' }}>Order ID</th>
-                          <th style={{ padding: '0.4rem' }}>Recipient</th>
-                          <th style={{ padding: '0.4rem' }}>Amount</th>
-                          <th style={{ padding: '0.4rem' }}>Status</th>
-                          <th style={{ padding: '0.4rem' }}>Date</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedPlanDetail.recentOrders.map((o) => (
-                          <tr key={o.id} style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
-                            <td style={{ padding: '0.4rem', fontFamily: 'var(--font-mono)' }}>{o.publicId}</td>
-                            <td style={{ padding: '0.4rem' }}>{o.recipientPhone}</td>
-                            <td style={{ padding: '0.4rem', fontWeight: 700 }}>GH₵ {(o.amountPesewas / 100).toFixed(2)}</td>
-                            <td style={{ padding: '0.4rem' }}>
-                              <Badge variant={o.orderStatus === 'COMPLETED' ? 'success' : (o.orderStatus === 'FAILED' ? 'danger' : 'warning')} size="sm">
-                                {o.orderStatus}
-                              </Badge>
-                            </td>
-                            <td style={{ padding: '0.4rem' }}>{new Date(o.createdAt).toLocaleDateString()}</td>
+                  {selectedPlanDetail.recentOrders && selectedPlanDetail.recentOrders.length > 0 ? (
+                    <div style={{ maxHeight: '420px', overflowY: 'auto', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                      <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: 'var(--color-bg-subtle)', textAlign: 'left' }}>
+                            <th style={{ padding: '0.45rem 0.65rem' }}>Order ID</th>
+                            <th style={{ padding: '0.45rem 0.65rem' }}>Recipient</th>
+                            <th style={{ padding: '0.45rem 0.65rem' }}>Amount</th>
+                            <th style={{ padding: '0.45rem 0.65rem' }}>Status</th>
+                            <th style={{ padding: '0.45rem 0.65rem' }}>Date</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', textAlign: 'center', padding: 'var(--space-4)' }}>
-                    No orders placed for this bundle yet.
-                  </p>
-                )}
-              </div>
-            )}
+                        </thead>
+                        <tbody>
+                          {selectedPlanDetail.recentOrders.map((o) => (
+                            <tr key={o.id} style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+                              <td style={{ padding: '0.45rem 0.65rem', fontFamily: 'var(--font-mono)' }}>{o.publicId}</td>
+                              <td style={{ padding: '0.45rem 0.65rem' }}>{o.recipientPhone}</td>
+                              <td style={{ padding: '0.45rem 0.65rem', fontWeight: 700 }}>GH₵ {(o.amountPesewas / 100).toFixed(2)}</td>
+                              <td style={{ padding: '0.45rem 0.65rem' }}>
+                                <Badge variant={o.orderStatus === 'COMPLETED' ? 'success' : (o.orderStatus === 'FAILED' ? 'danger' : 'warning')} size="sm">
+                                  {o.orderStatus}
+                                </Badge>
+                              </td>
+                              <td style={{ padding: '0.45rem 0.65rem' }}>{new Date(o.createdAt).toLocaleDateString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', textAlign: 'center', padding: 'var(--space-6)' }}>
+                      No orders placed for this bundle yet.
+                    </p>
+                  )}
+                </div>
+              )}
 
-            {/* Tab 4: Price History */}
-            {detailTab === 'PRICE_HISTORY' && (
-              <div>
-                <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>
-                  Immutable Price Audit Log
-                </h4>
-                {selectedPlanDetail.priceHistory && selectedPlanDetail.priceHistory.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto' }}>
-                    {selectedPlanDetail.priceHistory.map((h) => (
-                      <div key={h.id} style={{ padding: '0.5rem', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-bg-subtle)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, color: 'var(--color-brand)' }}>
-                            {h.changeType} by {h.changedByName || 'Admin'}
-                          </span>
-                          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                            {new Date(h.createdAt).toLocaleString()}
+              {/* Tab 4: Price History */}
+              {detailTab === 'PRICE_HISTORY' && (
+                <div>
+                  <h4 style={{ margin: '0 0 var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Immutable Price Audit Log
+                  </h4>
+                  {selectedPlanDetail.priceHistory && selectedPlanDetail.priceHistory.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '420px', overflowY: 'auto' }}>
+                      {selectedPlanDetail.priceHistory.map((h) => (
+                        <div key={h.id} style={{ padding: '0.65rem', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-subtle)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand)' }}>
+                              {h.changeType} by {h.changedByName || 'Admin'}
+                            </span>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                              {new Date(h.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p style={{ margin: '0 0 0.25rem', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                            Customer Price: {h.previousBasePricePesewas ? `GH₵ ${(h.previousBasePricePesewas / 100).toFixed(2)} → ` : ''}GH₵ {((h.newBasePricePesewas || 0) / 100).toFixed(2)}
+                          </p>
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                            Reason: {h.reason}
                           </span>
                         </div>
-                        <p style={{ margin: '0 0 0.25rem', fontSize: 'var(--font-size-2xs)', fontWeight: 600 }}>
-                          Customer Price: {h.previousBasePricePesewas ? `GH₵ ${(h.previousBasePricePesewas / 100).toFixed(2)} → ` : ''}GH₵ {((h.newBasePricePesewas || 0) / 100).toFixed(2)}
-                        </p>
-                        <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                          Reason: {h.reason}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', textAlign: 'center', padding: 'var(--space-4)' }}>
-                    No price changes recorded.
-                  </p>
-                )}
-              </div>
-            )}
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', textAlign: 'center', padding: 'var(--space-6)' }}>
+                      No price changes recorded for this bundle.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
