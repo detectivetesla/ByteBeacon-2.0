@@ -253,17 +253,17 @@ export const AppShell: React.FC<AppShellProps> = ({
               fontSize: 'var(--font-size-3xs)',
               fontWeight: 800,
               textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              color: 'var(--color-text-muted)',
+              letterSpacing: '0.09em',
+              color: 'var(--sidebar-text-muted)',
               padding: '0 0.75rem',
-              marginBottom: '0.375rem',
+              marginBottom: '0.45rem',
             }}
           >
             {group.title}
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
           {permittedItems.map((item) => {
             const isActive = location.pathname === item.path || (item.path !== '/app/dashboard' && item.path !== '/agent/dashboard' && item.path !== '/admin/dashboard' && location.pathname.startsWith(item.path));
             const isPendingMtnItem = item.path.includes('pending-approvals');
@@ -281,39 +281,34 @@ export const AppShell: React.FC<AppShellProps> = ({
                 to={item.path}
                 onClick={() => isMobile && setMobileDrawerOpen(false)}
                 title={collapsed && !isMobile ? `${item.label}${liveBadge ? ` (${liveBadge})` : ''}` : undefined}
+                className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.75rem',
-                  padding: collapsed && !isMobile ? '0.625rem 0' : '0.5rem 0.75rem',
+                  padding: collapsed && !isMobile ? '0.625rem 0' : '0.55rem 0.75rem',
                   justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
                   borderRadius: 'var(--radius-md)',
                   fontSize: 'var(--font-size-xs)',
-                  fontWeight: isActive ? 700 : 600,
-                  color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                  backgroundColor: isActive ? 'var(--color-bg-surface-elevated)' : 'transparent',
-                  border: isActive ? '1px solid var(--color-border-hover)' : '1px solid transparent',
+                  fontWeight: isActive ? 700 : 500,
+                  color: isActive ? 'var(--sidebar-item-active-text)' : 'var(--sidebar-text)',
+                  backgroundColor: isActive ? 'var(--sidebar-item-active-bg)' : 'transparent',
+                  border: isActive ? '1px solid var(--sidebar-item-active-border)' : '1px solid transparent',
                   textDecoration: 'none',
                   transition: 'all var(--transition-fast)',
                   position: 'relative',
                 }}
               >
-                {/* Active Indicator Strip */}
-                {isActive && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: '20%',
-                      height: '60%',
-                      width: '3px',
-                      borderRadius: '0 2px 2px 0',
-                      backgroundColor: item.color || portalRoleColor,
-                    }}
-                  />
-                )}
-
-                <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexShrink: 0,
+                    position: 'relative',
+                    color: isActive ? '#34D399' : 'currentColor',
+                    transition: 'color var(--transition-fast)',
+                  }}
+                >
                   {item.icon}
                   {isPendingMtnItem && pendingCount > 0 && (
                     <span
@@ -326,7 +321,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                         height: '8px',
                         borderRadius: '50%',
                         backgroundColor: '#FFCC00',
-                        boxShadow: '0 0 0 2px var(--color-bg-surface), 0 0 6px rgba(255, 204, 0, 0.7)',
+                        boxShadow: '0 0 0 2px var(--sidebar-bg), 0 0 6px rgba(255, 204, 0, 0.7)',
                       }}
                     />
                   )}
@@ -346,13 +341,14 @@ export const AppShell: React.FC<AppShellProps> = ({
                       fontWeight: 800,
                       padding: '0.12rem 0.45rem',
                       borderRadius: 'var(--radius-full)',
-                      backgroundColor: isPendingMtnItem ? 'rgba(255, 204, 0, 0.16)' : 'var(--color-info-surface)',
-                      color: isPendingMtnItem ? '#D97706' : 'var(--color-info)',
-                      border: isPendingMtnItem ? '1px solid rgba(255, 204, 0, 0.4)' : 'none',
+                      backgroundColor: isPendingMtnItem ? 'rgba(255, 204, 0, 0.2)' : 'rgba(16, 185, 129, 0.25)',
+                      color: isPendingMtnItem ? '#FBBF24' : '#6EE7B7',
+                      border: isPendingMtnItem ? '1px solid rgba(255, 204, 0, 0.4)' : '1px solid rgba(16, 185, 129, 0.35)',
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '4px',
                       lineHeight: 1.1,
+                      marginRight: isActive ? '8px' : '0',
                     }}
                   >
                     {isPendingMtnItem && (
@@ -368,6 +364,20 @@ export const AppShell: React.FC<AppShellProps> = ({
                     )}
                     {liveBadge}
                   </span>
+                )}
+
+                {/* Glowing Emerald Active Indicator Dot on the right edge (like reference image) */}
+                {isActive && (!collapsed || isMobile) && (
+                  <span
+                    style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      backgroundColor: 'var(--sidebar-indicator-dot)',
+                      boxShadow: '0 0 8px rgba(34, 197, 94, 0.9)',
+                      flexShrink: 0,
+                    }}
+                  />
                 )}
               </Link>
             );
@@ -390,8 +400,9 @@ export const AppShell: React.FC<AppShellProps> = ({
       <style>{`
         .app-desktop-sidebar {
           width: ${collapsed ? '76px' : '260px'};
-          background-color: var(--color-bg-surface);
-          border-right: 1px solid var(--color-border-default);
+          background: var(--sidebar-bg-gradient);
+          border-right: 1px solid var(--sidebar-border);
+          box-shadow: 2px 0 16px rgba(0, 0, 0, 0.25);
           display: flex;
           flex-direction: column;
           justifyContent: space-between;
@@ -410,8 +421,18 @@ export const AppShell: React.FC<AppShellProps> = ({
           width: 4px;
         }
         .app-desktop-sidebar::-webkit-scrollbar-thumb {
-          background: var(--color-border-subtle);
+          background: var(--sidebar-scrollbar-thumb);
           border-radius: 4px;
+        }
+
+        .sidebar-nav-item:hover {
+          background-color: var(--sidebar-item-hover) !important;
+          color: var(--sidebar-text-bright) !important;
+        }
+        .sidebar-nav-item.active {
+          background-color: var(--sidebar-item-active-bg) !important;
+          border-color: var(--sidebar-item-active-border) !important;
+          color: var(--sidebar-item-active-text) !important;
         }
 
         .app-mobile-menu-trigger {
@@ -447,15 +468,16 @@ export const AppShell: React.FC<AppShellProps> = ({
                   height: '44px',
                   objectFit: 'contain',
                   flexShrink: 0,
+                  filter: 'drop-shadow(0 2px 8px rgba(16, 185, 129, 0.3))',
                 }}
               />
 
               {!collapsed && (
                 <div>
-                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', fontFamily: 'var(--font-display)', lineHeight: 1.1 }}>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: '#FFFFFF', fontFamily: 'var(--font-display)', lineHeight: 1.1 }}>
                     {portalTitle}
                   </div>
-                  <div style={{ fontSize: 'var(--font-size-3xs)', color: portalRoleColor, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 800 }}>
+                  <div style={{ fontSize: 'var(--font-size-3xs)', color: '#34D399', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 800 }}>
                     {portalSubtitle}
                   </div>
                 </div>
@@ -469,8 +491,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                 onClick={toggleCollapse}
                 title="Collapse sidebar"
                 style={{
-                  background: 'none',
-                  border: '1px solid var(--color-border-default)',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--sidebar-border)',
                   borderRadius: 'var(--radius-xs)',
                   width: '24px',
                   height: '24px',
@@ -478,11 +500,17 @@ export const AppShell: React.FC<AppShellProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  color: 'var(--color-text-secondary)',
+                  color: 'var(--sidebar-text)',
                   transition: 'all var(--transition-fast)',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-hover)')}
-                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                  e.currentTarget.style.color = '#FFFFFF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--sidebar-border)';
+                  e.currentTarget.style.color = 'var(--sidebar-text)';
+                }}
               >
                 <ChevronLeft size={14} strokeWidth={2.4} />
               </button>
@@ -497,8 +525,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                 onClick={toggleCollapse}
                 title="Expand sidebar"
                 style={{
-                  background: 'none',
-                  border: '1px solid var(--color-border-default)',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--sidebar-border)',
                   borderRadius: 'var(--radius-xs)',
                   width: '28px',
                   height: '28px',
@@ -506,7 +534,16 @@ export const AppShell: React.FC<AppShellProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  color: 'var(--color-text-secondary)',
+                  color: 'var(--sidebar-text)',
+                  transition: 'all var(--transition-fast)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                  e.currentTarget.style.color = '#FFFFFF';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--sidebar-border)';
+                  e.currentTarget.style.color = 'var(--sidebar-text)';
                 }}
               >
                 <ChevronRight size={14} strokeWidth={2.4} />
@@ -521,7 +558,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         </div>
 
         {/* Sidebar Footer: Profile Capsule */}
-        <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-4)' }}>
+        <div style={{ borderTop: '1px solid var(--sidebar-border-subtle)', paddingTop: 'var(--space-4)' }}>
           <div
             style={{
               display: 'flex',
@@ -534,10 +571,10 @@ export const AppShell: React.FC<AppShellProps> = ({
               <Avatar name={user?.fullName || user?.email || 'User'} role={userRole} status="online" size="sm" />
               {!collapsed && (
                 <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                  <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user?.fullName || user?.email?.split('@')[0]}
                   </div>
-                  <div style={{ fontSize: 'var(--font-size-3xs)', color: portalRoleColor, fontWeight: 700, textTransform: 'uppercase' }}>
+                  <div style={{ fontSize: 'var(--font-size-3xs)', color: '#34D399', fontWeight: 700, textTransform: 'uppercase' }}>
                     {portalRoleBadge}
                   </div>
                 </div>
@@ -556,11 +593,12 @@ export const AppShell: React.FC<AppShellProps> = ({
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  color: 'var(--color-text-muted)',
+                  color: 'var(--sidebar-text-muted)',
                   padding: '4px',
+                  transition: 'color var(--transition-fast)',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-danger)')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-muted)')}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-danger-bright)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--sidebar-text-muted)')}
               >
                 <LogOut size={16} strokeWidth={2.2} />
               </button>
@@ -599,8 +637,8 @@ export const AppShell: React.FC<AppShellProps> = ({
               width: '82%',
               maxWidth: '320px',
               height: '100%',
-              backgroundColor: 'var(--color-bg-surface)',
-              borderRight: '1px solid var(--color-border-default)',
+              background: 'var(--sidebar-bg-gradient)',
+              borderRight: '1px solid var(--sidebar-border)',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'space-between',
@@ -623,10 +661,10 @@ export const AppShell: React.FC<AppShellProps> = ({
                     }}
                   />
                   <div>
-                    <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', fontFamily: 'var(--font-display)' }}>
+                    <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: '#FFFFFF', fontFamily: 'var(--font-display)' }}>
                       {portalTitle}
                     </div>
-                    <div style={{ fontSize: 'var(--font-size-3xs)', color: portalRoleColor, fontWeight: 800, textTransform: 'uppercase' }}>
+                    <div style={{ fontSize: 'var(--font-size-3xs)', color: '#34D399', fontWeight: 800, textTransform: 'uppercase' }}>
                       {portalSubtitle}
                     </div>
                   </div>
@@ -636,12 +674,12 @@ export const AppShell: React.FC<AppShellProps> = ({
                   type="button"
                   onClick={() => setMobileDrawerOpen(false)}
                   style={{
-                    background: 'none',
-                    border: '1px solid var(--color-border-default)',
+                    background: 'rgba(255, 255, 255, 0.06)',
+                    border: '1px solid var(--sidebar-border)',
                     borderRadius: 'var(--radius-sm)',
                     padding: '4px',
                     cursor: 'pointer',
-                    color: 'var(--color-text-primary)',
+                    color: '#FFFFFF',
                   }}
                 >
                   <X size={18} strokeWidth={2.4} />
@@ -655,14 +693,14 @@ export const AppShell: React.FC<AppShellProps> = ({
             </div>
 
             {/* User details & logout */}
-            <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-4)' }}>
+            <div style={{ borderTop: '1px solid var(--sidebar-border-subtle)', paddingTop: 'var(--space-4)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: 'var(--space-4)' }}>
                 <Avatar name={user?.fullName || user?.email || 'User'} role={userRole} status="online" size="md" />
                 <div style={{ minWidth: 0, flexGrow: 1 }}>
-                  <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user?.fullName || user?.email}
                   </div>
-                  <div style={{ fontSize: 'var(--font-size-3xs)', color: portalRoleColor, fontWeight: 700, textTransform: 'uppercase' }}>
+                  <div style={{ fontSize: 'var(--font-size-3xs)', color: '#34D399', fontWeight: 700, textTransform: 'uppercase' }}>
                     {portalRoleBadge}
                   </div>
                 </div>
@@ -678,6 +716,11 @@ export const AppShell: React.FC<AppShellProps> = ({
                   navigate('/signin');
                 }}
                 leftIcon={<LogOut size={14} strokeWidth={2.4} />}
+                style={{
+                  color: '#FFFFFF',
+                  borderColor: 'var(--sidebar-border)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                }}
               >
                 Sign Out
               </Button>

@@ -56,8 +56,8 @@ export const StoreLayout: React.FC = () => {
         style={{
           width: isCollapsed ? '72px' : '260px',
           minWidth: isCollapsed ? '72px' : '260px',
-          backgroundColor: 'var(--color-bg-surface)',
-          borderRight: '1px solid var(--color-border-default)',
+          background: 'var(--sidebar-bg-gradient)',
+          borderRight: '1px solid var(--sidebar-border)',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
@@ -66,7 +66,7 @@ export const StoreLayout: React.FC = () => {
           top: 0,
           height: '100vh',
           zIndex: 40,
-          boxShadow: 'var(--shadow-tactile-sm)',
+          boxShadow: '2px 0 16px rgba(0, 0, 0, 0.25)',
         }}
         className="store-sidebar-desktop"
       >
@@ -78,7 +78,7 @@ export const StoreLayout: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: isCollapsed ? 'center' : 'space-between',
-              borderBottom: '1px solid var(--color-border-subtle)',
+              borderBottom: '1px solid var(--sidebar-border-subtle)',
               minHeight: '64px',
             }}
           >
@@ -89,22 +89,22 @@ export const StoreLayout: React.FC = () => {
                     width: '34px',
                     height: '34px',
                     borderRadius: 'var(--radius-md)',
-                    backgroundColor: '#3B82F6',
+                    backgroundColor: '#16A34A',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: '#FFFFFF',
                     flexShrink: 0,
-                    boxShadow: '0 4px 12px rgba(59, 130, 246, 0.35)',
+                    boxShadow: '0 4px 12px rgba(22, 163, 74, 0.35)',
                   }}
                 >
                   <Store size={18} strokeWidth={2.4} />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: '#FFFFFF', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
                     {storeName}
                   </span>
-                  <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <span style={{ fontSize: 'var(--font-size-3xs)', color: '#34D399', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     ● Store Live
                   </span>
                 </div>
@@ -115,12 +115,12 @@ export const StoreLayout: React.FC = () => {
                   width: '34px',
                   height: '34px',
                   borderRadius: 'var(--radius-md)',
-                  backgroundColor: '#3B82F6',
+                  backgroundColor: '#16A34A',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: '#FFFFFF',
-                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.35)',
+                  boxShadow: '0 4px 12px rgba(22, 163, 74, 0.35)',
                 }}
               >
                 <Store size={18} strokeWidth={2.4} />
@@ -131,15 +131,16 @@ export const StoreLayout: React.FC = () => {
               type="button"
               onClick={() => setIsCollapsed(!isCollapsed)}
               style={{
-                background: 'none',
-                border: 'none',
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--sidebar-border)',
                 cursor: 'pointer',
-                color: 'var(--color-text-secondary)',
+                color: 'var(--sidebar-text)',
                 padding: '4px',
                 borderRadius: 'var(--radius-sm)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                transition: 'all var(--transition-fast)',
               }}
               title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
             >
@@ -157,8 +158,8 @@ export const StoreLayout: React.FC = () => {
                       fontSize: 'var(--font-size-3xs)',
                       fontWeight: 800,
                       textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      color: 'var(--color-text-muted)',
+                      letterSpacing: '0.09em',
+                      color: 'var(--sidebar-text-muted)',
                       padding: '0 var(--space-3) var(--space-1) var(--space-3)',
                     }}
                   >
@@ -178,16 +179,16 @@ export const StoreLayout: React.FC = () => {
                         alignItems: 'center',
                         gap: isCollapsed ? '0' : '0.65rem',
                         justifyContent: isCollapsed ? 'center' : 'flex-start',
-                        padding: '0.5rem 0.75rem',
+                        padding: '0.55rem 0.75rem',
                         borderRadius: 'var(--radius-md)',
                         textDecoration: 'none',
                         fontSize: 'var(--font-size-xs)',
-                        fontWeight: isActive ? 800 : 600,
-                        color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                        backgroundColor: isActive ? 'var(--color-bg-surface-elevated)' : 'transparent',
-                        borderLeft: isActive && !isCollapsed ? `3px solid ${item.color || 'var(--color-primary)'}` : '3px solid transparent',
-                        boxShadow: isActive ? 'inset 1px 1px 2px rgba(0,0,0,0.06)' : 'none',
+                        fontWeight: isActive ? 700 : 500,
+                        color: isActive ? 'var(--sidebar-item-active-text)' : 'var(--sidebar-text)',
+                        backgroundColor: isActive ? 'var(--sidebar-item-active-bg)' : 'transparent',
+                        border: isActive ? '1px solid var(--sidebar-item-active-border)' : '1px solid transparent',
                         transition: 'all 120ms ease',
+                        position: 'relative',
                       }}
                     >
                       <div
@@ -198,11 +199,25 @@ export const StoreLayout: React.FC = () => {
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
+                          color: isActive ? '#34D399' : 'currentColor',
                         }}
                       >
                         {item.icon}
                       </div>
                       {!isCollapsed && <span>{item.label}</span>}
+                      {isActive && !isCollapsed && (
+                        <span
+                          style={{
+                            marginLeft: 'auto',
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            backgroundColor: 'var(--sidebar-indicator-dot)',
+                            boxShadow: '0 0 8px rgba(34, 197, 94, 0.9)',
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
                     </Link>
                   );
                 })}
@@ -535,7 +550,8 @@ export const StoreLayout: React.FC = () => {
               position: 'relative',
               width: '280px',
               maxWidth: '85vw',
-              backgroundColor: 'var(--color-bg-surface)',
+              background: 'var(--sidebar-bg-gradient)',
+              borderRight: '1px solid var(--sidebar-border)',
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
@@ -546,15 +562,15 @@ export const StoreLayout: React.FC = () => {
             }}
           >
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', paddingBottom: 'var(--space-3)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', paddingBottom: 'var(--space-3)', borderBottom: '1px solid var(--sidebar-border-subtle)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Store size={18} color="#3B82F6" />
-                  <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>{storeName}</strong>
+                  <Store size={18} color="#34D399" />
+                  <strong style={{ fontSize: 'var(--font-size-sm)', color: '#FFFFFF' }}>{storeName}</strong>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsMobileOpen(false)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                  style={{ background: 'rgba(255, 255, 255, 0.06)', border: '1px solid var(--sidebar-border)', borderRadius: 'var(--radius-sm)', padding: '4px', cursor: 'pointer', color: '#FFFFFF' }}
                 >
                   <X size={18} />
                 </button>
@@ -563,7 +579,7 @@ export const StoreLayout: React.FC = () => {
               <nav style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                 {STORE_NAVIGATION_GROUPS.map((group) => (
                   <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', paddingLeft: '0.5rem' }}>
+                    <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--sidebar-text-muted)', textTransform: 'uppercase', paddingLeft: '0.5rem', letterSpacing: '0.09em' }}>
                       {group.title}
                     </span>
                     {group.items.map((item) => {
@@ -576,17 +592,34 @@ export const StoreLayout: React.FC = () => {
                             display: 'flex',
                             alignItems: 'center',
                             gap: '0.65rem',
-                            padding: '0.5rem 0.75rem',
+                            padding: '0.55rem 0.75rem',
                             borderRadius: 'var(--radius-md)',
                             textDecoration: 'none',
                             fontSize: 'var(--font-size-xs)',
-                            fontWeight: isActive ? 800 : 600,
-                            color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                            backgroundColor: isActive ? 'var(--color-bg-surface-elevated)' : 'transparent',
+                            fontWeight: isActive ? 700 : 500,
+                            color: isActive ? 'var(--sidebar-item-active-text)' : 'var(--sidebar-text)',
+                            backgroundColor: isActive ? 'var(--sidebar-item-active-bg)' : 'transparent',
+                            border: isActive ? '1px solid var(--sidebar-item-active-border)' : '1px solid transparent',
+                            position: 'relative',
                           }}
                         >
-                          {item.icon}
+                          <span style={{ color: isActive ? '#34D399' : 'currentColor', display: 'flex', alignItems: 'center' }}>
+                            {item.icon}
+                          </span>
                           <span>{item.label}</span>
+                          {isActive && (
+                            <span
+                              style={{
+                                marginLeft: 'auto',
+                                width: '6px',
+                                height: '6px',
+                                borderRadius: '50%',
+                                backgroundColor: 'var(--sidebar-indicator-dot)',
+                                boxShadow: '0 0 8px rgba(34, 197, 94, 0.9)',
+                                flexShrink: 0,
+                              }}
+                            />
+                          )}
                         </Link>
                       );
                     })}
@@ -595,7 +628,7 @@ export const StoreLayout: React.FC = () => {
               </nav>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-3)' }}>
+            <div style={{ borderTop: '1px solid var(--sidebar-border-subtle)', paddingTop: 'var(--space-3)' }}>
               <Link
                 to="/agent/dashboard"
                 style={{
@@ -603,7 +636,7 @@ export const StoreLayout: React.FC = () => {
                   alignItems: 'center',
                   gap: '0.5rem',
                   padding: '0.5rem',
-                  color: 'var(--color-text-muted)',
+                  color: 'var(--sidebar-text-muted)',
                   textDecoration: 'none',
                   fontSize: 'var(--font-size-xs)',
                 }}

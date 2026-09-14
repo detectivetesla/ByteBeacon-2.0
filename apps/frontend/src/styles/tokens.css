@@ -236,25 +236,44 @@
   --color-accent-red: #EF4444;
 
   /* =========================================================================
-     LIGHT MODE THEME SURFACES
+     DEEP EMERALD SIDEBAR THEME TOKENS
+     (Visual hierarchy matching reference layout in rich dark green)
      ========================================================================= */
-  --color-bg-base: #F1F8F5;
+  --sidebar-bg: #061A12;
+  --sidebar-bg-gradient: linear-gradient(180deg, #072218 0%, #051A12 50%, #03140E 100%);
+  --sidebar-border: rgba(16, 185, 129, 0.14);
+  --sidebar-border-subtle: rgba(16, 185, 129, 0.08);
+  --sidebar-text: rgba(255, 255, 255, 0.75);
+  --sidebar-text-muted: rgba(167, 243, 208, 0.65);
+  --sidebar-text-bright: #FFFFFF;
+  --sidebar-item-hover: rgba(16, 185, 129, 0.12);
+  --sidebar-item-active-bg: rgba(16, 185, 129, 0.18);
+  --sidebar-item-active-border: rgba(16, 185, 129, 0.35);
+  --sidebar-item-active-text: #FFFFFF;
+  --sidebar-scrollbar-thumb: rgba(16, 185, 129, 0.25);
+  --sidebar-indicator-dot: #22C55E;
+
+  /* =========================================================================
+     LIGHT MODE THEME SURFACES
+     (Airy, clean light mint green canvas where pages and features reside)
+     ========================================================================= */
+  --color-bg-base: #EEF7F2;
   --color-bg-app: var(--color-bg-base);
   --color-bg-surface: #FFFFFF;
   --color-bg-surface-elevated: #FFFFFF;
-  --color-bg-surface-hover: #F0F7F3;
-  --color-bg-surface-muted: #EBF5F0;
-  --color-bg-surface-glass: rgba(255, 255, 255, 0.85);
-  --color-bg-hero: #080D1A;
+  --color-bg-surface-hover: #F2FAF5;
+  --color-bg-surface-muted: #E8F4ED;
+  --color-bg-surface-glass: rgba(255, 255, 255, 0.90);
+  --color-bg-hero: #061A12;
 
   /* Gradient Mint Greenish-White Canvas (Customer, Agent & Admin Systems) */
-  --gradient-mint-base: linear-gradient(155deg, #F8FCFA 0%, #EBF7F1 38%, #F3FAF6 70%, #E4F4EC 100%);
-  --gradient-portal-bg: linear-gradient(155deg, #F8FCFA 0%, #EBF7F1 38%, #F3FAF6 70%, #E4F4EC 100%);
+  --gradient-mint-base: linear-gradient(160deg, #F4FAF6 0%, #EBF6F0 45%, #E5F3EC 100%);
+  --gradient-portal-bg: linear-gradient(160deg, #F4FAF6 0%, #EBF6F0 45%, #E5F3EC 100%);
   --gradient-portal-mesh: 
-    radial-gradient(at 0% 0%, rgba(22, 163, 74, 0.08) 0px, transparent 50%),
-    radial-gradient(at 100% 12%, rgba(16, 185, 129, 0.07) 0px, transparent 48%),
-    radial-gradient(at 50% 100%, rgba(5, 150, 105, 0.05) 0px, transparent 55%),
-    linear-gradient(155deg, #F8FCFA 0%, #EBF7F1 38%, #F3FAF6 70%, #E4F4EC 100%);
+    radial-gradient(at 0% 0%, rgba(34, 197, 94, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.07) 0px, transparent 45%),
+    radial-gradient(at 50% 100%, rgba(5, 150, 105, 0.06) 0px, transparent 55%),
+    linear-gradient(160deg, #F4FAF6 0%, #EBF6F0 45%, #E5F3EC 100%);
 
   /* Aliases */
   --color-surface: var(--color-bg-surface);
@@ -301,6 +320,21 @@
 html[data-theme='dark'],
 body.dark,
 .dark {
+  /* Sidebar in Dark Mode (Ultra deep forest emerald) */
+  --sidebar-bg: #04120C;
+  --sidebar-bg-gradient: linear-gradient(180deg, #051710 0%, #04120C 50%, #020C08 100%);
+  --sidebar-border: rgba(16, 185, 129, 0.18);
+  --sidebar-border-subtle: rgba(16, 185, 129, 0.10);
+  --sidebar-text: rgba(255, 255, 255, 0.72);
+  --sidebar-text-muted: rgba(167, 243, 208, 0.60);
+  --sidebar-text-bright: #FFFFFF;
+  --sidebar-item-hover: rgba(16, 185, 129, 0.14);
+  --sidebar-item-active-bg: rgba(16, 185, 129, 0.22);
+  --sidebar-item-active-border: rgba(16, 185, 129, 0.40);
+  --sidebar-item-active-text: #FFFFFF;
+  --sidebar-scrollbar-thumb: rgba(16, 185, 129, 0.30);
+  --sidebar-indicator-dot: #22C55E;
+
   --color-bg-base: #080B12;
   --color-bg-app: var(--color-bg-base);
   --color-bg-surface: #10151F;
