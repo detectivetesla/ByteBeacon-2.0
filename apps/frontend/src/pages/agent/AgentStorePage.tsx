@@ -48,7 +48,7 @@ export const AgentStorePage: React.FC = () => {
   const [copiedLink, setCopiedLink] = useState(false);
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-  const [activationFeeGhs, setActivationFeeGhs] = useState<number>(500.00);
+  const [activationFeeGhs, setActivationFeeGhs] = useState<number>(90.00);
 
   const publicStoreUrl = STOREFRONT_CONFIG.getRelativeStorePath(slug);
   const canonicalStoreUrl = STOREFRONT_CONFIG.getStoreUrl(slug);
@@ -58,6 +58,13 @@ export const AgentStorePage: React.FC = () => {
 
   const fetchStore = useCallback(async () => {
     try {
+      if (typeof (storesApi as any).getActivationFee === 'function') {
+        (storesApi as any).getActivationFee().then((f: any) => {
+          if (f?.activationFeeGhs && !isNaN(f.activationFeeGhs)) {
+            setActivationFeeGhs(f.activationFeeGhs);
+          }
+        }).catch(() => {});
+      }
       const store = await storesApi.getStore();
       if (store) {
         setStoreRaw(store);
@@ -95,6 +102,18 @@ export const AgentStorePage: React.FC = () => {
   useEffect(() => {
     fetchStore();
 
+    const handleFeeUpdate = (e: any) => {
+      if (e?.detail?.feeGhs) {
+        setActivationFeeGhs(Number(e.detail.feeGhs));
+      } else {
+        fetchStore();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('bytebeacon:store-fee-updated', handleFeeUpdate);
+      window.addEventListener('bytebeacon:store-updated', fetchStore);
+    }
+
     if (typeof window !== 'undefined') {
       const query = new URLSearchParams(window.location.search);
       const reference = query.get('reference') || query.get('trxref') || query.get('verify');
@@ -120,6 +139,13 @@ export const AgentStorePage: React.FC = () => {
           });
       }
     }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('bytebeacon:store-fee-updated', handleFeeUpdate);
+        window.removeEventListener('bytebeacon:store-updated', fetchStore);
+      }
+    };
   }, [fetchStore]);
 
 

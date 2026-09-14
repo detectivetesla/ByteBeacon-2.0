@@ -127,6 +127,31 @@ export async function storeRoutes(
   };
 
 
+  // 0. GET STORE ACTIVATION FEE (/stores/activation-fee)
+  app.get(
+    '/stores/activation-fee',
+    async (_req: FastifyRequest, reply: FastifyReply) => {
+      const configRes = await db.query(
+        `SELECT value FROM system_configurations WHERE config_key = 'agent_store_activation_fee_pesewas'`,
+      ).catch(() => ({ rows: [] }));
+      let dynamicFeePesewas = 50000;
+      if (configRes.rows.length > 0) {
+        const val = configRes.rows[0].value;
+        const parsed = typeof val === 'number' ? val : parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          dynamicFeePesewas = parsed;
+        }
+      }
+      return reply.send({
+        success: true,
+        data: {
+          activationFeePesewas: dynamicFeePesewas,
+          activationFeeGhs: Number((dynamicFeePesewas / 100).toFixed(2)),
+        },
+      });
+    },
+  );
+
   app.get('/stores/me', { preHandler: [authHooks.authenticateCustomer] }, getStoreProfileHandler);
   app.get('/stores/my-store', { preHandler: [authHooks.authenticateCustomer] }, getStoreProfileHandler);
 
@@ -438,8 +463,8 @@ export async function storeRoutes(
         success: true,
         data: {
           reference,
-          amountPesewas: store.activationFeePesewas || 50000,
-          amountGhs: (store.activationFeePesewas || 50000) / 100,
+          amountPesewas: dynamicFeePesewas,
+          amountGhs: Number((dynamicFeePesewas / 100).toFixed(2)),
           currency: 'GHS',
           storeName: store.storeName,
           authorizationUrl,

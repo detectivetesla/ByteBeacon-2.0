@@ -581,6 +581,14 @@ export async function adminStoresRoutes(
       [JSON.stringify(newPesewas), isUuid ? actorId : null],
     );
 
+    // Update all existing unpaid stores so they immediately receive the updated activation fee
+    await db.query(
+      `UPDATE stores
+       SET activation_fee_pesewas = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE payment_status != 'PAID'`,
+      [newPesewas],
+    ).catch(() => {});
+
     // Record audit entry in configuration_versions if table exists
     await db.query(
       `INSERT INTO configuration_versions (config_key, version, new_value, change_reason, changed_by, changed_by_name)

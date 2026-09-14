@@ -104,22 +104,45 @@ export interface PublicCheckoutResponse {
 }
 
 export const storesApi = {
+  getActivationFee: async (): Promise<{ activationFeePesewas: number; activationFeeGhs: number }> => {
+    try {
+      const res = await apiClient.get<any>('/stores/activation-fee');
+      const data = res?.data !== undefined ? res.data : res;
+      if (data && data.activationFeePesewas !== undefined) {
+        return {
+          activationFeePesewas: data.activationFeePesewas,
+          activationFeeGhs: data.activationFeeGhs ?? Number((data.activationFeePesewas / 100).toFixed(2)),
+        };
+      }
+      return { activationFeePesewas: 9000, activationFeeGhs: 90.00 };
+    } catch {
+      return { activationFeePesewas: 9000, activationFeeGhs: 90.00 };
+    }
+  },
+
   getStore: async (identifier?: string): Promise<StoreProfileDto | null> => {
     try {
       const res = await apiClient.get<any>(`/stores/${identifier || 'my-store'}`);
-      if (res && res.store) {
+      const data = res?.data !== undefined && (res?.store === undefined && res?.hasStore === undefined) ? res.data : res;
+
+      // 1. If wrapped or unwrapped response has store object
+      if (data && data.store) {
+        const fee = data.activationFeePesewas ?? data.store.activationFeePesewas;
         return {
-          ...res.store,
-          activationFeePesewas: res.activationFeePesewas ?? res.store.activationFeePesewas,
+          ...data.store,
+          activationFeePesewas: fee,
+          activationFeeGhs: data.activationFeeGhs ?? (fee ? Number((fee / 100).toFixed(2)) : undefined),
         };
       }
-      if (res && res.data && res.data.store) {
-        return {
-          ...res.data.store,
-          activationFeePesewas: res.data.activationFeePesewas ?? res.data.store.activationFeePesewas,
-        };
+
+      // 2. If res has direct store properties (already unwrapped StoreProfileDto)
+      if (data && data.storeName && data.id) {
+        return data as StoreProfileDto;
       }
-      if (res && res.data && !res.data.store && res.data.activationFeePesewas !== undefined) {
+
+      // 3. If user has no store yet (hasStore === false or !store), but activation fee is returned
+      if (data && (data.activationFeePesewas !== undefined || data.activationFeeGhs !== undefined)) {
+        const feePesewas = data.activationFeePesewas ?? Math.round((data.activationFeeGhs || 90) * 100);
         return {
           id: '',
           userId: '',
@@ -127,15 +150,16 @@ export const storesApi = {
           slug: '',
           primaryColor: '#F97316',
           accentColor: '#3B82F6',
-          paymentStatus: res.data.paymentStatus || 'NOT_STARTED',
-          approvalStatus: res.data.approvalStatus || 'NOT_SUBMITTED',
-          storeStatus: res.data.storeStatus || 'NOT_STARTED',
-          activationFeePesewas: res.data.activationFeePesewas,
+          paymentStatus: data.paymentStatus || 'NOT_STARTED',
+          approvalStatus: data.approvalStatus || 'NOT_SUBMITTED',
+          storeStatus: data.storeStatus || 'NOT_STARTED',
+          activationFeePesewas: feePesewas,
+          activationFeeGhs: data.activationFeeGhs ?? Number((feePesewas / 100).toFixed(2)),
           createdAt: '',
           updatedAt: '',
         } as StoreProfileDto;
       }
-      if (res && res.storeName) return res;
+
       return null;
     } catch {
       return null;

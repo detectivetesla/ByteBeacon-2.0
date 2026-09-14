@@ -274,6 +274,9 @@ export const AdminStoresPage: React.FC = () => {
         setActivationFeeGhs(parsed);
       }
       toastSuccess('Paywall Fee Updated', `Storefront activation fee is now GH₵ ${parsed.toFixed(2)}.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bytebeacon:store-fee-updated', { detail: { feeGhs: parsed } }));
+      }
     } catch (err: any) {
       toastError('Update Failed', err.message || 'Could not update activation fee');
     } finally {
