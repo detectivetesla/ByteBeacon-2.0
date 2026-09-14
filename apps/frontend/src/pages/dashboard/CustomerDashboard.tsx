@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button/Button.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { Avatar } from '../../components/ui/Avatar/Avatar.js';
 import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
+import { LatestSuccessfulOrderBanner } from '../../components/commerce/LatestSuccessfulOrderBanner.js';
 import { OrderDetailDrawer, OrderDetailData } from '../../components/commerce/OrderDetailDrawer.js';
 import { OrderHealthProgressBar } from '../../components/dashboard/OrderHealthProgressBar.js';
 import { DeliveryStatusHorizontalChain, LastOrderSummary } from '../../components/dashboard/DeliveryStatusHorizontalChain.js';
@@ -213,6 +214,9 @@ export const CustomerDashboard: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Latest Successful Order Telemetry Banner */}
+      <LatestSuccessfulOrderBanner style={{ marginBottom: 'var(--space-5)' }} />
 
       {/* Top 4 Metric Cards */}
       <div

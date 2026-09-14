@@ -16,6 +16,7 @@ import { BadRequestError, NotFoundError, ConflictError, InvalidPhoneError, Benef
 import { logger } from '../../core/logging/logger.js';
 import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
 import { ITelecomProvider } from '../../core/providers/telecom/telecom-provider.interface.js';
+import { getLatestSuccessfulOrdersTelemetry } from '../../core/commerce/latest-order-telemetry.js';
 import {
   ApplyAgentRequest,
   AgentProfileDto,
@@ -136,6 +137,31 @@ export async function agentRoutes(
     '/agents/orders',
     { preHandler: [authHooks.authenticate(Permission.ORDERS_READ)] },
     handleListAgentOrders,
+  );
+
+  // 0.05 GET LATEST SUCCESSFUL ORDER TELEMETRY
+  const handleGetAgentLatestSuccessfulOrder = async (
+    req: FastifyRequest<{ Querystring: { network?: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { network } = req.query || {};
+    const telemetry = await getLatestSuccessfulOrdersTelemetry(db, network);
+
+    return reply.status(200).send({
+      success: true,
+      data: telemetry,
+    });
+  };
+
+  app.get<{ Querystring: { network?: string } }>(
+    '/agent/orders/latest-successful',
+    { preHandler: [authHooks.authenticate(Permission.ORDERS_READ)] },
+    handleGetAgentLatestSuccessfulOrder,
+  );
+  app.get<{ Querystring: { network?: string } }>(
+    '/agents/orders/latest-successful',
+    { preHandler: [authHooks.authenticate(Permission.ORDERS_READ)] },
+    handleGetAgentLatestSuccessfulOrder,
   );
 
   // 0.1 LOOKUP AGENT ORDER BY ID: GET /agent/orders/:id & GET /agents/orders/:id

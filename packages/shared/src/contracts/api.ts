@@ -603,6 +603,26 @@ export function toCustomerFacingStatus(orderStatus: OrderStatus, paymentStatus: 
   return { status: 'ORDER_CREATED', statusLabel: 'Order created' };
 }
 
+// --- Latest Successful Order Telemetry DTOs ---
+
+export interface LatestSuccessfulOrderDto {
+  network: NetworkProvider | string;
+  networkDisplayName: string;
+  placedAt: string;
+  deliveredAt: string;
+  placedAtFormatted: string;
+  deliveredAtFormatted: string;
+  durationSeconds: number;
+  durationMinutes: number;
+  durationDisplay: string;
+  estimatedDeliveryDisplay: string;
+}
+
+export interface LatestSuccessfulOrdersResponse {
+  latest: LatestSuccessfulOrderDto | null;
+  byNetwork: Record<string, LatestSuccessfulOrderDto>;
+}
+
 
 // --- Beneficiary DTOs ---
 

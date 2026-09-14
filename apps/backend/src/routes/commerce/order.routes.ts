@@ -11,6 +11,7 @@ import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
 import { BadRequestError, InsufficientBalanceError, BeneficiaryNotValidatedError } from '../../core/errors/app-error.js';
+import { getLatestSuccessfulOrdersTelemetry } from '../../core/commerce/latest-order-telemetry.js';
 import {
   CreateOrderRequest,
   ApiResponse,
@@ -277,6 +278,32 @@ export async function orderRoutes(
 
       return reply.status(202).send(response);
     },
+  );
+
+  // 1.5. GET LATEST SUCCESSFUL ORDER TELEMETRY
+  const handleLatestSuccessfulOrder = async (
+    req: FastifyRequest<{ Querystring: { network?: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { network } = req.query || {};
+    const telemetry = await getLatestSuccessfulOrdersTelemetry(db, network);
+
+    return reply.status(200).send({
+      success: true,
+      data: telemetry,
+    });
+  };
+
+  app.get<{ Querystring: { network?: string } }>(
+    '/orders/latest-successful',
+    { preHandler: [orderRateLimit] },
+    handleLatestSuccessfulOrder,
+  );
+
+  app.get<{ Querystring: { network?: string } }>(
+    '/public/orders/latest-successful',
+    { preHandler: [orderRateLimit] },
+    handleLatestSuccessfulOrder,
   );
 
   // 2. GET ORDER BY ID

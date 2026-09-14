@@ -26,6 +26,7 @@ import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { ordersApi } from '../../api/orders.api.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { BeneficiaryNotApprovedModal } from './BeneficiaryNotApprovedModal.js';
+import { LatestSuccessfulOrderBanner } from './LatestSuccessfulOrderBanner.js';
 
 export interface BulkOrderItem {
   recipientPhone: string;
@@ -1028,6 +1029,9 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Latest Order SLA Telemetry */}
+          <LatestSuccessfulOrderBanner network={network} variant="compact" style={{ marginBottom: 'var(--space-3)' }} />
 
           {/* Selected Package Summary Card */}
           <div

@@ -7,6 +7,7 @@ import { catalogApi } from '../../api/catalog.api.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { PurchaseModal, BulkOrderItem } from '../../components/commerce/PurchaseModal.js';
 import { BeneficiaryNotApprovedModal } from '../../components/commerce/BeneficiaryNotApprovedModal.js';
+import { LatestSuccessfulOrderBanner } from '../../components/commerce/LatestSuccessfulOrderBanner.js';
 import { Card } from '../../components/ui/Card/Card.js';
 import { PhoneInput, Select, Checkbox, Textarea, detectGhanaianNetwork } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -2166,6 +2167,38 @@ export const BuyDataPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Latest Successful Order Telemetry Banner */}
+      <LatestSuccessfulOrderBanner network={selectedNetwork} />
+
+      {/* Quick Wallet Balance Strip */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: 'var(--space-3) var(--space-4)',
+          borderRadius: 'var(--radius-lg)',
+          backgroundColor: 'var(--color-bg-surface-elevated)',
+          border: '1px solid var(--color-border-default)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+            Wallet Balance:
+          </span>
+          <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 900, color: 'var(--color-warning)' }}>
+            GH₵ {balanceGhs.toFixed(2)}
+          </span>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => (window.location.href = isAgentPortal ? '/agent/wallet' : '/app/wallet')}
+        >
+          Fund Wallet
+        </Button>
+      </div>
 
       {/* 2. Step 1: Network Selection */}
       <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>

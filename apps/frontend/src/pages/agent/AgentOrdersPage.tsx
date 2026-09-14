@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button/Button.js';
 import { SearchInput, Select, DateInput } from '../../components/ui/index.js';
 import { OrderStatusBadge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
 import { OrderDetailsModal, OrderDetailsItem, SourceIndicator } from '../../components/commerce/OrderDetailsModal.js';
+import { LatestSuccessfulOrderBanner } from '../../components/commerce/LatestSuccessfulOrderBanner.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import {
   ShoppingCart,
@@ -766,6 +767,9 @@ export const AgentOrdersPage: React.FC = () => {
             View your data bundle purchases and delivery status.
           </p>
         </div>
+
+        {/* Latest Order Telemetry Banner */}
+        <LatestSuccessfulOrderBanner style={{ marginBottom: 'var(--space-2)' }} />
 
         {isLoading ? (
           <Card style={{ padding: 'var(--space-12)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--space-3)', backgroundColor: 'var(--color-bg-surface)' }}>

@@ -8,6 +8,8 @@ import {
   NetworkProvider,
   OrderStatus,
   PaymentStatus,
+  LatestSuccessfulOrderDto,
+  LatestSuccessfulOrdersResponse,
 } from '@bytebeacon/shared';
 
 export interface OrderListFilters {
@@ -59,6 +61,12 @@ export const ordersApi = {
 
   trackOrder: async (query: string): Promise<any> => {
     return apiClient.get<any>(`/orders/track/${encodeURIComponent(query)}`, { skipAuth: true });
+  },
+
+  getLatestSuccessfulOrder: async (network?: string): Promise<LatestSuccessfulOrdersResponse> => {
+    return apiClient.get<LatestSuccessfulOrdersResponse>('/orders/latest-successful', {
+      params: network ? { network } : undefined,
+    });
   },
 
   verifyPayment: async (reference: string, orderId?: string): Promise<any> => {
