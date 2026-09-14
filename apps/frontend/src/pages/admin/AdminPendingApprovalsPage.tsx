@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
 import { SearchInput, Select } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
+import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Modal } from '../../components/ui/Modal/Modal.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import {
@@ -22,6 +22,8 @@ import {
   Layers,
   Trash2,
   AlertTriangle,
+  X,
+  Eye,
 } from 'lucide-react';
 import { adminApi, AdminPendingApprovalItem, AdminPendingApprovalStats, AdminPendingApprovalDetail } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -257,6 +259,130 @@ export const AdminPendingApprovalsPage: React.FC = () => {
     }
   };
 
+  const renderNetworkBadge = (net: string | null | undefined) => {
+    const n = String(net || '').toUpperCase();
+    if (n === 'MTN') {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            padding: '0.2rem 0.55rem',
+            borderRadius: 'var(--radius-full)',
+            backgroundColor: '#FEF3C7',
+            color: '#B45309',
+            fontWeight: 800,
+            fontSize: '11px',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#D97706' }} />
+          MTN
+        </span>
+      );
+    }
+    if (n === 'TELECEL') {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            padding: '0.2rem 0.55rem',
+            borderRadius: 'var(--radius-full)',
+            backgroundColor: '#FEE2E2',
+            color: '#B91C1C',
+            fontWeight: 800,
+            fontSize: '11px',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#DC2626' }} />
+          Telecel
+        </span>
+      );
+    }
+    return (
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.3rem',
+          padding: '0.2rem 0.55rem',
+          borderRadius: 'var(--radius-full)',
+          backgroundColor: '#E0F2FE',
+          color: '#0369A1',
+          fontWeight: 800,
+          fontSize: '11px',
+          letterSpacing: '0.02em',
+        }}
+      >
+        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#0284C7' }} />
+        AT
+      </span>
+    );
+  };
+
+  // Active Filter Chips
+  const activeFilters = useMemo(() => {
+    const list: Array<{ id: string; label: string; onRemove: () => void }> = [];
+
+    if (statusFilter !== 'ALL') {
+      const labels: Record<string, string> = {
+        PENDING: 'Status: Awaiting Approval',
+        VALID: 'Status: Approved',
+        INVALID: 'Status: Rejected',
+        PROCESSING: 'Status: Processing',
+      };
+      list.push({
+        id: 'status',
+        label: labels[statusFilter] || `Status: ${statusFilter}`,
+        onRemove: () => { setStatusFilter('ALL'); setPage(1); },
+      });
+    }
+
+    if (networkFilter !== 'ALL') {
+      list.push({
+        id: 'network',
+        label: `Network: ${networkFilter}`,
+        onRemove: () => { setNetworkFilter('ALL'); setPage(1); },
+      });
+    }
+
+    if (sourceFilter !== 'ALL') {
+      const labels: Record<string, string> = {
+        CUSTOMER: 'Source: Customer Portal',
+        AGENT: 'Source: Agent System',
+        ORDERS: 'Source: Pending Orders',
+        EXCEL: 'Source: Excel Uploads',
+      };
+      list.push({
+        id: 'source',
+        label: labels[sourceFilter] || `Source: ${sourceFilter}`,
+        onRemove: () => { setSourceFilter('ALL'); setPage(1); },
+      });
+    }
+
+    if (searchQuery.trim()) {
+      list.push({
+        id: 'search',
+        label: `Query: "${searchQuery}"`,
+        onRemove: () => { setSearchQuery(''); setPage(1); },
+      });
+    }
+
+    return list;
+  }, [statusFilter, networkFilter, sourceFilter, searchQuery]);
+
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('ALL');
+    setNetworkFilter('ALL');
+    setSourceFilter('ALL');
+    setPage(1);
+  };
+
   const renderStatusBadge = (status: string) => {
     switch (status) {
       case 'VALID':
@@ -278,163 +404,387 @@ export const AdminPendingApprovalsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* Header Toolbar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+    <div
+      style={{
+        maxWidth: '1440px',
+        margin: '0 auto',
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-6)',
+      }}
+    >
+      {/* 1. Header Toolbar with Standardized Tactile Action Buttons */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '1rem',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <TactileIcon icon={Clock} color="speed" size="lg" />
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-speed-bright)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+              <span
+                style={{
+                  fontSize: 'var(--font-size-3xs)',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  color: 'var(--color-brand-primary)',
+                }}
+              >
                 Telecom Validation Operations
               </span>
               <Badge variant="brand" size="sm">Phase 11.5</Badge>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>•</span>
+              <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                Authoritative Carrier Whitelist
+              </span>
             </div>
-            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
               Pending MTN Approvals
             </h1>
             <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
-              Track, synchronize, and administer MTN beneficiary numbers that require validation before fulfillment.
+              Track, synchronize, and administer MTN beneficiary numbers and pending orders requiring carrier validation.
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Button variant="ghost" size="sm" onClick={() => { fetchStats(); fetchApprovals(); }} disabled={isLoading}>
+        {/* Action Buttons with Real Tactile Button Styling */}
+        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => { fetchStats(); fetchApprovals(); }}
+            disabled={isLoading}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.5rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
             <span>Refresh</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleBulkSyncAll} disabled={isBulkSyncing || items.length === 0}>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleBulkSyncAll}
+            disabled={isBulkSyncing || items.length === 0}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.5rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              cursor: isBulkSyncing || items.length === 0 ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
             <Zap size={14} className={isBulkSyncing ? 'animate-spin' : ''} />
             <span>Sync Page Batch</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={isExporting}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.5rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              cursor: isExporting ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
             <Download size={14} />
             <span>Export CSV</span>
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsDeleteModalOpen(true)}
             disabled={items.length === 0 && (!stats.totalRegistered || stats.totalRegistered === 0)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.5rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              color: 'var(--color-danger)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              cursor: (items.length === 0 && (!stats.totalRegistered || stats.totalRegistered === 0)) ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
           >
             <Trash2 size={14} />
             <span>Clear All Records</span>
-          </Button>
+          </button>
         </div>
       </div>
 
-      {/* 6 Responsive Summary KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
+      {/* 2. Sleek, Standardized KPI Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Awaiting Approval"
           value={(stats.awaitingApproval || 0).toLocaleString()}
           subvalue="Pending MTN validation"
-          accent="orange"
           icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Approved / Valid"
           value={(stats.approvedValid ?? stats.approvedToday ?? 0).toLocaleString()}
           subvalue="Whitelisted beneficiaries"
-          accent="green"
           icon={<TactileIcon icon={CheckCircle2} color="security" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Rejected / Invalid"
           value={(stats.rejectedInvalid ?? stats.rejected ?? 0).toLocaleString()}
           subvalue="Blocked numbers"
-          accent="red"
           icon={<TactileIcon icon={AlertOctagon} color="red" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="In-Flight Sync"
           value={(stats.inFlightSync ?? stats.processing ?? 0).toLocaleString()}
           subvalue="Carrier background check"
-          accent="cyan"
           icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Total Registered"
           value={(stats.totalRegistered ?? 0).toLocaleString()}
           subvalue="Known customer recipients"
-          accent="purple"
           icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Excel Prechecks"
           value={(stats.excelPrechecks ?? 0).toLocaleString()}
           subvalue="Customer & Agent batches"
-          accent="orange"
           icon={<TactileIcon icon={Zap} color="speed" size="sm" />}
+          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
       </div>
 
-      {/* Filter Toolbar */}
-      <Card accentColor="orange" style={{ padding: 'var(--space-4)' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ flex: '1 1 320px', minWidth: '240px' }}>
+      {/* 3. Compact, Standard Horizontal Advanced Filter Suite */}
+      <Card
+        elevated
+        style={{
+          padding: 'var(--space-4) var(--space-5)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-3)',
+        }}
+      >
+        {/* Main Controls Row: Horizontal and Compact */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '0.65rem',
+            justifyContent: 'space-between',
+          }}
+        >
+          {/* Search Box (Takes flexible space) */}
+          <div style={{ flex: '1 1 280px', minWidth: '240px' }}>
             <SearchInput
               value={searchQuery}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                 setSearchQuery(e.target.value);
                 setPage(1);
               }}
-              placeholder="Search Phone (024XXXXXXX / 23324XXXXXXX), DataHouse Ref..."
+              placeholder="Search Phone (024XXXXXXX), DataHouse Ref, Name..."
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <Select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              options={[
-                { label: 'All Statuses', value: 'ALL' },
-                { label: 'Awaiting Approval', value: 'PENDING' },
-                { label: 'Approved (Valid)', value: 'VALID' },
-                { label: 'Rejected (Invalid)', value: 'INVALID' },
-                { label: 'Processing', value: 'PROCESSING' },
-              ]}
-            />
+          {/* Horizontal Dropdowns: Compact, Constrained Widths */}
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.45rem',
+              alignItems: 'center',
+            }}
+          >
+            {/* Status */}
+            <div style={{ width: '155px' }}>
+              <Select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                options={[
+                  { label: 'All Statuses', value: 'ALL' },
+                  { label: 'Awaiting Approval', value: 'PENDING' },
+                  { label: 'Approved (Valid)', value: 'VALID' },
+                  { label: 'Rejected (Invalid)', value: 'INVALID' },
+                  { label: 'Processing', value: 'PROCESSING' },
+                ]}
+              />
+            </div>
 
-            <Select
-              value={networkFilter}
-              onChange={(e) => {
-                setNetworkFilter(e.target.value);
-                setPage(1);
-              }}
-              options={[
-                { label: 'All Networks', value: 'ALL' },
-                { label: 'MTN Ghana', value: 'MTN' },
-                { label: 'Telecel Ghana', value: 'TELECEL' },
-                { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
-              ]}
-            />
+            {/* Network */}
+            <div style={{ width: '140px' }}>
+              <Select
+                value={networkFilter}
+                onChange={(e) => {
+                  setNetworkFilter(e.target.value);
+                  setPage(1);
+                }}
+                options={[
+                  { label: 'All Networks', value: 'ALL' },
+                  { label: 'MTN Ghana', value: 'MTN' },
+                  { label: 'Telecel Ghana', value: 'TELECEL' },
+                  { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
+                ]}
+              />
+            </div>
 
-            <Select
-              value={sourceFilter}
-              onChange={(e) => {
-                setSourceFilter(e.target.value);
-                setPage(1);
-              }}
-              options={[
-                { label: 'All Sources & Users', value: 'ALL' },
-                { label: 'Customer System (Portal)', value: 'CUSTOMER' },
-                { label: 'Agent System', value: 'AGENT' },
-                { label: 'Pending Orders Only', value: 'ORDERS' },
-                { label: 'Excel Uploads Only', value: 'EXCEL' },
-              ]}
-            />
+            {/* Source */}
+            <div style={{ width: '175px' }}>
+              <Select
+                value={sourceFilter}
+                onChange={(e) => {
+                  setSourceFilter(e.target.value);
+                  setPage(1);
+                }}
+                options={[
+                  { label: 'All Sources & Users', value: 'ALL' },
+                  { label: 'Customer Portal', value: 'CUSTOMER' },
+                  { label: 'Agent System', value: 'AGENT' },
+                  { label: 'Pending Orders Only', value: 'ORDERS' },
+                  { label: 'Excel Uploads Only', value: 'EXCEL' },
+                ]}
+              />
+            </div>
           </div>
         </div>
+
+        {/* Active Filter Chips */}
+        {activeFilters.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.4rem',
+              alignItems: 'center',
+              paddingTop: '0.25rem',
+              borderTop: '1px solid var(--color-border-subtle)',
+            }}
+          >
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>
+              Active Filters:
+            </span>
+            {activeFilters.map((af) => (
+              <span
+                key={af.id}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-full)',
+                  padding: '0.2rem 0.55rem',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: 'var(--color-text-primary)',
+                }}
+              >
+                {af.label}
+                <button
+                  type="button"
+                  onClick={af.onRemove}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    color: 'var(--color-text-muted)',
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: 'var(--color-brand-primary)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                marginLeft: '0.25rem',
+                textDecoration: 'underline',
+              }}
+            >
+              Clear All ({totalItems.toLocaleString()} total)
+            </button>
+          </div>
+        )}
       </Card>
 
-      {/* Approvals Table */}
-      <Card elevated style={{ padding: 0, overflow: 'hidden' }}>
+      {/* 4. Spacious, Uncompressed Approvals Table with Horizontal Breathing Room */}
+      <Card
+        elevated
+        style={{
+          padding: 0,
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          overflow: 'hidden',
+        }}
+      >
         <Table
+          minWidth="1280px"
           headers={[
             'Beneficiary Number',
             'Network',
@@ -449,20 +799,24 @@ export const AdminPendingApprovalsPage: React.FC = () => {
         >
           {items.map((item) => (
             <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-              <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+              {/* Beneficiary Number */}
+              <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                   <button
                     onClick={() => setSelectedId(item.id)}
                     style={{
                       background: 'none',
                       border: 'none',
-                      color: 'var(--color-brand)',
+                      color: 'var(--color-brand-primary, #0284C7)',
                       cursor: 'pointer',
-                      fontWeight: 700,
+                      fontWeight: 800,
                       padding: 0,
-                      textDecoration: 'underline',
+                      textDecoration: 'none',
                       textAlign: 'left',
+                      fontSize: '13px',
                     }}
+                    onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                    onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
                   >
                     {item.phoneNumber}
                   </button>
@@ -473,13 +827,19 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   )}
                 </div>
               </td>
-              <td>
-                <NetworkBadge network={item.network as any} />
+
+              {/* Network */}
+              <td style={{ padding: '0.85rem 1rem' }}>
+                {renderNetworkBadge(item.network)}
               </td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+
+              {/* Data Size */}
+              <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
                 {item.dataSize || '—'}
               </td>
-              <td>
+
+              {/* Detected Channel */}
+              <td style={{ padding: '0.85rem 1rem' }}>
                 {item.isOrder ? (
                   <Badge variant="brand" size="sm">
                     {item.detectedFrom || 'Order Submission'}
@@ -490,37 +850,49 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   </Badge>
                 )}
               </td>
-              <td style={{ fontSize: 'var(--font-size-2xs)' }}>
-                {item.sourceRole === 'agent' ? (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <Badge variant="warning" size="sm">Agent</Badge>
-                    <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.sourceLabel || 'Agent Portal'}</span>
+
+              {/* Source System */}
+              <td style={{ padding: '0.85rem 1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', maxWidth: '220px' }}>
+                  {item.sourceRole === 'agent' ? (
+                    <Badge variant="warning" size="xs">Agent</Badge>
+                  ) : item.sourceRole === 'admin' ? (
+                    <Badge variant="brand" size="xs">Admin</Badge>
+                  ) : (
+                    <Badge variant="neutral" size="xs">Customer</Badge>
+                  )}
+                  <span
+                    style={{
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                    title={item.sourceLabel || undefined}
+                  >
+                    {item.sourceLabel || 'Customer Portal'}
                   </span>
-                ) : item.sourceRole === 'admin' ? (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <Badge variant="brand" size="sm">Admin</Badge>
-                    <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.sourceLabel || 'Admin Portal'}</span>
-                  </span>
-                ) : (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <Badge variant="neutral" size="sm">Customer</Badge>
-                    <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>{item.sourceLabel || 'Customer Portal'}</span>
-                  </span>
-                )}
+                </div>
               </td>
-              <td>
+
+              {/* Approval Status */}
+              <td style={{ padding: '0.85rem 1rem' }}>
                 {renderStatusBadge(item.status)}
               </td>
-              <td style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+
+              {/* Occurrences / Orders */}
+              <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
                 {item.isOrder ? (
                   <span
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '0.3rem',
-                      padding: '0.15rem 0.55rem',
-                      background: 'rgba(59, 130, 246, 0.1)',
-                      color: 'var(--color-brand)',
+                      gap: '0.35rem',
+                      padding: '0.2rem 0.6rem',
+                      background: 'rgba(59, 130, 246, 0.08)',
+                      color: 'var(--color-brand-primary, #2563EB)',
                       borderRadius: 'var(--radius-sm)',
                       border: '1px solid rgba(59, 130, 246, 0.25)',
                       fontFamily: 'var(--font-mono)',
@@ -534,53 +906,96 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '0.3rem',
-                      padding: '0.15rem 0.55rem',
-                      background: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
-                      color: (item.occurrences || 1) > 1 ? '#FFCC00' : 'var(--color-text-secondary)',
+                      gap: '0.35rem',
+                      padding: '0.2rem 0.6rem',
+                      background: 'var(--color-bg-subtle)',
+                      color: 'var(--color-text-secondary)',
                       borderRadius: 'var(--radius-sm)',
-                      border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
+                      border: '1px solid var(--color-border-subtle)',
                       fontFamily: 'var(--font-mono)',
-                      fontWeight: 800,
+                      fontWeight: 700,
+                      fontSize: '11px',
                     }}
                     title={`Recorded ${item.occurrences || 1} time(s)`}
                   >
-                    <Layers size={11} />
+                    <Layers size={11} style={{ opacity: 0.7 }} />
                     {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
                   </span>
                 )}
               </td>
-              <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                {new Date(item.createdAt).toLocaleString()}
+
+              {/* Timestamp */}
+              <td style={{ padding: '0.85rem 1rem', fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                {new Date(item.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • {new Date(item.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
               </td>
-              <td>
-                <div style={{ display: 'flex', gap: '0.25rem' }}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+
+              {/* Actions */}
+              <td style={{ padding: '0.85rem 1rem' }}>
+                <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                  <button
+                    type="button"
                     onClick={() => handleSyncSingle(item.id)}
                     title="Queue DataHouse Sync"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      border: '1px solid var(--color-border-subtle)',
+                      boxShadow: 'var(--shadow-tactile-sm)',
+                      color: 'var(--color-text-secondary)',
+                      cursor: 'pointer',
+                    }}
                   >
-                    <Zap size={12} />
-                  </Button>
+                    <Zap size={13} />
+                  </button>
+
                   {item.status !== 'VALID' && item.status !== 'APPROVED' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
+                    <button
+                      type="button"
                       onClick={() => handleApprove(item.id)}
-                      style={{ color: 'var(--color-success)', borderColor: 'var(--color-success)' }}
                       title="Approve & Release Orders"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                        border: '1px solid rgba(34, 197, 94, 0.3)',
+                        boxShadow: 'var(--shadow-tactile-sm)',
+                        color: 'var(--color-status-success, #16A34A)',
+                        cursor: 'pointer',
+                      }}
                     >
-                      <CheckCircle2 size={12} />
-                    </Button>
+                      <CheckCircle2 size={13} />
+                    </button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
+
+                  <button
+                    type="button"
                     onClick={() => setSelectedId(item.id)}
+                    title="Inspect Beneficiary Dossier"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      border: '1px solid var(--color-border-subtle)',
+                      boxShadow: 'var(--shadow-tactile-sm)',
+                      color: 'var(--color-text-secondary)',
+                      cursor: 'pointer',
+                    }}
                   >
-                    <ChevronRight size={12} />
-                  </Button>
+                    <Eye size={13} />
+                  </button>
                 </div>
               </td>
             </tr>
@@ -594,7 +1009,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
           </div>
         )}
 
-        <div style={{ padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--color-bg-surface)' }}>
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
             Showing {items.length} of {totalItems.toLocaleString()} beneficiaries
           </span>
@@ -624,7 +1039,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'space-between', alignItems: 'center', background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{detail.record.phoneNumber}</span>
-                  <NetworkBadge network={detail.record.network as any} />
+                  {renderNetworkBadge(detail.record.network)}
                   {renderStatusBadge(detail.record.status)}
                   {detail.record.dataSize && (
                     <Badge variant="neutral" size="sm">{detail.record.dataSize}</Badge>
