@@ -22,18 +22,51 @@ export async function adminAnalyticsRoutes(
 
   // 1. GET /admin/analytics/overview — Comprehensive Command Center Aggregation
   app.get<{
-    Querystring: { range?: string };
+    Querystring: {
+      range?: string;
+      startDate?: string;
+      endDate?: string;
+      network?: string;
+      orderStatus?: string;
+      channel?: string;
+      search?: string;
+    };
   }>(
     '/admin/analytics/overview',
     { preHandler: [authHooks.authenticateAdmin] },
-    async (req: FastifyRequest<{ Querystring: { range?: string } }>, reply: FastifyReply) => {
-      const { range = '30d' } = req.query || {};
+    async (req: FastifyRequest<{ Querystring: {
+      range?: string;
+      startDate?: string;
+      endDate?: string;
+      network?: string;
+      orderStatus?: string;
+      channel?: string;
+      search?: string;
+    } }>, reply: FastifyReply) => {
+      const {
+        range = '30d',
+        startDate,
+        endDate,
+        network,
+        orderStatus,
+        channel,
+        search,
+      } = req.query || {};
 
       let days = 30;
       if (range === '7d') days = 7;
       else if (range === '90d') days = 90;
       else if (range === 'all') days = 0;
       else if (range === 'today') days = 1;
+      else if (range === 'yesterday') days = 2;
+      else if (range === 'month') days = 30;
+      else if (startDate && endDate) {
+        const start = new Date(startDate).getTime();
+        const end = new Date(endDate).getTime();
+        if (!isNaN(start) && !isNaN(end) && end >= start) {
+          days = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
+        }
+      }
 
       // 1. User metrics (Case-insensitive matching with status fallback)
       let isDatabaseConnected = true;
@@ -288,6 +321,14 @@ export async function adminAnalyticsRoutes(
         const { orders: synOrders } = gen.generateOrdersWithLedger(75, synUsers);
         const now = Date.now();
         const filteredOrders = synOrders.filter((o) => {
+          if (network && network !== 'ALL' && o.network?.toUpperCase() !== network.toUpperCase()) return false;
+          if (orderStatus && orderStatus !== 'ALL' && o.orderStatus?.toUpperCase() !== orderStatus.toUpperCase()) return false;
+          if (search && search.trim()) {
+            const q = search.toLowerCase();
+            const match = (o.id && o.id.toLowerCase().includes(q)) ||
+                          (o.recipientPhone && o.recipientPhone.includes(q));
+            if (!match) return false;
+          }
           if (days === 0) return true;
           const diffDays = (now - o.createdAt.getTime()) / (1000 * 60 * 60 * 24);
           return diffDays <= days;
@@ -416,6 +457,15 @@ export async function adminAnalyticsRoutes(
         success: true,
         data: {
           range,
+          filters: {
+            range,
+            startDate: startDate || null,
+            endDate: endDate || null,
+            network: network || 'ALL',
+            orderStatus: orderStatus || 'ALL',
+            channel: channel || 'ALL',
+            search: search || '',
+          },
           isDatabaseConnected,
           dataSource: isDatabaseConnected && (totalUsersCount > 0 || totalOrdersCount > 0) ? 'DATABASE' : 'SYNTHETIC_DEV_PREVIEW',
           users: synData?.users || {

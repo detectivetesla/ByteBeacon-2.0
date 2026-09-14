@@ -522,8 +522,27 @@ export interface AdminUserDetail {
   } | null;
 }
 
+export interface AdminAnalyticsFilterParams {
+  range?: string;
+  startDate?: string;
+  endDate?: string;
+  network?: string;
+  orderStatus?: string;
+  channel?: string;
+  search?: string;
+}
+
 export interface AdminAnalyticsOverview {
   range: string;
+  filters?: {
+    range?: string;
+    startDate?: string | null;
+    endDate?: string | null;
+    network?: string;
+    orderStatus?: string;
+    channel?: string;
+    search?: string;
+  };
   users: {
     total: number;
     customers: number;
@@ -890,8 +909,9 @@ export const adminApi = {
   },
 
   // Analytics
-  getAnalyticsOverview: async (range: string = '30d') => {
-    return apiClient.get<AdminAnalyticsOverview>('/admin/analytics/overview', { params: { range } });
+  getAnalyticsOverview: async (rangeOrParams: string | AdminAnalyticsFilterParams = '30d') => {
+    const params = typeof rangeOrParams === 'string' ? { range: rangeOrParams } : rangeOrParams;
+    return apiClient.get<AdminAnalyticsOverview>('/admin/analytics/overview', { params });
   },
 
   // Orders Control Plane (Phase 11.5)
