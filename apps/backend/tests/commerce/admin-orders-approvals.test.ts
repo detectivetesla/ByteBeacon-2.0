@@ -36,7 +36,7 @@ describe('Phase 11.5: Order & Pending Approval Administration Suite', () => {
           });
         }
 
-        if (sql.includes('COUNT(*) as "totalOrders"') && sql.includes('FROM orders')) {
+        if (sql.includes('as "totalOrders"') && sql.includes('FROM orders')) {
           return Promise.resolve({
             rows: [{
               totalOrders: '100',

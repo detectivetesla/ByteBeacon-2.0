@@ -929,6 +929,8 @@ export const adminApi = {
     network?: string;
     source?: string;
     period?: string;
+    startDate?: string;
+    endDate?: string;
     operationalState?: string;
     status?: string;
   } = {}) => {

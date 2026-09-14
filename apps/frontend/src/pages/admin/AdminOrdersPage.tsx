@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
 import { SearchInput, Select } from '../../components/ui/index.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
+import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Modal } from '../../components/ui/Modal/Modal.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import {
@@ -21,6 +21,17 @@ import {
   ChevronRight,
   Server,
   Zap,
+  Copy,
+  Check,
+  Calendar,
+  X,
+  Eye,
+  Phone,
+  User,
+  DollarSign,
+  AlertCircle,
+  Radio,
+  FileText,
 } from 'lucide-react';
 import { adminApi, AdminOrderListItem, AdminOrderStats, AdminOrderDetail } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -35,8 +46,16 @@ export const AdminOrdersPage: React.FC = () => {
   const [lifecycleFilter, setLifecycleFilter] = useState(searchParams.get('lifecycle') || 'ALL');
   const [paymentFilter, setPaymentFilter] = useState(searchParams.get('payment') || 'ALL');
   const [networkFilter, setNetworkFilter] = useState(searchParams.get('network') || 'ALL');
+  const [sourceFilter, setSourceFilter] = useState(searchParams.get('source') || 'ALL');
   const [periodFilter, setPeriodFilter] = useState(searchParams.get('period') || 'ALL');
   const [operationalStateFilter, setOperationalStateFilter] = useState(searchParams.get('state') || 'ALL');
+  
+  // Custom Date Range State
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [isCustomDateOpen, setIsCustomDateOpen] = useState(false);
+
+  // Pagination
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
@@ -56,11 +75,13 @@ export const AdminOrdersPage: React.FC = () => {
   const [totalOrders, setTotalOrders] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
   // Selected Order Drawer State
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(searchParams.get('orderId') || null);
   const [orderDetail, setOrderDetail] = useState<AdminOrderDetail | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Refund Modal State
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
@@ -70,6 +91,13 @@ export const AdminOrdersPage: React.FC = () => {
   // Reconcile & Retry loading
   const [isReconciling, setIsReconciling] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+
+  // Copy helper
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(label);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
 
   // Fetch summary stats
   const fetchStats = useCallback(async () => {
@@ -92,7 +120,10 @@ export const AdminOrdersPage: React.FC = () => {
         lifecycle: lifecycleFilter !== 'ALL' ? lifecycleFilter : undefined,
         paymentStatus: paymentFilter !== 'ALL' ? paymentFilter : undefined,
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
-        period: periodFilter !== 'ALL' ? periodFilter : undefined,
+        source: sourceFilter !== 'ALL' ? sourceFilter : undefined,
+        period: periodFilter !== 'ALL' && periodFilter !== 'CUSTOM' ? periodFilter : undefined,
+        startDate: periodFilter === 'CUSTOM' && startDate ? startDate : undefined,
+        endDate: periodFilter === 'CUSTOM' && endDate ? endDate : undefined,
         operationalState: operationalStateFilter !== 'ALL' ? operationalStateFilter : undefined,
       });
 
@@ -100,6 +131,7 @@ export const AdminOrdersPage: React.FC = () => {
         setOrders(res.orders);
         setTotalPages(res.pagination?.totalPages || 1);
         setTotalOrders(res.pagination?.total || res.orders.length);
+        setLastRefreshed(new Date());
       } else {
         setOrders([]);
         setTotalPages(1);
@@ -111,7 +143,7 @@ export const AdminOrdersPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [page, pageSize, searchQuery, lifecycleFilter, paymentFilter, networkFilter, periodFilter, operationalStateFilter, toastError]);
+  }, [page, pageSize, searchQuery, lifecycleFilter, paymentFilter, networkFilter, sourceFilter, periodFilter, startDate, endDate, operationalStateFilter, toastError]);
 
   useEffect(() => {
     fetchStats();
@@ -121,7 +153,7 @@ export const AdminOrdersPage: React.FC = () => {
     fetchOrders();
   }, [fetchOrders]);
 
-  // Real-time synchronization: refresh admin orders when orders are updated
+  // Real-time synchronization
   useEffect(() => {
     const handleUpdate = () => {
       fetchOrders();
@@ -140,11 +172,9 @@ export const AdminOrdersPage: React.FC = () => {
     setIsLoadingDetail(true);
     try {
       const res = await adminApi.getOrderDetail(id);
-      if (res) {
-        setOrderDetail(res);
-      }
+      if (res) setOrderDetail(res);
     } catch (err: any) {
-      toastError(err?.message || 'Failed to retrieve order details');
+      toastError(err?.message || 'Failed to load order dossier.');
       setSelectedOrderId(null);
     } finally {
       setIsLoadingDetail(false);
@@ -159,14 +189,41 @@ export const AdminOrdersPage: React.FC = () => {
     }
   }, [selectedOrderId, fetchOrderDetail]);
 
-  // Actions
+  // Handle Export
   const handleExport = async (format: 'CSV' | 'JSON') => {
     setIsExporting(true);
     try {
-      await adminApi.exportOrders({ format });
-      toastSuccess(`Orders export (${format}) downloaded successfully.`);
-    } catch {
-      toastError('Failed to generate orders export.');
+      const res = await adminApi.exportOrders({
+        search: searchQuery.trim() || undefined,
+        lifecycle: lifecycleFilter !== 'ALL' ? lifecycleFilter : undefined,
+        paymentStatus: paymentFilter !== 'ALL' ? paymentFilter : undefined,
+        network: networkFilter !== 'ALL' ? networkFilter : undefined,
+        source: sourceFilter !== 'ALL' ? sourceFilter : undefined,
+        period: periodFilter !== 'ALL' && periodFilter !== 'CUSTOM' ? periodFilter : undefined,
+        operationalState: operationalStateFilter !== 'ALL' ? operationalStateFilter : undefined,
+        format,
+      });
+
+      if (format === 'JSON') {
+        const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `bytebeacon-orders-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const blob = new Blob([res as any], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `bytebeacon-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      toastSuccess(`Exported platform orders as ${format}.`);
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to export orders.');
     } finally {
       setIsExporting(false);
     }
@@ -222,10 +279,122 @@ export const AdminOrdersPage: React.FC = () => {
     }
   };
 
+  // Reset Filters
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setLifecycleFilter('ALL');
+    setPaymentFilter('ALL');
+    setNetworkFilter('ALL');
+    setSourceFilter('ALL');
+    setPeriodFilter('ALL');
+    setOperationalStateFilter('ALL');
+    setStartDate('');
+    setEndDate('');
+    setIsCustomDateOpen(false);
+    setPage(1);
+  };
+
+  // Active filters list
+  const activeFilters = useMemo(() => {
+    const list: Array<{ id: string; label: string; onRemove: () => void }> = [];
+
+    if (networkFilter !== 'ALL') {
+      list.push({ id: 'net', label: `Network: ${networkFilter}`, onRemove: () => { setNetworkFilter('ALL'); setPage(1); } });
+    }
+    if (lifecycleFilter !== 'ALL') {
+      list.push({ id: 'lc', label: `Lifecycle: ${lifecycleFilter}`, onRemove: () => { setLifecycleFilter('ALL'); setPage(1); } });
+    }
+    if (paymentFilter !== 'ALL') {
+      list.push({ id: 'pmt', label: `Payment: ${paymentFilter}`, onRemove: () => { setPaymentFilter('ALL'); setPage(1); } });
+    }
+    if (sourceFilter !== 'ALL') {
+      list.push({ id: 'src', label: `Source: ${sourceFilter}`, onRemove: () => { setSourceFilter('ALL'); setPage(1); } });
+    }
+    if (operationalStateFilter !== 'ALL') {
+      list.push({ id: 'st', label: `State: ${operationalStateFilter}`, onRemove: () => { setOperationalStateFilter('ALL'); setPage(1); } });
+    }
+    if (periodFilter !== 'ALL') {
+      const label = periodFilter === 'CUSTOM' && startDate && endDate ? `${startDate} to ${endDate}` : periodFilter;
+      list.push({ id: 'prd', label: `Period: ${label}`, onRemove: () => { setPeriodFilter('ALL'); setStartDate(''); setEndDate(''); setIsCustomDateOpen(false); setPage(1); } });
+    }
+    if (searchQuery.trim()) {
+      list.push({ id: 'q', label: `Query: "${searchQuery}"`, onRemove: () => { setSearchQuery(''); setPage(1); } });
+    }
+
+    return list;
+  }, [networkFilter, lifecycleFilter, paymentFilter, sourceFilter, operationalStateFilter, periodFilter, startDate, endDate, searchQuery]);
+
+  // Network badge renderer
+  const renderNetworkBadge = (net: string | null | undefined) => {
+    const n = String(net || '').toUpperCase();
+    if (n === 'MTN') {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            padding: '0.2rem 0.55rem',
+            borderRadius: 'var(--radius-full)',
+            backgroundColor: '#FEF3C7',
+            color: '#B45309',
+            fontWeight: 800,
+            fontSize: '11px',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#D97706' }} />
+          MTN
+        </span>
+      );
+    }
+    if (n === 'TELECEL') {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            padding: '0.2rem 0.55rem',
+            borderRadius: 'var(--radius-full)',
+            backgroundColor: '#FEE2E2',
+            color: '#B91C1C',
+            fontWeight: 800,
+            fontSize: '11px',
+            letterSpacing: '0.02em',
+          }}
+        >
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#DC2626' }} />
+          Telecel
+        </span>
+      );
+    }
+    return (
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.3rem',
+          padding: '0.2rem 0.55rem',
+          borderRadius: 'var(--radius-full)',
+          backgroundColor: '#E0F2FE',
+          color: '#0369A1',
+          fontWeight: 800,
+          fontSize: '11px',
+          letterSpacing: '0.02em',
+        }}
+      >
+        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#0284C7' }} />
+        AT
+      </span>
+    );
+  };
+
   const renderOrderStatusBadge = (status: any) => {
     const s = typeof status === 'object' ? String(status?.orderStatus || status?.status || 'UNKNOWN') : String(status || '');
     switch (s.toUpperCase()) {
       case 'COMPLETED':
+      case 'DELIVERED':
       case 'FULFILLED':
         return <Badge variant="success" size="sm" dot>Fulfilled</Badge>;
       case 'PROCESSING':
@@ -238,6 +407,7 @@ export const AdminOrdersPage: React.FC = () => {
       case 'AWAITING_APPROVAL':
         return <Badge variant="warning" size="sm" dot>Awaiting MTN</Badge>;
       case 'FAILED':
+      case 'CANCELLED':
         return <Badge variant="danger" size="sm" dot>Failed</Badge>;
       case 'REFUNDED':
         return <Badge variant="neutral" size="sm" dot>Refunded</Badge>;
@@ -278,63 +448,157 @@ export const AdminOrdersPage: React.FC = () => {
       case 'PROCESSING':
       case 'RECEIVED':
       case 'SUBMITTED':
-      case 'ACCEPTED':
-        return <Badge variant="info" size="sm" dot>Dispatched</Badge>;
-      case 'PENDING':
-      case 'QUEUED':
-        return <Badge variant="warning" size="sm" dot>Queued</Badge>;
+        return <Badge variant="info" size="sm" dot>In Flight</Badge>;
       case 'FAILED':
       case 'REJECTED':
-      case 'ERROR':
+      case 'VALIDATION_FAILED':
         return <Badge variant="danger" size="sm" dot>Rejected</Badge>;
-      case 'UNKNOWN':
-      case '':
+      case 'PENDING_APPROVAL':
+      case 'AWAITING_APPROVAL':
+        return <Badge variant="warning" size="sm" dot>Awaiting ACK</Badge>;
+      case 'PENDING':
+      case 'PENDING_DISPATCH':
         return <Badge variant="neutral" size="sm" dot>Pending Dispatch</Badge>;
       default:
-        return <Badge variant="neutral" size="sm">{status}</Badge>;
+        return <Badge variant="neutral" size="sm">{status || 'Unsynced'}</Badge>;
     }
   };
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* Header Toolbar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+    <div
+      style={{
+        maxWidth: '1440px',
+        margin: '0 auto',
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-6)',
+      }}
+    >
+      {/* 1. Header Toolbar with Prominent, Styled Action Buttons */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '1rem',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <TactileIcon icon={Package} color="orders" size="lg" />
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-brand)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+              <span
+                style={{
+                  fontSize: 'var(--font-size-3xs)',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  color: 'var(--color-brand-primary)',
+                }}
+              >
                 Operations Control Plane
               </span>
               <Badge variant="brand" size="sm">Phase 11.5</Badge>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>•</span>
+              <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                Authoritative Master Ledger
+              </span>
             </div>
-            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
               All System Orders
             </h1>
             <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
-              Manage, investigate, reconcile, and audit every data bundle transaction across ByteBeacon 2.0.
+              Investigate, reconcile, dispatch, and audit every telecom data bundle transaction across ByteBeacon 2.0.
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Button variant="ghost" size="sm" onClick={() => { fetchStats(); fetchOrders(); }} disabled={isLoading}>
+        {/* Action Buttons with Real Button Styling */}
+        <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => { fetchStats(); fetchOrders(); }}
+            disabled={isLoading}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.5rem 0.9rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
             <span>Refresh</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport('CSV')} disabled={isExporting}>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleExport('CSV')}
+            disabled={isExporting}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.5rem 0.9rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              cursor: isExporting ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
             <Download size={14} />
             <span>Export CSV</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport('JSON')} disabled={isExporting}>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleExport('JSON')}
+            disabled={isExporting}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.5rem 0.9rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              cursor: isExporting ? 'not-allowed' : 'pointer',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
             <Download size={14} />
             <span>Export JSON</span>
-          </Button>
+          </button>
         </div>
       </div>
 
-      {/* 8 Responsive Operational Summary KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-3)' }}>
+      {/* 2. Responsive Operational Summary KPI Cards */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+          gap: 'var(--space-3)',
+        }}
+      >
         <MetricCard
           title="Total Orders"
           value={stats.totalOrders.toLocaleString()}
@@ -393,22 +657,53 @@ export const AdminOrdersPage: React.FC = () => {
         />
       </div>
 
-      {/* Advanced Filter Toolbar */}
-      <Card accentColor="blue" style={{ padding: 'var(--space-4)' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ flex: '1 1 320px', minWidth: '240px' }}>
-              <SearchInput
-                value={searchQuery}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  setSearchQuery(e.target.value);
-                  setPage(1);
-                }}
-                placeholder="Search Order ID, Phone, Customer Email/Name, DataHouse Ref..."
-              />
-            </div>
+      {/* 3. Compact, Standard Horizontal Advanced Filter Suite */}
+      <Card
+        elevated
+        style={{
+          padding: 'var(--space-4) var(--space-5)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-3)',
+        }}
+      >
+        {/* Main Controls Row: Horizontal and Compact */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '0.65rem',
+            justifyContent: 'space-between',
+          }}
+        >
+          {/* Search Box (Takes flexible space) */}
+          <div style={{ flex: '1 1 240px', minWidth: '220px' }}>
+            <SearchInput
+              value={searchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Search Order ID, Phone, Customer, Ref..."
+            />
+          </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {/* Horizontal Dropdowns: Compact, Constrained Widths */}
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.45rem',
+              alignItems: 'center',
+            }}
+          >
+            {/* Network */}
+            <div style={{ width: '135px' }}>
               <Select
                 value={networkFilter}
                 onChange={(e) => {
@@ -422,7 +717,10 @@ export const AdminOrdersPage: React.FC = () => {
                   { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
                 ]}
               />
+            </div>
 
+            {/* Lifecycle */}
+            <div style={{ width: '150px' }}>
               <Select
                 value={lifecycleFilter}
                 onChange={(e) => {
@@ -432,15 +730,18 @@ export const AdminOrdersPage: React.FC = () => {
                 options={[
                   { label: 'All Lifecycles', value: 'ALL' },
                   { label: 'Fulfilled / Completed', value: 'COMPLETED' },
-                  { label: 'Processing', value: 'PROCESSING' },
+                  { label: 'Processing / In Flight', value: 'PROCESSING' },
                   { label: 'Submitted', value: 'SUBMITTED' },
                   { label: 'Pending', value: 'PENDING' },
-                  { label: 'Awaiting MTN Approval', value: 'AWAITING_APPROVAL' },
+                  { label: 'Awaiting MTN', value: 'AWAITING_APPROVAL' },
                   { label: 'Failed', value: 'FAILED' },
                   { label: 'Refunded', value: 'REFUNDED' },
                 ]}
               />
+            </div>
 
+            {/* Payment */}
+            <div style={{ width: '135px' }}>
               <Select
                 value={paymentFilter}
                 onChange={(e) => {
@@ -455,7 +756,26 @@ export const AdminOrdersPage: React.FC = () => {
                   { label: 'Refunded', value: 'REFUNDED' },
                 ]}
               />
+            </div>
 
+            {/* Channel / Actor Source */}
+            <div style={{ width: '135px' }}>
+              <Select
+                value={sourceFilter}
+                onChange={(e) => {
+                  setSourceFilter(e.target.value);
+                  setPage(1);
+                }}
+                options={[
+                  { label: 'All Channels', value: 'ALL' },
+                  { label: 'Direct Customers', value: 'CUSTOMER' },
+                  { label: 'Agents / Resellers', value: 'AGENT' },
+                ]}
+              />
+            </div>
+
+            {/* Operational State */}
+            <div style={{ width: '155px' }}>
               <Select
                 value={operationalStateFilter}
                 onChange={(e) => {
@@ -463,18 +783,29 @@ export const AdminOrdersPage: React.FC = () => {
                   setPage(1);
                 }}
                 options={[
-                  { label: 'All Operational States', value: 'ALL' },
-                  { label: '⚠ Reconciliation Required', value: 'RECONCILIATION_REQUIRED' },
+                  { label: 'All States', value: 'ALL' },
+                  { label: '⚠ Recon Required', value: 'RECONCILIATION_REQUIRED' },
                   { label: '⌛ Awaiting Approval', value: 'AWAITING_APPROVAL' },
                   { label: '❌ Failed Queue', value: 'FAILED_QUEUE' },
                   { label: '↺ Refund Pending', value: 'REFUND_PENDING' },
                 ]}
               />
+            </div>
 
+            {/* Period / Date Range Selector */}
+            <div style={{ width: '140px' }}>
               <Select
                 value={periodFilter}
                 onChange={(e) => {
-                  setPeriodFilter(e.target.value);
+                  const val = e.target.value;
+                  setPeriodFilter(val);
+                  if (val === 'CUSTOM') {
+                    setIsCustomDateOpen(true);
+                  } else {
+                    setIsCustomDateOpen(false);
+                    setStartDate('');
+                    setEndDate('');
+                  }
                   setPage(1);
                 }}
                 options={[
@@ -483,16 +814,189 @@ export const AdminOrdersPage: React.FC = () => {
                   { label: 'Yesterday', value: 'YESTERDAY' },
                   { label: 'Last 7 Days', value: '7D' },
                   { label: 'Last 30 Days', value: '30D' },
+                  { label: 'Last 90 Days', value: '90D' },
+                  { label: 'This Month', value: 'MONTH' },
+                  { label: 'Custom Range...', value: 'CUSTOM' },
                 ]}
               />
             </div>
+
+            {/* Quick Reset Action */}
+            {activeFilters.length > 0 && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  padding: '0.5rem 0.65rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  border: '1px solid var(--color-border-subtle)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: 'var(--color-text-muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                <RotateCcw size={12} />
+                <span>Reset</span>
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Custom Date Range Picker Accordion (Expandable) */}
+        {isCustomDateOpen && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: '0.75rem',
+              paddingTop: 'var(--space-3)',
+              borderTop: '1px dashed var(--color-border-subtle)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Calendar size={14} color="var(--color-text-muted)" />
+              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                Custom Date Filter:
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>From:</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.6rem',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border-subtle)',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>To:</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.6rem',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border-subtle)',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => { setPage(1); fetchOrders(); }}
+              disabled={!startDate || !endDate || isLoading}
+              style={{ fontSize: '11px', fontWeight: 700, padding: '0.35rem 0.8rem' }}
+            >
+              Apply Interval
+            </Button>
+          </div>
+        )}
+
+        {/* Active Filter Chips Bar */}
+        {activeFilters.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: '0.4rem',
+              paddingTop: 'var(--space-2)',
+              borderTop: isCustomDateOpen ? 'none' : '1px solid var(--color-border-subtle)',
+            }}
+          >
+            <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>
+              Active Filters:
+            </span>
+            {activeFilters.map((af) => (
+              <span
+                key={af.id}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-full)',
+                  padding: '0.2rem 0.55rem',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: 'var(--color-text-primary)',
+                }}
+              >
+                {af.label}
+                <button
+                  type="button"
+                  onClick={af.onRemove}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    color: 'var(--color-text-muted)',
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: 'var(--color-brand-primary)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                marginLeft: '0.25rem',
+                textDecoration: 'underline',
+              }}
+            >
+              Clear All ({totalOrders.toLocaleString()} total)
+            </button>
+          </div>
+        )}
       </Card>
 
-      {/* Orders Table */}
-      <Card elevated style={{ padding: 0, overflow: 'hidden' }}>
+      {/* 4. Spacious, Uncompressed Orders Table with Horizontal Breathing Room */}
+      <Card
+        elevated
+        style={{
+          padding: 0,
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          overflow: 'hidden',
+        }}
+      >
         <Table
+          minWidth="1360px"
           headers={[
             'Order ID',
             'Customer',
@@ -509,28 +1013,45 @@ export const AdminOrdersPage: React.FC = () => {
         >
           {orders.map((order) => {
             const amountGhs = ((order.amountPesewas || 0) / 100).toFixed(2);
-            const bundleGb = (order.dataAmountMb / 1024).toFixed(1);
+            const bundleGb = order.dataAmountMb >= 1024
+              ? `${(order.dataAmountMb / 1024).toFixed(1)} GB`
+              : `${order.dataAmountMb} MB`;
 
             return (
-              <tr key={order.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+              <tr
+                key={order.id}
+                style={{
+                  borderBottom: '1px solid var(--color-border-subtle)',
+                  transition: 'background-color var(--transition-fast)',
+                }}
+              >
+                {/* Order ID */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle' }}>
                   <button
                     onClick={() => setSelectedOrderId(order.id)}
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--color-brand)',
-                      cursor: 'pointer',
+                      background: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.25rem 0.5rem',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '11px',
                       fontWeight: 700,
-                      padding: 0,
-                      textDecoration: 'underline',
+                      color: 'var(--color-brand-primary)',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
                     }}
+                    title="Click to inspect order"
                   >
-                    {order.id.slice(0, 10)}...
+                    <span>{order.id.slice(0, 10)}...</span>
                   </button>
                 </td>
-                <td style={{ fontSize: 'var(--font-size-xs)' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+
+                {/* Customer */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
                     <button
                       onClick={() => navigate(`/admin/users/${order.userId}`)}
                       style={{
@@ -538,56 +1059,87 @@ export const AdminOrdersPage: React.FC = () => {
                         border: 'none',
                         color: 'var(--color-text-primary)',
                         cursor: 'pointer',
-                        fontWeight: 600,
+                        fontWeight: 700,
                         padding: 0,
                         textAlign: 'left',
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
                         gap: '0.25rem',
+                        fontSize: 'var(--font-size-xs)',
                       }}
                     >
                       <span>{order.userName || 'Customer'}</span>
                       <ExternalLink size={10} color="var(--color-text-muted)" />
                     </button>
-                    <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
                       {order.userEmail || '—'}
                     </span>
                   </div>
                 </td>
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+
+                {/* Recipient Phone */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>
                   {order.recipientPhone}
                 </td>
-                <td>
-                  <NetworkBadge network={order.network as any} />
+
+                {/* Network */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle' }}>
+                  {renderNetworkBadge(order.network)}
                 </td>
-                <td style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>
-                  {bundleGb} GB
+
+                {/* Data Size */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                  {bundleGb}
                 </td>
-                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
+
+                {/* Amount (GHS) */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
                   GH₵ {amountGhs}
                 </td>
-                <td>
+
+                {/* Payment */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', textAlign: 'center' }}>
                   {renderPaymentBadge(order.paymentStatus)}
                 </td>
-                <td>
+
+                {/* Order Status */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', textAlign: 'center' }}>
                   {renderOrderStatusBadge(order.orderStatus)}
                 </td>
-                <td>
+
+                {/* Provider Status */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', textAlign: 'center' }}>
                   {renderProviderStatusBadge(order.providerStatus)}
                 </td>
-                <td style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
-                  {new Date(order.createdAt).toLocaleString()}
+
+                {/* Created At */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                  {new Date(order.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} • {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </td>
-                <td>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+
+                {/* Action */}
+                <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', textAlign: 'center' }}>
+                  <button
+                    type="button"
                     onClick={() => setSelectedOrderId(order.id)}
-                    style={{ fontSize: 'var(--font-size-2xs)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                      padding: '0.35rem 0.65rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-bg-surface-elevated)',
+                      border: '1px solid var(--color-border-subtle)',
+                      color: 'var(--color-brand-primary)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)',
+                    }}
                   >
+                    <Eye size={12} />
                     <span>Inspect</span>
-                    <ChevronRight size={12} />
-                  </Button>
+                  </button>
                 </td>
               </tr>
             );
@@ -596,14 +1148,32 @@ export const AdminOrdersPage: React.FC = () => {
 
         {orders.length === 0 && !isLoading && (
           <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-            <Package size={36} style={{ margin: '0 auto var(--space-2)' }} />
-            <p style={{ fontWeight: 600, margin: 0 }}>No orders matching query criteria.</p>
+            <Package size={36} style={{ margin: '0 auto var(--space-2)', color: 'var(--color-text-muted)' }} />
+            <p style={{ fontWeight: 700, margin: 0, fontSize: 'var(--font-size-sm)' }}>No orders matching query criteria.</p>
+            <p style={{ fontSize: 'var(--font-size-xs)', margin: '0.25rem 0 0 0' }}>Try broadening your search term or clearing active filters.</p>
+            {activeFilters.length > 0 && (
+              <Button variant="outline" size="sm" onClick={handleResetFilters} style={{ marginTop: 'var(--space-3)' }}>
+                Reset All Filters
+              </Button>
+            )}
           </div>
         )}
 
-        <div style={{ padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-            Showing {orders.length} of {totalOrders.toLocaleString()} orders
+        {/* Footer with Pagination and Counter */}
+        <div
+          style={{
+            padding: 'var(--space-3) var(--space-5)',
+            borderTop: '1px solid var(--color-border-subtle)',
+            backgroundColor: 'var(--color-bg-subtle)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+          }}
+        >
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+            Showing {orders.length} of {totalOrders.toLocaleString()} orders (Page {page} of {totalPages})
           </span>
           <Pagination
             currentPage={page}
@@ -613,7 +1183,7 @@ export const AdminOrdersPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* Individual Order Investigation Drawer / Modal */}
+      {/* 5. Executive Order Investigation Dossier Modal */}
       {selectedOrderId && (
         <Modal
           isOpen={true}
@@ -621,28 +1191,45 @@ export const AdminOrdersPage: React.FC = () => {
           title={`Order Control Center — #${selectedOrderId}`}
         >
           {isLoadingDetail ? (
-            <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
-              <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
-              <p>Loading authoritative order dossier...</p>
+            <div style={{ padding: 'var(--space-10)', textAlign: 'center' }}>
+              <RefreshCw size={28} className="animate-spin" style={{ margin: '0 auto var(--space-3)', color: 'var(--color-brand-primary)' }} />
+              <p style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>Loading authoritative order dossier...</p>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Querying ledger records, carrier status, and validation logs.</p>
             </div>
           ) : orderDetail ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-              {/* Order Quick Action Toolbar */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'space-between', alignItems: 'center', background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              {/* Order Quick Action Toolbar & Status Bar */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'var(--color-bg-subtle)',
+                  padding: 'var(--space-3) var(--space-4)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-subtle)',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   {renderOrderStatusBadge(orderDetail.order.orderStatus)}
                   {renderPaymentBadge(orderDetail.order.paymentStatus)}
-                  <NetworkBadge network={orderDetail.order.network as any} />
+                  {renderNetworkBadge(orderDetail.order.network)}
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    Created {new Date(orderDetail.order.createdAt).toLocaleString()}
+                  </span>
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleReconcileOrder}
                     disabled={isReconciling}
+                    style={{ fontSize: '11px', fontWeight: 700 }}
                   >
-                    <ShieldCheck size={12} className={isReconciling ? 'animate-spin' : ''} />
+                    <ShieldCheck size={13} className={isReconciling ? 'animate-spin' : ''} />
                     <span>Reconcile State</span>
                   </Button>
 
@@ -652,8 +1239,9 @@ export const AdminOrdersPage: React.FC = () => {
                       size="sm"
                       onClick={handleRetryOrder}
                       disabled={isRetrying}
+                      style={{ fontSize: '11px', fontWeight: 700 }}
                     >
-                      <Zap size={12} className={isRetrying ? 'animate-spin' : ''} />
+                      <Zap size={13} className={isRetrying ? 'animate-spin' : ''} />
                       <span>Retry Fulfillment</span>
                     </Button>
                   )}
@@ -663,152 +1251,345 @@ export const AdminOrdersPage: React.FC = () => {
                       variant="danger"
                       size="sm"
                       onClick={() => setIsRefundModalOpen(true)}
+                      style={{ fontSize: '11px', fontWeight: 700 }}
                     >
-                      <RotateCcw size={12} />
+                      <RotateCcw size={13} />
                       <span>Issue Refund</span>
                     </Button>
                   )}
                 </div>
               </div>
 
-              {/* Lifecycle Visual Timeline */}
-              <Card accentColor="cyan" style={{ padding: 'var(--space-4)' }}>
-                <h4 style={{ margin: '0 0 var(--space-3) 0', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
-                  Order Lifecycle Progression
-                </h4>
+              {/* 4 Mini Executive Metric Highlights */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                  gap: 'var(--space-3)',
+                }}
+              >
+                <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Carrier</div>
+                  <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.2rem' }}>
+                    {orderDetail.order.network}
+                  </div>
+                </div>
+
+                <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Data Package</div>
+                  <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.2rem' }}>
+                    {(orderDetail.order.dataAmountMb / 1024).toFixed(1)} GB
+                  </div>
+                </div>
+
+                <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Amount Paid</div>
+                  <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.2rem' }}>
+                    GH₵ {((orderDetail.order.amountPesewas || 0) / 100).toFixed(2)}
+                  </div>
+                </div>
+
+                <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Provider ACK</div>
+                  <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.2rem' }}>
+                    {String(orderDetail.providerOrder?.providerStatus || orderDetail.order.providerStatus || 'UNKNOWN')}
+                  </div>
+                </div>
+              </div>
+
+              {/* Lifecycle Visual Stepper */}
+              <div
+                style={{
+                  padding: 'var(--space-4)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-lg)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                    Order Lifecycle Progression
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--color-brand-primary)', fontWeight: 700 }}>
+                    Current: {String(orderDetail.order.orderStatus)}
+                  </span>
+                </div>
+
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
-                  {['CREATED', 'PENDING', 'SUBMITTED', 'PROCESSING', 'FULFILLED', 'CLOSED'].map((step, idx) => {
-                    const isCurrent = orderDetail.order.orderStatus === step || (orderDetail.order.orderStatus === 'COMPLETED' && step === 'FULFILLED');
+                  {['CREATED', 'PENDING', 'SUBMITTED', 'PROCESSING', 'COMPLETED'].map((step, idx) => {
+                    const statusOrder = ['CREATED', 'PENDING', 'SUBMITTED', 'PROCESSING', 'COMPLETED'];
+                    const currentIdx = statusOrder.indexOf(String(orderDetail.order.orderStatus));
+                    const isDone = currentIdx >= idx || orderDetail.order.orderStatus === 'COMPLETED';
+                    const isCurrent = orderDetail.order.orderStatus === step;
+
                     return (
                       <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 2 }}>
                         <div
                           style={{
-                            width: '24px',
-                            height: '24px',
+                            width: '26px',
+                            height: '26px',
                             borderRadius: '50%',
-                            background: isCurrent ? 'var(--color-brand)' : 'var(--color-bg-muted)',
-                            color: isCurrent ? '#fff' : 'var(--color-text-muted)',
+                            background: isDone ? 'var(--color-brand-primary)' : 'var(--color-bg-subtle)',
+                            color: isDone ? '#fff' : 'var(--color-text-muted)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            border: `2px solid ${isCurrent ? 'var(--color-brand)' : 'var(--color-border-subtle)'}`,
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            border: `2px solid ${isCurrent ? 'var(--color-brand-primary)' : 'var(--color-border-subtle)'}`,
                           }}
                         >
-                          {idx + 1}
+                          {isDone ? <Check size={13} /> : idx + 1}
                         </div>
-                        <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: isCurrent ? 700 : 500, color: isCurrent ? 'var(--color-brand)' : 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: isCurrent ? 800 : 600,
+                            color: isCurrent ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                            marginTop: '0.25rem',
+                          }}
+                        >
                           {step}
                         </span>
                       </div>
                     );
                   })}
                 </div>
-              </Card>
+              </div>
 
               {/* DataHouse Authority Notice */}
-              <div style={{ padding: 'var(--space-3)', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)', borderRadius: 'var(--radius-md)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <ShieldCheck size={16} color="var(--color-security-bright)" />
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-security-bright)', fontWeight: 600 }}>
-                  DataHouse Fulfillment Authority Invariant: Manual status overrides are strictly prohibited. Local projection reflects authoritative telecom provider state.
+              <div
+                style={{
+                  padding: '0.65rem 0.85rem',
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  border: '1px solid rgba(34, 197, 94, 0.22)',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'flex',
+                  gap: '0.5rem',
+                  alignItems: 'center',
+                }}
+              >
+                <ShieldCheck size={16} color="#16A34A" />
+                <span style={{ fontSize: '11px', color: '#16A34A', fontWeight: 600, lineHeight: 1.4 }}>
+                  Authoritative Dispatch Invariant: Local order state reflects verifiable telecom carrier ACK receipts. Manual status overrides are disabled to preserve double-entry reconciliation integrity.
                 </span>
               </div>
 
               {/* 3-Column Info Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-3)' }}>
-                {/* Account & Recipient */}
-                <Card style={{ padding: 'var(--space-3)' }}>
-                  <h4 style={{ margin: '0 0 var(--space-2) 0', fontSize: 'var(--font-size-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                    Beneficiary & Account
-                  </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: 'var(--font-size-xs)' }}>
-                    <div><strong>Recipient:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{orderDetail.order.recipientPhone}</span></div>
-                    <div><strong>Network:</strong> {orderDetail.order.network}</div>
-                    <div><strong>Bundle Size:</strong> {(orderDetail.order.dataAmountMb / 1024).toFixed(1)} GB ({orderDetail.order.dataAmountMb} MB)</div>
-                    <div><strong>Amount:</strong> GH₵ {((orderDetail.order.amountPesewas || 0) / 100).toFixed(2)}</div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gap: 'var(--space-4)',
+                }}
+              >
+                {/* Beneficiary & Customer */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-lg)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: 'var(--space-3)' }}>
+                    <Phone size={14} color="var(--color-text-muted)" />
+                    <h4 style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+                      Beneficiary & Customer
+                    </h4>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: 'var(--font-size-xs)' }}>
+                    <div>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Recipient: </span>
+                      <strong style={{ fontFamily: 'var(--font-mono)' }}>{orderDetail.order.recipientPhone}</strong>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(orderDetail.order.recipientPhone, 'phone')}
+                        style={{ marginLeft: '0.35rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                      >
+                        {copiedField === 'phone' ? <Check size={11} color="#16A34A" /> : <Copy size={11} />}
+                      </button>
+                    </div>
+                    <div><span style={{ color: 'var(--color-text-muted)' }}>Carrier: </span>{orderDetail.order.network}</div>
+                    <div><span style={{ color: 'var(--color-text-muted)' }}>Bundle: </span>{(orderDetail.order.dataAmountMb / 1024).toFixed(1)} GB ({orderDetail.order.dataAmountMb} MB)</div>
+                    <div><span style={{ color: 'var(--color-text-muted)' }}>Amount: </span>GH₵ {((orderDetail.order.amountPesewas || 0) / 100).toFixed(2)}</div>
+                    
                     {orderDetail.customer && (
-                      <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '0.5rem' }}>
-                        <div><strong>Customer:</strong> {orderDetail.customer.fullName}</div>
-                        <div><strong>Email:</strong> {orderDetail.customer.email}</div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                      <div style={{ marginTop: '0.4rem', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '0.4rem' }}>
+                        <div><span style={{ color: 'var(--color-text-muted)' }}>Customer: </span><strong>{orderDetail.customer.fullName}</strong></div>
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>{orderDetail.customer.email}</div>
+                        <button
+                          type="button"
                           onClick={() => navigate(`/admin/users/${orderDetail.customer?.id}`)}
-                          style={{ marginTop: '0.25rem', padding: 0, color: 'var(--color-brand)' }}
+                          style={{
+                            marginTop: '0.35rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: 'var(--color-brand-primary)',
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                          }}
                         >
-                          View User Dossier <ExternalLink size={10} />
-                        </Button>
+                          <span>View User Dossier</span>
+                          <ExternalLink size={10} />
+                        </button>
                       </div>
                     )}
                   </div>
-                </Card>
+                </div>
 
                 {/* Telecom Provider Dispatch Details */}
-                <Card style={{ padding: 'var(--space-3)' }}>
-                  <h4 style={{ margin: '0 0 var(--space-2) 0', fontSize: 'var(--font-size-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                    {orderDetail.providerOrder?.providerName || 'Telecom Provider'} State
-                  </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: 'var(--font-size-xs)' }}>
-                    <div><strong>Provider:</strong> {orderDetail.providerOrder?.providerName || 'Authoritative Aggregator'}</div>
-                    <div><strong>Provider Ref:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{orderDetail.providerOrder?.providerReference || orderDetail.providerOrder?.providerOrderId || 'Pending ACK'}</span></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <strong>Status:</strong>
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-lg)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: 'var(--space-3)' }}>
+                    <Radio size={14} color="var(--color-text-muted)" />
+                    <h4 style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+                      Carrier Gateway Telemetry
+                    </h4>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: 'var(--font-size-xs)' }}>
+                    <div><span style={{ color: 'var(--color-text-muted)' }}>Provider: </span>{orderDetail.providerOrder?.providerName || 'DataHouse Carrier Hub'}</div>
+                    <div>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Reference: </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                        {orderDetail.providerOrder?.providerReference || orderDetail.providerOrder?.providerOrderId || 'Pending Carrier ACK'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Status: </span>
                       {renderProviderStatusBadge(orderDetail.providerOrder?.providerStatus || orderDetail.order.providerStatus)}
                     </div>
-                    <div><strong>Last Synced:</strong> {orderDetail.providerOrder?.lastSyncedAt ? new Date(orderDetail.providerOrder.lastSyncedAt).toLocaleString() : 'Recent'}</div>
+                    <div>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Last Synced: </span>
+                      <span style={{ fontSize: '11px' }}>
+                        {orderDetail.providerOrder?.lastSyncedAt ? new Date(orderDetail.providerOrder.lastSyncedAt).toLocaleString() : 'Live'}
+                      </span>
+                    </div>
                     {orderDetail.dlq && (
-                      <div style={{ color: 'var(--color-danger)', marginTop: '0.25rem' }}>
-                        <strong>DLQ Status:</strong> {orderDetail.dlq.status} (Attempts: {orderDetail.dlq.attemptCount})
+                      <div style={{ color: '#EF4444', marginTop: '0.25rem', fontSize: '11px', fontWeight: 600 }}>
+                        <span>DLQ: {orderDetail.dlq.status} (Attempts: {orderDetail.dlq.attemptCount})</span>
                       </div>
                     )}
                   </div>
-                </Card>
+                </div>
 
                 {/* Financial Ledger & Payment */}
-                <Card style={{ padding: 'var(--space-3)' }}>
-                  <h4 style={{ margin: '0 0 var(--space-2) 0', fontSize: 'var(--font-size-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-                    Financial & Payment State
-                  </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: 'var(--font-size-xs)' }}>
-                    <div><strong>Payment Status:</strong> {typeof orderDetail.order.paymentStatus === 'object' ? JSON.stringify(orderDetail.order.paymentStatus) : String(orderDetail.order.paymentStatus || 'UNKNOWN')}</div>
-                    <div><strong>Payment Ref:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{orderDetail.payment?.reference || 'N/A'}</span></div>
-                    <div><strong>Refund Status:</strong> {typeof orderDetail.order.refundStatus === 'object' ? JSON.stringify(orderDetail.order.refundStatus) : String(orderDetail.order.refundStatus || 'NONE')}</div>
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-lg)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: 'var(--space-3)' }}>
+                    <DollarSign size={14} color="var(--color-text-muted)" />
+                    <h4 style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+                      Financial Ledger State
+                    </h4>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: 'var(--font-size-xs)' }}>
+                    <div>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Payment Status: </span>
+                      <strong>{typeof orderDetail.order.paymentStatus === 'object' ? String(orderDetail.order.paymentStatus?.status || 'PAID') : String(orderDetail.order.paymentStatus || 'PAID')}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Reference: </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
+                        {orderDetail.payment?.reference || orderDetail.order.id.slice(0, 16)}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Refund Status: </span>
+                      <span>{typeof orderDetail.order.refundStatus === 'object' ? String(orderDetail.order.refundStatus?.status || 'NONE') : String(orderDetail.order.refundStatus || 'NONE')}</span>
+                    </div>
                     {orderDetail.refund && (
-                      <div><strong>Refunded Amount:</strong> GH₵ {((orderDetail.refund.amountPesewas || 0) / 100).toFixed(2)}</div>
+                      <div style={{ color: '#8B5CF6', fontWeight: 700 }}>
+                        Refunded: GH₵ {((orderDetail.refund.amountPesewas || 0) / 100).toFixed(2)}
+                      </div>
                     )}
                   </div>
-                </Card>
+                </div>
               </div>
 
               {/* Order Event Timeline Stream */}
-              <Card style={{ padding: 'var(--space-4)' }}>
-                <h4 style={{ margin: '0 0 var(--space-3) 0', fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
-                  Order Audit Trail & Event Stream
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
-                  {orderDetail.events.map((ev) => (
-                    <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', padding: '0.35rem 0', borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <div>
-                        <strong style={{ color: 'var(--color-brand)' }}>{String(ev.eventType)}</strong> ({String(ev.actorType)})
-                        {ev.previousState && <span> : {typeof ev.previousState === 'object' ? JSON.stringify(ev.previousState) : String(ev.previousState)} → {typeof ev.newState === 'object' ? JSON.stringify(ev.newState) : String(ev.newState)}</span>}
+              <div
+                style={{
+                  padding: 'var(--space-4)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-lg)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <FileText size={14} color="var(--color-text-muted)" />
+                    <h4 style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+                      Order Audit Trail & Event Stream
+                    </h4>
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                    {orderDetail.events.length} logged events
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '220px', overflowY: 'auto' }}>
+                  {orderDetail.events.map((ev) => {
+                    const prevStr = typeof ev.previousState === 'object' ? JSON.stringify(ev.previousState) : String(ev.previousState || '');
+                    const newStr = typeof ev.newState === 'object' ? JSON.stringify(ev.newState) : String(ev.newState || '');
+
+                    return (
+                      <div
+                        key={ev.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: 'var(--font-size-xs)',
+                          padding: '0.4rem 0.5rem',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                        }}
+                      >
+                        <div>
+                          <strong style={{ color: 'var(--color-brand-primary)' }}>{String(ev.eventType)}</strong>
+                          <span style={{ color: 'var(--color-text-muted)', marginLeft: '0.35rem', fontSize: '11px' }}>({String(ev.actorType)})</span>
+                          {ev.previousState && (
+                            <span style={{ marginLeft: '0.35rem', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                              : {prevStr} → {newStr}
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
+                          {new Date(ev.occurredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
                       </div>
-                      <span style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', fontSize: '10px' }}>
-                        {new Date(ev.occurredAt).toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {orderDetail.events.length === 0 && (
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>No discrete audit events logged for this order.</span>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', padding: '0.5rem 0' }}>
+                      No discrete audit events logged for this order.
+                    </span>
                   )}
                 </div>
-              </Card>
+              </div>
             </div>
           ) : null}
         </Modal>
       )}
 
-      {/* Double-Entry Refund Modal */}
+      {/* 6. Double-Entry Refund Modal */}
       {isRefundModalOpen && (
         <Modal
           isOpen={true}
@@ -836,6 +1617,7 @@ export const AdminOrdersPage: React.FC = () => {
                   border: '1px solid var(--color-border-subtle)',
                   background: 'var(--color-bg-surface)',
                   color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-xs)',
                 }}
               />
             </div>

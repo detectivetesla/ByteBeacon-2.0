@@ -116,6 +116,8 @@ export async function adminOrdersRoutes(
       network?: string;
       source?: string;
       period?: string;
+      startDate?: string;
+      endDate?: string;
       operationalState?: string;
     };
   }>(
@@ -132,6 +134,8 @@ export async function adminOrdersRoutes(
         network,
         source,
         period,
+        startDate,
+        endDate,
         operationalState,
       } = req.query || {};
 
@@ -202,6 +206,18 @@ export async function adminOrdersRoutes(
         }
       }
 
+      if (startDate) {
+        whereConditions.push(`o.created_at >= $${idx}::date`);
+        params.push(startDate);
+        idx++;
+      }
+
+      if (endDate) {
+        whereConditions.push(`o.created_at <= ($${idx}::date + INTERVAL '1 day')`);
+        params.push(endDate);
+        idx++;
+      }
+
       if (period && period !== 'ALL') {
         if (period === 'TODAY') {
           whereConditions.push(`o.created_at >= CURRENT_DATE`);
@@ -211,6 +227,10 @@ export async function adminOrdersRoutes(
           whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`);
         } else if (period === '30D') {
           whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`);
+        } else if (period === '90D') {
+          whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days'`);
+        } else if (period === 'MONTH') {
+          whereConditions.push(`o.created_at >= date_trunc('month', CURRENT_DATE)`);
         }
       }
 
