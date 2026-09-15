@@ -82,9 +82,69 @@ export function sanitizeSensitiveData(obj: any): any {
 export class AuditService {
   private readonly db: pg.Pool;
   private lastHash: string = '0000000000000000000000000000000000000000000000000000000000000000';
+  private schemaEnsured: boolean = false;
 
   constructor(db: pg.Pool) {
     this.db = db;
+    this.ensureSchema().catch(() => {});
+  }
+
+  public async ensureSchema(): Promise<void> {
+    if (this.schemaEnsured || !this.db) return;
+    try {
+      await this.db.query(`
+        CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          correlation_id VARCHAR(100) NOT NULL,
+          actor_id UUID,
+          actor_type VARCHAR(50) NOT NULL,
+          action VARCHAR(100) NOT NULL,
+          resource_type VARCHAR(100),
+          resource_id VARCHAR(255),
+          metadata JSONB NOT NULL DEFAULT '{}',
+          ip_address VARCHAR(45),
+          user_agent TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        DO $$ BEGIN
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'INFO';
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'ADMIN_ACTION';
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result VARCHAR(20) NOT NULL DEFAULT 'SUCCESS';
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS before_state JSONB;
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS after_state JSONB;
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS event_hash VARCHAR(64);
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS previous_event_hash VARCHAR(64);
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(50);
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id VARCHAR(100);
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS session_id VARCHAR(100);
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS source VARCHAR(50) NOT NULL DEFAULT 'WEB';
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS service VARCHAR(50) NOT NULL DEFAULT 'core-api';
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS endpoint VARCHAR(255);
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS http_method VARCHAR(10);
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS http_status INT;
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS latency_ms INT;
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS description TEXT;
+        EXCEPTION
+          WHEN OTHERS THEN NULL;
+        END $$;
+      `);
+
+      // Initialize cryptographic chaining head from existing logs
+      const headRes = await this.db.query(
+        'SELECT event_hash FROM audit_logs WHERE event_hash IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      ).catch(() => ({ rows: [] }));
+      if (headRes.rows.length > 0 && headRes.rows[0].event_hash) {
+        this.lastHash = headRes.rows[0].event_hash;
+      }
+
+      this.schemaEnsured = true;
+    } catch {
+      // Non-blocking schema init error
+    }
   }
 
   public async log(params: AuditEventParams): Promise<void> {
@@ -92,6 +152,10 @@ export class AuditService {
   }
 
   public async logEvent(params: AuditEventParams): Promise<void> {
+    if (!this.schemaEnsured) {
+      await this.ensureSchema();
+    }
+
     const now = new Date();
     const correlationId = params.correlationId || params.requestId || `corr_${crypto.randomUUID()}`;
     const severity = params.severity || AuditSeverity.INFO;
@@ -185,7 +249,44 @@ export class AuditService {
         `[AUDIT] ${params.action}`,
       );
     } catch (error) {
-      logger.error({ error, event: params }, 'Failed to persist audit log event');
+      logger.error({ error, event: params }, 'Failed to persist audit log with full telemetry, attempting fallback insert');
+      try {
+        // Resilient fallback query ensuring NO audit event is dropped even on older DB schemas
+        await this.db.query(
+          `INSERT INTO audit_logs (correlation_id, actor_id, actor_type, action, resource_type, resource_id, metadata, ip_address, user_agent, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            correlationId,
+            params.actorId || null,
+            params.actorType,
+            params.action,
+            params.resourceType || null,
+            params.resourceId || null,
+            JSON.stringify({
+              ...sanitizedMeta,
+              description: params.description,
+              category,
+              severity,
+              result,
+              actorRole,
+              source,
+              service,
+              endpoint: params.endpoint,
+              httpMethod: params.httpMethod,
+              httpStatus: params.httpStatus,
+              latencyMs: params.latencyMs,
+            }),
+            params.ipAddress || null,
+            params.userAgent || null,
+            now,
+          ],
+        );
+        // Fire async schema healing
+        this.schemaEnsured = false;
+        this.ensureSchema().catch(() => {});
+      } catch (fallbackErr) {
+        logger.error({ fallbackErr }, 'Failed even fallback audit insert');
+      }
     }
   }
 

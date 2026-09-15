@@ -280,41 +280,82 @@ export async function adminAuditSecurityRoutes(
 
     const whereClause = conditions.join(' AND ');
 
-    const countRes = await db.query(
-      `SELECT COUNT(*) as total FROM audit_logs l
-       LEFT JOIN users u ON l.actor_id = u.id
-       WHERE ${whereClause}`,
-      params,
-    ).catch(() => ({ rows: [{ total: '0' }] }));
+    let countRes: any;
+    try {
+      countRes = await db.query(
+        `SELECT COUNT(*) as total FROM audit_logs l
+         LEFT JOIN users u ON l.actor_id = u.id
+         WHERE ${whereClause}`,
+        params,
+      );
+    } catch {
+      countRes = await db.query('SELECT COUNT(*) as total FROM audit_logs l').catch(() => ({ rows: [{ total: '0' }] }));
+    }
 
-    const total = parseInt(countRes.rows[0]?.total || '0', 10);
+    const total = parseInt(countRes?.rows?.[0]?.total || '0', 10);
 
-    const itemsRes = await db.query(
-      `SELECT 
-         l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
-         COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
-         u.email as "actorEmail",
-         COALESCE(l.actor_role, u.role, l.actor_type) as "actorRole",
-         l.actor_type as "actorType",
-         l.action, l.category, l.resource_type as "resourceType",
-         l.resource_id as "resourceId", l.result, l.severity,
-         l.ip_address as "ipAddress", l.user_agent as "userAgent",
-         l.reason, l.event_hash as "eventHash", l.previous_event_hash as "previousEventHash",
-         l.created_at as "timestamp",
-         l.request_id as "requestId", l.session_id as "sessionId",
-         l.source, l.service, l.endpoint, l.http_method as "httpMethod",
-         l.http_status as "httpStatus", l.latency_ms as "latencyMs",
-         l.description
-       FROM audit_logs l
-       LEFT JOIN users u ON l.actor_id = u.id
-       WHERE ${whereClause}
-       ORDER BY l.created_at DESC
-       LIMIT $${idx++} OFFSET $${idx++}`,
-      [...params, limitNum, offset],
-    ).catch((err) => {
-      app.log.warn({ err }, 'Warning: audit_logs query error in getAuditEventsHandler');
-      return { rows: [] };
-    });
+    let itemsRes: any;
+    try {
+      itemsRes = await db.query(
+        `SELECT 
+           l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
+           COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
+           u.email as "actorEmail",
+           COALESCE(l.actor_role, u.role, l.actor_type) as "actorRole",
+           l.actor_type as "actorType",
+           l.action, l.category, l.resource_type as "resourceType",
+           l.resource_id as "resourceId", l.result, l.severity,
+           l.ip_address as "ipAddress", l.user_agent as "userAgent",
+           l.reason, l.event_hash as "eventHash", l.previous_event_hash as "previousEventHash",
+           l.created_at as "timestamp",
+           l.request_id as "requestId", l.session_id as "sessionId",
+           l.source, l.service, l.endpoint, l.http_method as "httpMethod",
+           l.http_status as "httpStatus", l.latency_ms as "latencyMs",
+           l.description
+         FROM audit_logs l
+         LEFT JOIN users u ON l.actor_id = u.id
+         WHERE ${whereClause}
+         ORDER BY l.created_at DESC
+         LIMIT $${idx++} OFFSET $${idx++}`,
+        [...params, limitNum, offset],
+      );
+    } catch (err) {
+      app.log.warn({ err }, 'Extended audit_logs query failed, using core schema fallback query');
+      itemsRes = await db.query(
+        `SELECT 
+           l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
+           COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
+           u.email as "actorEmail",
+           COALESCE(u.role, l.actor_type) as "actorRole",
+           l.actor_type as "actorType",
+           l.action,
+           'ADMIN_ACTION' as category,
+           l.resource_type as "resourceType",
+           l.resource_id as "resourceId",
+           'SUCCESS' as result,
+           'INFO' as severity,
+           l.ip_address as "ipAddress",
+           l.user_agent as "userAgent",
+           NULL as reason,
+           '000000000000' as "eventHash",
+           NULL as "previousEventHash",
+           l.created_at as "timestamp",
+           NULL as "requestId",
+           NULL as "sessionId",
+           'WEB' as source,
+           'core-api' as service,
+           NULL as endpoint,
+           NULL as "httpMethod",
+           NULL as "httpStatus",
+           NULL as "latencyMs",
+           l.action as description
+         FROM audit_logs l
+         LEFT JOIN users u ON l.actor_id = u.id
+         ORDER BY l.created_at DESC
+         LIMIT $1 OFFSET $2`,
+        [limitNum, offset],
+      ).catch(() => ({ rows: [] }));
+    }
 
     const items: AdminAuditListItemDto[] = itemsRes.rows.map((row: any) => ({
       id: row.id,

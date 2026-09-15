@@ -19,6 +19,7 @@ import { RbacService } from './core/security/rbac.service.js';
 import { AuditService } from './core/security/audit.service.js';
 import { RateLimiterService } from './core/security/rate-limiter.service.js';
 import { ApiUsageTelemetryService } from './core/security/api-usage-telemetry.service.js';
+import { auditPlugin } from './plugins/audit.plugin.js';
 import { customerAuthRoutes } from './routes/auth/customer-auth.routes.js';
 import { adminAuthRoutes } from './routes/auth/admin-auth.routes.js';
 import { developerApiKeyRoutes } from './routes/auth/developer-api-key.routes.js';
@@ -354,6 +355,10 @@ export function createApp(options: AppOptions = {}) {
   app.addHook('onResponse', async (req, reply) => {
     await apiUsageTelemetryService.recordRequest(req, reply);
   });
+
+  // 4d. Global Real-Time Activity & Audit Telemetry Hook
+  // Captures all mutations, admin operations, authentication events, and anomalies
+  app.register(auditPlugin, { auditService });
 
   const catalogService = options.catalogService ?? new CatalogService(dbPool);
   const idempotencyService =

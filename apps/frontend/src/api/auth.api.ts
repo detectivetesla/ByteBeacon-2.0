@@ -42,6 +42,14 @@ export const authApi = {
     }
   },
 
+  adminLogout: async (): Promise<void> => {
+    try {
+      await apiClient.post('/admin/auth/logout');
+    } catch {
+      // Ignore network failure on logout
+    }
+  },
+
   getProfile: async (): Promise<UserSummaryDto> => {
     return apiClient.get<UserSummaryDto>('/auth/me');
   },

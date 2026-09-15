@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { UserSummaryDto } from '@bytebeacon/shared';
 import { apiClient } from '../api/httpClient.js';
 import { catalogApi } from '../api/catalog.api.js';
+import { authApi } from '../api/auth.api.js';
 import { AuthTokens } from '../api/types.js';
 
 interface AuthContextType {
@@ -34,6 +35,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const logout = useCallback(() => {
+    // Notify server of logout so it is immutably logged to audit stream and session is revoked
+    const isAdm = user?.securityDomain === 'ADMIN' || user?.role === 'admin' || user?.role === 'super_admin';
+    if (isAdm) {
+      authApi.adminLogout().catch(() => {});
+    } else {
+      authApi.logout().catch(() => {});
+    }
+
     setUser(null);
     catalogApi.clearCache();
     try {
@@ -42,7 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // LocalStorage access failsafe
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     // Configure centralized API Client with dynamic token getters and auth failure callback

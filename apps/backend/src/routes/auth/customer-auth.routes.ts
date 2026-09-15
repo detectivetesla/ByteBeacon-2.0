@@ -34,6 +34,9 @@ import {
   ApiResponse,
   AuthResponseData,
   UserSummaryDto,
+  AuditCategory,
+  AuditResult,
+  AuditSeverity,
 } from '@bytebeacon/shared';
 
 export interface CustomerAuthRouteDependencies {
@@ -1194,13 +1197,35 @@ export async function customerAuthRoutes(
         await sessionService.revokeSession(req.user.sessionId);
       }
 
+      const userRole = req.user?.role || 'customer';
+      const isPrivileged = userRole === 'admin' || userRole === 'super_admin';
+      const actorType = isPrivileged ? 'ADMIN' : userRole === 'agent' ? 'AGENT' : 'CUSTOMER';
+      const action = isPrivileged ? 'ADMIN_LOGOUT' : userRole === 'agent' ? 'AGENT_LOGOUT' : 'CUSTOMER_LOGOUT';
+
       await auditService.logEvent({
         correlationId: req.id,
+        requestId: (req.headers['x-request-id'] as string) || req.id,
+        sessionId: req.user?.sessionId,
         actorId: req.user?.sub,
-        actorType: 'CUSTOMER',
-        action: 'CUSTOMER_LOGOUT',
+        actorName: (req.user as any)?.fullName || req.user?.email,
+        actorEmail: req.user?.email,
+        actorRole: userRole,
+        actorType,
+        action,
+        category: AuditCategory.AUTH,
+        resourceType: 'session',
+        resourceId: req.user?.sessionId || null,
+        result: AuditResult.SUCCESS,
+        severity: AuditSeverity.INFO,
+        source: 'WEB',
+        endpoint: req.url,
+        httpMethod: 'POST',
+        httpStatus: 200,
+        description: `${actorType} ${req.user?.email || ''} logged out`,
         ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] as string,
       });
+      (req as any).auditLogged = true;
 
       return reply.send({ success: true, message: 'Logged out successfully' });
     },

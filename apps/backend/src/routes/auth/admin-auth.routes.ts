@@ -26,6 +26,9 @@ import {
   MfaSetupData,
   AdminMfaChallengeData,
   UserSummaryDto,
+  AuditCategory,
+  AuditSeverity,
+  AuditResult,
 } from '@bytebeacon/shared';
 
 export interface AdminAuthRouteDependencies {
@@ -112,12 +115,27 @@ export async function adminAuthRoutes(
       if (!isValid) {
         await auditService.logEvent({
           correlationId: req.id,
+          requestId: (req.headers['x-request-id'] as string) || req.id,
           actorId: user.id,
+          actorName: user.fullName || user.email,
+          actorEmail: user.email,
+          actorRole: user.role || 'admin',
           actorType: 'ADMIN',
           action: 'ADMIN_LOGIN_FAILED',
+          category: AuditCategory.AUTH,
+          resourceType: 'admin_auth',
+          resourceId: user.id,
+          result: AuditResult.FAILURE,
+          severity: AuditSeverity.WARNING,
+          source: 'WEB',
+          endpoint: req.url,
+          httpMethod: 'POST',
+          httpStatus: 401,
+          description: `Failed password verification for administrator ${user.email}`,
           ipAddress: req.ip,
-          userAgent: req.headers['user-agent'],
+          userAgent: req.headers['user-agent'] as string,
         });
+        (req as any).auditLogged = true;
         throw new UnauthorizedError('Invalid administrator credentials');
       }
 
@@ -160,11 +178,28 @@ export async function adminAuthRoutes(
 
       await auditService.logEvent({
         correlationId: req.id,
+        requestId: (req.headers['x-request-id'] as string) || req.id,
+        sessionId: session.id,
         actorId: user.id,
+        actorName: user.fullName || user.email,
+        actorEmail: user.email,
+        actorRole: user.role || 'admin',
         actorType: 'ADMIN',
         action: 'ADMIN_LOGIN_SUCCESS',
+        category: AuditCategory.AUTH,
+        resourceType: 'admin_session',
+        resourceId: session.id,
+        result: AuditResult.SUCCESS,
+        severity: AuditSeverity.INFO,
+        source: 'WEB',
+        endpoint: req.url,
+        httpMethod: 'POST',
+        httpStatus: 200,
+        description: `Administrator ${user.email} (${user.role}) authenticated successfully`,
         ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] as string,
       });
+      (req as any).auditLogged = true;
 
       const response: ApiResponse<AuthResponseData> = {
         success: true,
@@ -190,6 +225,43 @@ export async function adminAuthRoutes(
       };
 
       return reply.send(response);
+    },
+  );
+
+  // 1b. ADMIN LOGOUT
+  app.post(
+    '/admin/auth/logout',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const user = req.user;
+      if (user?.sessionId) {
+        await sessionService.revokeSession(user.sessionId);
+      }
+      await auditService.logEvent({
+        correlationId: req.id,
+        requestId: (req.headers['x-request-id'] as string) || req.id,
+        sessionId: user?.sessionId,
+        actorId: user?.sub,
+        actorName: (user as any)?.fullName || user?.email,
+        actorEmail: user?.email,
+        actorRole: user?.role || 'admin',
+        actorType: 'ADMIN',
+        action: 'ADMIN_LOGOUT',
+        category: AuditCategory.AUTH,
+        resourceType: 'admin_session',
+        resourceId: user?.sessionId || null,
+        result: AuditResult.SUCCESS,
+        severity: AuditSeverity.INFO,
+        source: 'WEB',
+        endpoint: req.url,
+        httpMethod: 'POST',
+        httpStatus: 200,
+        description: `Administrator ${user?.email || user?.sub || ''} logged out`,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] as string,
+      });
+      (req as any).auditLogged = true;
+      return reply.send({ success: true, message: 'Administrator logged out successfully' });
     },
   );
 
