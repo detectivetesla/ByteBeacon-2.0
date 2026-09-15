@@ -147,11 +147,12 @@ export interface MetricCardProps {
   value: string | number;
   subtitle?: string;
   subvalue?: string;
+  description?: string;
   trend?: {
     value: string;
     isPositive: boolean;
   };
-  icon?: React.ReactNode;
+  icon?: React.ReactNode | React.ElementType;
   accent?: 'green' | 'cyan' | 'amber' | 'violet' | 'red' | 'blue' | 'orange' | 'purple';
   variant?: CardVariant;
   style?: React.CSSProperties;
@@ -162,17 +163,28 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   value,
   subtitle,
   subvalue,
+  description,
   trend,
   icon,
   accent,
   variant = 'default',
   style,
 }) => {
-  const displaySubtitle = subvalue || subtitle;
+  const displaySubtitle = subvalue || subtitle || description;
   const mapAccentToCardAccent = (a?: string): CardAccentColor | undefined => {
     if (!a) return undefined;
     if (a === 'violet') return 'purple';
     return a as CardAccentColor;
+  };
+
+  const renderIcon = () => {
+    if (!icon) return null;
+    if (React.isValidElement(icon)) return icon;
+    if (typeof icon === 'function' || (typeof icon === 'object' && icon !== null && (icon as any).$$typeof)) {
+      const IconComponent = icon as React.ElementType;
+      return <IconComponent size={16} />;
+    }
+    return icon as React.ReactNode;
   };
 
   return (
@@ -199,7 +211,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
         >
           {title}
         </span>
-        {icon && <span style={{ display: 'flex' }}>{icon}</span>}
+        {icon && <span style={{ display: 'flex' }}>{renderIcon()}</span>}
       </div>
 
       <div>

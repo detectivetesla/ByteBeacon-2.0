@@ -2433,8 +2433,8 @@ export const AdminCommunicationsPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        setComposeTargetType('INDIVIDUAL');
-                        setComposeRecipients([recipientHistory.recipient.email]);
+                        setComposeTarget(CommunicationTargetType.INDIVIDUAL);
+                        setComposeRecipientEmail(recipientHistory.recipient.email);
                         setActiveTab('compose');
                       }}
                       style={primaryButtonStyle}
@@ -2450,26 +2450,30 @@ export const AdminCommunicationsPage: React.FC = () => {
                   <MetricCard
                     title="Total Sent"
                     value={recipientHistory.summary.totalSent}
-                    description="Total dispatches"
-                    icon={Mail}
+                    subvalue="Total dispatches"
+                    accent="blue"
+                    icon={<TactileIcon icon={Mail} color="speed" size="sm" />}
                   />
                   <MetricCard
                     title="Delivered"
                     value={recipientHistory.summary.deliveredCount}
-                    description={recipientHistory.summary.totalSent > 0 ? `${Math.round((recipientHistory.summary.deliveredCount / recipientHistory.summary.totalSent) * 100)}% delivery rate` : '0% delivery rate'}
-                    icon={CheckCircle}
+                    subvalue={recipientHistory.summary.totalSent > 0 ? `${Math.round((recipientHistory.summary.deliveredCount / recipientHistory.summary.totalSent) * 100)}% delivery rate` : '0% delivery rate'}
+                    accent="green"
+                    icon={<TactileIcon icon={CheckCircle} color="security" size="sm" />}
                   />
                   <MetricCard
                     title="Failed"
                     value={recipientHistory.summary.failedCount}
-                    description="Rejections or errors"
-                    icon={XCircle}
+                    subvalue="Rejections or errors"
+                    accent="red"
+                    icon={<TactileIcon icon={XCircle} color="red" size="sm" />}
                   />
                   <MetricCard
                     title="Pending"
                     value={recipientHistory.summary.pendingCount}
-                    description="In transmission queue"
-                    icon={Clock}
+                    subvalue="In transmission queue"
+                    accent="amber"
+                    icon={<TactileIcon icon={Clock} color="amber" size="sm" />}
                   />
                 </div>
               </div>
