@@ -1,25 +1,27 @@
 import { RouteObject, Navigate } from 'react-router-dom';
 import { AdminRouteGuard } from '../auth/guards/AdminRouteGuard.js';
 import { AdminLayout } from '../layouts/AdminLayout.js';
-import { AdminDashboard } from '../pages/admin/AdminDashboard.js';
-import { AdminAnalyticsPage } from '../pages/admin/AdminAnalyticsPage.js';
-import { AdminUsersPage } from '../pages/admin/AdminUsersPage.js';
-import { AdminUserDetailPage } from '../pages/admin/AdminUserDetailPage.js';
-import { AdminAgentsPage } from '../pages/admin/AdminAgentsPage.js';
-import { AdminCommunicationsPage } from '../pages/admin/AdminCommunicationsPage.js';
-import { AdminOrdersPage } from '../pages/admin/AdminOrdersPage.js';
-import { AdminPaymentsPage } from '../pages/admin/AdminPaymentsPage.js';
-import { AdminLedgerPage } from '../pages/admin/AdminLedgerPage.js';
-import { AdminReconciliationPage } from '../pages/admin/AdminReconciliationPage.js';
-import { AdminProviderPage } from '../pages/admin/AdminProviderPage.js';
-import { AdminDlqPage } from '../pages/admin/AdminDlqPage.js';
-import { AdminAuditPage } from '../pages/admin/AdminAuditPage.js';
-import { AdminSettingsPage } from '../pages/admin/AdminSettingsPage.js';
-import { AdminApiManagementPage } from '../pages/admin/AdminApiManagementPage.js';
-import { AdminStoresPage } from '../pages/admin/AdminStoresPage.js';
-import { AdminDataPlansPage } from '../pages/admin/AdminDataPlansPage.js';
-import { AdminPendingApprovalsPage } from '../pages/admin/AdminPendingApprovalsPage.js';
-import { AdminNotificationsPage } from '../pages/admin/AdminNotificationsPage.js';
+import { withLazy } from '../components/common/LazyRoute.js';
+
+const AdminDashboard = withLazy(() => import('../pages/admin/AdminDashboard.js'), 'AdminDashboard');
+const AdminAnalyticsPage = withLazy(() => import('../pages/admin/AdminAnalyticsPage.js'), 'AdminAnalyticsPage');
+const AdminUsersPage = withLazy(() => import('../pages/admin/AdminUsersPage.js'), 'AdminUsersPage');
+const AdminUserDetailPage = withLazy(() => import('../pages/admin/AdminUserDetailPage.js'), 'AdminUserDetailPage');
+const AdminAgentsPage = withLazy(() => import('../pages/admin/AdminAgentsPage.js'), 'AdminAgentsPage');
+const AdminCommunicationsPage = withLazy(() => import('../pages/admin/AdminCommunicationsPage.js'), 'AdminCommunicationsPage');
+const AdminOrdersPage = withLazy(() => import('../pages/admin/AdminOrdersPage.js'), 'AdminOrdersPage');
+const AdminPaymentsPage = withLazy(() => import('../pages/admin/AdminPaymentsPage.js'), 'AdminPaymentsPage');
+const AdminLedgerPage = withLazy(() => import('../pages/admin/AdminLedgerPage.js'), 'AdminLedgerPage');
+const AdminReconciliationPage = withLazy(() => import('../pages/admin/AdminReconciliationPage.js'), 'AdminReconciliationPage');
+const AdminProviderPage = withLazy(() => import('../pages/admin/AdminProviderPage.js'), 'AdminProviderPage');
+const AdminDlqPage = withLazy(() => import('../pages/admin/AdminDlqPage.js'), 'AdminDlqPage');
+const AdminAuditPage = withLazy(() => import('../pages/admin/AdminAuditPage.js'), 'AdminAuditPage');
+const AdminSettingsPage = withLazy(() => import('../pages/admin/AdminSettingsPage.js'), 'AdminSettingsPage');
+const AdminApiManagementPage = withLazy(() => import('../pages/admin/AdminApiManagementPage.js'), 'AdminApiManagementPage');
+const AdminStoresPage = withLazy(() => import('../pages/admin/AdminStoresPage.js'), 'AdminStoresPage');
+const AdminDataPlansPage = withLazy(() => import('../pages/admin/AdminDataPlansPage.js'), 'AdminDataPlansPage');
+const AdminPendingApprovalsPage = withLazy(() => import('../pages/admin/AdminPendingApprovalsPage.js'), 'AdminPendingApprovalsPage');
+const AdminNotificationsPage = withLazy(() => import('../pages/admin/AdminNotificationsPage.js'), 'AdminNotificationsPage');
 
 export const adminRoutes: RouteObject[] = [
   {

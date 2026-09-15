@@ -6,8 +6,10 @@ import { customerRoutes } from './customer.routes.js';
 import { agentRoutes } from './agent.routes.js';
 import { storeRoutes } from './store.routes.js';
 import { adminRoutes } from './admin.routes.js';
-import { PublicStorefrontPage } from '../pages/public/PublicStorefrontPage.js';
+import { withLazy } from '../components/common/LazyRoute.js';
 import { isStorefrontHostname } from '../config/storefront.config.js';
+
+const PublicStorefrontPage = withLazy(() => import('../pages/public/PublicStorefrontPage.js'), 'PublicStorefrontPage');
 
 /**
  * Only render the storefront slug route on storefront domains (e.g. apisolutions.store/fastdata).

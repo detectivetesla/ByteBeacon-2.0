@@ -1,12 +1,14 @@
 import React from 'react';
 import { RouteObject } from 'react-router-dom';
 import { PublicLayout } from '../layouts/PublicLayout.js';
-import { LandingPage } from '../pages/public/LandingPage.js';
-import { OrderTrackingPage } from '../pages/public/OrderTrackingPage.js';
-import { DeveloperPortal } from '../pages/developer/DeveloperPortal.js';
-import { UnauthorizedPage } from '../pages/public/UnauthorizedPage.js';
-import { PublicStorefrontPage } from '../pages/public/PublicStorefrontPage.js';
+import { withLazy } from '../components/common/LazyRoute.js';
 import { isStorefrontHostname } from '../config/storefront.config.js';
+
+const LandingPage = withLazy(() => import('../pages/public/LandingPage.js'), 'LandingPage');
+const OrderTrackingPage = withLazy(() => import('../pages/public/OrderTrackingPage.js'), 'OrderTrackingPage');
+const DeveloperPortal = withLazy(() => import('../pages/developer/DeveloperPortal.js'), 'DeveloperPortal');
+const UnauthorizedPage = withLazy(() => import('../pages/public/UnauthorizedPage.js'), 'UnauthorizedPage');
+const PublicStorefrontPage = withLazy(() => import('../pages/public/PublicStorefrontPage.js'), 'PublicStorefrontPage');
 
 export const DynamicHomeRoute: React.FC = () => {
   if (isStorefrontHostname()) {

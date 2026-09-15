@@ -18,9 +18,14 @@ export interface ListCatalogProductsOptions {
 
 export class CatalogService {
   private readonly db: pg.Pool;
+  private cache = new Map<string, { data: CatalogProductDto[]; expiresAt: number }>();
 
   constructor(db: pg.Pool) {
     this.db = db;
+  }
+
+  public clearCache(): void {
+    this.cache.clear();
   }
 
   private mapRowToDto(r: any, options?: { channel?: string; role?: string }): CatalogProductDto {
@@ -105,6 +110,14 @@ export class CatalogService {
       role = optionsOrNetwork.role;
     }
 
+    const cacheKey = `${network || 'ALL'}:${channel || 'ALL'}:${status || 'ALL'}`;
+    if (!userId) {
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() < cached.expiresAt) {
+        return cached.data;
+      }
+    }
+
     const params: unknown[] = [];
     let paramIdx = 1;
 
@@ -183,12 +196,20 @@ export class CatalogService {
 
     try {
       const result = await this.db.query(query, params);
-      return (result?.rows || []).map((r) => this.mapRowToDto(r, { channel, role }));
+      const products = (result?.rows || []).map((r) => this.mapRowToDto(r, { channel, role }));
+      if (!userId) {
+        this.cache.set(cacheKey, { data: products, expiresAt: Date.now() + 60000 });
+      }
+      return products;
     } catch {
       // Fallback query if joins fail on un-migrated tables
       const fallbackQuery = `SELECT * FROM catalog_products WHERE is_active = TRUE ORDER BY network ASC, data_amount_mb ASC`;
       const fallbackRes = await this.db.query(fallbackQuery).catch(() => ({ rows: [] }));
-      return (fallbackRes?.rows || []).map((r) => this.mapRowToDto(r, { channel, role }));
+      const products = (fallbackRes?.rows || []).map((r) => this.mapRowToDto(r, { channel, role }));
+      if (!userId) {
+        this.cache.set(cacheKey, { data: products, expiresAt: Date.now() + 60000 });
+      }
+      return products;
     }
   }
 

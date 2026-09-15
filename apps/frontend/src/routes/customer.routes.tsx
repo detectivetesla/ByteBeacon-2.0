@@ -1,16 +1,18 @@
 import { RouteObject, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from '../auth/guards/ProtectedRoute.js';
 import { CustomerLayout } from '../layouts/CustomerLayout.js';
-import { CustomerDashboard } from '../pages/dashboard/CustomerDashboard.js';
-import { BuyDataPage } from '../pages/customer/BuyDataPage.js';
-import { OrdersPage } from '../pages/customer/OrdersPage.js';
-import { WalletPage } from '../pages/customer/WalletPage.js';
-import { TransactionsPage } from '../pages/customer/TransactionsPage.js';
-import { SettingsPage } from '../pages/customer/SettingsPage.js';
-import { CustomerProfilePage } from '../pages/customer/CustomerProfilePage.js';
-import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
-import { OrderTrackingPage } from '../pages/public/OrderTrackingPage.js';
-import { CustomerPendingApprovalsPage } from '../pages/customer/CustomerPendingApprovalsPage.js';
+import { withLazy } from '../components/common/LazyRoute.js';
+
+const CustomerDashboard = withLazy(() => import('../pages/dashboard/CustomerDashboard.js'), 'CustomerDashboard');
+const BuyDataPage = withLazy(() => import('../pages/customer/BuyDataPage.js'), 'BuyDataPage');
+const OrdersPage = withLazy(() => import('../pages/customer/OrdersPage.js'), 'OrdersPage');
+const WalletPage = withLazy(() => import('../pages/customer/WalletPage.js'), 'WalletPage');
+const TransactionsPage = withLazy(() => import('../pages/customer/TransactionsPage.js'), 'TransactionsPage');
+const SettingsPage = withLazy(() => import('../pages/customer/SettingsPage.js'), 'SettingsPage');
+const CustomerProfilePage = withLazy(() => import('../pages/customer/CustomerProfilePage.js'), 'CustomerProfilePage');
+const NotificationsPage = withLazy(() => import('../pages/shared/NotificationsPage.js'), 'NotificationsPage');
+const OrderTrackingPage = withLazy(() => import('../pages/public/OrderTrackingPage.js'), 'OrderTrackingPage');
+const CustomerPendingApprovalsPage = withLazy(() => import('../pages/customer/CustomerPendingApprovalsPage.js'), 'CustomerPendingApprovalsPage');
 
 export const customerRoutes: RouteObject[] = [
   {

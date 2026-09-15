@@ -123,7 +123,7 @@ describe('ByteBeacon 2.0 — Navigation Permission Filtering', () => {
     expect(paths).toContain('/admin/reconciliation');
     expect(paths).toContain('/admin/provider');
     expect(paths).toContain('/admin/dlq');
-    expect(paths).toContain('/admin/audit');
+    expect(paths).toContain('/admin/activity');
     expect(paths).toContain('/admin/settings');
   });
 });

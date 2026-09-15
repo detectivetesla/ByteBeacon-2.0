@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type pg from 'pg';
 import { PasswordValidator } from '../../core/security/password-validator.js';
-import { PasswordHasher } from '../../core/security/password-hasher.js';
+import { PasswordHasher, TIMING_DUMMY_ARGON2_HASH } from '../../core/security/password-hasher.js';
 import { TokenService } from '../../core/security/token.service.js';
 import { SessionService } from '../../core/security/session.service.js';
 import { AuditService } from '../../core/security/audit.service.js';
@@ -523,7 +523,7 @@ export async function customerAuthRoutes(
 
         if (devMatch) {
           if (!devMatch.expectedPass || password !== devMatch.expectedPass) {
-            await hasher.verifyPassword('$argon2id$v=19$m=65536,t=3,p=4$dummyhashdummyhash$dummyhashdummyhash', password);
+            await hasher.verifyPassword(TIMING_DUMMY_ARGON2_HASH, password);
             throw new UnauthorizedError('Invalid login credentials');
           }
 
@@ -682,18 +682,36 @@ export async function customerAuthRoutes(
         cleanDigits.startsWith('2330') ? `0${cleanDigits.slice(4)}` : cleanDigits,
       ].filter(Boolean);
 
-      const query = `
-        SELECT *
-        FROM users
-        WHERE LOWER(email) = LOWER($1)
-           OR phone = ANY($2::text[])
-           OR phone_number = ANY($2::text[])
-           OR (LENGTH($3) >= 9 AND regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') = $3)
-           OR (LENGTH($3) >= 9 AND regexp_replace(COALESCE(phone_number, ''), '\\D', '', 'g') = $3)
-      `;
+      // Fast targeted query based on identifier type (avoiding slow full-table regex evaluation)
+      const isEmail = normIdent.includes('@');
       let userRes: any = null;
+
       try {
-        const rawRes = await db.query(query, [normIdent, possiblePhones, cleanDigits]);
+        let rawRes: any = null;
+        if (isEmail) {
+          // Direct indexed lookup on LOWER(email) using idx_users_email
+          rawRes = await db.query(
+            'SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+            [normIdent],
+          );
+        } else {
+          // Direct indexed lookup on phone/phone_number using idx_users_phone
+          rawRes = await db.query(
+            'SELECT * FROM users WHERE phone = ANY($1::text[]) OR phone_number = ANY($1::text[]) LIMIT 1',
+            [possiblePhones],
+          );
+          // If not found and cleanDigits is valid length, fallback to regex search
+          if ((!rawRes || !rawRes.rows || rawRes.rows.length === 0) && cleanDigits.length >= 9) {
+            rawRes = await db.query(
+              `SELECT * FROM users
+               WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') = $1
+                  OR regexp_replace(COALESCE(phone_number, ''), '\\D', '', 'g') = $1
+               LIMIT 1`,
+              [cleanDigits],
+            );
+          }
+        }
+
         if (rawRes && rawRes.rows && rawRes.rows.length > 0) {
           const rawRow = rawRes.rows[0];
           const rawRole = (rawRow.role || 'customer').toString().toLowerCase().trim();
@@ -739,9 +757,9 @@ export async function customerAuthRoutes(
         userRes = { rows: [] };
       }
 
-      // Pre-seed development demo accounts if cache is empty
+      // Pre-seed development demo accounts if cache is empty (use calibrated dummy hash to avoid on-request CPU spike)
       if (devUserCache.size === 0) {
-        const defaultHash = await hasher.hashPassword('Password123!@#');
+        const defaultHash = TIMING_DUMMY_ARGON2_HASH;
         const defaultUsers = [
           { id: '00000000-0000-0000-0000-000000000001', email: 'customer@bytebeacon.com', phone: '0240000001', fullName: 'Demo Customer', role: UserRole.CUSTOMER, status: UserStatus.ACTIVE, securityDomain: SecurityDomain.CUSTOMER, phoneVerified: true, mfaEnabled: false, walletBalancePesewas: '500000', passwordHash: defaultHash },
           { id: '00000000-0000-0000-0000-000000000002', email: 'agent@bytebeacon.com', phone: '0240000002', fullName: 'Demo Agent Reseller', role: UserRole.AGENT, status: UserStatus.ACTIVE, securityDomain: SecurityDomain.AGENT, phoneVerified: true, mfaEnabled: false, walletBalancePesewas: '2500000', passwordHash: defaultHash },
@@ -775,7 +793,7 @@ export async function customerAuthRoutes(
 
       // Constant-time dummy hash verification if user not found to prevent user enumeration timing attacks
       if (!userRes || userRes.rows.length === 0) {
-        await hasher.verifyPassword('$argon2id$v=19$m=65536,t=3,p=4$dummyhashdummyhash$dummyhashdummyhash', password);
+        await hasher.verifyPassword(TIMING_DUMMY_ARGON2_HASH, password);
         throw new UnauthorizedError('Invalid login credentials');
       }
 

@@ -3,16 +3,18 @@ import { ProtectedRoute } from '../auth/guards/ProtectedRoute.js';
 import { RoleGuard } from '../auth/guards/RoleGuard.js';
 import { StoreAccessGuard } from '../auth/guards/StoreAccessGuard.js';
 import { StoreLayout } from '../layouts/StoreLayout.js';
-import { StoreDashboardPage } from '../pages/store/StoreDashboardPage.js';
-import { StoreOrdersPage } from '../pages/store/StoreOrdersPage.js';
-import { StoreProductsPage } from '../pages/store/StoreProductsPage.js';
-import { StoreCustomersPage } from '../pages/store/StoreCustomersPage.js';
-import { StoreAnalyticsPage } from '../pages/store/StoreAnalyticsPage.js';
-import { StoreProfilePage } from '../pages/store/StoreProfilePage.js';
-import { StoreAppearancePage } from '../pages/store/StoreAppearancePage.js';
-import { StoreFinancePage } from '../pages/store/StoreFinancePage.js';
-import { StoreSettingsPage } from '../pages/store/StoreSettingsPage.js';
-import { NotificationsPage } from '../pages/shared/NotificationsPage.js';
+import { withLazy } from '../components/common/LazyRoute.js';
+
+const StoreDashboardPage = withLazy(() => import('../pages/store/StoreDashboardPage.js'), 'StoreDashboardPage');
+const StoreOrdersPage = withLazy(() => import('../pages/store/StoreOrdersPage.js'), 'StoreOrdersPage');
+const StoreProductsPage = withLazy(() => import('../pages/store/StoreProductsPage.js'), 'StoreProductsPage');
+const StoreCustomersPage = withLazy(() => import('../pages/store/StoreCustomersPage.js'), 'StoreCustomersPage');
+const StoreAnalyticsPage = withLazy(() => import('../pages/store/StoreAnalyticsPage.js'), 'StoreAnalyticsPage');
+const StoreProfilePage = withLazy(() => import('../pages/store/StoreProfilePage.js'), 'StoreProfilePage');
+const StoreAppearancePage = withLazy(() => import('../pages/store/StoreAppearancePage.js'), 'StoreAppearancePage');
+const StoreFinancePage = withLazy(() => import('../pages/store/StoreFinancePage.js'), 'StoreFinancePage');
+const StoreSettingsPage = withLazy(() => import('../pages/store/StoreSettingsPage.js'), 'StoreSettingsPage');
+const NotificationsPage = withLazy(() => import('../pages/shared/NotificationsPage.js'), 'NotificationsPage');
 
 export const storeRoutes: RouteObject[] = [
   {

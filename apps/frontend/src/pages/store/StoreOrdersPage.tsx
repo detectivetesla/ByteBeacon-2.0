@@ -5,6 +5,7 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Select, SearchInput } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi, StoreOrdersResponseDto } from '../../api/stores.api.js';
+import { useDebounce } from '../../hooks/useDebounce.js';
 import {
   ShoppingBag,
   Download,
@@ -41,6 +42,7 @@ export const StoreOrdersPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [networkFilter, setNetworkFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [page, setPage] = useState<number>(1);
   const limit = 10;
 
@@ -50,7 +52,7 @@ export const StoreOrdersPage: React.FC = () => {
       const res = await storesApi.getStoreOrders({
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
-        search: searchQuery.trim() || undefined,
+        search: debouncedSearch.trim() || undefined,
         page,
         limit,
       });
@@ -64,7 +66,7 @@ export const StoreOrdersPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, networkFilter, searchQuery, page, limit, toastError]);
+  }, [statusFilter, networkFilter, debouncedSearch, page, limit, toastError]);
 
   useEffect(() => {
     fetchOrders();

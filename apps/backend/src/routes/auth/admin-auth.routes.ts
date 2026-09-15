@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type pg from 'pg';
-import { PasswordHasher } from '../../core/security/password-hasher.js';
+import { PasswordHasher, TIMING_DUMMY_ARGON2_HASH } from '../../core/security/password-hasher.js';
 import { TokenService } from '../../core/security/token.service.js';
 import { SessionService } from '../../core/security/session.service.js';
 import { MfaService } from '../../core/security/mfa.service.js';
@@ -97,7 +97,7 @@ export async function adminAuthRoutes(
       }
 
       if (!userRes || userRes.rows.length === 0) {
-        await hasher.verifyPassword('$argon2id$v=19$m=65536,t=3,p=4$dummyhashdummyhash$dummyhashdummyhash', password);
+        await hasher.verifyPassword(TIMING_DUMMY_ARGON2_HASH, password);
         throw new UnauthorizedError('Invalid administrator credentials');
       }
 

@@ -6,6 +6,7 @@ import { SearchInput } from '../../components/ui/index.js';
 import { Download, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
+import { useDebounce } from '../../hooks/useDebounce.js';
 
 interface StoreCustomerRecord {
   phone: string;
@@ -22,6 +23,7 @@ export const StoreCustomersPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -30,7 +32,7 @@ export const StoreCustomersPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await storesApi.getStoreCustomers({ search, page, limit: 10 });
+      const res = await storesApi.getStoreCustomers({ search: debouncedSearch.trim() || undefined, page, limit: 10 });
       if (res && res.customers) {
         setCustomers(res.customers as any);
         setTotalPages(res.pagination?.totalPages || 1);
@@ -44,7 +46,7 @@ export const StoreCustomersPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, page, toastError]);
+  }, [debouncedSearch, page, toastError]);
 
   useEffect(() => {
     fetchCustomers();
@@ -52,7 +54,7 @@ export const StoreCustomersPage: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [debouncedSearch]);
 
   const getRelativeDate = (dateString: string) => {
     if (!dateString) return 'N/A';

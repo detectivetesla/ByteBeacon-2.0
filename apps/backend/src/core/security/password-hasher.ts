@@ -8,12 +8,16 @@ export interface Argon2Options {
   parallelism: number; // threads
 }
 
-// OWASP Recommended Default Options for Argon2id
+// OWASP & RFC 9106 Calibrated Interactive Web Options for Argon2id (sub-100ms verification)
 export const DEFAULT_ARGON2_OPTIONS: Argon2Options = {
-  memoryCost: 65536, // 64 MB
-  timeCost: 3,
-  parallelism: 4,
+  memoryCost: parseInt(process.env.ARGON2_MEMORY_COST || '19456', 10), // 19 MiB
+  timeCost: parseInt(process.env.ARGON2_TIME_COST || '2', 10),
+  parallelism: parseInt(process.env.ARGON2_PARALLELISM || '1', 10),
 };
+
+// Calibrated constant-time timing dummy hash to prevent user enumeration timing attacks with sub-100ms response
+export const TIMING_DUMMY_ARGON2_HASH =
+  '$argon2id$v=19$m=19456,t=2,p=1$ZHVtbXlzYWx0ZHVtbXlzYWx0$dummyhashdummyhashdummyhashdummyhashdummyhash';
 
 export class PasswordHasher {
   private readonly options: Argon2Options;
