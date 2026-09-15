@@ -196,11 +196,13 @@ export const AdminNotificationsPage: React.FC = () => {
   const loadOverview = useCallback(async () => {
     try {
       const data = await adminApi.getNotificationOverview();
-      setOverview(data);
+      if (data) {
+        setOverview(data);
+      }
     } catch (err: any) {
-      toastError('Failed to load overview', err.message);
+      console.warn('[NOTIFICATIONS_PAGE] Failed to load overview telemetry:', err.message);
     }
-  }, [toastError]);
+  }, []);
 
   // Fetch Alerts
   const loadAlerts = useCallback(async () => {
@@ -214,32 +216,36 @@ export const AdminNotificationsPage: React.FC = () => {
       });
       if (res?.items) {
         setAlerts(res.items);
-        setAlertMeta(res.meta);
+        setAlertMeta(res.meta || { page: 1, limit: 25, total: res.items.length, totalPages: 1 });
       }
     } catch (err: any) {
-      toastError('Failed to load alerts', err.message);
+      console.warn('[NOTIFICATIONS_PAGE] Failed to load alerts:', err.message);
     }
-  }, [alertSeverityFilter, alertStatusFilter, alertSourceFilter, alertMeta.page, alertMeta.limit, toastError]);
+  }, [alertSeverityFilter, alertStatusFilter, alertSourceFilter, alertMeta.page, alertMeta.limit]);
 
   // Fetch Rules
   const loadRules = useCallback(async () => {
     try {
       const data = await adminApi.getNotificationRules();
-      setRules(data);
+      if (Array.isArray(data)) {
+        setRules(data);
+      }
     } catch (err: any) {
-      toastError('Failed to load notification rules', err.message);
+      console.warn('[NOTIFICATIONS_PAGE] Failed to load notification rules:', err.message);
     }
-  }, [toastError]);
+  }, []);
 
   // Fetch Analytics
   const loadAnalytics = useCallback(async () => {
     try {
       const data = await adminApi.getNotificationAnalytics();
-      setAnalytics(data);
+      if (data) {
+        setAnalytics(data);
+      }
     } catch (err: any) {
-      toastError('Failed to load delivery analytics', err.message);
+      console.warn('[NOTIFICATIONS_PAGE] Failed to load delivery analytics:', err.message);
     }
-  }, [toastError]);
+  }, []);
 
   // Fetch History
   const loadHistory = useCallback(async () => {
@@ -253,29 +259,30 @@ export const AdminNotificationsPage: React.FC = () => {
       });
       if (res?.items) {
         setHistory(res.items);
-        setHistoryMeta(res.meta);
+        setHistoryMeta(res.meta || { page: 1, limit: 25, total: res.items.length, totalPages: 1 });
       }
     } catch (err: any) {
-      toastError('Failed to load history', err.message);
+      console.warn('[NOTIFICATIONS_PAGE] Failed to load notification history:', err.message);
     }
-  }, [histSearch, histChannel, histStatus, historyMeta.page, historyMeta.limit, toastError]);
+  }, [histSearch, histChannel, histStatus, historyMeta.page, historyMeta.limit]);
 
   // Fetch Admin In-App Notifications
   const loadAdminNotifications = useCallback(async () => {
     setIsLoadingAdminNotifs(true);
     try {
       const [res, counts] = await Promise.all([
-        adminApi.getUserNotifications({ limit: 50 }),
-        adminApi.getUserNotificationCounts(),
+        adminApi.getUserNotifications({ limit: 50 }).catch(() => ({ items: [], meta: { page: 1, limit: 50, total: 0, totalPages: 0 } })),
+        adminApi.getUserNotificationCounts().catch(() => ({ total: 0, unread: 0 })),
       ]);
       setAdminNotifications(res?.items || []);
-      setAdminNotifCounts(counts);
+      setAdminNotifCounts(counts || { total: 0, unread: 0 });
     } catch (err: any) {
-      toastError('Failed to load admin notifications', err.message);
+      console.warn('[NOTIFICATIONS_PAGE] Failed to load admin notifications feed:', err.message);
     } finally {
       setIsLoadingAdminNotifs(false);
     }
-  }, [toastError]);
+  }, []);
+
 
   const handleMarkAllAdminNotificationsRead = async () => {
     try {
@@ -356,9 +363,10 @@ export const AdminNotificationsPage: React.FC = () => {
   // Initial load
   const loadAll = useCallback(async () => {
     setIsLoading(true);
-    await Promise.all([loadOverview(), loadAdminNotifications(), loadAlerts(), loadRules(), loadAnalytics(), loadHistory()]);
+    await Promise.allSettled([loadOverview(), loadAdminNotifications(), loadAlerts(), loadRules(), loadAnalytics(), loadHistory()]);
     setIsLoading(false);
   }, [loadOverview, loadAdminNotifications, loadAlerts, loadRules, loadAnalytics, loadHistory]);
+
 
   useEffect(() => {
     loadAll();
