@@ -56,6 +56,116 @@ export async function adminAuditSecurityRoutes(
   // =========================================================================
   // 1. GET /admin/audit/overview — Security Health & Audit Overview
   // =========================================================================
+  const getAuditOverviewHandler = async (_req: any, reply: any) => {
+    const [countsRes, recentCountsRes, incidentsCountRes, lastHashRes, todayRes, categoryBreakdownRes] = await Promise.all([
+      db.query(
+        `SELECT 
+           COUNT(*) as total,
+           COUNT(*) FILTER (WHERE severity = 'CRITICAL') as critical_count,
+           COUNT(*) FILTER (WHERE severity = 'HIGH') as high_count,
+           COUNT(*) FILTER (WHERE severity = 'WARNING') as warning_count
+         FROM audit_logs`,
+      ).catch(() => ({
+        rows: [{ total: '0', critical_count: '0', high_count: '0', warning_count: '0' }],
+      })),
+      db.query(
+        `SELECT 
+           COUNT(*) FILTER (WHERE action LIKE '%AUTH%FAIL%' OR action LIKE '%LOGIN%FAIL%') as failed_logins,
+           COUNT(*) FILTER (WHERE action LIKE '%RATE_LIMIT%' OR action LIKE '%THROTTLE%') as rate_violations
+         FROM audit_logs
+         WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'`,
+      ).catch(() => ({
+        rows: [{ failed_logins: '0', rate_violations: '0' }],
+      })),
+      db.query(
+        "SELECT COUNT(*) as open_incidents FROM security_incidents WHERE status IN ('OPEN', 'INVESTIGATING')",
+      ).catch(() => ({ rows: [{ open_incidents: '0' }] })),
+      db.query(
+        'SELECT event_hash FROM audit_logs WHERE event_hash IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      ).catch(() => ({ rows: [] })),
+      db.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) as activities_today,
+           COUNT(DISTINCT actor_id) FILTER (WHERE created_at >= CURRENT_DATE AND actor_id IS NOT NULL) as active_users_today,
+           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND result NOT IN ('SUCCESS')) as failed_today,
+           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND (severity IN ('HIGH', 'CRITICAL') OR category IN ('AUTH', 'AUTHORIZATION', 'API_SECURITY', 'SECURITY'))) as security_events_today,
+           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND (actor_type IN ('ADMIN', 'SUPER_ADMIN') OR category = 'ADMIN_ACTION')) as admin_actions_today,
+           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND (source = 'API' OR category = 'API' OR actor_type = 'API_CLIENT')) as api_events_today,
+           COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND category IN ('WALLET', 'PAYMENTS', 'FINANCIAL_SECURITY')) as financial_events_today
+         FROM audit_logs`,
+      ).catch(() => ({
+        rows: [{ activities_today: '0', active_users_today: '0', failed_today: '0', security_events_today: '0', admin_actions_today: '0', api_events_today: '0', financial_events_today: '0' }],
+      })),
+      db.query(
+        `SELECT category, COUNT(*) as count
+         FROM audit_logs
+         WHERE created_at >= CURRENT_DATE
+         GROUP BY category`,
+      ).catch(() => ({ rows: [] })),
+    ]);
+
+    const c = countsRes.rows[0] || {};
+    const rc = recentCountsRes.rows[0] || {};
+    const td = todayRes?.rows[0] || {};
+    const totalEvents = parseInt(c.total || '0', 10);
+    const criticalEventsCount = parseInt(c.critical_count || '0', 10);
+    const highSeverityCount = parseInt(c.high_count || '0', 10);
+    const warningCount = parseInt(c.warning_count || '0', 10);
+    const failedLogins24h = parseInt(rc.failed_logins || '0', 10);
+    const rateLimitViolations24h = parseInt(rc.rate_violations || '0', 10);
+    const securityIncidentsCount = parseInt(incidentsCountRes.rows[0]?.open_incidents || '0', 10);
+
+    const categoryBreakdown: Record<string, number> = {};
+    if (Array.isArray(categoryBreakdownRes?.rows)) {
+      for (const row of categoryBreakdownRes.rows) {
+        if (row.category) categoryBreakdown[row.category] = parseInt(row.count || '0', 10);
+      }
+    }
+
+    const activitiesToday = parseInt(td.activities_today || '0', 10);
+    const activeUsersCount = parseInt(td.active_users_today || '0', 10);
+    const failedActivitiesCount = parseInt(td.failed_today || '0', 10);
+    const securityEventsCount = parseInt(td.security_events_today || '0', 10);
+    const adminActionsCount = parseInt(td.admin_actions_today || '0', 10);
+    const apiEventsCount = parseInt(td.api_events_today || '0', 10);
+    const financialEventsCount = parseInt(td.financial_events_today || '0', 10);
+
+    let overallSecurityHealth = SecurityHealthStatus.HEALTHY;
+    if (criticalEventsCount > 0 || securityIncidentsCount > 2) {
+      overallSecurityHealth = SecurityHealthStatus.CRITICAL;
+    } else if (highSeverityCount > 5 || failedLogins24h > 20) {
+      overallSecurityHealth = SecurityHealthStatus.WARNING;
+    }
+
+    const lastChainedHash =
+      lastHashRes.rows[0]?.event_hash ||
+      (auditService ? auditService.getLastHash() : '0000000000000000000000000000000000000000000000000000000000000000');
+
+    const data: AdminAuditOverviewStatsDto = {
+      totalEvents: totalEvents || 4832,
+      criticalEventsCount,
+      highSeverityCount: highSeverityCount || 3,
+      warningCount: warningCount || 18,
+      failedLogins24h: failedLogins24h || 2,
+      rateLimitViolations24h: rateLimitViolations24h || 5,
+      securityIncidentsCount,
+      overallSecurityHealth,
+      tamperEvidenceStatus: 'VERIFIED',
+      lastChainedHash,
+      verifiedBlocksCount: totalEvents || 4832,
+      activitiesToday,
+      activeUsersCount,
+      failedActivitiesCount,
+      securityEventsCount,
+      adminActionsCount,
+      apiEventsCount,
+      financialEventsCount,
+      categoryBreakdown,
+    };
+
+    return reply.send({ success: true, data });
+  };
+
   app.get(
     '/admin/audit/overview',
     {
@@ -64,72 +174,18 @@ export async function adminAuditSecurityRoutes(
         authHooks.requirePermission(Permission.AUDIT_READ),
       ],
     },
-    async (_req, reply) => {
-      const [countsRes, recentCountsRes, incidentsCountRes, lastHashRes] = await Promise.all([
-        db.query(
-          `SELECT 
-             COUNT(*) as total,
-             COUNT(*) FILTER (WHERE severity = 'CRITICAL') as critical_count,
-             COUNT(*) FILTER (WHERE severity = 'HIGH') as high_count,
-             COUNT(*) FILTER (WHERE severity = 'WARNING') as warning_count
-           FROM audit_logs`,
-        ).catch(() => ({
-          rows: [{ total: '0', critical_count: '0', high_count: '0', warning_count: '0' }],
-        })),
-        db.query(
-          `SELECT 
-             COUNT(*) FILTER (WHERE action LIKE '%AUTH%FAIL%' OR action LIKE '%LOGIN%FAIL%') as failed_logins,
-             COUNT(*) FILTER (WHERE action LIKE '%RATE_LIMIT%' OR action LIKE '%THROTTLE%') as rate_violations
-           FROM audit_logs
-           WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'`,
-        ).catch(() => ({
-          rows: [{ failed_logins: '0', rate_violations: '0' }],
-        })),
-        db.query(
-          "SELECT COUNT(*) as open_incidents FROM security_incidents WHERE status IN ('OPEN', 'INVESTIGATING')",
-        ).catch(() => ({ rows: [{ open_incidents: '0' }] })),
-        db.query(
-          'SELECT event_hash FROM audit_logs WHERE event_hash IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-        ).catch(() => ({ rows: [] })),
-      ]);
+    getAuditOverviewHandler,
+  );
 
-      const c = countsRes.rows[0] || {};
-      const rc = recentCountsRes.rows[0] || {};
-      const totalEvents = parseInt(c.total || '0', 10);
-      const criticalEventsCount = parseInt(c.critical_count || '0', 10);
-      const highSeverityCount = parseInt(c.high_count || '0', 10);
-      const warningCount = parseInt(c.warning_count || '0', 10);
-      const failedLogins24h = parseInt(rc.failed_logins || '0', 10);
-      const rateLimitViolations24h = parseInt(rc.rate_violations || '0', 10);
-      const securityIncidentsCount = parseInt(incidentsCountRes.rows[0]?.open_incidents || '0', 10);
-
-      let overallSecurityHealth = SecurityHealthStatus.HEALTHY;
-      if (criticalEventsCount > 0 || securityIncidentsCount > 2) {
-        overallSecurityHealth = SecurityHealthStatus.CRITICAL;
-      } else if (highSeverityCount > 5 || failedLogins24h > 20) {
-        overallSecurityHealth = SecurityHealthStatus.WARNING;
-      }
-
-      const lastChainedHash =
-        lastHashRes.rows[0]?.event_hash ||
-        (auditService ? auditService.getLastHash() : '0000000000000000000000000000000000000000000000000000000000000000');
-
-      const data: AdminAuditOverviewStatsDto = {
-        totalEvents: totalEvents || 4832,
-        criticalEventsCount,
-        highSeverityCount: highSeverityCount || 3,
-        warningCount: warningCount || 18,
-        failedLogins24h: failedLogins24h || 2,
-        rateLimitViolations24h: rateLimitViolations24h || 5,
-        securityIncidentsCount,
-        overallSecurityHealth,
-        tamperEvidenceStatus: 'VERIFIED',
-        lastChainedHash,
-        verifiedBlocksCount: totalEvents || 4832,
-      };
-
-      return reply.send({ success: true, data });
+  app.get(
+    '/admin/activity/overview',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.AUDIT_READ),
+      ],
     },
+    getAuditOverviewHandler,
   );
 
   // =========================================================================
@@ -308,9 +364,123 @@ export async function adminAuditSecurityRoutes(
     getAuditEventsHandler,
   );
 
+  app.get(
+    '/admin/activity/events',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.AUDIT_READ),
+      ],
+    },
+    getAuditEventsHandler,
+  );
+
+  app.get(
+    '/admin/activity',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.AUDIT_READ),
+      ],
+    },
+    getAuditEventsHandler,
+  );
+
   // =========================================================================
-  // 3. GET /admin/audit/events/:id — Detailed Activity Dossier & State Diffs
+  // 3. GET /admin/audit/events/:id & /admin/activity/events/:id — Detailed Activity Dossier & State Diffs
   // =========================================================================
+  const getAuditDetailHandler = async (req: any, reply: any) => {
+    const { id } = req.params;
+
+    const res = await db.query(
+      `SELECT 
+         l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
+         COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
+         u.email as "actorEmail",
+         COALESCE(l.actor_role, u.role, l.actor_type) as "actorRole",
+         l.actor_type as "actorType",
+         l.action, l.category, l.resource_type as "resourceType",
+         l.resource_id as "resourceId", l.result, l.severity,
+         l.metadata, l.before_state as "beforeState", l.after_state as "afterState",
+         l.reason, l.ip_address as "ipAddress", l.user_agent as "userAgent",
+         l.event_hash as "eventHash", l.previous_event_hash as "previousEventHash",
+         l.request_id as "requestId", l.session_id as "sessionId",
+         l.source, l.service, l.endpoint, l.http_method as "httpMethod",
+         l.http_status as "httpStatus", l.latency_ms as "latencyMs",
+         l.description,
+         l.created_at as "timestamp"
+       FROM audit_logs l
+       LEFT JOIN users u ON l.actor_id = u.id
+       WHERE l.id = $1`,
+      [id],
+    );
+
+    if (res.rows.length === 0) {
+      throw new NotFoundError('Audit record not found.');
+    }
+
+    const row = res.rows[0];
+    const metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
+    const beforeState = typeof row.beforeState === 'string' ? JSON.parse(row.beforeState) : row.beforeState;
+    const afterState = typeof row.afterState === 'string' ? JSON.parse(row.afterState) : row.afterState;
+
+    // Extract linked entity identifiers from resource and metadata
+    const linkedRecords: any = {};
+    if (row.resourceType?.toLowerCase().includes('order')) {
+      linkedRecords.orderId = row.resourceId;
+    }
+    if (row.resourceType?.toLowerCase().includes('payment') || metadata.paymentId) {
+      linkedRecords.paymentId = row.resourceId || metadata.paymentId;
+    }
+    if (row.resourceType?.toLowerCase().includes('wallet') || metadata.walletId) {
+      linkedRecords.walletId = row.resourceId || metadata.walletId;
+    }
+    if (row.resourceType?.toLowerCase().includes('user') || metadata.userId) {
+      linkedRecords.userId = row.resourceId || metadata.userId;
+    }
+    if (row.resourceType?.toLowerCase().includes('api_key') || metadata.apiKeyId) {
+      linkedRecords.apiKeyId = row.resourceId || metadata.apiKeyId;
+    }
+
+    const detail: AdminAuditDetailDto = {
+      id: row.id,
+      correlationId: row.correlationId,
+      requestId: row.requestId,
+      sessionId: row.sessionId,
+      timestamp: new Date(row.timestamp).toISOString(),
+      actorId: row.actorId,
+      actorName: row.actorName || 'System',
+      actorEmailRedacted: redactEmail(row.actorEmail),
+      actorRole: row.actorRole || 'system',
+      actorType: row.actorType || 'SYSTEM',
+      action: row.action,
+      category: row.category || AuditCategory.ADMIN_ACTION,
+      resourceType: row.resourceType || 'General',
+      resourceId: row.resourceId,
+      result: row.result || AuditResult.SUCCESS,
+      status: row.result || AuditResult.SUCCESS,
+      severity: row.severity || AuditSeverity.INFO,
+      source: row.source || 'WEB',
+      service: row.service || 'core-api',
+      endpoint: row.endpoint,
+      httpMethod: row.httpMethod,
+      httpStatus: row.httpStatus,
+      latencyMs: row.latencyMs,
+      description: row.description,
+      ipAddress: row.ipAddress,
+      userAgent: row.userAgent,
+      reason: row.reason,
+      eventHash: row.eventHash || '000000000000',
+      previousEventHash: row.previousEventHash,
+      metadata,
+      beforeState,
+      afterState,
+      linkedRecords,
+    };
+
+    return reply.send({ success: true, data: detail });
+  };
+
   app.get<{ Params: { id: string } }>(
     '/admin/audit/events/:id',
     {
@@ -319,83 +489,18 @@ export async function adminAuditSecurityRoutes(
         authHooks.requirePermission(Permission.AUDIT_READ),
       ],
     },
-    async (req, reply) => {
-      const { id } = req.params;
+    getAuditDetailHandler,
+  );
 
-      const res = await db.query(
-        `SELECT 
-           l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
-           COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
-           u.email as "actorEmail",
-           COALESCE(u.role, l.actor_type) as "actorRole",
-           l.actor_type as "actorType",
-           l.action, l.category, l.resource_type as "resourceType",
-           l.resource_id as "resourceId", l.result, l.severity,
-           l.metadata, l.before_state as "beforeState", l.after_state as "afterState",
-           l.reason, l.ip_address as "ipAddress", l.user_agent as "userAgent",
-           l.event_hash as "eventHash", l.previous_event_hash as "previousEventHash",
-           l.created_at as "timestamp"
-         FROM audit_logs l
-         LEFT JOIN users u ON l.actor_id = u.id
-         WHERE l.id = $1`,
-        [id],
-      );
-
-      if (res.rows.length === 0) {
-        throw new NotFoundError('Audit record not found.');
-      }
-
-      const row = res.rows[0];
-      const metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {});
-      const beforeState = typeof row.beforeState === 'string' ? JSON.parse(row.beforeState) : row.beforeState;
-      const afterState = typeof row.afterState === 'string' ? JSON.parse(row.afterState) : row.afterState;
-
-      // Extract linked entity identifiers from resource and metadata
-      const linkedRecords: any = {};
-      if (row.resourceType?.toLowerCase().includes('order')) {
-        linkedRecords.orderId = row.resourceId;
-      }
-      if (row.resourceType?.toLowerCase().includes('payment') || metadata.paymentId) {
-        linkedRecords.paymentId = row.resourceId || metadata.paymentId;
-      }
-      if (row.resourceType?.toLowerCase().includes('wallet') || metadata.walletId) {
-        linkedRecords.walletId = row.resourceId || metadata.walletId;
-      }
-      if (row.resourceType?.toLowerCase().includes('user') || metadata.userId) {
-        linkedRecords.userId = row.resourceId || metadata.userId;
-      }
-      if (row.resourceType?.toLowerCase().includes('api_key') || metadata.apiKeyId) {
-        linkedRecords.apiKeyId = row.resourceId || metadata.apiKeyId;
-      }
-
-      const detail: AdminAuditDetailDto = {
-        id: row.id,
-        correlationId: row.correlationId,
-        timestamp: new Date(row.timestamp).toISOString(),
-        actorId: row.actorId,
-        actorName: row.actorName || 'System',
-        actorEmailRedacted: redactEmail(row.actorEmail),
-        actorRole: row.actorRole || 'system',
-        actorType: row.actorType || 'SYSTEM',
-        action: row.action,
-        category: row.category || AuditCategory.ADMIN_ACTION,
-        resourceType: row.resourceType || 'General',
-        resourceId: row.resourceId,
-        result: row.result || AuditResult.SUCCESS,
-        severity: row.severity || AuditSeverity.INFO,
-        ipAddress: row.ipAddress,
-        userAgent: row.userAgent,
-        reason: row.reason,
-        eventHash: row.eventHash || '000000000000',
-        previousEventHash: row.previousEventHash,
-        metadata,
-        beforeState,
-        afterState,
-        linkedRecords,
-      };
-
-      return reply.send({ success: true, data: detail });
+  app.get<{ Params: { id: string } }>(
+    '/admin/activity/events/:id',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.AUDIT_READ),
+      ],
     },
+    getAuditDetailHandler,
   );
 
   // =========================================================================

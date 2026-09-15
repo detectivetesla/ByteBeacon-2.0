@@ -31,9 +31,40 @@ describe('Phase 11.12 — Audit & Security Operations Integration Tests', () => 
     };
 
     mockDb = {
-      query: vi.fn().mockImplementation(async (sql: string) => {
+      query: vi.fn().mockImplementation(async (sql: string, params?: any[]) => {
         if (typeof sql === 'string') {
           if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
+            const targetId = params?.[0] || '00000000-0000-0000-0000-000000000001';
+            if (targetId === '00000000-0000-0000-0000-000000000002') {
+              return {
+                rows: [
+                  {
+                    id: '00000000-0000-0000-0000-000000000002',
+                    uuid: '00000000-0000-0000-0000-000000000002',
+                    email: 'opsadmin@bytebeacon.com',
+                    full_name: 'Operations Admin',
+                    status: 'ACTIVE',
+                    is_active: true,
+                    role: UserRole.ADMIN,
+                  },
+                ],
+              };
+            }
+            if (targetId === '00000000-0000-0000-0000-000000000003') {
+              return {
+                rows: [
+                  {
+                    id: '00000000-0000-0000-0000-000000000003',
+                    uuid: '00000000-0000-0000-0000-000000000003',
+                    email: 'customer@bytebeacon.com',
+                    full_name: 'Regular Customer',
+                    status: 'ACTIVE',
+                    is_active: true,
+                    role: UserRole.CUSTOMER,
+                  },
+                ],
+              };
+            }
             return {
               rows: [
                 {
@@ -104,6 +135,46 @@ describe('Phase 11.12 — Audit & Security Operations Integration Tests', () => 
             return { rows: [{ total: '1' }] };
           }
           if (sql.includes('FROM audit_logs l') && sql.includes('WHERE l.id = $1')) {
+            const requestedId = params?.[0];
+            if (requestedId === '00000000-0000-0000-0000-000000000001') {
+              return {
+                rows: [
+                  {
+                    id: '00000000-0000-0000-0000-000000000001',
+                    correlationId: 'req_test_1',
+                    actorId: '00000000-0000-0000-0000-000000000001',
+                    actorName: 'Super Admin',
+                    actorEmail: 'superadmin@bytebeacon.com',
+                    actorRole: 'super_admin',
+                    actorType: 'ADMIN',
+                    action: 'DATA_PLAN_PRICING_UPDATED',
+                    category: 'ADMIN_ACTION',
+                    resourceType: 'data_plan',
+                    resourceId: 'plan_mtn_10gb',
+                    result: 'SUCCESS',
+                    severity: 'HIGH',
+                    metadata: JSON.stringify({ planName: 'MTN 10GB', oldPrice: 45, newPrice: 42 }),
+                    beforeState: JSON.stringify({ customerPrice: 45, agentPrice: 40 }),
+                    afterState: JSON.stringify({ customerPrice: 42, agentPrice: 38 }),
+                    reason: 'Promotional tariff reduction',
+                    ipAddress: '192.168.1.1',
+                    userAgent: 'Mozilla/5.0',
+                    eventHash: 'hash_abc',
+                    previousEventHash: 'hash_prev',
+                    requestId: 'req_test_1',
+                    sessionId: 'sess_1',
+                    source: 'WEB',
+                    service: 'core-api',
+                    endpoint: '/admin/bundles/plan_mtn_10gb',
+                    httpMethod: 'PUT',
+                    httpStatus: 200,
+                    latencyMs: 142,
+                    description: 'Super Admin reduced customer price from GH₵45 to GH₵42',
+                    timestamp: new Date().toISOString(),
+                  },
+                ],
+              };
+            }
             return {
               rows: [
                 {
@@ -513,5 +584,59 @@ describe('Phase 11.12 — Audit & Security Operations Integration Tests', () => 
     });
 
     expect(res.statusCode).toBe(403);
+  });
+
+  // 15. Activity Control Center overview returns enhanced today metrics & category breakdown
+  it('GET /admin/activity/overview should return Control Center KPI counters and category breakdown', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/activity/overview',
+      headers: { authorization: 'Bearer test-admin-token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty('activitiesToday');
+    expect(body.data).toHaveProperty('activeUsersCount');
+    expect(body.data).toHaveProperty('failedActivitiesCount');
+    expect(body.data).toHaveProperty('securityEventsCount');
+    expect(body.data).toHaveProperty('adminActionsCount');
+    expect(body.data).toHaveProperty('apiEventsCount');
+    expect(body.data).toHaveProperty('financialEventsCount');
+    expect(body.data).toHaveProperty('categoryBreakdown');
+  });
+
+  // 16. Activity events endpoint supports source and search filtering
+  it('GET /admin/activity/events should support source, status and search filters', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/activity/events?source=API&status=SUCCESS&search=telecom',
+      headers: { authorization: 'Bearer test-admin-token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.data.items)).toBe(true);
+  });
+
+  // 17. Activity event detail returns complete dossier with state diffs
+  it('GET /admin/activity/events/:id should return complete dossier with metadata and execution context', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/activity/events/00000000-0000-0000-0000-000000000001',
+      headers: { authorization: 'Bearer test-admin-token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.data.action).toBe('DATA_PLAN_PRICING_UPDATED');
+    expect(body.data.beforeState).toEqual({ customerPrice: 45, agentPrice: 40 });
+    expect(body.data.afterState).toEqual({ customerPrice: 42, agentPrice: 38 });
+    expect(body.data.source).toBe('WEB');
+    expect(body.data.httpStatus).toBe(200);
+    expect(body.data.latencyMs).toBe(142);
   });
 });

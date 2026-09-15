@@ -571,6 +571,7 @@ export enum NotificationCategory {
 
 export enum AuditSeverity {
   INFO = 'INFO',
+  NOTICE = 'NOTICE',
   WARNING = 'WARNING',
   HIGH = 'HIGH',
   CRITICAL = 'CRITICAL',
@@ -584,6 +585,26 @@ export enum AuditCategory {
   TELECOM_SECURITY = 'TELECOM_SECURITY',
   SYSTEM_WORKER = 'SYSTEM_WORKER',
   ADMIN_ACTION = 'ADMIN_ACTION',
+  USERS = 'USERS',
+  ORDERS = 'ORDERS',
+  WALLET = 'WALLET',
+  PAYMENTS = 'PAYMENTS',
+  API = 'API',
+  AGENTS = 'AGENTS',
+  STORES = 'STORES',
+  SECURITY = 'SECURITY',
+  SYSTEM = 'SYSTEM',
+  PROVIDERS = 'PROVIDERS',
+  NOTIFICATIONS = 'NOTIFICATIONS',
+}
+
+export enum AuditSource {
+  WEB = 'WEB',
+  API = 'API',
+  WORKER = 'WORKER',
+  WEBHOOK = 'WEBHOOK',
+  SYSTEM = 'SYSTEM',
+  CLI = 'CLI',
 }
 
 export enum AuditResult {

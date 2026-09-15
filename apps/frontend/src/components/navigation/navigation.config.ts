@@ -563,11 +563,11 @@ export const ADMIN_NAVIGATION_GROUPS: NavGroupConfig[] = [
         color: '#3B82F6',
       },
       {
-        label: 'Audit Stream',
-        path: '/admin/audit',
-        icon: React.createElement(FileText, { size: 18, strokeWidth: 2.4, color: '#64748B' }),
+        label: 'Activity & Audit',
+        path: '/admin/activity',
+        icon: React.createElement(Activity, { size: 18, strokeWidth: 2.4, color: '#10B981' }),
         permission: 'admin.audit.view',
-        color: '#64748B',
+        color: '#10B981',
       },
       {
         label: 'Settings',

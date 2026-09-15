@@ -119,6 +119,14 @@ export const adminRoutes: RouteObject[] = [
         element: <AdminDlqPage />,
       },
       {
+        path: 'activity',
+        element: <AdminAuditPage />,
+      },
+      {
+        path: 'activity-and-audit',
+        element: <Navigate to="/admin/activity" replace />,
+      },
+      {
         path: 'audit',
         element: <AdminAuditPage />,
       },

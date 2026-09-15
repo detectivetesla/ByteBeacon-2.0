@@ -26,6 +26,9 @@ import {
   BulkPricingPreviewResponse,
   BulkPricingApplyRequest,
   DataHouseBundleDto,
+  AuditCategory,
+  AuditSeverity,
+  AuditSource,
 } from '@bytebeacon/shared';
 
 export interface AdminCatalogRouteDependencies {
@@ -712,11 +715,41 @@ export async function adminCatalogRoutes(
         await auditService.log({
           correlationId: req.id,
           actorId: req.user!.sub,
+          actorName: (req.user as any)?.name || (req.user as any)?.fullName || 'Admin',
+          actorEmail: req.user?.email,
+          actorRole: req.user?.role,
           actorType: 'ADMIN',
-          action: priceChanged ? 'PLAN_PRICE_CHANGED' : 'PLAN_UPDATED',
-          resourceType: 'catalog_products',
+          action: priceChanged ? 'DATA_PLAN_PRICING_UPDATED' : 'DATA_PLAN_UPDATED',
+          category: AuditCategory.ADMIN_ACTION,
+          resourceType: 'data_plan',
           resourceId: id,
+          severity: priceChanged ? AuditSeverity.HIGH : AuditSeverity.INFO,
+          beforeState: {
+            customerPricePesewas: parseInt(existing.base_price_pesewas, 10),
+            agentPricePesewas: existing.agent_price_pesewas ? parseInt(existing.agent_price_pesewas, 10) : null,
+            providerPricePesewas: parseInt(existing.provider_price_pesewas || '0', 10),
+            storePricePesewas: existing.store_price_pesewas ? parseInt(existing.store_price_pesewas, 10) : null,
+            status: existing.status || (existing.is_active ? 'ACTIVE' : 'DISABLED'),
+          },
+          afterState: {
+            customerPricePesewas: newBasePrice,
+            agentPricePesewas: newAgentPrice,
+            providerPricePesewas: newProviderPrice,
+            storePricePesewas: newStorePrice,
+            status: newStatus,
+          },
+          source: AuditSource.WEB,
+          service: 'core-api',
+          endpoint: req.url,
+          httpMethod: 'PUT',
+          httpStatus: 200,
+          description: priceChanged
+            ? `Admin updated pricing for plan '${existing.name}' (${existing.sku})`
+            : `Admin updated data plan '${existing.name}' (${existing.sku})`,
           metadata: {
+            planName: existing.name,
+            sku: existing.sku,
+            network: existing.network,
             previousPrices: {
               provider: parseInt(existing.provider_price_pesewas || '0', 10),
               customer: parseInt(existing.base_price_pesewas, 10),
@@ -752,6 +785,9 @@ export async function adminCatalogRoutes(
         throw new BadRequestError(`Invalid status '${status}'. Must be ACTIVE, DISABLED, ARCHIVED, or DRAFT.`);
       }
 
+      const existingPlanRes = await db.query('SELECT name, sku, status, is_active FROM catalog_products WHERE id = $1', [id]);
+      const prevPlan = existingPlanRes.rows[0];
+
       const isActive = status === CatalogPlanStatus.ACTIVE;
 
       const updateRes = await db.query(
@@ -772,11 +808,24 @@ export async function adminCatalogRoutes(
         await auditService.log({
           correlationId: req.id,
           actorId: req.user!.sub,
+          actorName: (req.user as any)?.name || (req.user as any)?.fullName || 'Admin',
+          actorEmail: req.user?.email,
+          actorRole: req.user?.role,
           actorType: 'ADMIN',
           action: status === 'ACTIVE' ? 'PLAN_ENABLED' : (status === 'ARCHIVED' ? 'PLAN_ARCHIVED' : 'PLAN_DISABLED'),
-          resourceType: 'catalog_products',
+          category: AuditCategory.ADMIN_ACTION,
+          resourceType: 'data_plan',
           resourceId: id,
-          metadata: { status, reason },
+          severity: AuditSeverity.NOTICE,
+          beforeState: { status: prevPlan?.status || (prevPlan?.is_active ? 'ACTIVE' : 'DISABLED'), isActive: Boolean(prevPlan?.is_active) },
+          afterState: { status, isActive },
+          source: AuditSource.WEB,
+          service: 'core-api',
+          endpoint: req.url,
+          httpMethod: 'PATCH',
+          httpStatus: 200,
+          description: `Admin changed status of data plan '${updated.name}' to ${status}`,
+          metadata: { status, reason, sku: updated.sku, planName: updated.name },
         });
       }
 

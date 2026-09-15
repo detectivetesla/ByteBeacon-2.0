@@ -9,7 +9,7 @@ import { ProviderReconciliationService } from '../../core/providers/provider-rec
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { NotFoundError, BadRequestError } from '../../core/errors/app-error.js';
-import { NetworkProvider, LedgerEntryType, LedgerAccountType } from '@bytebeacon/shared';
+import { NetworkProvider, LedgerEntryType, LedgerAccountType, AuditCategory, AuditSeverity, AuditSource } from '@bytebeacon/shared';
 
 export interface AdminOrdersRouteDependencies {
   db: pg.Pool;
@@ -633,11 +633,31 @@ export async function adminOrdersRoutes(
         await auditService.log({
           correlationId: req.id,
           actorId: req.user!.sub,
+          actorName: (req.user as any)?.name || (req.user as any)?.fullName || 'Admin',
+          actorEmail: req.user?.email,
+          actorRole: req.user?.role,
           actorType: 'ADMIN',
-          action: 'ORDER_REFUND',
+          action: 'ORDER_REFUNDED',
+          category: AuditCategory.WALLET,
           resourceType: 'orders',
           resourceId: orderId,
-          metadata: { refundAmountPesewas: refundAmount, reason },
+          severity: AuditSeverity.HIGH,
+          beforeState: {
+            orderStatus: order.order_status,
+            refundStatus: order.refund_status,
+          },
+          afterState: {
+            orderStatus: 'REFUNDED',
+            refundStatus: 'COMPLETED',
+            refundAmountPesewas: refundAmount,
+          },
+          source: AuditSource.WEB,
+          service: 'core-api',
+          endpoint: req.url,
+          httpMethod: 'POST',
+          httpStatus: 200,
+          description: `Admin refunded GH₵${(refundAmount / 100).toFixed(2)} for order ${orderId} (Reason: ${reason})`,
+          metadata: { refundAmountPesewas: refundAmount, reason, targetUserId: order.user_id },
         });
       }
 

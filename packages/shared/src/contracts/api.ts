@@ -2016,11 +2016,22 @@ export interface AdminAuditOverviewStatsDto {
   tamperEvidenceStatus: 'VERIFIED' | 'TAMPER_DETECTED' | 'UNVERIFIED';
   lastChainedHash: string;
   verifiedBlocksCount: number;
+  // Enhanced Activity Control Center metrics
+  activitiesToday?: number;
+  activeUsersCount?: number;
+  failedActivitiesCount?: number;
+  securityEventsCount?: number;
+  adminActionsCount?: number;
+  apiEventsCount?: number;
+  financialEventsCount?: number;
+  categoryBreakdown?: Record<string, number>;
 }
 
 export interface AdminAuditListItemDto {
   id: string;
   correlationId: string;
+  requestId?: string;
+  sessionId?: string;
   timestamp: string;
   actorId: string | null;
   actorName: string;
@@ -2032,7 +2043,15 @@ export interface AdminAuditListItemDto {
   resourceType: string;
   resourceId: string | null;
   result: AuditResult;
+  status?: string; // alias for result
   severity: AuditSeverity;
+  source?: string;
+  service?: string;
+  endpoint?: string;
+  httpMethod?: string;
+  httpStatus?: number;
+  latencyMs?: number;
+  description?: string;
   ipAddress: string | null;
   userAgent: string | null;
   reason?: string;

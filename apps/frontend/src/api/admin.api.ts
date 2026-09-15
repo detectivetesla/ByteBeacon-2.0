@@ -1697,8 +1697,16 @@ export const adminApi = {
     category?: string;
     severity?: string;
     result?: string;
+    status?: string;
     actorRole?: string;
+    role?: string;
+    actor?: string;
     action?: string;
+    resource?: string;
+    source?: string;
+    ip?: string;
+    requestId?: string;
+    correlationId?: string;
     startDate?: string;
     endDate?: string;
   } = {}) => {
@@ -1710,6 +1718,40 @@ export const adminApi = {
 
   getAuditEventDetail: async (id: string): Promise<AdminAuditDetailDto> => {
     return apiClient.get<AdminAuditDetailDto>(`/admin/audit/events/${id}`);
+  },
+
+  getActivityOverview: async (): Promise<AdminAuditOverviewStatsDto> => {
+    return apiClient.get<AdminAuditOverviewStatsDto>('/admin/activity/overview');
+  },
+
+  getActivityEvents: async (params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    category?: string;
+    severity?: string;
+    result?: string;
+    status?: string;
+    actorRole?: string;
+    role?: string;
+    actor?: string;
+    action?: string;
+    resource?: string;
+    source?: string;
+    ip?: string;
+    requestId?: string;
+    correlationId?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}) => {
+    return apiClient.get<{
+      items: AdminAuditListItemDto[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>('/admin/activity/events', { params });
+  },
+
+  getActivityDetail: async (id: string): Promise<AdminAuditDetailDto> => {
+    return apiClient.get<AdminAuditDetailDto>(`/admin/activity/events/${id}`);
   },
 
   verifyAuditIntegrity: async (): Promise<AdminAuditIntegrityVerificationDto> => {
