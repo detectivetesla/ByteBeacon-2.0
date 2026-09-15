@@ -115,6 +115,8 @@ import {
   AdminDeliveryLogItemDto,
   AdminUserNotificationPreferenceDto,
   AdminUpdateUserPreferenceRequest,
+  AdminCommunicationSystemTriggerDto,
+  AdminCommunicationHealthDto,
   AuditSeverity,
   AuditCategory,
   AuditResult,
@@ -1100,8 +1102,19 @@ export const adminApi = {
     );
   },
 
-  getCommunicationHealth: async () => {
-    return apiClient.get<{ status: string; subsystems: Record<string, any> }>('/admin/communication/health');
+  getCommunicationHealth: async (): Promise<AdminCommunicationHealthDto> => {
+    const res = await apiClient.get<any>('/admin/communication/health');
+    return res?.data || res;
+  },
+
+  getCommunicationTriggers: async (): Promise<AdminCommunicationSystemTriggerDto[]> => {
+    const res = await apiClient.get<any>('/admin/communication/triggers');
+    return res?.data || (Array.isArray(res) ? res : []);
+  },
+
+  toggleCommunicationTrigger: async (id: string, enabled: boolean): Promise<{ id: string; isEnabled: boolean }> => {
+    const res = await apiClient.post<any>(`/admin/communication/triggers/${id}/toggle`, { enabled });
+    return res?.data || res;
   },
 
   getUserNotificationPreferences: async (userId: string): Promise<AdminUserNotificationPreferenceDto> => {
@@ -2012,6 +2025,8 @@ export type {
   PermissionMatrixEntryDto,
   AdminRolePermissionMatrixDto,
   AdminUserEffectiveAuthorizationDto,
+  AdminCommunicationSystemTriggerDto,
+  AdminCommunicationHealthDto,
 };
 
 

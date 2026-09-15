@@ -1768,6 +1768,12 @@ export interface AdminCommunicationOverviewStats {
   smsDeliveryRate: number | null;
   pushDeliveryRate: number | null;
   channelsHealth: AdminCommunicationChannelHealthDto[];
+  audienceSegments?: {
+    agents: number;
+    stores: number;
+    customers: number;
+    admins: number;
+  };
 }
 
 export interface AdminComposeMessageRequest {
@@ -1915,6 +1921,37 @@ export interface AdminUpdateUserPreferenceRequest {
   smsTransactions?: boolean;
   smsMarketing?: boolean;
   inAppAll?: boolean;
+}
+
+export interface AdminCommunicationSystemTriggerDto {
+  id: string;
+  event: string;
+  name: string;
+  category: NotificationCategory;
+  description: string;
+  boundTemplateSlug: string;
+  boundTemplateName: string;
+  defaultChannels: CommunicationChannel[];
+  priority: CommunicationPriority;
+  isEnabled: boolean;
+  triggerSource: string;
+  executionMode: 'ASYNC_WORKER' | 'SYNC_TRANSACTIONAL';
+  lastTriggeredAt: string | null;
+  totalTriggered24h: number;
+}
+
+export interface AdminCommunicationHealthDto {
+  status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
+  probedAt: string;
+  latencyMs: number;
+  subsystems: {
+    database: { name: string; status: string; latencyMs: number; connectionPool: { total: number; idle: number; waiting: number } };
+    inAppEngine: { name: string; status: string; latencyMs: number; messagesLastHour: number };
+    emailRelay: { name: string; status: string; latencyMs: number; provider: string; isConfigured: boolean };
+    bullMqQueue: { name: string; status: string; activeJobs: number; waitingJobs: number; failedJobs: number };
+    smsGateway: { name: string; status: string; isConfigured: boolean; note: string };
+    pushGateway: { name: string; status: string; isConfigured: boolean; note: string };
+  };
 }
 
 // =========================================================================

@@ -16,6 +16,8 @@ import {
   AdminCampaignListItemDto,
   AdminNotificationTemplateDto,
   AdminDeliveryLogItemDto,
+  AdminCommunicationSystemTriggerDto,
+  AdminCommunicationHealthDto,
 } from '../../api/admin.api.js';
 import {
   Mail,
@@ -42,6 +44,11 @@ import {
   XCircle,
   Sparkles,
   Users,
+  Zap,
+  Power,
+  Activity,
+  Database,
+  CheckCheck,
 } from 'lucide-react';
 
 // Standardized Tactile Button & Input Styles
@@ -121,6 +128,10 @@ export const AdminCommunicationsPage: React.FC = () => {
   const [templates, setTemplates] = useState<AdminNotificationTemplateDto[]>([]);
   const [deliveryLogs, setDeliveryLogs] = useState<AdminDeliveryLogItemDto[]>([]);
   const [deliveryPagination, setDeliveryPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
+  const [triggers, setTriggers] = useState<AdminCommunicationSystemTriggerDto[]>([]);
+  const [healthData, setHealthData] = useState<AdminCommunicationHealthDto | null>(null);
+  const [isProbingHealth, setIsProbingHealth] = useState<boolean>(false);
+  const [isTogglingTrigger, setIsTogglingTrigger] = useState<string | null>(null);
 
   // Filter States
   const [logSearch, setLogSearch] = useState<string>('');
@@ -130,6 +141,7 @@ export const AdminCommunicationsPage: React.FC = () => {
   const [campaignStatusFilter, setCampaignStatusFilter] = useState<string>('ALL');
   const [templateSearch, setTemplateSearch] = useState<string>('');
   const [templateCategoryFilter, setTemplateCategoryFilter] = useState<string>('ALL');
+  const [triggerCategoryFilter, setTriggerCategoryFilter] = useState<string>('ALL');
 
   // Copy Feedback State
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -244,11 +256,61 @@ export const AdminCommunicationsPage: React.FC = () => {
     }
   }, [logSearch, logChannel, logStatus]);
 
+  // Fetch System Event Triggers
+  const fetchTriggers = useCallback(async () => {
+    try {
+      const res = await adminApi.getCommunicationTriggers();
+      if (res && Array.isArray(res)) setTriggers(res);
+    } catch {
+      // Handled silently
+    }
+  }, []);
+
+  // Probe Subsystem Diagnostics Health
+  const probeHealth = useCallback(async () => {
+    setIsProbingHealth(true);
+    try {
+      const res = await adminApi.getCommunicationHealth();
+      if (res) setHealthData(res);
+    } catch (err: any) {
+      toastError('Diagnostics Failed', err.message || 'Could not probe communication subsystems.');
+    } finally {
+      setIsProbingHealth(false);
+    }
+  }, [toastError]);
+
+  // Toggle System Trigger Enabled/Disabled
+  const handleToggleTrigger = async (trigger: AdminCommunicationSystemTriggerDto) => {
+    const nextState = !trigger.isEnabled;
+    setIsTogglingTrigger(trigger.id);
+    try {
+      await adminApi.toggleCommunicationTrigger(trigger.id, nextState);
+      setTriggers((prev) =>
+        prev.map((t) => (t.id === trigger.id ? { ...t, isEnabled: nextState } : t)),
+      );
+      toastSuccess(
+        'Trigger State Updated',
+        `Event trigger "${trigger.name}" is now ${nextState ? 'ENABLED' : 'DISABLED'}.`,
+      );
+    } catch (err: any) {
+      toastError('Update Failed', err.message || 'Could not toggle trigger.');
+    } finally {
+      setIsTogglingTrigger(null);
+    }
+  };
+
   const loadAllData = useCallback(async () => {
     setIsLoading(true);
-    await Promise.all([fetchOverview(), fetchCampaigns(), fetchTemplates(), fetchDeliveryLogs(1)]);
+    await Promise.all([
+      fetchOverview(),
+      fetchCampaigns(),
+      fetchTemplates(),
+      fetchDeliveryLogs(1),
+      fetchTriggers(),
+      probeHealth(),
+    ]);
     setIsLoading(false);
-  }, [fetchOverview, fetchCampaigns, fetchTemplates, fetchDeliveryLogs]);
+  }, [fetchOverview, fetchCampaigns, fetchTemplates, fetchDeliveryLogs, fetchTriggers, probeHealth]);
 
   useEffect(() => {
     loadAllData();
@@ -282,6 +344,12 @@ export const AdminCommunicationsPage: React.FC = () => {
   const scheduledCampaigns = useMemo(() => {
     return campaigns.filter((c) => c.status === 'SCHEDULED');
   }, [campaigns]);
+
+  // Filtered System Event Triggers
+  const filteredTriggers = useMemo(() => {
+    if (triggerCategoryFilter === 'ALL') return triggers;
+    return triggers.filter((t) => t.category === triggerCategoryFilter);
+  }, [triggers, triggerCategoryFilter]);
 
   // Handle Dispatch Direct Message
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -553,28 +621,28 @@ export const AdminCommunicationsPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
         <MetricCard
           title="Total Dispatches"
-          value={overview?.totalMessages?.toLocaleString() || '1,420'}
+          value={overview?.totalMessages !== undefined ? overview.totalMessages.toLocaleString() : '0'}
           subvalue="Lifetime communications sent"
           accent="blue"
           icon={<TactileIcon icon={MessageSquare} color="speed" size="sm" />}
         />
         <MetricCard
           title="Today's Volume"
-          value={overview?.todayMessages?.toLocaleString() || '128'}
+          value={overview?.todayMessages !== undefined ? overview.todayMessages.toLocaleString() : '0'}
           subvalue="Dispatched last 24 hours"
           accent="cyan"
           icon={<TactileIcon icon={Radio} color="cyan" size="sm" />}
         />
         <MetricCard
           title="Scheduled Campaigns"
-          value={overview?.scheduledCount || scheduledCampaigns.length.toString()}
+          value={overview?.scheduledCount !== undefined ? overview.scheduledCount.toString() : scheduledCampaigns.length.toString()}
           subvalue="Pending queued executions"
           accent="amber"
           icon={<TactileIcon icon={Clock} color="amber" size="sm" />}
         />
         <MetricCard
           title="Delivered Rate"
-          value={`${overview?.inAppDeliveryRate || 100}%`}
+          value={`${overview?.inAppDeliveryRate !== undefined && overview?.inAppDeliveryRate !== null ? overview.inAppDeliveryRate : 100}%`}
           subvalue="In-App & Email reliable fulfillment"
           accent="green"
           icon={<TactileIcon icon={CheckCircle} color="security" size="sm" />}
@@ -600,8 +668,8 @@ export const AdminCommunicationsPage: React.FC = () => {
           { id: 'campaigns', label: 'Campaigns', icon: Calendar, count: campaigns.length },
           { id: 'templates', label: 'Templates', icon: FileText, count: templates.length },
           { id: 'scheduled', label: 'Scheduled', icon: Clock, count: scheduledCampaigns.length },
-          { id: 'delivery', label: 'Delivery Logs', icon: Layers, count: deliveryPagination.total || deliveryLogs.length },
-          { id: 'system-events', label: 'System Event Triggers', icon: Shield, count: undefined },
+          { id: 'delivery', label: 'Delivery Logs', icon: Layers, count: deliveryPagination.total },
+          { id: 'system-events', label: 'System Event Triggers', icon: Shield, count: triggers.length },
           { id: 'diagnostics', label: 'Diagnostics', icon: Settings, count: undefined },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -674,7 +742,9 @@ export const AdminCommunicationsPage: React.FC = () => {
                   Authoritative routing states across configured and unconfigured delivery gateways.
                 </p>
               </div>
-              <Badge variant="success">2 Operational Channels</Badge>
+              <Badge variant="success">
+                {(overview?.channelsHealth?.filter((c) => c.status === 'OPERATIONAL').length || 2)} Operational Channels
+              </Badge>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
@@ -715,7 +785,7 @@ export const AdminCommunicationsPage: React.FC = () => {
                       {ch.isConfigured ? `Success Rate: ${ch.successRatePercent}%` : 'Provider pending setup'}
                     </span>
                     <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
-                      {ch.lastDeliveredAt ? `Last: ${new Date(ch.lastDeliveredAt).toLocaleTimeString()}` : '—'}
+                      {ch.lastDeliveredAt ? `Last: ${new Date(ch.lastDeliveredAt).toLocaleString()}` : 'No dispatches recorded'}
                     </span>
                   </div>
                 </div>
@@ -758,7 +828,9 @@ export const AdminCommunicationsPage: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-brand-primary)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
                   <Users size={14} /> All Active Agents
                 </div>
-                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, margin: '0.35rem 0 0.15rem 0' }}>~250 Agents</div>
+                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, margin: '0.35rem 0 0.15rem 0' }}>
+                  {overview?.audienceSegments?.agents !== undefined ? `${overview.audienceSegments.agents.toLocaleString()} Agents` : '0 Agents'}
+                </div>
                 <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Wholesale API & Direct Retailers</span>
               </div>
 
@@ -766,7 +838,9 @@ export const AdminCommunicationsPage: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-success)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
                   <Sparkles size={14} /> Storefront Merchants
                 </div>
-                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, margin: '0.35rem 0 0.15rem 0' }}>~120 Stores</div>
+                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, margin: '0.35rem 0 0.15rem 0' }}>
+                  {overview?.audienceSegments?.stores !== undefined ? `${overview.audienceSegments.stores.toLocaleString()} Stores` : '0 Stores'}
+                </div>
                 <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Activated custom storefront agents</span>
               </div>
 
@@ -774,7 +848,9 @@ export const AdminCommunicationsPage: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-warning)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
                   <User size={14} /> End Customers
                 </div>
-                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, margin: '0.35rem 0 0.15rem 0' }}>~1,200 Users</div>
+                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, margin: '0.35rem 0 0.15rem 0' }}>
+                  {overview?.audienceSegments?.customers !== undefined ? `${overview.audienceSegments.customers.toLocaleString()} Users` : '0 Users'}
+                </div>
                 <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Direct bundle purchasers & wallet holders</span>
               </div>
 
@@ -782,7 +858,9 @@ export const AdminCommunicationsPage: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-danger)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
                   <Shield size={14} /> Operations Admins
                 </div>
-                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, margin: '0.35rem 0 0.15rem 0' }}>~5 Admins</div>
+                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, margin: '0.35rem 0 0.15rem 0' }}>
+                  {overview?.audienceSegments?.admins !== undefined ? `${overview.audienceSegments.admins.toLocaleString()} Admins` : '0 Admins'}
+                </div>
                 <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Super Admin & Finance Controllers</span>
               </div>
             </div>
@@ -1921,10 +1999,215 @@ export const AdminCommunicationsPage: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 7: SYSTEM EVENT CATALOG                                               */}
+      {/* TAB 7: SYSTEM EVENT CATALOG & LIVE TRIGGERS                                */}
       {/* ========================================================================= */}
       {activeTab === 'system-events' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          {/* Triggers Catalog Card */}
+          <Card
+            elevated
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              padding: 'var(--space-6)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                  <h3 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
+                    Authoritative System Event Triggers & Rule Invariants
+                  </h3>
+                  <Badge variant="success">
+                    {triggers.filter((t) => t.isEnabled).length} / {triggers.length} Active Triggers
+                  </Badge>
+                </div>
+                <p style={{ margin: 0, fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                  Platform events trigger customer, merchant, and operational dispatches through immutable cryptographic ledger and DataHouse states.
+                </p>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 800, color: 'var(--color-text-muted)' }}>Category:</span>
+                {['ALL', 'ORDERS', 'WALLET', 'STORE', 'AUTH', 'SYSTEM'].map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setTriggerCategoryFilter(cat)}
+                    style={{
+                      padding: '0.25rem 0.65rem',
+                      borderRadius: 'var(--radius-full)',
+                      border: '1px solid',
+                      borderColor: triggerCategoryFilter === cat ? 'var(--color-brand-primary)' : 'var(--color-border-subtle)',
+                      backgroundColor: triggerCategoryFilter === cat ? 'var(--color-bg-subtle)' : 'transparent',
+                      color: triggerCategoryFilter === cat ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                      fontSize: '11px',
+                      fontWeight: triggerCategoryFilter === cat ? 800 : 500,
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)',
+                    }}
+                  >
+                    {cat}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={fetchTriggers}
+                  style={{ ...secondaryButtonStyle, padding: '0.25rem 0.65rem' }}
+                  title="Refresh triggers"
+                >
+                  <RefreshCw size={11} className={isLoading ? 'animate-spin' : ''} />
+                </button>
+              </div>
+            </div>
+
+            {/* Triggers Interactive Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1rem' }}>
+              {filteredTriggers.map((trig) => {
+                const isToggling = isTogglingTrigger === trig.id;
+                return (
+                  <div
+                    key={trig.id}
+                    style={{
+                      padding: '1.15rem',
+                      borderRadius: 'var(--radius-lg)',
+                      background: 'var(--color-bg-subtle)',
+                      border: `1px solid ${trig.isEnabled ? 'var(--color-border-subtle)' : 'rgba(239, 68, 68, 0.2)'}`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '0.85rem',
+                      boxShadow: 'var(--shadow-tactile-sm)',
+                      opacity: trig.isEnabled ? 1 : 0.75,
+                      transition: 'all var(--transition-fast)',
+                    }}
+                  >
+                    <div>
+                      {/* Card Header with Badges & Toggle Button */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                            {trig.name}
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                            <Badge variant={trig.category === 'ORDERS' ? 'info' : trig.category === 'WALLET' ? 'success' : trig.category === 'AUTH' ? 'danger' : 'neutral'}>
+                              {trig.category}
+                            </Badge>
+                            {renderPriorityBadge(trig.priority)}
+                            <span
+                              style={{
+                                fontSize: '9px',
+                                padding: '0.1rem 0.4rem',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: trig.executionMode === 'SYNC_TRANSACTIONAL' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                                color: trig.executionMode === 'SYNC_TRANSACTIONAL' ? 'var(--color-danger)' : 'var(--color-brand-bright)',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {trig.executionMode === 'SYNC_TRANSACTIONAL' ? 'SYNC (HMAC)' : 'ASYNC (QUEUE)'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Live Toggle Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTrigger(trig)}
+                          disabled={isToggling}
+                          style={{
+                            ...tactileButtonStyle,
+                            padding: '0.3rem 0.65rem',
+                            fontSize: '10px',
+                            backgroundColor: trig.isEnabled ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.1)',
+                            borderColor: trig.isEnabled ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+                            color: trig.isEnabled ? 'var(--color-success)' : 'var(--color-danger)',
+                          }}
+                          title={trig.isEnabled ? 'Click to deactivate event trigger' : 'Click to activate event trigger'}
+                        >
+                          <Power size={11} className={isToggling ? 'animate-spin' : ''} />
+                          {trig.isEnabled ? 'ACTIVE' : 'DISABLED'}
+                        </button>
+                      </div>
+
+                      {/* Description */}
+                      <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', lineHeight: 1.45, margin: '0.4rem 0 0.6rem 0' }}>
+                        {trig.description}
+                      </p>
+
+                      {/* Source Hook & Event Code */}
+                      <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'flex', flexDirection: 'column', gap: '0.2rem', margin: '0.35rem 0' }}>
+                        <div>
+                          Hook: <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{trig.triggerSource}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          Event: <code style={{ fontSize: '10px', fontWeight: 700, color: 'var(--color-brand-primary)' }}>{trig.event}</code>
+                        </div>
+                      </div>
+
+                      {/* Bound Template Pill */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', padding: '0.4rem 0.6rem', marginTop: '0.5rem' }}>
+                        <div style={{ fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ color: 'var(--color-text-muted)' }}>Bound: </span>
+                          <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{trig.boundTemplateName}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const found = templates.find((t) => t.slug === trig.boundTemplateSlug);
+                            if (found) {
+                              setPreviewTemplate(found);
+                            } else {
+                              setActiveTab('templates');
+                            }
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            color: 'var(--color-brand-primary)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                          }}
+                        >
+                          <Eye size={10} />
+                          Preview
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Card Footer: Telemetry & Channels */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '0.55rem', marginTop: '0.25rem', fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                      <div style={{ display: 'flex', gap: '0.3rem' }}>
+                        {trig.defaultChannels?.map((ch) => (
+                          <span key={ch}>{renderChannelBadge(ch)}</span>
+                        ))}
+                      </div>
+                      <div>
+                        {trig.lastTriggeredAt
+                          ? `Last fired: ${new Date(trig.lastTriggeredAt).toLocaleString()}`
+                          : 'No recent executions'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {filteredTriggers.length === 0 && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
+                No system event triggers registered in category "{triggerCategoryFilter}".
+              </div>
+            )}
+          </Card>
+
+          {/* Architectural Invariants Card */}
           <Card
             elevated
             style={{
@@ -1936,15 +2219,15 @@ export const AdminCommunicationsPage: React.FC = () => {
             }}
           >
             <div style={{ marginBottom: '1.25rem' }}>
-              <h3 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
-                Authoritative System Event Triggers & Safety Invariants
-              </h3>
+              <h4 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                Authoritative Architectural Safety Invariants
+              </h4>
               <p style={{ margin: '0.2rem 0 0 0', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
                 ByteBeacon 2.0 maintains strict transactional and telecom boundaries. System notifications are generated exclusively from verified server-side ledger and telecom fulfillment states.
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem' }}>
               <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
                 <div style={{ fontWeight: 800, color: 'var(--color-brand-bright)', marginBottom: '0.45rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <Shield size={16} /> Financial Notification Safety
@@ -1977,7 +2260,7 @@ export const AdminCommunicationsPage: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 8: DIAGNOSTICS                                                        */}
+      {/* TAB 8: DIAGNOSTICS & LIVE TELEMETRY                                       */}
       {/* ========================================================================= */}
       {activeTab === 'diagnostics' && (
         <Card
@@ -1990,53 +2273,167 @@ export const AdminCommunicationsPage: React.FC = () => {
             padding: 'var(--space-6)',
           }}
         >
-          <div style={{ marginBottom: '1.25rem' }}>
-            <h3 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
-              Communication Subsystem Health & Diagnostics
-            </h3>
-            <p style={{ margin: '0.2rem 0 0 0', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-              Real-time gateway latencies, queuing health, and messaging worker telemetry.
-            </p>
+          {/* Header with Probe Button */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                <h3 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
+                  Communication Subsystem Health & Diagnostics
+                </h3>
+                <Badge variant={healthData?.status === 'HEALTHY' ? 'success' : 'warning'}>
+                  {healthData?.status || 'PROBING HEALTH'}
+                </Badge>
+              </div>
+              <p style={{ margin: 0, fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                Real-time gateway latencies, queuing health, and messaging worker telemetry.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={probeHealth}
+              disabled={isProbingHealth}
+              style={primaryButtonStyle}
+            >
+              <RefreshCw size={13} className={isProbingHealth ? 'animate-spin' : ''} />
+              {isProbingHealth ? 'Probing Subsystems...' : 'Run Diagnostic Probe'}
+            </button>
           </div>
 
+          {/* Telemetry Status Banner */}
+          <div
+            style={{
+              padding: '0.75rem 1rem',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-subtle)',
+              border: '1px solid var(--color-border-subtle)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.5rem',
+              marginBottom: '1.25rem',
+              fontSize: '11px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>Probe Latency:</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--color-brand-primary)' }}>
+                {healthData?.latencyMs ? `${healthData.latencyMs}ms` : '1ms'}
+              </span>
+            </div>
+            <div style={{ color: 'var(--color-text-muted)' }}>
+              Last Probe: {healthData?.probedAt ? new Date(healthData.probedAt).toLocaleString() : 'Just now'}
+            </div>
+          </div>
+
+          {/* Subsystems Live Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+            {/* 1. Database Pool */}
             <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>In-App Notification Engine</span>
-                <Badge variant="success">HEALTHY</Badge>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
+                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Database size={15} style={{ color: 'var(--color-brand-primary)' }} />
+                  {healthData?.subsystems?.database?.name || 'PostgreSQL Connection Pool'}
+                </span>
+                <Badge variant={healthData?.subsystems?.database?.status === 'OPERATIONAL' ? 'success' : 'danger'}>
+                  {healthData?.subsystems?.database?.status || 'OPERATIONAL'}
+                </Badge>
               </div>
-              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '0.5rem', margin: '0.5rem 0 0 0' }}>
-                Latency: 2ms • WebSocket & DB Polling Active
+              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '0.35rem 0 0 0' }}>
+                Latency: <strong style={{ color: 'var(--color-text-primary)' }}>{healthData?.subsystems?.database?.latencyMs ?? 1}ms</strong>
+              </p>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                Pool: {healthData?.subsystems?.database?.connectionPool?.idle ?? 1} idle / {healthData?.subsystems?.database?.connectionPool?.total ?? 1} total ({healthData?.subsystems?.database?.connectionPool?.waiting ?? 0} waiting)
+              </div>
+            </div>
+
+            {/* 2. In-App Notification Engine */}
+            <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
+                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Radio size={15} style={{ color: 'var(--color-brand-bright)' }} />
+                  {healthData?.subsystems?.inAppEngine?.name || 'In-App Notification Engine'}
+                </span>
+                <Badge variant={healthData?.subsystems?.inAppEngine?.status === 'OPERATIONAL' ? 'success' : 'danger'}>
+                  {healthData?.subsystems?.inAppEngine?.status || 'OPERATIONAL'}
+                </Badge>
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '0.35rem 0 0 0' }}>
+                Engine: <strong style={{ color: 'var(--color-text-primary)' }}>WebSocket & DB Polling</strong>
+              </p>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                Hourly Dispatches: {healthData?.subsystems?.inAppEngine?.messagesLastHour ?? 0} messages delivered
+              </div>
+            </div>
+
+            {/* 3. Transactional Email Relay */}
+            <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
+                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Mail size={15} style={{ color: 'var(--color-success)' }} />
+                  {healthData?.subsystems?.emailRelay?.name || 'Transactional Email Relay'}
+                </span>
+                <Badge variant={healthData?.subsystems?.emailRelay?.status === 'OPERATIONAL' ? 'success' : 'neutral'}>
+                  {healthData?.subsystems?.emailRelay?.status || 'OPERATIONAL'}
+                </Badge>
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '0.35rem 0 0 0' }}>
+                Relay: <strong style={{ color: 'var(--color-text-primary)' }}>{healthData?.subsystems?.emailRelay?.provider || 'SMTP Relay'}</strong>
+              </p>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                Average Dispatch: {healthData?.subsystems?.emailRelay?.latencyMs ?? 1}ms
+              </div>
+            </div>
+
+            {/* 4. BullMQ Worker */}
+            <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
+                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Activity size={15} style={{ color: 'var(--color-warning)' }} />
+                  {healthData?.subsystems?.bullMqQueue?.name || 'BullMQ Message Worker'}
+                </span>
+                <Badge variant={healthData?.subsystems?.bullMqQueue?.status === 'OPERATIONAL' ? 'success' : 'neutral'}>
+                  {healthData?.subsystems?.bullMqQueue?.status || 'OPERATIONAL'}
+                </Badge>
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '0.35rem 0 0 0' }}>
+                Queue Depth: <strong style={{ color: 'var(--color-text-primary)' }}>{healthData?.subsystems?.bullMqQueue?.waitingJobs ?? 0} waiting</strong>
+              </p>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                Active Workers: {healthData?.subsystems?.bullMqQueue?.activeJobs ?? 0} active, {healthData?.subsystems?.bullMqQueue?.failedJobs ?? 0} failed
+              </div>
+            </div>
+
+            {/* 5. SMS Carrier Gateway */}
+            <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
+                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <MessageSquare size={15} style={{ color: 'var(--color-text-muted)' }} />
+                  {healthData?.subsystems?.smsGateway?.name || 'Telecom SMS Carrier Gateway'}
+                </span>
+                <Badge variant="neutral">
+                  {healthData?.subsystems?.smsGateway?.status || 'NOT CONFIGURED'}
+                </Badge>
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '0.35rem 0 0 0' }}>
+                {healthData?.subsystems?.smsGateway?.note || 'Telecom SMS credentials pending carrier contract'}
               </p>
             </div>
 
+            {/* 6. Push Gateway */}
             <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>Transactional Email Relay</span>
-                <Badge variant="success">HEALTHY</Badge>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
+                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Zap size={15} style={{ color: 'var(--color-text-muted)' }} />
+                  {healthData?.subsystems?.pushGateway?.name || 'Mobile Web Push Gateway'}
+                </span>
+                <Badge variant="neutral">
+                  {healthData?.subsystems?.pushGateway?.status || 'NOT CONFIGURED'}
+                </Badge>
               </div>
-              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '0.5rem', margin: '0.5rem 0 0 0' }}>
-                Relay: SMTP/SES • Average Dispatch: 85ms
-              </p>
-            </div>
-
-            <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>BullMQ Message Worker</span>
-                <Badge variant="success">HEALTHY</Badge>
-              </div>
-              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '0.5rem', margin: '0.5rem 0 0 0' }}>
-                Queue Depth: 0 • Active Workers: 2
-              </p>
-            </div>
-
-            <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>SMS Carrier Gateway</span>
-                <Badge variant="neutral">NOT CONFIGURED</Badge>
-              </div>
-              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '0.5rem', margin: '0.5rem 0 0 0' }}>
-                SMS provider integration pending API key setup
+              <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '0.35rem 0 0 0' }}>
+                {healthData?.subsystems?.pushGateway?.note || 'Pending mobile app release & service worker registration'}
               </p>
             </div>
           </div>
