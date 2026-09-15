@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Switch } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
-import { Save } from 'lucide-react';
+import { Save, Loader2 } from 'lucide-react';
 
 export const StoreSettingsPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
@@ -13,11 +13,34 @@ export const StoreSettingsPage: React.FC = () => {
   const [orderEmailAlerts, setOrderEmailAlerts] = useState(true);
   const [autoFulfill, setAutoFulfill] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const settings = await storesApi.getStoreSettings();
+        if (settings) {
+          setAutoFulfill(settings.autoFulfill);
+          setOrderSmsAlerts(settings.smsAlerts);
+          setOrderEmailAlerts(settings.emailAlerts);
+        }
+      } catch (err) {
+        toastError('Load Failed', 'Unable to load store settings.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSettings();
+  }, [toastError]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await storesApi.saveStoreConfig({});
+      await storesApi.saveStoreSettings({
+        autoFulfill,
+        smsAlerts: orderSmsAlerts,
+        emailAlerts: orderEmailAlerts,
+      });
       toastSuccess('Settings Saved', 'Storefront operational preferences updated.');
     } catch (err: any) {
       toastError('Save Failed', err.message || 'Unable to update store settings.');
@@ -25,6 +48,14 @@ export const StoreSettingsPage: React.FC = () => {
       setSaving(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-8)' }}>
+        <Loader2 className="animate-spin text-gray-400" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -52,8 +83,8 @@ export const StoreSettingsPage: React.FC = () => {
           </p>
 
           <Switch
-            label="Instant ByteBeacon Automated Delivery"
-            description="Fulfill bundles instantly via ByteBeacon automated rails without manual confirmation"
+            label="Instant Automated Delivery"
+            description="Fulfill bundles instantly via automated telecom rails without manual confirmation"
             checked={autoFulfill}
             onChange={() => setAutoFulfill(!autoFulfill)}
           />

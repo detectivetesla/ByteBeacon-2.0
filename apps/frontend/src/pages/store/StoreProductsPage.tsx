@@ -56,32 +56,51 @@ export const StoreProductsPage: React.FC = () => {
     fetchProducts();
   }, [fetchProducts]);
 
+  const [modifiedProducts, setModifiedProducts] = useState<Set<string>>(new Set());
+
+  const markModified = (id: string) => {
+    setModifiedProducts((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
   const handleMarkupChange = (id: string, newMarkup: number) => {
     setProducts((prev) =>
       prev.map((p) =>
         p.id === id ? { ...p, markupGhs: Math.max(0, newMarkup) } : p,
       ),
     );
+    markModified(id);
   };
 
   const toggleAvailability = (id: string) => {
     setProducts((prev) =>
       prev.map((p) => (p.id === id ? { ...p, isAvailable: !p.isAvailable } : p)),
     );
+    markModified(id);
   };
 
   const toggleVisibility = (id: string) => {
     setProducts((prev) =>
       prev.map((p) => (p.id === id ? { ...p, isVisible: !p.isVisible } : p)),
     );
+    markModified(id);
   };
 
   const handleSaveAll = async () => {
     setIsSaving(true);
     try {
-      for (const prod of products) {
-        await storesApi.updateProductMarkup('my-store', prod.id, Math.round(prod.markupGhs * 100)).catch(() => null);
+      const modifiedProds = products.filter(p => modifiedProducts.has(p.id));
+      for (const prod of modifiedProds) {
+        await storesApi.updateStoreProduct(prod.id, {
+          markupPesewas: Math.round(prod.markupGhs * 100),
+          isAvailable: prod.isAvailable,
+          isVisible: prod.isVisible,
+        }).catch(() => null);
       }
+      setModifiedProducts(new Set());
       toastSuccess('Catalog Published', 'Your storefront bundle markups and visibility have been updated.');
     } catch (err: any) {
       toastError('Save Failed', err.message || 'Unable to update store products.');

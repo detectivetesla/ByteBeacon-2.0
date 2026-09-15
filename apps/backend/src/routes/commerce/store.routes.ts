@@ -444,7 +444,7 @@ export async function storeRoutes(
             currency: 'GHS' as any,
             email: store.contactEmail || req.user?.email || 'agent@bytebeacon.com',
             paymentMethod: 'PAYSTACK' as any,
-            callbackUrl: `${process.env.APP_URL || 'https://bytebeacon.com'}/agent/store?verify=${reference}`,
+            callbackUrl: `${process.env.PUBLIC_STOREFRONT_BASE_URL || 'https://apisolutions.store/store'}/agent/store?verify=${reference}`,
             metadata: {
               storeId: store.id,
               reference,
@@ -530,7 +530,7 @@ export async function storeRoutes(
       return reply.send({
         success: true,
         data: updateRes.rows[0],
-        message: 'Payment verified successfully! Your store application is now under review by ByteBeacon admins.',
+        message: 'Payment verified successfully! Your store application is now under review by platform administrators.',
       });
     },
   );
@@ -707,6 +707,22 @@ export async function storeRoutes(
       const { id } = req.params;
       const { markupPesewas, isAvailable, isVisible } = req.body || {};
 
+      if (markupPesewas !== undefined) {
+        const catalogRes = await db.query(
+          `SELECT cp.agent_min_price_pesewas, cp.base_price_pesewas
+           FROM store_products sp
+           JOIN catalog_products cp ON sp.catalog_product_id = cp.id
+           WHERE sp.id = $1 AND sp.store_id = $2`,
+          [id, store.id]
+        );
+        if (catalogRes.rows.length > 0) {
+          const { agent_min_price_pesewas, base_price_pesewas } = catalogRes.rows[0];
+          if (agent_min_price_pesewas && (parseInt(base_price_pesewas) + markupPesewas) < parseInt(agent_min_price_pesewas)) {
+            throw new BadRequestError(`Retail price cannot be below the platform minimum of GH₵ ${(parseInt(agent_min_price_pesewas) / 100).toFixed(2)}`);
+          }
+        }
+      }
+
       const updateRes = await db.query(
         `UPDATE store_products
          SET markup_pesewas = COALESCE($1, markup_pesewas),
@@ -772,6 +788,8 @@ export async function storeRoutes(
       }
 
       const store = storeRes.rows[0];
+
+      db.query('UPDATE stores SET visit_count = visit_count + 1, last_visited_at = CURRENT_TIMESTAMP WHERE id = $1', [store.id]).catch(() => {});
 
       const productsRes = await db.query(
         `SELECT sp.id, sp.catalog_product_id as "catalogProductId",
@@ -981,10 +999,10 @@ export async function storeRoutes(
             orderId: orderRow.id,
             amountPesewas: retailPricePesewas,
             currency: 'GHS' as any,
-            email: customerEmail || store.contactEmail || 'customer@bytebeacon.online',
+            email: customerEmail || store.contactEmail || 'customer@apisolutions.store',
             paymentMethod: 'PAYSTACK' as any,
             channel: channel as any,
-            callbackUrl: callbackUrl || `https://bytebeacon.online/store/${store.slug}?ref=${paymentRef}`,
+            callbackUrl: callbackUrl || `${process.env.PUBLIC_STOREFRONT_BASE_URL || 'https://apisolutions.store/store'}/${store.slug}?ref=${paymentRef}`,
             metadata: {
               orderId: orderRow.id,
               orderPublicId: orderRow.publicId,
@@ -1183,5 +1201,286 @@ export async function storeRoutes(
 
   app.post('/stores/public/orders/verify', handlePublicPaymentVerification);
   app.post('/stores/public/:slug/verify-payment', handlePublicPaymentVerification);
-}
 
+  // 10. GET STORE CUSTOMERS (/stores/my-store/customers)
+  app.get<{ Querystring: { search?: string; page?: string; limit?: string } }>(
+    '/stores/my-store/customers',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const store = await getAgentStore(req.user!.sub);
+      if (!store) throw new ForbiddenError('Store authorization required');
+
+      const search = req.query.search?.trim();
+      const page = Math.max(1, parseInt(req.query.page || '1', 10));
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '10', 10)));
+      const offset = (page - 1) * limit;
+
+      let countQuery = `
+        SELECT COUNT(DISTINCT recipient_phone) as total
+        FROM orders
+        WHERE store_id = $1
+      `;
+      let dataQuery = `
+        SELECT 
+          recipient_phone as "phone",
+          COUNT(*) as "totalOrders",
+          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') THEN amount_pesewas ELSE 0 END), 0) as "totalSpentPesewas",
+          MAX(created_at) as "lastPurchase",
+          MIN(created_at) as "firstPurchase"
+        FROM orders
+        WHERE store_id = $1
+      `;
+      const params: any[] = [store.id];
+
+      if (search) {
+        countQuery += ` AND recipient_phone ILIKE $2`;
+        dataQuery += ` AND recipient_phone ILIKE $2`;
+        params.push(`%${search}%`);
+      }
+
+      dataQuery += `
+        GROUP BY recipient_phone
+        ORDER BY MAX(created_at) DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `;
+
+      const [countRes, dataRes] = await Promise.all([
+        db.query(countQuery, params),
+        db.query(dataQuery, [...params, limit, offset]),
+      ]);
+
+      const totalItems = parseInt(countRes.rows[0].total, 10);
+      const totalPages = Math.ceil(totalItems / limit);
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const customers = dataRes.rows.map((row: any) => ({
+        phone: row.phone,
+        totalOrders: parseInt(row.totalOrders, 10),
+        totalSpentGhs: Number((parseInt(row.totalSpentPesewas, 10) / 100).toFixed(2)),
+        lastPurchase: row.lastPurchase,
+        firstPurchase: row.firstPurchase,
+        status: new Date(row.lastPurchase) > thirtyDaysAgo ? 'ACTIVE' : 'INACTIVE',
+      }));
+
+      return reply.send({
+        success: true,
+        data: {
+          items: customers,
+          pagination: { page, limit, totalItems, totalPages },
+        },
+      });
+    }
+  );
+
+  // 11. GET STORE ANALYTICS (/stores/my-store/analytics)
+  app.get<{ Querystring: { period?: string } }>(
+    '/stores/my-store/analytics',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const store = await getAgentStore(req.user!.sub);
+      if (!store) throw new ForbiddenError('Store authorization required');
+
+      const period = req.query.period || '30d';
+      let dateFilter = '';
+      if (period === '7d') {
+        dateFilter = `AND created_at >= NOW() - INTERVAL '7 days'`;
+      } else if (period === '30d') {
+        dateFilter = `AND created_at >= NOW() - INTERVAL '30 days'`;
+      } else if (period === 'month') {
+        dateFilter = `AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())`;
+      }
+
+      const aggregateQuery = `
+        SELECT
+          COUNT(*) as "totalOrders",
+          COUNT(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED') THEN 1 END) as "completedOrders",
+          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED') THEN amount_pesewas ELSE 0 END), 0) as "monthlyRevenuePesewas"
+        FROM orders
+        WHERE store_id = $1 ${dateFilter}
+      `;
+
+      const networkQuery = `
+        SELECT
+          network,
+          COUNT(*) as "orderCount",
+          COALESCE(SUM(amount_pesewas), 0) as "revenuePesewas"
+        FROM orders
+        WHERE store_id = $1 AND payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED') ${dateFilter}
+        GROUP BY network
+      `;
+
+      const trendQuery = `
+        SELECT
+          DATE(created_at) as "date",
+          COALESCE(SUM(amount_pesewas), 0) as "revenuePesewas"
+        FROM orders
+        WHERE store_id = $1 AND payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED') AND created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY DATE(created_at)
+        ORDER BY DATE(created_at) ASC
+      `;
+
+      const [aggRes, netRes, trendRes] = await Promise.all([
+        db.query(aggregateQuery, [store.id]),
+        db.query(networkQuery, [store.id]),
+        db.query(trendQuery, [store.id]),
+      ]);
+
+      const agg = aggRes.rows[0];
+      const completedOrders = parseInt(agg.completedOrders, 10) || 0;
+      const totalOrders = parseInt(agg.totalOrders, 10) || 0;
+      const monthlyRevenuePesewas = parseInt(agg.monthlyRevenuePesewas, 10) || 0;
+
+      const successRate = totalOrders > 0 ? (completedOrders / totalOrders) * 100 : 0;
+      const averageOrderValuePesewas = completedOrders > 0 ? Math.floor(monthlyRevenuePesewas / completedOrders) : 0;
+
+      const networks = netRes.rows.map((r: any) => ({
+        network: r.network,
+        orderCount: parseInt(r.orderCount, 10),
+        revenuePesewas: parseInt(r.revenuePesewas, 10),
+      }));
+
+      const dailyTrend = trendRes.rows.map((r: any) => ({
+        date: r.date,
+        revenuePesewas: parseInt(r.revenuePesewas, 10),
+      }));
+
+      return reply.send({
+        success: true,
+        data: {
+          monthlyRevenuePesewas,
+          completedOrders,
+          totalOrders,
+          successRate,
+          averageOrderValuePesewas,
+          networks,
+          dailyTrend,
+        },
+      });
+    }
+  );
+
+  // 12. GET STORE FINANCE (/stores/my-store/finance)
+  app.get<{ Querystring: { page?: string; limit?: string } }>(
+    '/stores/my-store/finance',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const store = await getAgentStore(req.user!.sub);
+      if (!store) throw new ForbiddenError('Store authorization required');
+
+      const page = Math.max(1, parseInt(req.query.page || '1', 10));
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
+      const offset = (page - 1) * limit;
+
+      const financeAggQuery = `
+        SELECT
+          COUNT(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') THEN 1 END) as "totalFulfilledOrders",
+          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') THEN amount_pesewas ELSE 0 END), 0) as "grossSalesPesewas",
+          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') THEN (pricing_snapshot->>'basePricePesewas')::numeric ELSE 0 END), 0) as "costPesewas"
+        FROM orders
+        WHERE store_id = $1
+      `;
+
+      const ledgerQuery = `
+        SELECT
+          id, entry_type as "entryType", amount_pesewas as "amountPesewas",
+          reference_type as "referenceType", reference_id as "referenceId",
+          description, created_at as "createdAt"
+        FROM financial_ledger
+        WHERE account_type = 'AGENT_WALLET' AND account_id IN (
+          SELECT agent_id FROM stores WHERE user_id = $1 OR id = $2
+        )
+        ORDER BY created_at DESC
+        LIMIT $3 OFFSET $4
+      `;
+
+      const [aggRes, ledgerRes] = await Promise.all([
+        db.query(financeAggQuery, [store.id]),
+        db.query(ledgerQuery, [req.user!.sub, store.id, limit, offset]),
+      ]);
+
+      const agg = aggRes.rows[0];
+      const grossSalesPesewas = parseInt(agg.grossSalesPesewas || '0', 10);
+      const costPesewas = parseInt(agg.costPesewas || '0', 10);
+      const profitPesewas = grossSalesPesewas - costPesewas;
+      const totalFulfilledOrders = parseInt(agg.totalFulfilledOrders || '0', 10);
+
+      const recentTransactions = ledgerRes.rows.map((r: any) => ({
+        id: r.id,
+        entryType: r.entryType,
+        amountPesewas: parseInt(r.amountPesewas, 10),
+        referenceType: r.referenceType,
+        referenceId: r.referenceId,
+        description: r.description,
+        createdAt: r.createdAt,
+      }));
+
+      return reply.send({
+        success: true,
+        data: {
+          grossSalesPesewas,
+          costPesewas,
+          profitPesewas,
+          totalFulfilledOrders,
+          recentTransactions,
+          pagination: { page, limit },
+        },
+      });
+    }
+  );
+
+  // 13. GET STORE SETTINGS (/stores/my-store/settings)
+  app.get(
+    '/stores/my-store/settings',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const store = await getAgentStore(req.user!.sub);
+      if (!store) throw new ForbiddenError('Store authorization required');
+
+      const storeRes = await db.query('SELECT settings FROM stores WHERE id = $1', [store.id]);
+      const storedSettings = storeRes.rows[0]?.settings || {};
+
+      const defaults = {
+        autoFulfill: true,
+        smsAlerts: true,
+        emailAlerts: true,
+      };
+
+      return reply.send({
+        success: true,
+        data: { ...defaults, ...storedSettings },
+      });
+    }
+  );
+
+  // 14. PUT STORE SETTINGS (/stores/my-store/settings)
+  app.put<{ Body: { autoFulfill?: boolean; smsAlerts?: boolean; emailAlerts?: boolean } }>(
+    '/stores/my-store/settings',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const store = await getAgentStore(req.user!.sub);
+      if (!store) throw new ForbiddenError('Store authorization required');
+
+      const { autoFulfill, smsAlerts, emailAlerts } = req.body || {};
+
+      const storeRes = await db.query('SELECT settings FROM stores WHERE id = $1', [store.id]);
+      const storedSettings = storeRes.rows[0]?.settings || {};
+
+      const newSettings = {
+        ...storedSettings,
+        ...(autoFulfill !== undefined && { autoFulfill }),
+        ...(smsAlerts !== undefined && { smsAlerts }),
+        ...(emailAlerts !== undefined && { emailAlerts }),
+      };
+
+      await db.query('UPDATE stores SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [newSettings, store.id]);
+
+      return reply.send({
+        success: true,
+        data: newSettings,
+        message: 'Settings updated successfully',
+      });
+    }
+  );
+}

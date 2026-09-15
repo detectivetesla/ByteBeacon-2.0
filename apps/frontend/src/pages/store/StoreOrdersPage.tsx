@@ -1,121 +1,90 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Select, SearchInput } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
+import { storesApi, StoreOrdersResponseDto } from '../../api/stores.api.js';
 import {
   ShoppingBag,
   Download,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
-interface StoreOrderRecord {
-  id: string;
-  publicId: string;
-  customerName: string;
-  recipientPhone: string;
-  network: 'MTN' | 'TELECEL' | 'AIRTELTIGO';
-  bundleSize: string;
-  amountGhs: number;
-  paymentStatus: 'PAID' | 'PENDING' | 'FAILED';
-  orderStatus: 'COMPLETED' | 'PROCESSING' | 'PENDING' | 'FAILED';
-  date: string;
-}
+// Format relative date
+const formatRelativeDate = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+  
+  if (diffInHours < 24 && now.getDate() === date.getDate()) {
+    return `Today, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  } else if (diffInHours < 48 && now.getDate() - date.getDate() === 1) {
+    return `Yesterday, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
 
-const SAMPLE_STORE_ORDERS: StoreOrderRecord[] = [
-  {
-    id: 'so-1',
-    publicId: 'BB-98412',
-    customerName: 'Ama Serwaa',
-    recipientPhone: '024 456 7890',
-    network: 'MTN',
-    bundleSize: '5.0 GB',
-    amountGhs: 25.00,
-    paymentStatus: 'PAID',
-    orderStatus: 'COMPLETED',
-    date: 'Today, 14:22',
-  },
-  {
-    id: 'so-2',
-    publicId: 'BB-98411',
-    customerName: 'Kwame Mensah',
-    recipientPhone: '020 123 4567',
-    network: 'TELECEL',
-    bundleSize: '10.0 GB',
-    amountGhs: 45.00,
-    paymentStatus: 'PAID',
-    orderStatus: 'COMPLETED',
-    date: 'Today, 12:10',
-  },
-  {
-    id: 'so-3',
-    publicId: 'BB-98409',
-    customerName: 'Kofi Asante',
-    recipientPhone: '026 789 0123',
-    network: 'AIRTELTIGO',
-    bundleSize: '15.0 GB',
-    amountGhs: 60.00,
-    paymentStatus: 'PAID',
-    orderStatus: 'PROCESSING',
-    date: 'Today, 10:05',
-  },
-  {
-    id: 'so-4',
-    publicId: 'BB-98402',
-    customerName: 'Akosua Darko',
-    recipientPhone: '054 998 8776',
-    network: 'MTN',
-    bundleSize: '2.0 GB',
-    amountGhs: 12.00,
-    paymentStatus: 'PAID',
-    orderStatus: 'COMPLETED',
-    date: 'Yesterday, 19:40',
-  },
-  {
-    id: 'so-5',
-    publicId: 'BB-98398',
-    customerName: 'Yaw Osei',
-    recipientPhone: '055 112 2334',
-    network: 'MTN',
-    bundleSize: '20.0 GB',
-    amountGhs: 85.00,
-    paymentStatus: 'PAID',
-    orderStatus: 'COMPLETED',
-    date: 'Yesterday, 15:30',
-  },
-];
+// Format bundle size
+const formatBundleSize = (mb: number) => {
+  return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb + ' MB';
+};
 
 export const StoreOrdersPage: React.FC = () => {
-  const { toastSuccess } = useToast();
-  const [orders] = useState<StoreOrderRecord[]>(SAMPLE_STORE_ORDERS);
+  const { toastSuccess, toastError } = useToast();
+  
+  const [data, setData] = useState<StoreOrdersResponseDto | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Filters
+  // Filters & Pagination
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [networkFilter, setNetworkFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [page, setPage] = useState<number>(1);
+  const limit = 10;
 
-  const filteredOrders = useMemo(() => {
-    return orders.filter((o) => {
-      if (statusFilter !== 'ALL' && o.orderStatus !== statusFilter) return false;
-      if (networkFilter !== 'ALL' && o.network !== networkFilter) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        return (
-          o.publicId.toLowerCase().includes(q) ||
-          o.customerName.toLowerCase().includes(q) ||
-          o.recipientPhone.includes(q)
-        );
+  const fetchOrders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await storesApi.getStoreOrders({
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        network: networkFilter !== 'ALL' ? networkFilter : undefined,
+        search: searchQuery.trim() || undefined,
+        page,
+        limit,
+      });
+      if (res && res.orders) {
+        setData(res);
+      } else {
+        toastError('Failed to fetch', 'Could not load store orders.');
       }
-      return true;
-    });
-  }, [orders, statusFilter, networkFilter, searchQuery]);
+    } catch (err: any) {
+      toastError('Error', err.message || 'An error occurred while loading orders.');
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, networkFilter, searchQuery, page, limit, toastError]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, networkFilter, searchQuery]);
+
+  const orders = data?.orders || [];
+  const pagination = data?.pagination || { page: 1, limit, total: 0, totalPages: 1 };
 
   const handleExportCsv = () => {
-    const header = 'Order ID,Customer,Recipient Phone,Network,Bundle,Amount (GHS),Payment,Status,Date\n';
-    const rows = filteredOrders
+    if (!orders.length) return;
+    const header = 'Order ID,Recipient Phone,Network,Bundle,Amount (GHS),Payment,Status,Date\n';
+    const rows = orders
       .map(
         (o) =>
-          `${o.publicId},"${o.customerName}",${o.recipientPhone},${o.network},${o.bundleSize},${o.amountGhs.toFixed(2)},${o.paymentStatus},${o.orderStatus},"${o.date}"`,
+          `${o.publicId},${o.recipientPhone},${o.network},${formatBundleSize(o.dataAmountMb)},${(o.amountPesewas / 100).toFixed(2)},${o.paymentStatus},${o.orderStatus},"${new Date(o.createdAt).toLocaleString()}"`,
       )
       .join('\n');
     const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
@@ -130,7 +99,7 @@ export const StoreOrdersPage: React.FC = () => {
   };
 
   const getNetworkBadge = (network: string) => {
-    switch (network) {
+    switch (network.toUpperCase()) {
       case 'MTN':
         return <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#FFCC00', color: '#000000', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>MTN</span>;
       case 'TELECEL':
@@ -159,7 +128,7 @@ export const StoreOrdersPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <Button variant="outline" size="sm" onClick={handleExportCsv} leftIcon={<Download size={13} />}>
+          <Button variant="outline" size="sm" onClick={handleExportCsv} leftIcon={<Download size={13} />} disabled={orders.length === 0}>
             Export CSV
           </Button>
         </div>
@@ -192,7 +161,7 @@ export const StoreOrdersPage: React.FC = () => {
                 { label: 'All Networks', value: 'ALL' },
                 { label: 'MTN', value: 'MTN' },
                 { label: 'Telecel', value: 'TELECEL' },
-                { label: 'AirtelTigo', value: 'AIRTELTIGO' },
+                { label: 'AirtelTIGO', value: 'AIRTELTIGO' },
               ]}
             />
           </div>
@@ -200,7 +169,7 @@ export const StoreOrdersPage: React.FC = () => {
           {/* Search Query */}
           <div style={{ minWidth: '180px', flex: '1 1 180px' }}>
             <SearchInput
-              placeholder="Search customer, phone, ID..."
+              placeholder="Search phone, ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -210,14 +179,18 @@ export const StoreOrdersPage: React.FC = () => {
 
       {/* Orders Table */}
       <Card style={{ padding: '0', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-2xl)', overflow: 'hidden' }}>
-        {filteredOrders.length === 0 ? (
+        {loading && orders.length === 0 ? (
+           <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+             Loading orders...
+           </div>
+        ) : orders.length === 0 ? (
           <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
             <ShoppingBag size={28} color="var(--color-text-muted)" style={{ margin: '0 auto var(--space-2) auto' }} />
             <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-              No store orders yet
+              No store orders found
             </h3>
             <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', marginTop: '0.2rem' }}>
-              Your first storefront order will appear here once customers make a purchase.
+              Your storefront orders will appear here once customers make a purchase matching the filters.
             </p>
           </div>
         ) : (
@@ -226,7 +199,6 @@ export const StoreOrdersPage: React.FC = () => {
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
                   <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Order ID</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Customer</th>
                   <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Recipient</th>
                   <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Network</th>
                   <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Bundle</th>
@@ -236,13 +208,10 @@ export const StoreOrdersPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredOrders.map((o) => (
+                {orders.map((o) => (
                   <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                     <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                       {o.publicId}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                      {o.customerName}
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
                       {o.recipientPhone}
@@ -251,10 +220,10 @@ export const StoreOrdersPage: React.FC = () => {
                       {getNetworkBadge(o.network)}
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                      {o.bundleSize}
+                      {formatBundleSize(o.dataAmountMb)}
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                      GH₵ {o.amountGhs.toFixed(2)}
+                      GH₵ {(o.amountPesewas / 100).toFixed(2)}
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                       <Badge variant={o.orderStatus === 'COMPLETED' ? 'success' : o.orderStatus === 'PROCESSING' ? 'info' : 'warning'} size="sm" dot>
@@ -262,12 +231,41 @@ export const StoreOrdersPage: React.FC = () => {
                       </Badge>
                     </td>
                     <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
-                      {o.date}
+                      {formatRelativeDate(o.createdAt)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            
+            {/* Pagination Controls */}
+            {pagination.totalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-4)', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                  Page {pagination.page} of {pagination.totalPages}
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    disabled={pagination.page <= 1 || loading}
+                    onClick={() => setPage(p => p - 1)}
+                    leftIcon={<ChevronLeft size={14} />}
+                  >
+                    Previous
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    disabled={pagination.page >= pagination.totalPages || loading}
+                    onClick={() => setPage(p => p + 1)}
+                    rightIcon={<ChevronRight size={14} />}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Card>

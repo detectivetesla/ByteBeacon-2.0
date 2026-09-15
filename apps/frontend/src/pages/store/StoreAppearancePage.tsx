@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 const PRESET_PRIMARY_COLORS = [
-  { label: 'Beacon Blue', hex: '#0066FF' },
+  { label: 'Ocean Blue', hex: '#0066FF' },
   { label: 'Emerald Green', hex: '#10B981' },
   { label: 'Royal Violet', hex: '#8B5CF6' },
   { label: 'Midnight Indigo', hex: '#6366F1' },
@@ -25,7 +25,7 @@ export const StoreAppearancePage: React.FC = () => {
 
   const [primaryColor, setPrimaryColor] = useState('#0066FF');
   const [accentColor, setAccentColor] = useState('#00E599');
-  const [storeName, setStoreName] = useState('DataHub Express');
+  const [storeName, setStoreName] = useState('My Store');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {

@@ -5,6 +5,8 @@ import { useTheme } from '../context/ThemeContext.js';
 import { STORE_NAVIGATION_GROUPS } from '../components/navigation/navigation.config.js';
 import { MaintenanceBanner } from '../components/navigation/MaintenanceBanner.js';
 import { usePlatformStatus } from '../context/PlatformStatusContext.js';
+import { storesApi } from '../api/stores.api.js';
+import { STOREFRONT_CONFIG } from '../config/storefront.config.js';
 import {
   Store,
   PanelLeftClose,
@@ -30,15 +32,25 @@ export const StoreLayout: React.FC = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const storeSlug = 'datahub-express';
-  const storeName = 'DataHub Express';
+  const [storeSlug, setStoreSlug] = useState('my-store');
+  const [storeName, setStoreName] = useState('Agent Store');
+
+  // Load active store profile
+  useEffect(() => {
+    storesApi.getStore().then((st) => {
+      if (st) {
+        if (st.slug) setStoreSlug(st.slug);
+        if (st.storeName) setStoreName(st.storeName);
+      }
+    }).catch(() => {});
+  }, []);
 
   // Close mobile drawer on route change
   useEffect(() => {
     setIsMobileOpen(false);
   }, [location.pathname]);
 
-  const publicStoreUrl = `/store/${storeSlug}`;
+  const publicStoreUrl = STOREFRONT_CONFIG.getStoreUrl(storeSlug);
 
   return (
     <div

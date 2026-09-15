@@ -103,6 +103,118 @@ export interface PublicCheckoutResponse {
   };
 }
 
+// ─── Agent Commerce DTO Types ────────────────────────────────────
+
+export interface StoreDashboardDto {
+  store: {
+    id: string;
+    storeName: string;
+    slug: string;
+    primaryColor: string;
+    accentColor: string;
+  };
+  kpis: {
+    todaySalesGhs: number;
+    totalSalesGhs: number;
+    ordersCount: number;
+    customersCount: number;
+    storeVisits: number;
+  };
+  orderHealth: {
+    completed: number;
+    processing: number;
+    pending: number;
+    failed: number;
+  };
+  revenueTrend?: Array<{ date: string; revenueGhs: number }>;
+}
+
+export interface StoreOrderRecordDto {
+  id: string;
+  publicId: string;
+  recipientPhone: string;
+  network: string;
+  dataAmountMb: number;
+  amountPesewas: number;
+  orderStatus: string;
+  paymentStatus: string;
+  createdAt: string;
+}
+
+export interface StoreOrdersResponseDto {
+  orders: StoreOrderRecordDto[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface StoreCustomerRecordDto {
+  phone: string;
+  totalOrders: number;
+  totalSpentGhs: number;
+  lastPurchase: string;
+  firstPurchase: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface StoreCustomersResponseDto {
+  customers: StoreCustomerRecordDto[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface StoreAnalyticsDto {
+  monthlyRevenueGhs: number;
+  completedOrders: number;
+  totalOrders: number;
+  successRate: number;
+  averageOrderValueGhs: number;
+  networkBreakdown: Array<{
+    network: string;
+    revenueGhs: number;
+    orderCount: number;
+    percentage: number;
+  }>;
+  revenueTrend: Array<{ date: string; revenueGhs: number }>;
+}
+
+export interface StoreFinanceLedgerEntryDto {
+  id: string;
+  entryType: 'DEBIT' | 'CREDIT';
+  amountPesewas: number;
+  referenceType: string;
+  referenceId: string;
+  description: string;
+  createdAt: string;
+}
+
+export interface StoreFinanceDto {
+  grossSalesGhs: number;
+  costGhs: number;
+  profitGhs: number;
+  totalFulfilledOrders: number;
+  transactions: StoreFinanceLedgerEntryDto[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface StoreSettingsDto {
+  autoFulfill: boolean;
+  smsAlerts: boolean;
+  emailAlerts: boolean;
+}
+
 export const storesApi = {
   getActivationFee: async (): Promise<{ activationFeePesewas: number; activationFeeGhs: number }> => {
     try {
@@ -212,17 +324,100 @@ export const storesApi = {
     return apiClient.post<{ success: boolean; store: StoreProfileDto }>('/stores/payment/verify', { reference });
   },
 
-  getStoreProducts: async (storeId: string): Promise<StoreProductDto[]> => {
-    return apiClient.get<StoreProductDto[]>(`/stores/${storeId}/products`);
+  getStoreProducts: async (_storeId?: string): Promise<StoreProductDto[]> => {
+    return apiClient.get<StoreProductDto[]>('/stores/my-store/products');
   },
 
+  updateStoreProduct: async (
+    productId: string,
+    payload: { markupPesewas?: number; isAvailable?: boolean; isVisible?: boolean },
+  ): Promise<StoreProductDto> => {
+    return apiClient.put<StoreProductDto>(`/stores/my-store/products/${productId}`, payload);
+  },
+
+  /** @deprecated Use updateStoreProduct instead */
   updateProductMarkup: async (
-    storeId: string,
+    _storeId: string,
     productId: string,
     markupPesewas: number,
   ): Promise<StoreProductDto> => {
-    return apiClient.patch<StoreProductDto>(`/stores/${storeId}/products/${productId}`, {
+    return apiClient.put<StoreProductDto>(`/stores/my-store/products/${productId}`, {
       markupPesewas,
     });
   },
+
+  // ─── Agent Commerce: Dashboard ───────────────────────────────────
+
+  getStoreDashboard: async (): Promise<StoreDashboardDto> => {
+    return apiClient.get<StoreDashboardDto>('/stores/my-store/dashboard');
+  },
+
+  // ─── Agent Commerce: Orders ──────────────────────────────────────
+
+  getStoreOrders: async (params?: {
+    status?: string;
+    network?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<StoreOrdersResponseDto> => {
+    const query = new URLSearchParams();
+    if (params?.status && params.status !== 'ALL') query.set('status', params.status);
+    if (params?.network && params.network !== 'ALL') query.set('network', params.network);
+    if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return apiClient.get<StoreOrdersResponseDto>(`/stores/my-store/orders${qs ? `?${qs}` : ''}`);
+  },
+
+  // ─── Agent Commerce: Customers ───────────────────────────────────
+
+  getStoreCustomers: async (params?: {
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<StoreCustomersResponseDto> => {
+    const query = new URLSearchParams();
+    if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return apiClient.get<StoreCustomersResponseDto>(`/stores/my-store/customers${qs ? `?${qs}` : ''}`);
+  },
+
+  // ─── Agent Commerce: Analytics ───────────────────────────────────
+
+  getStoreAnalytics: async (params?: {
+    period?: '7d' | '30d' | 'month';
+  }): Promise<StoreAnalyticsDto> => {
+    const query = new URLSearchParams();
+    if (params?.period) query.set('period', params.period);
+    const qs = query.toString();
+    return apiClient.get<StoreAnalyticsDto>(`/stores/my-store/analytics${qs ? `?${qs}` : ''}`);
+  },
+
+  // ─── Agent Commerce: Finance ─────────────────────────────────────
+
+  getStoreFinance: async (params?: {
+    page?: number;
+    limit?: number;
+  }): Promise<StoreFinanceDto> => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return apiClient.get<StoreFinanceDto>(`/stores/my-store/finance${qs ? `?${qs}` : ''}`);
+  },
+
+  // ─── Agent Commerce: Settings ────────────────────────────────────
+
+  getStoreSettings: async (): Promise<StoreSettingsDto> => {
+    return apiClient.get<StoreSettingsDto>('/stores/my-store/settings');
+  },
+
+  saveStoreSettings: async (payload: Partial<StoreSettingsDto>): Promise<StoreSettingsDto> => {
+    return apiClient.put<StoreSettingsDto>('/stores/my-store/settings', payload);
+  },
 };
+

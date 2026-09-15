@@ -62,7 +62,7 @@ export const StoreLoginPage: React.FC = () => {
         fontFamily: 'var(--font-sans)',
       }}
     >
-      {/* Back to ByteBeacon link */}
+      {/* Back link */}
       <div style={{ maxWidth: '440px', width: '100%', marginBottom: 'var(--space-4)' }}>
         <Link
           to="/"
@@ -77,7 +77,7 @@ export const StoreLoginPage: React.FC = () => {
           }}
         >
           <ArrowLeft size={14} />
-          <span>Back to ByteBeacon</span>
+          <span>Back to Home</span>
         </Link>
       </div>
 
@@ -207,7 +207,7 @@ export const StoreLoginPage: React.FC = () => {
         {/* Footer Note */}
         <div style={{ marginTop: 'var(--space-6)', textAlign: 'center', borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-4)' }}>
           <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-            Uses your unified ByteBeacon merchant identity
+            Sign in with your merchant account credentials
           </span>
         </div>
       </Card>

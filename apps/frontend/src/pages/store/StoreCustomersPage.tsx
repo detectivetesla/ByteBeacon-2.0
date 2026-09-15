@@ -1,39 +1,69 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { SearchInput } from '../../components/ui/index.js';
-import { Download } from 'lucide-react';
+import { Download, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { storesApi } from '../../api/stores.api.js';
 
 interface StoreCustomerRecord {
-  id: string;
-  name: string;
   phone: string;
   totalOrders: number;
   totalSpentGhs: number;
   lastPurchase: string;
+  firstPurchase: string;
   status: 'ACTIVE' | 'RETURNING' | 'NEW';
 }
 
-const SAMPLE_STORE_CUSTOMERS: StoreCustomerRecord[] = [
-  { id: 'c-1', name: 'Ama Serwaa', phone: '024 456 7890', totalOrders: 14, totalSpentGhs: 340.00, lastPurchase: 'Today', status: 'ACTIVE' },
-  { id: 'c-2', name: 'Kwame Mensah', phone: '020 123 4567', totalOrders: 8, totalSpentGhs: 220.00, lastPurchase: 'Today', status: 'ACTIVE' },
-  { id: 'c-3', name: 'Kofi Asante', phone: '026 789 0123', totalOrders: 5, totalSpentGhs: 145.00, lastPurchase: 'Yesterday', status: 'RETURNING' },
-  { id: 'c-4', name: 'Akosua Darko', phone: '054 998 8776', totalOrders: 2, totalSpentGhs: 45.00, lastPurchase: '3 days ago', status: 'NEW' },
-  { id: 'c-5', name: 'Yaw Osei', phone: '055 112 2334', totalOrders: 19, totalSpentGhs: 680.00, lastPurchase: '4 days ago', status: 'ACTIVE' },
-];
-
 export const StoreCustomersPage: React.FC = () => {
-  const { toastSuccess } = useToast();
-  const [customers] = useState<StoreCustomerRecord[]>(SAMPLE_STORE_CUSTOMERS);
+  const { toastSuccess, toastError } = useToast();
+  const [customers, setCustomers] = useState<StoreCustomerRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
-  const filteredCustomers = customers.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search),
-  );
+  const fetchCustomers = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await storesApi.getStoreCustomers({ search, page, limit: 10 });
+      if (res && res.customers) {
+        setCustomers(res.customers as any);
+        setTotalPages(res.pagination?.totalPages || 1);
+        setTotal(res.pagination?.total || 0);
+      } else {
+        setError('Failed to load customers.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred while fetching customers.');
+      toastError('Error', 'Failed to load customers');
+    } finally {
+      setLoading(false);
+    }
+  }, [search, page, toastError]);
+
+  useEffect(() => {
+    fetchCustomers();
+  }, [fetchCustomers]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const getRelativeDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    const d = new Date(dateString);
+    const diffMs = Date.now() - d.getTime();
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return `${diffDays} days ago`;
+  };
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -53,8 +83,9 @@ export const StoreCustomersPage: React.FC = () => {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => toastSuccess('Exported', 'Customer directory exported.')}
+          onClick={() => toastSuccess('Exported', `Customer directory exported (${total} records).`)}
           leftIcon={<Download size={13} />}
+          disabled={loading || customers.length === 0}
         >
           Export Customers
         </Button>
@@ -64,7 +95,7 @@ export const StoreCustomersPage: React.FC = () => {
       <Card style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
         <div style={{ maxWidth: '320px' }}>
           <SearchInput
-            placeholder="Search customer name or phone..."
+            placeholder="Search customer phone..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -73,46 +104,95 @@ export const StoreCustomersPage: React.FC = () => {
 
       {/* Customers Table */}
       <Card style={{ padding: 0, backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-2xl)', overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Customer</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Phone</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Orders</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Total Spent</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Last Order</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCustomers.map((c) => (
-                <tr key={c.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                  <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                    {c.name}
-                  </td>
-                  <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
-                    {c.phone}
-                  </td>
-                  <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                    {c.totalOrders}
-                  </td>
-                  <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: '#10B981' }}>
-                    GH₵ {c.totalSpentGhs.toFixed(2)}
-                  </td>
-                  <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
-                    {c.lastPurchase}
-                  </td>
-                  <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                    <Badge variant={c.status === 'ACTIVE' ? 'success' : 'info'} size="sm">
-                      {c.status}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+            <Loader2 size={32} className="spin" style={{ margin: '0 auto', marginBottom: 'var(--space-4)' }} />
+            <p>Loading customers...</p>
+          </div>
+        ) : error ? (
+          <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-danger)' }}>
+            <p>{error}</p>
+            <Button variant="outline" size="sm" onClick={fetchCustomers} style={{ marginTop: 'var(--space-4)' }}>
+              Retry
+            </Button>
+          </div>
+        ) : customers.length === 0 ? (
+          <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+            <p>No customers found matching your search.</p>
+          </div>
+        ) : (
+          <>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Customer</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Phone</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Orders</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Total Spent</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Last Order</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customers.map((c, i) => (
+                    <tr key={c.phone + i} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        Guest Customer
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                        {c.phone}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        {c.totalOrders}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: '#10B981' }}>
+                        GH₵ {c.totalSpentGhs.toFixed(2)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
+                        {getRelativeDate(c.lastPurchase)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <Badge variant={c.status === 'ACTIVE' ? 'success' : c.status === 'NEW' ? 'brand' : 'info'} size="sm">
+                          {c.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-4)', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                  Showing page {page} of {totalPages} ({total} total customers)
+                </span>
+                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === 1}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    leftIcon={<ChevronLeft size={14} />}
+                  >
+                    Prev
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === totalPages}
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    rightIcon={<ChevronRight size={14} />}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </Card>
     </div>
   );

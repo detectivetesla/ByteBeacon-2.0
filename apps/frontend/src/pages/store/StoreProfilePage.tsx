@@ -11,19 +11,21 @@ import {
   Save,
   Copy,
   ExternalLink,
+  Loader2,
 } from 'lucide-react';
 
 export const StoreProfilePage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
 
-  const [storeName, setStoreName] = useState('DataHub Express');
-  const [slug, setSlug] = useState('datahub-express');
-  const [tagline, setTagline] = useState('Instant automated data bundles 24/7');
-  const [description, setDescription] = useState('Fastest delivery of MTN, Telecel, and AirtelTigo bundles across Ghana.');
-  const [contactPhone, setContactPhone] = useState('0244123456');
-  const [contactEmail, setContactEmail] = useState('support@datahubexpress.com');
-  const [contactWhatsapp, setContactWhatsapp] = useState('+233244123456');
+  const [storeName, setStoreName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [tagline, setTagline] = useState('');
+  const [description, setDescription] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactWhatsapp, setContactWhatsapp] = useState('');
   const [saving, setSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     storesApi.getStore().then((st) => {
@@ -37,7 +39,9 @@ export const StoreProfilePage: React.FC = () => {
         if (st.contactWhatsapp) setContactWhatsapp(st.contactWhatsapp);
       }
     }).catch(() => {
-      // Use defaults
+      // Use empty defaults
+    }).finally(() => {
+      setIsLoading(false);
     });
   }, []);
 
@@ -69,6 +73,14 @@ export const StoreProfilePage: React.FC = () => {
       setSaving(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-12)' }}>
+        <Loader2 className="animate-spin text-gray-400" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
