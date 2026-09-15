@@ -40,6 +40,8 @@ import {
   Layers,
   Search,
   ArrowRight,
+  Radio,
+  Zap,
 } from 'lucide-react';
 import {
   adminApi,
@@ -118,6 +120,12 @@ export const AdminAuditPage: React.FC = () => {
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
   const [auditLogs, setAuditLogs] = useState<AdminAuditListItemDto[]>([]);
+
+  // Real-time Auto-Refresh & Live Sync State
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(10);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isEmittingTest, setIsEmittingTest] = useState(false);
+  const [testEventToast, setTestEventToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Selected Log Detail Drawer State
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
@@ -238,21 +246,22 @@ export const AdminAuditPage: React.FC = () => {
   }, []);
 
   // Fetch Overview Stats
-  const fetchOverview = useCallback(async () => {
+  const fetchOverview = useCallback(async (isSilent = false) => {
     try {
       const res = await adminApi.getAuditOverview();
       if (res) {
         setStats(res);
       }
       await fetchEmergencyControls();
+      setLastUpdated(new Date());
     } catch {
       // Fallback to local default stats if network error
     }
   }, [fetchEmergencyControls]);
 
   // Fetch Audit Logs
-  const fetchAuditLogs = useCallback(async () => {
-    setIsLoading(true);
+  const fetchAuditLogs = useCallback(async (isSilent = false) => {
+    if (!isSilent) setIsLoading(true);
     try {
       const res = await adminApi.getAuditEvents({
         page,
@@ -280,15 +289,16 @@ export const AdminAuditPage: React.FC = () => {
         setTotalPages(1);
         setTotalLogs(0);
       }
+      setLastUpdated(new Date());
     } catch {
       setAuditLogs([]);
     } finally {
-      setIsLoading(false);
+      if (!isSilent) setIsLoading(false);
     }
   }, [page, searchQuery, categoryFilter, severityFilter, resultFilter, roleFilter, sourceFilter, actionFilter, resourceFilter, actorFilter, startDateFilter, endDateFilter]);
 
   // Fetch Incidents
-  const fetchIncidents = useCallback(async () => {
+  const fetchIncidents = useCallback(async (isSilent = false) => {
     try {
       const res = await adminApi.getSecurityIncidents({
         status: incidentStatusFilter !== 'ALL' ? incidentStatusFilter : undefined,
@@ -296,6 +306,7 @@ export const AdminAuditPage: React.FC = () => {
       if (Array.isArray(res)) {
         setIncidents(res);
       }
+      setLastUpdated(new Date());
     } catch {
       setIncidents([]);
     }
@@ -313,6 +324,66 @@ export const AdminAuditPage: React.FC = () => {
       fetchIncidents();
     }
   }, [activeTab, fetchAuditLogs, fetchIncidents]);
+
+  // Real-time Background Polling
+  useEffect(() => {
+    if (autoRefreshInterval <= 0) return;
+    const interval = setInterval(() => {
+      // Pause background polling while investigating detail or filling forms
+      if (
+        selectedLogId ||
+        isEmergencyModalOpen ||
+        isCreateIncidentOpen ||
+        selectedIncidentForUpdate ||
+        isQuickExportOpen
+      ) {
+        return;
+      }
+      fetchOverview(true);
+      if (activeTab === 'stream') {
+        fetchAuditLogs(true);
+      } else if (activeTab === 'incidents') {
+        fetchIncidents(true);
+      }
+    }, autoRefreshInterval * 1000);
+
+    return () => clearInterval(interval);
+  }, [
+    autoRefreshInterval,
+    selectedLogId,
+    isEmergencyModalOpen,
+    isCreateIncidentOpen,
+    selectedIncidentForUpdate,
+    isQuickExportOpen,
+    activeTab,
+    fetchOverview,
+    fetchAuditLogs,
+    fetchIncidents,
+  ]);
+
+  // Emit Live Test Activity Event
+  const handleEmitTestEvent = async () => {
+    setIsEmittingTest(true);
+    setTestEventToast(null);
+    try {
+      const res = await adminApi.emitTestAuditEvent();
+      setTestEventToast({
+        message: res?.message || 'Live cryptographic audit event emitted and verified in real time.',
+        type: 'success',
+      });
+      await fetchOverview();
+      await fetchAuditLogs();
+      setTimeout(() => setTestEventToast(null), 6000);
+    } catch (e: any) {
+      setTestEventToast({
+        message: e?.message || 'Failed to emit live test audit event.',
+        type: 'error',
+      });
+      setTimeout(() => setTestEventToast(null), 6000);
+    } finally {
+      setIsEmittingTest(false);
+    }
+  };
 
   // Open Log Investigation Detail Drawer
   const handleInspectLog = async (log: AdminAuditListItemDto) => {
@@ -586,6 +657,69 @@ export const AdminAuditPage: React.FC = () => {
 
         {/* Verification Status & Action Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* Live Sync Status & Frequency Selector */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              background: 'var(--color-surface-hover)',
+              padding: '0.35rem 0.65rem',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border-subtle)',
+            }}
+            title="Real-time Live Sync status and refresh frequency"
+          >
+            <span
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: autoRefreshInterval > 0 ? '#10b981' : '#64748b',
+                boxShadow: autoRefreshInterval > 0 ? '0 0 0 3px rgba(16, 185, 129, 0.2)' : 'none',
+                display: 'inline-block',
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: autoRefreshInterval > 0 ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>
+              {autoRefreshInterval > 0 ? 'Live' : 'Paused'}
+            </span>
+            <select
+              value={autoRefreshInterval}
+              onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--color-text-secondary)',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+                fontWeight: 600,
+                outline: 'none',
+              }}
+            >
+              <option value={5}>5s</option>
+              <option value={10}>10s</option>
+              <option value={30}>30s</option>
+              <option value={0}>Off</option>
+            </select>
+            {lastUpdated && (
+              <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', borderLeft: '1px solid var(--color-border-subtle)', paddingLeft: '0.4rem' }}>
+                {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleEmitTestEvent}
+            disabled={isEmittingTest}
+            title="Emit an authoritative cryptographic test event to verify live real-time ingestion"
+          >
+            <Zap size={14} className={isEmittingTest ? 'animate-spin' : ''} style={{ marginRight: '0.35rem', color: '#f59e0b' }} />
+            {isEmittingTest ? 'Emitting...' : 'Emit Test Event'}
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -629,6 +763,39 @@ export const AdminAuditPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {testEventToast && (
+        <div
+          style={{
+            padding: '0.75rem 1rem',
+            background: testEventToast.type === 'success' ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+            border: `1px solid ${testEventToast.type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+            borderRadius: '8px',
+            color: testEventToast.type === 'success' ? '#4ade80' : '#f87171',
+            fontSize: '0.875rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {testEventToast.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+            <span>{testEventToast.message}</span>
+          </div>
+          <button
+            onClick={() => setTestEventToast(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: testEventToast.type === 'success' ? '#4ade80' : '#f87171',
+              cursor: 'pointer',
+              fontSize: '1rem',
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {exportSuccessMsg && (
         <div style={{ padding: '0.75rem 1rem', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', color: '#4ade80', fontSize: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -995,161 +1162,215 @@ export const AdminAuditPage: React.FC = () => {
 
           {/* Activity Table Card */}
           <Card accentColor="purple">
-            <Table
-              columns={[
-                {
-                  header: 'Time',
-                  render: (row: AdminAuditListItemDto) => (
-                    <div>
-                      <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        {formatRelativeTime(row.timestamp)}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }} title={row.timestamp}>
-                        {new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </div>
-                    </div>
-                  ),
-                },
-                {
-                  header: 'Actor',
-                  render: (row: AdminAuditListItemDto) => (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <div
-                        style={{
-                          width: '28px',
-                          height: '28px',
-                          borderRadius: '50%',
-                          background: 'var(--color-surface-muted)',
-                          border: '1px solid var(--color-border-subtle)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.6875rem',
-                          fontWeight: 700,
-                          color: 'var(--color-text-secondary)',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {(row.actorName || 'U').charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                          <span>{row.actorName}</span>
-                          <Badge variant={getRoleBadgeVariant(row.actorRole)} size="sm">
-                            {row.actorRole || 'user'}
+            {auditLogs.length === 0 && !isLoading ? (
+              <div
+                style={{
+                  padding: '3.5rem 1.5rem',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <div
+                  style={{
+                    width: '56px',
+                    height: '56px',
+                    borderRadius: '50%',
+                    background: 'rgba(59, 130, 246, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: '1rem',
+                    border: '1px solid rgba(59, 130, 246, 0.2)',
+                  }}
+                >
+                  <Activity size={28} style={{ color: 'var(--color-api-bright)' }} />
+                </div>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 0.5rem 0' }}>
+                  Real-time Activity Stream Is Active
+                </h3>
+                <p
+                  style={{
+                    fontSize: '0.875rem',
+                    color: 'var(--color-text-muted)',
+                    maxWidth: '520px',
+                    margin: '0 0 1.5rem 0',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  No records match your active search or filter criteria. Real database telemetry is active—no simulated or mock entries are displayed. You can emit a live test event below to verify instant cryptographic ingestion.
+                </p>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <Button variant="primary" size="sm" onClick={handleEmitTestEvent} disabled={isEmittingTest}>
+                    <Zap size={14} style={{ marginRight: '0.35rem' }} />
+                    {isEmittingTest ? 'Emitting...' : 'Emit Live Test Event'}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={resetFilters}>
+                    Reset Filters
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <Table
+                  columns={[
+                    {
+                      header: 'Time',
+                      render: (row: AdminAuditListItemDto) => (
+                        <div>
+                          <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            {formatRelativeTime(row.timestamp)}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }} title={row.timestamp}>
+                            {new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      header: 'Actor',
+                      render: (row: AdminAuditListItemDto) => (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div
+                            style={{
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              background: 'var(--color-surface-muted)',
+                              border: '1px solid var(--color-border-subtle)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.6875rem',
+                              fontWeight: 700,
+                              color: 'var(--color-text-secondary)',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {(row.actorName || 'U').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <span>{row.actorName}</span>
+                              <Badge variant={getRoleBadgeVariant(row.actorRole)} size="sm">
+                                {row.actorRole || 'user'}
+                              </Badge>
+                            </div>
+                            {row.actorEmail && (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                                {row.actorEmail}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      header: 'Action',
+                      render: (row: AdminAuditListItemDto) => (
+                        <div>
+                          <div style={{ fontSize: '0.8125rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary-bright)' }}>
+                            {row.action}
+                          </div>
+                          {row.description ? (
+                            <div style={{ fontSize: '0.725rem', color: 'var(--color-text-secondary)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description}>
+                              {row.description}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                              {row.category}
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    },
+                    {
+                      header: 'Resource',
+                      render: (row: AdminAuditListItemDto) => (
+                        <div style={{ fontSize: '0.8125rem' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{row.resourceType}</span>
+                          {row.resourceId && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.1rem' }}>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                                {row.resourceId.length > 14 ? `${row.resourceId.slice(0, 14)}...` : row.resourceId}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyToClipboard(row.resourceId!, `res_${row.id}`);
+                                }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-muted)' }}
+                                title="Copy Resource ID"
+                              >
+                                {copiedKey === `res_${row.id}` ? <Check size={11} color="#10b981" /> : <Copy size={11} />}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    },
+                    {
+                      header: 'Status / Severity',
+                      render: (row: AdminAuditListItemDto) => (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <Badge variant={getResultBadgeVariant(row.result)} size="sm">
+                            {row.result}
+                          </Badge>
+                          <Badge variant={getSeverityBadgeVariant(row.severity)} size="sm">
+                            {row.severity}
                           </Badge>
                         </div>
-                        {row.actorEmail && (
-                          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                            {row.actorEmail}
+                      ),
+                    },
+                    {
+                      header: 'Source / IP',
+                      render: (row: AdminAuditListItemDto) => (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            {getSourceBadge(row.source)}
+                            {row.latencyMs !== undefined && (
+                              <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                                {row.latencyMs}ms
+                              </span>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  ),
-                },
-                {
-                  header: 'Action',
-                  render: (row: AdminAuditListItemDto) => (
-                    <div>
-                      <div style={{ fontSize: '0.8125rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary-bright)' }}>
-                        {row.action}
-                      </div>
-                      {row.description ? (
-                        <div style={{ fontSize: '0.725rem', color: 'var(--color-text-secondary)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description}>
-                          {row.description}
+                          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.15rem' }}>
+                            {row.ipAddress || '—'}
+                          </div>
                         </div>
-                      ) : (
-                        <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                          {row.category}
-                        </div>
-                      )}
-                    </div>
-                  ),
-                },
-                {
-                  header: 'Resource',
-                  render: (row: AdminAuditListItemDto) => (
-                    <div style={{ fontSize: '0.8125rem' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{row.resourceType}</span>
-                      {row.resourceId && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.1rem' }}>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
-                            {row.resourceId.length > 14 ? `${row.resourceId.slice(0, 14)}...` : row.resourceId}
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(row.resourceId!, `res_${row.id}`);
-                            }}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-muted)' }}
-                            title="Copy Resource ID"
-                          >
-                            {copiedKey === `res_${row.id}` ? <Check size={11} color="#10b981" /> : <Copy size={11} />}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ),
-                },
-                {
-                  header: 'Status / Severity',
-                  render: (row: AdminAuditListItemDto) => (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                      <Badge variant={getResultBadgeVariant(row.result)} size="sm">
-                        {row.result}
-                      </Badge>
-                      <Badge variant={getSeverityBadgeVariant(row.severity)} size="sm">
-                        {row.severity}
-                      </Badge>
-                    </div>
-                  ),
-                },
-                {
-                  header: 'Source / IP',
-                  render: (row: AdminAuditListItemDto) => (
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        {getSourceBadge(row.source)}
-                        {row.latencyMs !== undefined && (
-                          <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
-                            {row.latencyMs}ms
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.15rem' }}>
-                        {row.ipAddress || '—'}
-                      </div>
-                    </div>
-                  ),
-                },
-                {
-                  header: 'Inspect',
-                  render: (row: AdminAuditListItemDto) => (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleInspectLog(row)}
-                      title="Inspect Activity Dossier"
-                    >
-                      <Eye size={14} style={{ color: 'var(--color-api-bright)' }} />
-                    </Button>
-                  ),
-                },
-              ]}
-              data={auditLogs}
-              keyExtractor={(row) => row.id}
-              emptyMessage="No audit events matched your search or filters."
-            />
-
-            {totalPages > 1 && (
-              <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-                <Pagination
-                  currentPage={page}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
+                      ),
+                    },
+                    {
+                      header: 'Inspect',
+                      render: (row: AdminAuditListItemDto) => (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleInspectLog(row)}
+                          title="Inspect Activity Dossier"
+                        >
+                          <Eye size={14} style={{ color: 'var(--color-api-bright)' }} />
+                        </Button>
+                      ),
+                    },
+                  ]}
+                  data={auditLogs}
+                  keyExtractor={(row) => row.id}
+                  emptyMessage="No audit events matched your search or filters."
                 />
-              </div>
+
+                {totalPages > 1 && (
+                  <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
+                    <Pagination
+                      currentPage={page}
+                      totalPages={totalPages}
+                      onPageChange={setPage}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </Card>
         </div>

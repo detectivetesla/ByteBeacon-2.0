@@ -1754,6 +1754,10 @@ export const adminApi = {
     return apiClient.get<AdminAuditDetailDto>(`/admin/activity/events/${id}`);
   },
 
+  emitTestAuditEvent: async (): Promise<{ success: boolean; message: string }> => {
+    return apiClient.post<{ success: boolean; message: string }>('/admin/audit/test-event');
+  },
+
   verifyAuditIntegrity: async (): Promise<AdminAuditIntegrityVerificationDto> => {
     return apiClient.get<AdminAuditIntegrityVerificationDto>('/admin/audit/integrity');
   },
