@@ -113,6 +113,8 @@ import {
   AdminCreateTemplateRequest,
   AdminUpdateTemplateRequest,
   AdminDeliveryLogItemDto,
+  AdminRecipientLookupItemDto,
+  AdminRecipientHistoryDto,
   AdminUserNotificationPreferenceDto,
   AdminUpdateUserPreferenceRequest,
   AdminCommunicationSystemTriggerDto,
@@ -295,6 +297,8 @@ export type {
   AdminCreateTemplateRequest,
   AdminUpdateTemplateRequest,
   AdminDeliveryLogItemDto,
+  AdminRecipientLookupItemDto,
+  AdminRecipientHistoryDto,
   AdminUserNotificationPreferenceDto,
   AdminUpdateUserPreferenceRequest,
   AdminAuditOverviewStatsDto,
@@ -1095,11 +1099,21 @@ export const adminApi = {
     return apiClient.put(`/admin/communication/templates/${id}`, data);
   },
 
-  getCommunicationDeliveryLogs: async (params: { search?: string; channel?: string; status?: string; priority?: string; page?: number; limit?: number } = {}) => {
+  getCommunicationDeliveryLogs: async (params: { search?: string; email?: string; recipientUserId?: string; channel?: string; status?: string; priority?: string; page?: number; limit?: number } = {}) => {
     return apiClient.get<{ items: AdminDeliveryLogItemDto[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
       '/admin/communication/delivery-logs',
       { params },
     );
+  },
+
+  lookupCommunicationRecipients: async (query: string, limit: number = 15): Promise<AdminRecipientLookupItemDto[]> => {
+    const res = await apiClient.get<any>('/admin/communication/recipients/lookup', { params: { query, limit } });
+    return res?.data || (Array.isArray(res) ? res : []);
+  },
+
+  getRecipientCommunicationHistory: async (params: { email?: string; userId?: string; channel?: string; status?: string; page?: number; limit?: number }): Promise<AdminRecipientHistoryDto> => {
+    const res = await apiClient.get<any>('/admin/communication/recipients/history', { params });
+    return res?.data || res;
   },
 
   getCommunicationHealth: async (): Promise<AdminCommunicationHealthDto> => {
@@ -1125,8 +1139,8 @@ export const adminApi = {
     return apiClient.patch(`/admin/communication/user-preferences/${userId}`, data);
   },
 
-  getCommunicationHistory: async () => {
-    return apiClient.get<{ items: any[]; total: number }>('/admin/communication/delivery-logs');
+  getCommunicationHistory: async (params?: { email?: string; userId?: string; search?: string; page?: number; limit?: number }) => {
+    return apiClient.get<{ items: any[]; total: number }>('/admin/communication/delivery-logs', { params });
   },
 
   // Health, MTN Approvals & DLQ

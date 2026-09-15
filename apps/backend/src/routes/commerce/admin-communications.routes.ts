@@ -27,6 +27,8 @@ import {
   AdminCreateTemplateRequest,
   AdminUpdateTemplateRequest,
   AdminDeliveryLogItemDto,
+  AdminRecipientLookupItemDto,
+  AdminRecipientHistoryDto,
   AdminUserNotificationPreferenceDto,
   AdminUpdateUserPreferenceRequest,
   AdminCommunicationSystemTriggerDto,
@@ -934,6 +936,8 @@ export async function adminCommunicationsRoutes(
   app.get<{
     Querystring: {
       search?: string;
+      email?: string;
+      recipientUserId?: string;
       channel?: string;
       status?: string;
       priority?: string;
@@ -949,7 +953,7 @@ export async function adminCommunicationsRoutes(
       ],
     },
     async (req, reply) => {
-      const { search, channel, status, priority, page = '1', limit = '20' } = req.query || {};
+      const { search, email, recipientUserId, channel, status, priority, page = '1', limit = '20' } = req.query || {};
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
       const offset = (pageNum - 1) * limitNum;
@@ -969,6 +973,16 @@ export async function adminCommunicationsRoutes(
       if (priority && priority !== 'ALL') {
         conditions.push(`l.priority = $${idx++}`);
         params.push(priority);
+      }
+      if (recipientUserId && recipientUserId.trim()) {
+        conditions.push(`l.recipient_user_id = $${idx++}`);
+        params.push(recipientUserId.trim());
+      }
+      if (email && email.trim()) {
+        const targetEmail = email.trim().toLowerCase();
+        conditions.push(`(LOWER(l.recipient_email) = $${idx} OR LOWER(u.email) = $${idx})`);
+        params.push(targetEmail);
+        idx++;
       }
       if (search && search.trim()) {
         const term = `%${search.trim().toLowerCase()}%`;
@@ -1017,7 +1031,9 @@ export async function adminCommunicationsRoutes(
         templateId: row.templateId,
         recipientUserId: row.recipientUserId,
         recipientName: row.recipientName,
+        recipientEmail: row.recipientEmail,
         recipientEmailRedacted: redactEmail(row.recipientEmail),
+        recipientPhone: row.recipientPhone,
         recipientPhoneRedacted: redactPhone(row.recipientPhone),
         recipientRole: row.recipientRole,
         channel: row.channel,
@@ -1043,6 +1059,340 @@ export async function adminCommunicationsRoutes(
             totalPages: Math.ceil(total / limitNum) || 1,
           },
         },
+      });
+    },
+  );
+
+  // =========================================================================
+  // 9b. GET /admin/communication/recipients/lookup — Autocomplete & Search Recipients
+  // =========================================================================
+  app.get<{
+    Querystring: {
+      query?: string;
+      limit?: string;
+    };
+  }>(
+    '/admin/communication/recipients/lookup',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.USERS_READ),
+      ],
+    },
+    async (req, reply) => {
+      const { query = '', limit = '15' } = req.query || {};
+      const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 15));
+      const term = query.trim().toLowerCase();
+
+      // Search registered users matching email, name, or phone
+      const userParams: any[] = [];
+      let userWhere = '1=1';
+      if (term) {
+        userWhere = `(LOWER(email) LIKE $1 OR LOWER(COALESCE(full_name, '')) LIKE $1 OR LOWER(COALESCE(phone_number, '')) LIKE $1)`;
+        userParams.push(`%${term}%`);
+      }
+
+      const usersRes = await db.query(
+        `SELECT id, email, full_name as "fullName", phone_number as "phone", role, created_at as "createdAt"
+         FROM users
+         WHERE ${userWhere}
+         ORDER BY created_at DESC
+         LIMIT ${limitNum}`,
+        userParams,
+      ).catch(() => ({ rows: [] }));
+
+      // Also search distinct recipients from communication_delivery_logs if query given
+      let logRecipients: any[] = [];
+      if (term) {
+        const logRes = await db.query(
+          `SELECT DISTINCT recipient_email as "email", recipient_phone as "phone", recipient_user_id as "userId"
+           FROM communication_delivery_logs
+           WHERE LOWER(recipient_email) LIKE $1
+           LIMIT 10`,
+          [`%${term}%`],
+        ).catch(() => ({ rows: [] }));
+        logRecipients = logRes.rows;
+      }
+
+      // Merge and deduplicate by email
+      const emailMap = new Map<string, AdminRecipientLookupItemDto>();
+
+      for (const u of usersRes.rows) {
+        if (!u.email) continue;
+        const lowerEmail = u.email.toLowerCase();
+        emailMap.set(lowerEmail, {
+          userId: u.id,
+          email: u.email,
+          fullName: u.fullName || 'Registered User',
+          role: u.role || 'customer',
+          phone: u.phone || undefined,
+          totalMessagesCount: 0,
+          lastMessageAt: null,
+        });
+      }
+
+      for (const l of logRecipients) {
+        if (!l.email) continue;
+        const lowerEmail = l.email.toLowerCase();
+        if (!emailMap.has(lowerEmail)) {
+          emailMap.set(lowerEmail, {
+            userId: l.userId || null,
+            email: l.email,
+            fullName: 'External Recipient',
+            role: 'customer',
+            phone: l.phone || undefined,
+            totalMessagesCount: 0,
+            lastMessageAt: null,
+          });
+        }
+      }
+
+      const result = Array.from(emailMap.values()).slice(0, limitNum);
+
+      // Enrich with communication counts and last message timestamp if available
+      if (result.length > 0) {
+        const emails = result.map((r) => r.email.toLowerCase());
+        const statsRes = await db.query(
+          `SELECT LOWER(recipient_email) as email, COUNT(*) as count, MAX(created_at) as "lastSent"
+           FROM communication_delivery_logs
+           WHERE LOWER(recipient_email) = ANY($1)
+           GROUP BY LOWER(recipient_email)`,
+          [emails],
+        ).catch(() => ({ rows: [] }));
+
+        const statsMap = new Map<string, { count: number; lastSent: string }>();
+        for (const s of statsRes.rows) {
+          statsMap.set(s.email, {
+            count: parseInt(s.count || '0', 10),
+            lastSent: s.lastSent ? new Date(s.lastSent).toISOString() : '',
+          });
+        }
+
+        for (const item of result) {
+          const s = statsMap.get(item.email.toLowerCase());
+          if (s) {
+            item.totalMessagesCount = s.count;
+            item.lastMessageAt = s.lastSent || null;
+          }
+        }
+      }
+
+      return reply.send({
+        success: true,
+        data: result,
+      });
+    },
+  );
+
+  // =========================================================================
+  // 9c. GET /admin/communication/recipients/history — User Communication History
+  // =========================================================================
+  app.get<{
+    Querystring: {
+      email?: string;
+      userId?: string;
+      channel?: string;
+      status?: string;
+      page?: string;
+      limit?: string;
+    };
+  }>(
+    '/admin/communication/recipients/history',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.USERS_READ),
+      ],
+    },
+    async (req, reply) => {
+      const { email, userId, channel, status, page = '1', limit = '20' } = req.query || {};
+
+      if (!email && !userId) {
+        throw new BadRequestError('Either email or userId query parameter is required to inspect recipient communication history.');
+      }
+
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const normalizedEmail = email ? email.trim().toLowerCase() : null;
+
+      // 1. Fetch recipient user details
+      let userRow: any = null;
+      if (userId) {
+        const uRes = await db.query(
+          'SELECT id, email, full_name, phone_number, role, status, created_at FROM users WHERE id = $1',
+          [userId],
+        ).catch(() => ({ rows: [] }));
+        userRow = uRes.rows[0];
+      }
+      if (!userRow && normalizedEmail) {
+        const uRes = await db.query(
+          'SELECT id, email, full_name, phone_number, role, status, created_at FROM users WHERE LOWER(email) = $1',
+          [normalizedEmail],
+        ).catch(() => ({ rows: [] }));
+        userRow = uRes.rows[0];
+      }
+
+      const effectiveUserId = userRow?.id || userId || null;
+      const effectiveEmail = userRow?.email || normalizedEmail || '';
+
+      // 2. Fetch user preferences if user exists
+      let preferences: AdminUserNotificationPreferenceDto | null = null;
+      if (effectiveUserId) {
+        const prefRes = await db.query(
+          'SELECT * FROM user_notification_preferences WHERE user_id = $1',
+          [effectiveUserId],
+        ).catch(() => ({ rows: [] }));
+        if (prefRes.rows.length > 0) {
+          const p = prefRes.rows[0];
+          preferences = {
+            userId: effectiveUserId,
+            emailOrderUpdates: p.email_order_updates ?? true,
+            emailAccountAlerts: p.email_account_alerts ?? true,
+            emailMarketing: p.email_marketing ?? false,
+            smsSecurity: p.sms_security ?? true,
+            smsTransactions: p.sms_transactions ?? false,
+            smsMarketing: p.sms_marketing ?? false,
+            inAppAll: p.in_app_all ?? true,
+            updatedAt: new Date(p.updated_at).toISOString(),
+          };
+        }
+      }
+
+      // 3. Build recipient match condition for delivery logs
+      const recipientConditions: string[] = [];
+      const filterParams: any[] = [];
+      let pIdx = 1;
+
+      if (effectiveUserId && effectiveEmail) {
+        recipientConditions.push(`(l.recipient_user_id = $${pIdx} OR LOWER(l.recipient_email) = $${pIdx + 1})`);
+        filterParams.push(effectiveUserId, effectiveEmail);
+        pIdx += 2;
+      } else if (effectiveUserId) {
+        recipientConditions.push(`l.recipient_user_id = $${pIdx++}`);
+        filterParams.push(effectiveUserId);
+      } else {
+        recipientConditions.push(`LOWER(l.recipient_email) = $${pIdx++}`);
+        filterParams.push(effectiveEmail);
+      }
+
+      // Calculate summary metrics across all logs for this recipient (before channel/status filter)
+      const summaryWhere = recipientConditions.join(' AND ');
+      const summaryRes = await db.query(
+        `SELECT 
+           COUNT(*) as "totalSent",
+           COUNT(*) FILTER (WHERE l.status = 'DELIVERED') as "deliveredCount",
+           COUNT(*) FILTER (WHERE l.status = 'FAILED') as "failedCount",
+           COUNT(*) FILTER (WHERE l.status IN ('CREATED', 'QUEUED', 'PROCESSING', 'RETRYING')) as "pendingCount",
+           MAX(l.created_at) as "lastSentAt",
+           ARRAY_AGG(DISTINCT l.channel) as "channelsUsed"
+         FROM communication_delivery_logs l
+         WHERE ${summaryWhere}`,
+        filterParams,
+      ).catch(() => ({ rows: [] }));
+
+      const sumRow = summaryRes.rows[0] || {};
+      const summary = {
+        totalSent: parseInt(sumRow.totalSent || '0', 10),
+        deliveredCount: parseInt(sumRow.deliveredCount || '0', 10),
+        failedCount: parseInt(sumRow.failedCount || '0', 10),
+        pendingCount: parseInt(sumRow.pendingCount || '0', 10),
+        lastSentAt: sumRow.lastSentAt ? new Date(sumRow.lastSentAt).toISOString() : null,
+        channelsUsed: Array.isArray(sumRow.channelsUsed) ? sumRow.channelsUsed.filter(Boolean) : [],
+      };
+
+      // 4. Additional filtering by channel and status for the paginated messages list
+      const listConditions = [...recipientConditions];
+      const listParams = [...filterParams];
+
+      if (channel && channel !== 'ALL') {
+        listConditions.push(`l.channel = $${pIdx++}`);
+        listParams.push(channel);
+      }
+      if (status && status !== 'ALL') {
+        listConditions.push(`l.status = $${pIdx++}`);
+        listParams.push(status);
+      }
+
+      const listWhere = listConditions.join(' AND ');
+
+      // Total matching filter
+      const countRes = await db.query(
+        `SELECT COUNT(*) as total FROM communication_delivery_logs l WHERE ${listWhere}`,
+        listParams,
+      ).catch(() => ({ rows: [{ total: '0' }] }));
+      const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+      // Fetch messages
+      const msgsRes = await db.query(
+        `SELECT 
+           l.id, l.message_id as "messageId", l.campaign_id as "campaignId",
+           l.template_id as "templateId", l.recipient_user_id as "recipientUserId",
+           COALESCE(u.full_name, 'Recipient') as "recipientName",
+           l.recipient_email as "recipientEmail",
+           l.recipient_phone as "recipientPhone",
+           COALESCE(u.role, 'customer') as "recipientRole",
+           l.channel, l.priority, l.subject, l.body,
+           l.status, l.attempts, l.error_message as "errorMessage",
+           l.sent_at as "sentAt", l.delivered_at as "deliveredAt",
+           l.created_at as "createdAt"
+         FROM communication_delivery_logs l
+         LEFT JOIN users u ON l.recipient_user_id = u.id
+         WHERE ${listWhere}
+         ORDER BY l.created_at DESC
+         LIMIT $${pIdx++} OFFSET $${pIdx++}`,
+        [...listParams, limitNum, offset],
+      ).catch(() => ({ rows: [] }));
+
+      const messages = msgsRes.rows.map((row: any) => ({
+        id: row.id,
+        messageId: row.messageId,
+        campaignId: row.campaignId,
+        templateId: row.templateId,
+        recipientUserId: row.recipientUserId,
+        recipientName: userRow?.full_name || row.recipientName,
+        recipientEmail: row.recipientEmail || effectiveEmail,
+        recipientEmailRedacted: redactEmail(row.recipientEmail || effectiveEmail),
+        recipientPhone: row.recipientPhone,
+        recipientPhoneRedacted: redactPhone(row.recipientPhone),
+        recipientRole: userRow?.role || row.recipientRole,
+        channel: row.channel,
+        priority: row.priority,
+        subject: row.subject,
+        bodyPreview: row.body ? row.body.slice(0, 100) + '...' : '',
+        body: row.body || '',
+        status: row.status,
+        attempts: Number(row.attempts || 1),
+        errorMessage: row.errorMessage,
+        sentAt: row.sentAt ? new Date(row.sentAt).toISOString() : null,
+        deliveredAt: row.deliveredAt ? new Date(row.deliveredAt).toISOString() : null,
+        createdAt: new Date(row.createdAt).toISOString(),
+      }));
+
+      const recipientData: AdminRecipientHistoryDto = {
+        recipient: {
+          userId: effectiveUserId,
+          email: effectiveEmail,
+          fullName: userRow?.full_name || 'Recipient',
+          role: userRow?.role || 'customer',
+          phone: userRow?.phone_number || undefined,
+          registeredAt: userRow?.created_at ? new Date(userRow.created_at).toISOString() : null,
+          notificationPreferences: preferences,
+        },
+        summary,
+        messages,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum) || 1,
+        },
+      };
+
+      return reply.send({
+        success: true,
+        data: recipientData,
       });
     },
   );
@@ -1324,6 +1674,12 @@ export async function adminCommunicationsRoutes(
             connectionPool: poolStats,
           },
           inAppEngine: {
+            name: 'In-App Web Notification Engine',
+            status: dbStatus,
+            latencyMs: dbLatencyMs,
+            messagesLastHour,
+          },
+          inAppGateway: {
             name: 'In-App Web Notification Engine',
             status: dbStatus,
             latencyMs: dbLatencyMs,

@@ -30,9 +30,40 @@ describe('Phase 11.11 — Communication Center & System Messaging Administration
     };
 
     mockDb = {
-      query: vi.fn().mockImplementation(async (sql: string) => {
+      query: vi.fn().mockImplementation(async (sql: string, params?: any[]) => {
         if (typeof sql === 'string') {
           if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
+            const targetId = params?.[0] || '00000000-0000-0000-0000-000000000001';
+            if (targetId === '00000000-0000-0000-0000-000000000002') {
+              return {
+                rows: [
+                  {
+                    id: '00000000-0000-0000-0000-000000000002',
+                    uuid: '00000000-0000-0000-0000-000000000002',
+                    email: 'opsadmin@bytebeacon.com',
+                    full_name: 'Operations Admin',
+                    status: 'ACTIVE',
+                    is_active: true,
+                    role: UserRole.ADMIN,
+                  },
+                ],
+              };
+            }
+            if (targetId === '00000000-0000-0000-0000-000000000003') {
+              return {
+                rows: [
+                  {
+                    id: '00000000-0000-0000-0000-000000000003',
+                    uuid: '00000000-0000-0000-0000-000000000003',
+                    email: 'customer@bytebeacon.com',
+                    full_name: 'Regular Customer',
+                    status: 'ACTIVE',
+                    is_active: true,
+                    role: UserRole.CUSTOMER,
+                  },
+                ],
+              };
+            }
             return {
               rows: [
                 {
@@ -136,6 +167,20 @@ describe('Phase 11.11 — Communication Center & System Messaging Administration
               ],
             };
           }
+          if (sql.includes('totalSent') && sql.includes('communication_delivery_logs')) {
+            return {
+              rows: [
+                {
+                  totalSent: '1',
+                  deliveredCount: '1',
+                  failedCount: '0',
+                  pendingCount: '0',
+                  lastSentAt: new Date().toISOString(),
+                  channelsUsed: ['EMAIL'],
+                },
+              ],
+            };
+          }
           if (sql.includes('FROM communication_delivery_logs') && sql.includes('SELECT COUNT(*)')) {
             return { rows: [{ total: '1' }] };
           }
@@ -158,6 +203,49 @@ describe('Phase 11.11 — Communication Center & System Messaging Administration
                   sentAt: new Date().toISOString(),
                   deliveredAt: new Date().toISOString(),
                   createdAt: new Date().toISOString(),
+                },
+              ],
+            };
+          }
+          if (sql.includes('full_name as "fullName"') && sql.includes('FROM users')) {
+            return {
+              rows: [
+                {
+                  id: '00000000-0000-0000-0000-000000000003',
+                  email: 'yaw.mensah@gmail.com',
+                  fullName: 'Yaw Mensah',
+                  phone: '0241234567',
+                  role: 'customer',
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+            };
+          }
+          if (sql.includes('WHERE LOWER(email) = $1') && sql.includes('FROM users')) {
+            return {
+              rows: [
+                {
+                  id: '00000000-0000-0000-0000-000000000003',
+                  email: 'yaw.mensah@gmail.com',
+                  full_name: 'Yaw Mensah',
+                  phone_number: '0241234567',
+                  role: 'customer',
+                  status: 'ACTIVE',
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            };
+          }
+          if (sql.includes('COUNT(*) FILTER (WHERE l.status = \'DELIVERED\')') && sql.includes('communication_delivery_logs l')) {
+            return {
+              rows: [
+                {
+                  totalSent: '1',
+                  deliveredCount: '1',
+                  failedCount: '0',
+                  pendingCount: '0',
+                  lastSentAt: new Date().toISOString(),
+                  channelsUsed: ['EMAIL'],
                 },
               ],
             };
@@ -539,5 +627,51 @@ describe('Phase 11.11 — Communication Center & System Messaging Administration
     });
 
     expect(res.statusCode).toBe(403);
+  });
+
+  // 15. Search & Autocomplete Recipients
+  it('GET /admin/communication/recipients/lookup should return matching recipients', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/communication/recipients/lookup?query=yaw',
+      headers: { authorization: 'Bearer test-admin-token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.data.length).toBeGreaterThan(0);
+    expect(body.data[0].email).toBe('yaw.mensah@gmail.com');
+  });
+
+  // 16. Recipient Communications History & Dossier
+  it('GET /admin/communication/recipients/history should return detailed communications history for a recipient', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/communication/recipients/history?email=yaw.mensah@gmail.com',
+      headers: { authorization: 'Bearer test-admin-token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.data.recipient.email).toBe('yaw.mensah@gmail.com');
+    expect(body.data.summary.totalSent).toBe(1);
+    expect(Array.isArray(body.data.messages)).toBe(true);
+  });
+
+  // 17. Delivery Tracking Logs with specific email filter
+  it('GET /admin/communication/delivery-logs should support filtering by specific recipient email', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/communication/delivery-logs?email=yaw.mensah@gmail.com',
+      headers: { authorization: 'Bearer test-admin-token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.data.items[0].recipientEmail).toBe('yaw.mensah@gmail.com');
   });
 });

@@ -1886,7 +1886,9 @@ export interface AdminDeliveryLogItemDto {
   templateId?: string;
   recipientUserId?: string;
   recipientName: string;
+  recipientEmail?: string;
   recipientEmailRedacted: string;
+  recipientPhone?: string;
   recipientPhoneRedacted: string;
   recipientRole: string;
   channel: CommunicationChannel;
@@ -1899,6 +1901,49 @@ export interface AdminDeliveryLogItemDto {
   sentAt: string | null;
   deliveredAt: string | null;
   createdAt: string;
+}
+
+export interface AdminRecipientLookupItemDto {
+  userId: string | null;
+  email: string;
+  fullName: string;
+  role: string;
+  phone?: string;
+  totalMessagesCount: number;
+  lastMessageAt: string | null;
+}
+
+export interface AdminRecipientHistorySummaryDto {
+  totalSent: number;
+  deliveredCount: number;
+  failedCount: number;
+  pendingCount: number;
+  lastSentAt: string | null;
+  channelsUsed: CommunicationChannel[];
+}
+
+export interface AdminRecipientHistoryItemDto extends AdminDeliveryLogItemDto {
+  body?: string;
+}
+
+export interface AdminRecipientHistoryDto {
+  recipient: {
+    userId: string | null;
+    email: string;
+    fullName: string;
+    role: string;
+    phone?: string;
+    registeredAt?: string | null;
+    notificationPreferences?: AdminUserNotificationPreferenceDto | null;
+  };
+  summary: AdminRecipientHistorySummaryDto;
+  messages: AdminRecipientHistoryItemDto[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface AdminUserNotificationPreferenceDto {
@@ -1947,6 +1992,7 @@ export interface AdminCommunicationHealthDto {
   subsystems: {
     database: { name: string; status: string; latencyMs: number; connectionPool: { total: number; idle: number; waiting: number } };
     inAppEngine: { name: string; status: string; latencyMs: number; messagesLastHour: number };
+    inAppGateway?: { name: string; status: string; latencyMs?: number; messagesLastHour?: number };
     emailRelay: { name: string; status: string; latencyMs: number; provider: string; isConfigured: boolean };
     bullMqQueue: { name: string; status: string; activeJobs: number; waitingJobs: number; failedJobs: number };
     smsGateway: { name: string; status: string; isConfigured: boolean; note: string };

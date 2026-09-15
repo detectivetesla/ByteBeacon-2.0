@@ -16,6 +16,8 @@ import {
   AdminCampaignListItemDto,
   AdminNotificationTemplateDto,
   AdminDeliveryLogItemDto,
+  AdminRecipientLookupItemDto,
+  AdminRecipientHistoryDto,
   AdminCommunicationSystemTriggerDto,
   AdminCommunicationHealthDto,
 } from '../../api/admin.api.js';
@@ -49,6 +51,10 @@ import {
   Activity,
   Database,
   CheckCheck,
+  Inbox,
+  Filter,
+  ExternalLink,
+  History,
 } from 'lucide-react';
 
 // Standardized Tactile Button & Input Styles
@@ -114,6 +120,7 @@ type ActiveTab =
   | 'templates'
   | 'scheduled'
   | 'delivery'
+  | 'user-history'
   | 'system-events'
   | 'diagnostics';
 
@@ -138,6 +145,21 @@ export const AdminCommunicationsPage: React.FC = () => {
   const [logChannel, setLogChannel] = useState<string>('ALL');
   const [logStatus, setLogStatus] = useState<string>('ALL');
   const [campaignSearch, setCampaignSearch] = useState<string>('');
+  const [logEmailFilter, setLogEmailFilter] = useState<string>('');
+
+  // User Messages & Email Inspection States
+  const [recipientQuery, setRecipientQuery] = useState<string>('');
+  const [recipientSuggestions, setRecipientSuggestions] = useState<AdminRecipientLookupItemDto[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
+  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+  const [selectedRecipient, setSelectedRecipient] = useState<AdminRecipientLookupItemDto | null>(null);
+  const [recipientHistory, setRecipientHistory] = useState<AdminRecipientHistoryDto | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
+  const [historyChannelFilter, setHistoryChannelFilter] = useState<string>('ALL');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<string>('ALL');
+  const [historySearch, setHistorySearch] = useState<string>('');
+  const [historyPage, setHistoryPage] = useState<number>(1);
+  const [selectedHistoryMessage, setSelectedHistoryMessage] = useState<AdminDeliveryLogItemDto | null>(null);
   const [campaignStatusFilter, setCampaignStatusFilter] = useState<string>('ALL');
   const [templateSearch, setTemplateSearch] = useState<string>('');
   const [templateCategoryFilter, setTemplateCategoryFilter] = useState<string>('ALL');
@@ -238,12 +260,14 @@ export const AdminCommunicationsPage: React.FC = () => {
   }, [templateCategoryFilter]);
 
   // Fetch Delivery Logs
-  const fetchDeliveryLogs = useCallback(async (page = 1) => {
+  const fetchDeliveryLogs = useCallback(async (page = 1, emailOverride?: string) => {
     try {
+      const emailParam = typeof emailOverride === 'string' ? emailOverride : logEmailFilter;
       const res = await adminApi.getCommunicationDeliveryLogs({
         page,
         limit: 20,
         search: logSearch.trim() || undefined,
+        email: emailParam.trim() || undefined,
         channel: logChannel !== 'ALL' ? logChannel : undefined,
         status: logStatus !== 'ALL' ? logStatus : undefined,
       });
@@ -254,7 +278,7 @@ export const AdminCommunicationsPage: React.FC = () => {
     } catch {
       // Handled silently
     }
-  }, [logSearch, logChannel, logStatus]);
+  }, [logSearch, logEmailFilter, logChannel, logStatus]);
 
   // Fetch System Event Triggers
   const fetchTriggers = useCallback(async () => {
@@ -265,6 +289,72 @@ export const AdminCommunicationsPage: React.FC = () => {
       // Handled silently
     }
   }, []);
+
+  // Search recipients for autocomplete
+  const handleSearchRecipients = useCallback(async (q: string) => {
+    setRecipientQuery(q);
+    if (!q.trim() || q.trim().length < 2) {
+      setRecipientSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    setIsLoadingSuggestions(true);
+    try {
+      const results = await adminApi.lookupCommunicationRecipients(q.trim(), 10);
+      setRecipientSuggestions(results);
+      setShowSuggestions(true);
+    } catch {
+      // Handled silently
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  }, []);
+
+  // Fetch full communication history for a recipient
+  const fetchRecipientHistory = useCallback(async (email: string, userId?: string | null, page = 1, channel = 'ALL', status = 'ALL') => {
+    if (!email && !userId) return;
+    setIsLoadingHistory(true);
+    try {
+      const data = await adminApi.getRecipientCommunicationHistory({
+        email: email || undefined,
+        userId: userId || undefined,
+        page,
+        limit: 15,
+        channel: channel !== 'ALL' ? channel : undefined,
+        status: status !== 'ALL' ? status : undefined,
+      });
+      setRecipientHistory(data);
+      setHistoryPage(page);
+    } catch (err: any) {
+      toastError('Failed to load recipient communication history', err.message);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [toastError]);
+
+  // Select recipient from autocomplete or recent list
+  const handleSelectRecipient = useCallback((rec: AdminRecipientLookupItemDto) => {
+    setSelectedRecipient(rec);
+    setRecipientQuery(rec.email);
+    setShowSuggestions(false);
+    fetchRecipientHistory(rec.email, rec.userId, 1, historyChannelFilter, historyStatusFilter);
+  }, [fetchRecipientHistory, historyChannelFilter, historyStatusFilter]);
+
+  // Direct inspect helper: switch to user-history tab and load history immediately
+  const handleInspectRecipientHistory = useCallback((email: string, userId?: string | null, fullName?: string) => {
+    const rec: AdminRecipientLookupItemDto = {
+      userId: userId || null,
+      email,
+      fullName: fullName || email,
+      role: 'customer',
+      totalMessagesCount: 0,
+      lastMessageAt: null,
+    };
+    setSelectedRecipient(rec);
+    setRecipientQuery(email);
+    setActiveTab('user-history');
+    fetchRecipientHistory(email, userId, 1, 'ALL', 'ALL');
+  }, [fetchRecipientHistory]);
 
   // Probe Subsystem Diagnostics Health
   const probeHealth = useCallback(async () => {
@@ -669,6 +759,7 @@ export const AdminCommunicationsPage: React.FC = () => {
           { id: 'templates', label: 'Templates', icon: FileText, count: templates.length },
           { id: 'scheduled', label: 'Scheduled', icon: Clock, count: scheduledCampaigns.length },
           { id: 'delivery', label: 'Delivery Logs', icon: Layers, count: deliveryPagination.total },
+          { id: 'user-history', label: 'User Messages & Emails', icon: Mail, count: undefined },
           { id: 'system-events', label: 'System Event Triggers', icon: Shield, count: triggers.length },
           { id: 'diagnostics', label: 'Diagnostics', icon: Settings, count: undefined },
         ].map((tab) => {
@@ -790,6 +881,61 @@ export const AdminCommunicationsPage: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </Card>
+
+          {/* Direct User Message & Email Inspection Card */}
+          <Card
+            elevated
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              padding: 'var(--space-5)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <Mail size={16} style={{ color: 'var(--color-brand-primary)' }} />
+                  <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                    Find Messages & Emails Sent to a Specific User
+                  </h3>
+                </div>
+                <p style={{ margin: 0, fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                  Search any customer, agent, or administrator email address to inspect their full chronological messaging history, email deliveries, and notifications.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', minWidth: '320px' }}>
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <Input
+                    value={recipientQuery}
+                    onChange={(e) => handleSearchRecipients(e.target.value)}
+                    placeholder="Enter user email (e.g. user@domain.com)..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && recipientQuery.trim()) {
+                        handleInspectRecipientHistory(recipientQuery.trim());
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (recipientQuery.trim()) {
+                      handleInspectRecipientHistory(recipientQuery.trim());
+                    } else {
+                      setActiveTab('user-history');
+                    }
+                  }}
+                  style={primaryButtonStyle}
+                >
+                  <Search size={13} />
+                  Inspect Messages
+                </button>
+              </div>
             </div>
           </Card>
 
@@ -1809,11 +1955,21 @@ export const AdminCommunicationsPage: React.FC = () => {
 
             {/* Compact Filter Toolbar */}
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ width: '220px' }}>
+              <div style={{ width: '200px' }}>
                 <Input
                   value={logSearch}
                   onChange={(e) => setLogSearch(e.target.value)}
-                  placeholder="Search recipient or subject..."
+                  placeholder="Search subject or keyword..."
+                />
+              </div>
+              <div style={{ width: '210px' }}>
+                <Input
+                  value={logEmailFilter}
+                  onChange={(e) => setLogEmailFilter(e.target.value)}
+                  placeholder="Filter by recipient email..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') fetchDeliveryLogs(1);
+                  }}
                 />
               </div>
               <select
@@ -1851,6 +2007,14 @@ export const AdminCommunicationsPage: React.FC = () => {
           {(logSearch.trim() || logChannel !== 'ALL' || logStatus !== 'ALL') && (
             <div style={{ padding: '0.45rem var(--space-5)', backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 800, color: 'var(--color-text-muted)' }}>Active Filters:</span>
+              {logEmailFilter.trim() && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-full)', padding: '0.15rem 0.5rem', fontSize: '11px', fontWeight: 600 }}>
+                  Email: "{logEmailFilter}"
+                  <button type="button" onClick={() => { setLogEmailFilter(''); fetchDeliveryLogs(1, ''); }} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+                    <X size={11} />
+                  </button>
+                </span>
+              )}
               {logSearch.trim() && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-full)', padding: '0.15rem 0.5rem', fontSize: '11px', fontWeight: 600 }}>
                   Search: "{logSearch}"
@@ -1877,7 +2041,7 @@ export const AdminCommunicationsPage: React.FC = () => {
               )}
               <button
                 type="button"
-                onClick={() => { setLogSearch(''); setLogChannel('ALL'); setLogStatus('ALL'); fetchDeliveryLogs(1); }}
+                onClick={() => { setLogSearch(''); setLogEmailFilter(''); setLogChannel('ALL'); setLogStatus('ALL'); fetchDeliveryLogs(1); }}
                 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand-primary)', background: 'none', border: 'none', cursor: 'pointer' }}
               >
                 Reset Filters
@@ -1931,8 +2095,9 @@ export const AdminCommunicationsPage: React.FC = () => {
                     </td>
                     <td style={{ padding: '0.65rem 0.85rem' }}>
                       <div style={{ fontWeight: 700 }}>{log.recipientName}</div>
-                      <div style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
-                        {log.recipientEmailRedacted} • <span style={{ textTransform: 'capitalize' }}>{log.recipientRole}</span>
+                      <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span>{log.recipientEmail || log.recipientEmailRedacted}</span>
+                        <span style={{ textTransform: 'capitalize' }}>• {log.recipientRole}</span>
                       </div>
                     </td>
                     <td style={{ padding: '0.65rem 0.85rem' }}>
@@ -1949,15 +2114,29 @@ export const AdminCommunicationsPage: React.FC = () => {
                       {log.deliveredAt ? new Date(log.deliveredAt).toLocaleString() : '—'}
                     </td>
                     <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setSelectedDeliveryLog(log); }}
-                        style={tactileButtonStyle}
-                        title="Inspect Delivery Dossier"
-                      >
-                        <Eye size={12} />
-                        Inspect
-                      </button>
+                      <div style={{ display: 'inline-flex', gap: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleInspectRecipientHistory(log.recipientEmail || log.recipientEmailRedacted, log.recipientUserId, log.recipientName);
+                          }}
+                          style={secondaryButtonStyle}
+                          title="View All Messages Sent to This Recipient"
+                        >
+                          <Mail size={12} style={{ color: 'var(--color-brand-primary)' }} />
+                          User History
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setSelectedDeliveryLog(log); }}
+                          style={tactileButtonStyle}
+                          title="Inspect Delivery Dossier"
+                        >
+                          <Eye size={12} />
+                          Inspect
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1996,6 +2175,495 @@ export const AdminCommunicationsPage: React.FC = () => {
             </div>
           </div>
         </Card>
+      )}
+
+
+      {/* ========================================================================= */}
+      {/* TAB: USER MESSAGES & EMAILS INSPECTION                                     */}
+      {/* ========================================================================= */}
+      {activeTab === 'user-history' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          {/* Recipient Search & Lookup Card */}
+          <Card
+            elevated
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              padding: 'var(--space-5)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Mail size={18} style={{ color: 'var(--color-brand-primary)' }} />
+                  User Messages & Emails Dossier
+                </h3>
+                <p style={{ margin: '0.2rem 0 0 0', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                  Inspect all transactional emails, broadcasts, SMS, and in-app notifications sent to a particular user or email address.
+                </p>
+              </div>
+
+              {selectedRecipient && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedRecipient(null);
+                    setRecipientHistory(null);
+                    setRecipientQuery('');
+                  }}
+                  style={secondaryButtonStyle}
+                >
+                  <RefreshCw size={12} />
+                  Clear Selection
+                </button>
+              )}
+            </div>
+
+            {/* Live Autocomplete Search Input */}
+            <div style={{ position: 'relative', width: '100%', maxWidth: '640px' }}>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <Input
+                    value={recipientQuery}
+                    onChange={(e) => handleSearchRecipients(e.target.value)}
+                    placeholder="Search user by email, full name, or phone number..."
+                    onFocus={() => {
+                      if (recipientSuggestions.length > 0) setShowSuggestions(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && recipientQuery.trim()) {
+                        fetchRecipientHistory(recipientQuery.trim(), null, 1, historyChannelFilter, historyStatusFilter);
+                        setShowSuggestions(false);
+                      }
+                    }}
+                  />
+                  {isLoadingSuggestions && (
+                    <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                      Searching...
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (recipientQuery.trim()) {
+                      fetchRecipientHistory(recipientQuery.trim(), null, 1, historyChannelFilter, historyStatusFilter);
+                      setShowSuggestions(false);
+                    }
+                  }}
+                  style={primaryButtonStyle}
+                >
+                  <Search size={13} />
+                  Inspect
+                </button>
+              </div>
+
+              {/* Autocomplete Dropdown */}
+              {showSuggestions && recipientSuggestions.length > 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 50,
+                    backgroundColor: 'var(--color-bg-surface)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-lg)',
+                    boxShadow: 'var(--shadow-tactile-lg, 0 10px 25px rgba(0,0,0,0.1))',
+                    marginTop: '4px',
+                    maxHeight: '260px',
+                    overflowY: 'auto',
+                  }}
+                >
+                  <div style={{ padding: '0.35rem 0.75rem', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)' }}>
+                    Matching Users & Recipients ({recipientSuggestions.length})
+                  </div>
+                  {recipientSuggestions.map((sug) => (
+                    <div
+                      key={sug.email}
+                      onClick={() => handleSelectRecipient(sug)}
+                      style={{
+                        padding: '0.65rem 0.85rem',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--color-border-subtle)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        transition: 'background-color var(--transition-fast)',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-bg-subtle)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: 'var(--color-text-primary)' }}>
+                          {sug.fullName}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--color-brand-primary)', fontFamily: 'var(--font-mono)' }}>
+                          {sug.email}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '10px', textTransform: 'capitalize', padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-full)', backgroundColor: 'var(--color-bg-subtle)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                          {sug.role}
+                        </span>
+                        {sug.totalMessagesCount > 0 && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--color-success)', backgroundColor: 'rgba(34, 197, 94, 0.1)', padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-full)' }}>
+                            {sug.totalMessagesCount} msg(s)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Quick Picker Pills (from delivery logs) */}
+            {!selectedRecipient && deliveryLogs.length > 0 && (
+              <div style={{ marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginRight: '0.5rem' }}>
+                  Recently Messaged Recipients:
+                </span>
+                <div style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
+                  {Array.from(new Set(deliveryLogs.map((l) => l.recipientEmail || l.recipientEmailRedacted).filter(Boolean))).slice(0, 5).map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      onClick={() => handleInspectRecipientHistory(em)}
+                      style={{
+                        padding: '0.2rem 0.55rem',
+                        borderRadius: 'var(--radius-full)',
+                        fontSize: '11px',
+                        border: '1px solid var(--color-border-subtle)',
+                        backgroundColor: 'var(--color-bg-subtle)',
+                        color: 'var(--color-text-primary)',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                      }}
+                    >
+                      <Mail size={10} style={{ color: 'var(--color-brand-primary)' }} />
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* Loading Indicator */}
+          {isLoadingHistory && (
+            <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)', backgroundColor: 'var(--color-bg-surface)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--color-border-subtle)' }}>
+              <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--color-brand-primary)', margin: '0 auto 0.75rem auto' }} />
+              <div style={{ fontWeight: 700 }}>Querying recipient delivery archives & communications...</div>
+            </div>
+          )}
+
+          {/* Recipient Dossier & History View */}
+          {!isLoadingHistory && recipientHistory && (
+            <>
+              {/* Recipient Profile & KPI Bar */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                {/* Profile Card */}
+                <Card
+                  elevated
+                  style={{
+                    backgroundColor: 'var(--color-bg-surface)',
+                    border: '1px solid var(--color-border-subtle)',
+                    borderRadius: 'var(--radius-xl)',
+                    boxShadow: 'var(--shadow-tactile-sm)',
+                    padding: 'var(--space-5)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div
+                        style={{
+                          width: '42px',
+                          height: '42px',
+                          borderRadius: 'var(--radius-full)',
+                          backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                          color: 'var(--color-brand-primary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: '16px',
+                        }}
+                      >
+                        {(recipientHistory.recipient.fullName || recipientHistory.recipient.email)[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
+                          {recipientHistory.recipient.fullName}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '0.15rem' }}>
+                          <code style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-brand-primary)' }}>
+                            {recipientHistory.recipient.email}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(recipientHistory.recipient.email, 'rec_email_copy')}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: copiedKey === 'rec_email_copy' ? 'var(--color-success)' : 'var(--color-text-muted)' }}
+                            title="Copy Email Address"
+                          >
+                            {copiedKey === 'rec_email_copy' ? <Check size={12} /> : <Copy size={12} />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ padding: '0.2rem 0.55rem', borderRadius: 'var(--radius-full)', backgroundColor: 'var(--color-bg-subtle)', fontWeight: 800, fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-subtle)' }}>
+                      {recipientHistory.recipient.role}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border-subtle)', marginTop: '1rem', paddingTop: '0.85rem' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                      {recipientHistory.recipient.phone ? (
+                        <span>Phone: <strong>{recipientHistory.recipient.phone}</strong></span>
+                      ) : (
+                        <span>User ID: <strong>{recipientHistory.recipient.userId?.slice(0, 8) || 'External'}</strong></span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setComposeTargetType('INDIVIDUAL');
+                        setComposeRecipients([recipientHistory.recipient.email]);
+                        setActiveTab('compose');
+                      }}
+                      style={primaryButtonStyle}
+                    >
+                      <Send size={12} />
+                      Compose to User
+                    </button>
+                  </div>
+                </Card>
+
+                {/* Delivery Analytics KPI Breakdown */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem' }}>
+                  <MetricCard
+                    title="Total Sent"
+                    value={recipientHistory.summary.totalSent}
+                    description="Total dispatches"
+                    icon={Mail}
+                  />
+                  <MetricCard
+                    title="Delivered"
+                    value={recipientHistory.summary.deliveredCount}
+                    description={recipientHistory.summary.totalSent > 0 ? `${Math.round((recipientHistory.summary.deliveredCount / recipientHistory.summary.totalSent) * 100)}% delivery rate` : '0% delivery rate'}
+                    icon={CheckCircle}
+                  />
+                  <MetricCard
+                    title="Failed"
+                    value={recipientHistory.summary.failedCount}
+                    description="Rejections or errors"
+                    icon={XCircle}
+                  />
+                  <MetricCard
+                    title="Pending"
+                    value={recipientHistory.summary.pendingCount}
+                    description="In transmission queue"
+                    icon={Clock}
+                  />
+                </div>
+              </div>
+
+              {/* Messages & Email Timeline Card */}
+              <Card
+                elevated
+                style={{
+                  backgroundColor: 'var(--color-bg-surface)',
+                  border: '1px solid var(--color-border-subtle)',
+                  borderRadius: 'var(--radius-xl)',
+                  boxShadow: 'var(--shadow-tactile-sm)',
+                  overflow: 'hidden',
+                  padding: 0,
+                }}
+              >
+                {/* Timeline Header & Filter Bar */}
+                <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-sm)', textTransform: 'uppercase', color: 'var(--color-text-primary)' }}>
+                      Chronological Message & Email Feed ({recipientHistory.pagination.total})
+                    </h3>
+                    <p style={{ margin: '0.15rem 0 0 0', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                      All communications dispatched to {recipientHistory.recipient.email}.
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <select
+                      value={historyChannelFilter}
+                      onChange={(e) => {
+                        setHistoryChannelFilter(e.target.value);
+                        fetchRecipientHistory(recipientHistory.recipient.email, recipientHistory.recipient.userId, 1, e.target.value, historyStatusFilter);
+                      }}
+                      style={selectStyle}
+                    >
+                      <option value="ALL">All Channels</option>
+                      <option value="EMAIL">Email Only</option>
+                      <option value="IN_APP">In-App Only</option>
+                      <option value="SMS">SMS Only</option>
+                    </select>
+
+                    <select
+                      value={historyStatusFilter}
+                      onChange={(e) => {
+                        setHistoryStatusFilter(e.target.value);
+                        fetchRecipientHistory(recipientHistory.recipient.email, recipientHistory.recipient.userId, 1, historyChannelFilter, e.target.value);
+                      }}
+                      style={selectStyle}
+                    >
+                      <option value="ALL">All Statuses</option>
+                      <option value="DELIVERED">Delivered</option>
+                      <option value="FAILED">Failed</option>
+                      <option value="QUEUED">Queued</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => fetchRecipientHistory(recipientHistory.recipient.email, recipientHistory.recipient.userId, historyPage, historyChannelFilter, historyStatusFilter)}
+                      style={tactileButtonStyle}
+                      title="Refresh user communication feed"
+                    >
+                      <RefreshCw size={12} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {/* Messages Feed Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)' }}>
+                        <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Status</th>
+                        <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Channel</th>
+                        <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Subject & Content Snippet</th>
+                        <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Priority</th>
+                        <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Attempts</th>
+                        <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Delivered Time</th>
+                        <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recipientHistory.messages.map((msg) => (
+                        <tr
+                          key={msg.id}
+                          onClick={() => setSelectedHistoryMessage(msg as any)}
+                          style={{
+                            borderBottom: '1px solid var(--color-border-subtle)',
+                            cursor: 'pointer',
+                            transition: 'background-color var(--transition-fast)',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-bg-subtle)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <td style={{ padding: '0.65rem 0.85rem' }}>{renderStatusBadge(msg.status)}</td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>{renderChannelBadge(msg.channel)}</td>
+                          <td style={{ padding: '0.65rem 0.85rem', maxWidth: '320px' }}>
+                            <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-primary)' }}>
+                              {msg.subject}
+                            </div>
+                            <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {msg.bodyPreview || (msg as any).body?.slice(0, 80) || '—'}
+                            </div>
+                            {msg.errorMessage && (
+                              <div style={{ fontSize: '10px', color: 'var(--color-danger, #EF4444)', marginTop: '0.15rem' }}>
+                                Error: {msg.errorMessage}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>{renderPriorityBadge(msg.priority)}</td>
+                          <td style={{ padding: '0.65rem 0.85rem', fontWeight: 600 }}>{msg.attempts}</td>
+                          <td style={{ padding: '0.65rem 0.85rem', fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                            {msg.deliveredAt ? new Date(msg.deliveredAt).toLocaleString() : (msg.sentAt ? new Date(msg.sentAt).toLocaleString() : new Date(msg.createdAt).toLocaleString())}
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedHistoryMessage(msg as any);
+                              }}
+                              style={tactileButtonStyle}
+                            >
+                              <Eye size={12} />
+                              Read Message
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {recipientHistory.messages.length === 0 && (
+                  <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                    No messages or emails recorded for this recipient matching filter criteria.
+                  </div>
+                )}
+
+                {/* Pagination Controls */}
+                {recipientHistory.pagination.totalPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-3) var(--space-5)', borderTop: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                      Page {recipientHistory.pagination.page} of {recipientHistory.pagination.totalPages} ({recipientHistory.pagination.total} total items)
+                    </span>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        type="button"
+                        disabled={recipientHistory.pagination.page <= 1}
+                        onClick={() => fetchRecipientHistory(recipientHistory.recipient.email, recipientHistory.recipient.userId, recipientHistory.pagination.page - 1, historyChannelFilter, historyStatusFilter)}
+                        style={{ ...tactileButtonStyle, opacity: recipientHistory.pagination.page <= 1 ? 0.5 : 1 }}
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        disabled={recipientHistory.pagination.page >= recipientHistory.pagination.totalPages}
+                        onClick={() => fetchRecipientHistory(recipientHistory.recipient.email, recipientHistory.recipient.userId, recipientHistory.pagination.page + 1, historyChannelFilter, historyStatusFilter)}
+                        style={{ ...tactileButtonStyle, opacity: recipientHistory.pagination.page >= recipientHistory.pagination.totalPages ? 0.5 : 1 }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+
+          {/* Empty State when no recipient chosen yet */}
+          {!isLoadingHistory && !recipientHistory && (
+            <Card
+              elevated
+              style={{
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px dashed var(--color-border-subtle)',
+                borderRadius: 'var(--radius-xl)',
+                padding: 'var(--space-10) var(--space-6)',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ width: '56px', height: '56px', borderRadius: 'var(--radius-full)', backgroundColor: 'var(--color-bg-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem auto', color: 'var(--color-text-muted)' }}>
+                <Mail size={24} />
+              </div>
+              <h4 style={{ margin: 0, fontWeight: 800, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
+                No Recipient Selected
+              </h4>
+              <p style={{ margin: '0.35rem auto 0 auto', maxWidth: '420px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                Type an email address in the search box above or click any recent recipient to inspect their complete message history, delivery timeline, and notification logs.
+              </p>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* ========================================================================= */}
@@ -3234,6 +3902,103 @@ export const AdminCommunicationsPage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+    
+      {/* Modal: Recipient Message Content Inspection */}
+      {selectedHistoryMessage && (
+        <Modal
+          isOpen={Boolean(selectedHistoryMessage)}
+          onClose={() => setSelectedHistoryMessage(null)}
+          title="Inspecting Message Content & Transmission Dossier"
+          size="lg"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <div>
+                <div style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 800, color: 'var(--color-text-muted)' }}>Message Subject</div>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.15rem' }}>
+                  {selectedHistoryMessage.subject}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {renderStatusBadge(selectedHistoryMessage.status)}
+                {renderChannelBadge(selectedHistoryMessage.channel)}
+                {renderPriorityBadge(selectedHistoryMessage.priority)}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', padding: '0.75rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)' }}>
+              <div>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Recipient Email</span>
+                <div style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--color-brand-primary)' }}>
+                  {selectedHistoryMessage.recipientEmail || selectedHistoryMessage.recipientEmailRedacted}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Recipient Name</span>
+                <div style={{ fontSize: '11px', fontWeight: 700 }}>{selectedHistoryMessage.recipientName}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Sent Timestamp</span>
+                <div style={{ fontSize: '11px', fontWeight: 600 }}>{selectedHistoryMessage.sentAt ? new Date(selectedHistoryMessage.sentAt).toLocaleString() : '—'}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Delivered Timestamp</span>
+                <div style={{ fontSize: '11px', fontWeight: 600 }}>{selectedHistoryMessage.deliveredAt ? new Date(selectedHistoryMessage.deliveredAt).toLocaleString() : '—'}</div>
+              </div>
+            </div>
+
+            {/* Rendered Message Content Body */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)' }}>
+                  Full Message / Email Payload Body
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy((selectedHistoryMessage as any).body || selectedHistoryMessage.bodyPreview, 'msg_body_copy')}
+                  style={{ ...tactileButtonStyle, fontSize: '10px', padding: '0.2rem 0.5rem' }}
+                >
+                  {copiedKey === 'msg_body_copy' ? <Check size={11} /> : <Copy size={11} />}
+                  Copy Content
+                </button>
+              </div>
+              <div
+                style={{
+                  padding: '1rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-border-subtle)',
+                  fontSize: '12px',
+                  lineHeight: '1.6',
+                  color: 'var(--color-text-primary)',
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: '260px',
+                  overflowY: 'auto',
+                }}
+              >
+                {(selectedHistoryMessage as any).body || selectedHistoryMessage.bodyPreview || 'No content recorded.'}
+              </div>
+            </div>
+
+            {selectedHistoryMessage.errorMessage && (
+              <div style={{ padding: '0.75rem', backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 'var(--radius-md)', color: 'var(--color-danger, #EF4444)', fontSize: '11px' }}>
+                <strong>Failure Diagnostic Reason:</strong> {selectedHistoryMessage.errorMessage}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedHistoryMessage(null)}
+                style={tactileButtonStyle}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
     </div>
   );
