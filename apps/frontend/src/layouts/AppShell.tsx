@@ -8,6 +8,7 @@ import { Avatar } from '../components/ui/Avatar/Avatar.js';
 import { Button } from '../components/ui/Button/Button.js';
 import { NavGroupConfig } from '../components/navigation/navigation.config.js';
 import { ResponsiveNavigation } from '../components/ui/responsive/ResponsiveNavigation.js';
+import { ErrorBoundary } from '../components/common/ErrorBoundary.js';
 import {
   Menu,
   X,
@@ -1274,7 +1275,9 @@ export const AppShell: React.FC<AppShellProps> = ({
               }
             }
           `}</style>
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
         </main>
       </div>
 

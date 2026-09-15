@@ -3,8 +3,8 @@ import { ProtectedRoute } from '../auth/guards/ProtectedRoute.js';
 import { RoleGuard } from '../auth/guards/RoleGuard.js';
 import { AgentLayout } from '../layouts/AgentLayout.js';
 import { withLazy } from '../components/common/LazyRoute.js';
+import { AgentDashboard } from '../pages/dashboard/AgentDashboard.js';
 
-const AgentDashboard = withLazy(() => import('../pages/dashboard/AgentDashboard.js'), 'AgentDashboard');
 const AgentStorePage = withLazy(() => import('../pages/agent/AgentStorePage.js'), 'AgentStorePage');
 const AgentOrdersPage = withLazy(() => import('../pages/agent/AgentOrdersPage.js'), 'AgentOrdersPage');
 const AgentWalletPage = withLazy(() => import('../pages/agent/AgentWalletPage.js'), 'AgentWalletPage');

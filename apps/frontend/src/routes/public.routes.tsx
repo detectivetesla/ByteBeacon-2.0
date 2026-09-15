@@ -3,8 +3,8 @@ import { RouteObject } from 'react-router-dom';
 import { PublicLayout } from '../layouts/PublicLayout.js';
 import { withLazy } from '../components/common/LazyRoute.js';
 import { isStorefrontHostname } from '../config/storefront.config.js';
+import { LandingPage } from '../pages/public/LandingPage.js';
 
-const LandingPage = withLazy(() => import('../pages/public/LandingPage.js'), 'LandingPage');
 const OrderTrackingPage = withLazy(() => import('../pages/public/OrderTrackingPage.js'), 'OrderTrackingPage');
 const DeveloperPortal = withLazy(() => import('../pages/developer/DeveloperPortal.js'), 'DeveloperPortal');
 const UnauthorizedPage = withLazy(() => import('../pages/public/UnauthorizedPage.js'), 'UnauthorizedPage');

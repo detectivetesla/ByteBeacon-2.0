@@ -2,8 +2,8 @@ import { RouteObject, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from '../auth/guards/ProtectedRoute.js';
 import { CustomerLayout } from '../layouts/CustomerLayout.js';
 import { withLazy } from '../components/common/LazyRoute.js';
+import { CustomerDashboard } from '../pages/dashboard/CustomerDashboard.js';
 
-const CustomerDashboard = withLazy(() => import('../pages/dashboard/CustomerDashboard.js'), 'CustomerDashboard');
 const BuyDataPage = withLazy(() => import('../pages/customer/BuyDataPage.js'), 'BuyDataPage');
 const OrdersPage = withLazy(() => import('../pages/customer/OrdersPage.js'), 'OrdersPage');
 const WalletPage = withLazy(() => import('../pages/customer/WalletPage.js'), 'WalletPage');

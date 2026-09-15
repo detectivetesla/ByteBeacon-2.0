@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MetricCard, Card } from '../../components/ui/Card/Card.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
@@ -43,6 +44,7 @@ interface AgentOrderRow {
 }
 
 export const AgentDashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { balanceGhs } = useWalletBalance();
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
@@ -226,7 +228,7 @@ export const AgentDashboard: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.625rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button variant="primary" size="sm" onClick={() => (window.location.href = '/agent/buy-data')} rightIcon={<PlusCircle size={15} strokeWidth={2.4} />}>
+          <Button variant="primary" size="sm" onClick={() => navigate('/agent/buy-data')} rightIcon={<PlusCircle size={15} strokeWidth={2.4} />}>
             + Buy Data
           </Button>
         </div>

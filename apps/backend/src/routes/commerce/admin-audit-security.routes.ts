@@ -226,8 +226,14 @@ export async function adminAuditSecurityRoutes(
       category,
       severity,
       result,
+      status,
       actorRole,
+      role,
+      actor,
       action,
+      resource,
+      source,
+      ip,
       startDate,
       endDate,
     } = req.query || {};
@@ -241,25 +247,45 @@ export async function adminAuditSecurityRoutes(
     let idx = 1;
 
     if (category && category !== 'ALL') {
-      conditions.push(`l.category = $${idx++}`);
-      params.push(category);
+      conditions.push(`LOWER(l.category) = $${idx++}`);
+      params.push(category.toLowerCase());
     }
     if (severity && severity !== 'ALL') {
-      conditions.push(`l.severity = $${idx++}`);
-      params.push(severity);
+      conditions.push(`LOWER(l.severity) = $${idx++}`);
+      params.push(severity.toLowerCase());
     }
-    if (result && result !== 'ALL') {
-      conditions.push(`l.result = $${idx++}`);
-      params.push(result);
+    const resolvedResult = result && result !== 'ALL' ? result : status && status !== 'ALL' ? status : null;
+    if (resolvedResult) {
+      conditions.push(`LOWER(l.result) = $${idx++}`);
+      params.push(resolvedResult.toLowerCase());
     }
     if (action && action !== 'ALL') {
-      conditions.push(`l.action = $${idx++}`);
-      params.push(action);
+      conditions.push(`LOWER(l.action) = $${idx++}`);
+      params.push(action.toLowerCase());
     }
-    if (actorRole && actorRole !== 'ALL') {
-      conditions.push(`(u.role = $${idx} OR l.actor_type = $${idx})`);
-      params.push(actorRole.toLowerCase());
+    const resolvedRole = actorRole && actorRole !== 'ALL' ? actorRole : role && role !== 'ALL' ? role : null;
+    if (resolvedRole) {
+      conditions.push(`(LOWER(COALESCE(u.role, '')) = $${idx} OR LOWER(COALESCE(l.actor_type, '')) = $${idx} OR LOWER(COALESCE(l.actor_role, '')) = $${idx})`);
+      params.push(resolvedRole.toLowerCase());
       idx++;
+    }
+    if (source && source !== 'ALL') {
+      conditions.push(`LOWER(COALESCE(l.source, '')) = $${idx++}`);
+      params.push(source.toLowerCase());
+    }
+    if (resource && resource.trim()) {
+      conditions.push(`(LOWER(COALESCE(l.resource_type, '')) LIKE $${idx} OR LOWER(COALESCE(l.resource_id, '')) LIKE $${idx})`);
+      params.push(`%${resource.trim().toLowerCase()}%`);
+      idx++;
+    }
+    if (actor && actor.trim()) {
+      conditions.push(`(LOWER(COALESCE(u.full_name, '')) LIKE $${idx} OR LOWER(COALESCE(u.email, '')) LIKE $${idx} OR LOWER(COALESCE(l.actor_id::text, '')) LIKE $${idx})`);
+      params.push(`%${actor.trim().toLowerCase()}%`);
+      idx++;
+    }
+    if (ip && ip.trim()) {
+      conditions.push(`LOWER(COALESCE(l.ip_address, '')) LIKE $${idx++}`);
+      params.push(`%${ip.trim().toLowerCase()}%`);
     }
     if (startDate) {
       conditions.push(`l.created_at >= $${idx++}`);
@@ -272,7 +298,7 @@ export async function adminAuditSecurityRoutes(
     if (search && search.trim()) {
       const term = `%${search.trim().toLowerCase()}%`;
       conditions.push(
-        `(LOWER(l.action) LIKE $${idx} OR LOWER(l.correlation_id) LIKE $${idx} OR LOWER(COALESCE(l.resource_type, '')) LIKE $${idx} OR LOWER(COALESCE(l.resource_id, '')) LIKE $${idx} OR LOWER(COALESCE(u.full_name, '')) LIKE $${idx} OR LOWER(COALESCE(u.email, '')) LIKE $${idx} OR LOWER(COALESCE(l.ip_address, '')) LIKE $${idx})`,
+        `(LOWER(l.action) LIKE $${idx} OR LOWER(l.correlation_id) LIKE $${idx} OR LOWER(COALESCE(l.resource_type, '')) LIKE $${idx} OR LOWER(COALESCE(l.resource_id, '')) LIKE $${idx} OR LOWER(COALESCE(u.full_name, '')) LIKE $${idx} OR LOWER(COALESCE(u.email, '')) LIKE $${idx} OR LOWER(COALESCE(l.ip_address, '')) LIKE $${idx} OR LOWER(COALESCE(l.description, '')) LIKE $${idx})`,
       );
       params.push(term);
       idx++;
@@ -284,7 +310,7 @@ export async function adminAuditSecurityRoutes(
     try {
       countRes = await db.query(
         `SELECT COUNT(*) as total FROM audit_logs l
-         LEFT JOIN users u ON l.actor_id = u.id
+         LEFT JOIN users u ON l.actor_id::text = u.id::text
          WHERE ${whereClause}`,
         params,
       );
@@ -299,8 +325,8 @@ export async function adminAuditSecurityRoutes(
       itemsRes = await db.query(
         `SELECT 
            l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
-           COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
-           u.email as "actorEmail",
+           COALESCE(l.actor_name, u.full_name, u.email, l.actor_type) as "actorName",
+           COALESCE(l.actor_email, u.email) as "actorEmail",
            COALESCE(l.actor_role, u.role, l.actor_type) as "actorRole",
            l.actor_type as "actorType",
            l.action, l.category, l.resource_type as "resourceType",
@@ -313,7 +339,7 @@ export async function adminAuditSecurityRoutes(
            l.http_status as "httpStatus", l.latency_ms as "latencyMs",
            l.description
          FROM audit_logs l
-         LEFT JOIN users u ON l.actor_id = u.id
+         LEFT JOIN users u ON l.actor_id::text = u.id::text
          WHERE ${whereClause}
          ORDER BY l.created_at DESC
          LIMIT $${idx++} OFFSET $${idx++}`,
@@ -350,7 +376,7 @@ export async function adminAuditSecurityRoutes(
            NULL as "latencyMs",
            l.action as description
          FROM audit_logs l
-         LEFT JOIN users u ON l.actor_id = u.id
+         LEFT JOIN users u ON l.actor_id::text = u.id::text
          ORDER BY l.created_at DESC
          LIMIT $1 OFFSET $2`,
         [limitNum, offset],

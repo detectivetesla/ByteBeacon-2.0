@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { AppShell } from './AppShell.js';
 import { AGENT_NAVIGATION_GROUPS } from '../components/navigation/navigation.config.js';
 import { Store } from 'lucide-react';
@@ -17,7 +17,7 @@ export const AgentLayout: React.FC = () => {
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const [storeSlug, setStoreSlug] = useState<string | undefined>(undefined);
   const [isStoreApproved, setIsStoreApproved] = useState<boolean>(false);
-  const location = useLocation();
+  const navigate = useNavigate();
 
   const fetchStoreStatus = useCallback(() => {
     storesApi
@@ -49,7 +49,7 @@ export const AgentLayout: React.FC = () => {
     return () => {
       window.removeEventListener('bytebeacon:store-updated', handleStoreUpdated);
     };
-  }, [fetchStoreStatus, location.pathname]);
+  }, [fetchStoreStatus]);
 
   return (
     <>
@@ -63,7 +63,7 @@ export const AgentLayout: React.FC = () => {
         navigationGroups={AGENT_NAVIGATION_GROUPS}
         userRole="agent"
         balancePesewas={balancePesewas}
-        onTopUpClick={() => (window.location.href = '/agent/wallet')}
+        onTopUpClick={() => navigate('/agent/wallet')}
         storeSlug={storeSlug}
         isStoreApproved={isStoreApproved}
       >

@@ -27,6 +27,7 @@ import { migration00000000000024 } from './migrations/00000000000024_align_defau
 import { migration00000000000025 } from './migrations/00000000000025_enhance_store_payouts_and_agent_withdrawals.js';
 import { migration00000000000026 } from './migrations/00000000000026_enhance_api_usage_metrics_request_response_tracking.js';
 import { migration00000000000027 } from './migrations/00000000000027_enhance_activity_audit_control_center.js';
+import { migration00000000000028 } from './migrations/00000000000028_enhance_audit_logs_actor_id_and_indexes.js';
 
 export const allMigrations: MigrationFile[] = [
   migration00000000000000,
@@ -57,6 +58,7 @@ export const allMigrations: MigrationFile[] = [
   migration00000000000025,
   migration00000000000026,
   migration00000000000027,
+  migration00000000000028,
 ];
 
 

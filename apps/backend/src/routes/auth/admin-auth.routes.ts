@@ -231,11 +231,23 @@ export async function adminAuthRoutes(
   // 1b. ADMIN LOGOUT
   app.post(
     '/admin/auth/logout',
-    { preHandler: [authHooks.authenticateAdmin] },
     async (req: FastifyRequest, reply: FastifyReply) => {
-      const user = req.user;
+      let user = req.user;
+      if (!user) {
+        try {
+          const authHeader = req.headers.authorization;
+          if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.slice(7);
+            const payload = tokenService.verifyAccessToken(token);
+            if (payload) {
+              user = payload as any;
+            }
+          }
+        } catch {}
+      }
+
       if (user?.sessionId) {
-        await sessionService.revokeSession(user.sessionId);
+        await sessionService.revokeSession(user.sessionId).catch(() => {});
       }
       await auditService.logEvent({
         correlationId: req.id,
@@ -256,7 +268,7 @@ export async function adminAuthRoutes(
         endpoint: req.url,
         httpMethod: 'POST',
         httpStatus: 200,
-        description: `Administrator ${user?.email || user?.sub || ''} logged out`,
+        description: user?.email ? `Administrator ${user.email} logged out successfully` : 'Administrator logged out',
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'] as string,
       });

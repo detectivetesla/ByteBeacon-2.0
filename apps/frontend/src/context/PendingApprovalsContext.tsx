@@ -50,12 +50,12 @@ export const PendingApprovalsProvider: React.FC<{ children: React.ReactNode }> =
 
     fetchCount();
 
-    // 8-second real-time polling interval
+    // 30-second real-time polling interval (backed by instant event listeners)
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         fetchCount();
       }
-    }, 8000);
+    }, 30000);
 
     const handleFocus = () => {
       fetchCount();

@@ -894,11 +894,31 @@ export async function customerAuthRoutes(
         sessionId: session.id,
       });
 
+      const roleLower = (user.role || 'customer').toString().toLowerCase().trim();
+      const isAdminUser = roleLower === 'admin' || roleLower === 'super_admin';
+      const isAgentUser = roleLower === 'agent';
+      const actorType = isAdminUser ? 'ADMIN' : isAgentUser ? 'AGENT' : 'CUSTOMER';
+      const action = isAdminUser ? 'ADMIN_LOGIN_SUCCESS' : isAgentUser ? 'AGENT_LOGIN_SUCCESS' : 'CUSTOMER_LOGIN_SUCCESS';
+
       await auditService.logEvent({
         correlationId: req.id,
         actorId: user.id,
-        actorType: 'CUSTOMER',
-        action: 'CUSTOMER_LOGIN',
+        actorType,
+        actorRole: user.role,
+        actorEmail: user.email,
+        actorName: user.fullName,
+        action,
+        category: AuditCategory.AUTH,
+        resourceType: 'sessions',
+        resourceId: session.id,
+        result: AuditResult.SUCCESS,
+        severity: AuditSeverity.INFO,
+        description: `Authentication successful for ${user.email} (${user.role})`,
+        metadata: {
+          email: user.email,
+          role: user.role,
+          domain: user.securityDomain,
+        },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
@@ -929,6 +949,57 @@ export async function customerAuthRoutes(
       };
 
       return reply.send(response);
+    },
+  );
+
+  // 2A. LOGOUT
+  app.post(
+    '/logout',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      let actorId: string | null = null;
+      let actorEmail: string | undefined;
+      let actorRole: string = 'customer';
+      let actorType: any = 'CUSTOMER';
+
+      try {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          const token = authHeader.slice(7);
+          const payload = tokenService.verifyAccessToken(token);
+          if (payload) {
+            actorId = payload.sub;
+            actorEmail = payload.email;
+            actorRole = payload.role || 'customer';
+            const rLow = actorRole.toLowerCase();
+            if (rLow === 'admin' || rLow === 'super_admin') {
+              actorType = 'ADMIN';
+            } else if (rLow === 'agent') {
+              actorType = 'AGENT';
+            }
+            if (payload.sessionId) {
+              await sessionService.revokeSession(payload.sessionId).catch(() => {});
+            }
+          }
+        }
+      } catch {}
+
+      await auditService.logEvent({
+        correlationId: req.id,
+        actorId,
+        actorType,
+        actorRole,
+        actorEmail,
+        action: actorType === 'ADMIN' ? 'ADMIN_LOGOUT' : actorType === 'AGENT' ? 'AGENT_LOGOUT' : 'CUSTOMER_LOGOUT',
+        category: AuditCategory.AUTH,
+        resourceType: 'sessions',
+        result: AuditResult.SUCCESS,
+        severity: AuditSeverity.INFO,
+        description: actorEmail ? `User session terminated for ${actorEmail} (${actorRole})` : 'User session terminated',
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] as string,
+      });
+
+      return reply.send({ success: true, message: 'Logged out successfully' });
     },
   );
 

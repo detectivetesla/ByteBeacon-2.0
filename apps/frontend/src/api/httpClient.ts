@@ -62,8 +62,8 @@ export class HttpClient {
         } catch {
           // Ignore
         }
-        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
-          window.location.href = '/auth/login';
+        if (typeof window !== 'undefined' && window.location.pathname !== '/signin' && !window.location.pathname.startsWith('/auth')) {
+          window.location.href = '/signin';
         }
       },
       ...config,

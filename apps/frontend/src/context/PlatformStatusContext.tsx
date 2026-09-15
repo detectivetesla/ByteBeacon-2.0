@@ -67,8 +67,8 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
   useEffect(() => {
     fetchPlatformStatus();
 
-    // Poll status periodically every 10 seconds for timely maintenance enforcement
-    const interval = setInterval(fetchPlatformStatus, 10000);
+    // Poll status periodically every 60 seconds for maintenance enforcement without socket starvation
+    const interval = setInterval(fetchPlatformStatus, 60000);
 
     // Refresh when browser tab gains focus or returns online
     const handleFocus = () => {

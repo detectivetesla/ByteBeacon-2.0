@@ -110,6 +110,9 @@ export class AuditService {
         );
 
         DO $$ BEGIN
+          ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE VARCHAR(100) USING actor_id::text;
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_email VARCHAR(255);
+          ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_name VARCHAR(255);
           ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'INFO';
           ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'ADMIN_ACTION';
           ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result VARCHAR(20) NOT NULL DEFAULT 'SUCCESS';
@@ -183,29 +186,35 @@ export class AuditService {
     const eventHash = crypto.createHash('sha256').update(eventPayload).digest('hex');
     this.lastHash = eventHash;
 
+    const safeActorId = params.actorId ? String(params.actorId) : null;
+    const actorEmail = params.actorEmail || (params.metadata?.email ? String(params.metadata.email) : null);
+    const actorName = params.actorName || (params.metadata?.name ? String(params.metadata.name) : null);
+
     const query = `
       INSERT INTO audit_logs (
-        correlation_id, actor_id, actor_type, actor_role, action, resource_type, resource_id,
+        correlation_id, actor_id, actor_type, actor_role, actor_email, actor_name, action, resource_type, resource_id,
         metadata, ip_address, user_agent, category, severity, result,
         before_state, after_state, reason, event_hash, previous_event_hash,
         request_id, session_id, source, service, endpoint, http_method, http_status,
         latency_ms, description, created_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7,
-        $8, $9, $10, $11, $12, $13,
-        $14, $15, $16, $17, $18,
-        $19, $20, $21, $22, $23, $24, $25,
-        $26, $27, $28
+        $1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10, $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20,
+        $21, $22, $23, $24, $25, $26, $27,
+        $28, $29, $30
       )
     `;
 
     try {
       await this.db.query(query, [
         correlationId,
-        params.actorId || null,
+        safeActorId,
         params.actorType,
         actorRole,
+        actorEmail,
+        actorName,
         params.action,
         params.resourceType || null,
         params.resourceId || null,
@@ -253,12 +262,15 @@ export class AuditService {
       try {
         // Resilient fallback query ensuring NO audit event is dropped even on older DB schemas
         await this.db.query(
-          `INSERT INTO audit_logs (correlation_id, actor_id, actor_type, action, resource_type, resource_id, metadata, ip_address, user_agent, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          `INSERT INTO audit_logs (correlation_id, actor_id, actor_type, actor_role, actor_email, actor_name, action, resource_type, resource_id, metadata, ip_address, user_agent, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
           [
             correlationId,
-            params.actorId || null,
+            safeActorId,
             params.actorType,
+            actorRole,
+            actorEmail,
+            actorName,
             params.action,
             params.resourceType || null,
             params.resourceId || null,

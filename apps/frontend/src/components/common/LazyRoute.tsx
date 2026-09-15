@@ -1,41 +1,28 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, ComponentType } from 'react';
 
 /**
- * Sleek loading fallback for code-split lazy routes.
+ * Clean, lightweight loading indicator without technical "Loading module..." text.
  */
 export const RouteLoadingFallback: React.FC = () => (
   <div
     style={{
-      minHeight: '60vh',
+      minHeight: '35vh',
       display: 'flex',
-      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: '1rem',
       padding: '2rem',
     }}
   >
     <div
       style={{
-        width: '32px',
-        height: '32px',
+        width: '28px',
+        height: '28px',
         borderRadius: '50%',
-        border: '3px solid var(--color-border-subtle, rgba(255, 255, 255, 0.15))',
+        border: '3px solid rgba(59, 130, 246, 0.2)',
         borderTopColor: '#3B82F6',
-        animation: 'spin 0.8s linear infinite',
+        animation: 'spin 0.7s linear infinite',
       }}
     />
-    <span
-      style={{
-        fontSize: 'var(--font-size-xs, 0.75rem)',
-        color: 'var(--color-text-muted, #94A3B8)',
-        fontWeight: 600,
-        letterSpacing: '0.04em',
-        textTransform: 'uppercase',
-      }}
-    >
-      Loading module...
-    </span>
     <style>{`
       @keyframes spin {
         to { transform: rotate(360deg); }
@@ -46,47 +33,49 @@ export const RouteLoadingFallback: React.FC = () => (
 
 /**
  * withLazy: Helper that wraps a dynamic import into a React.lazy component with Suspense fallback.
- * Automatically handles both default and named export modules.
+ * Automatically recovers from chunk load errors (e.g. following new production deployments) by reloading once.
  */
 export function withLazy<P extends object>(
   importer: () => Promise<{ [key: string]: any }>,
   exportName?: string
 ): React.FC<P> {
-  let resolvedComponent: React.ComponentType<P> | null = null;
-  let importPromise: Promise<{ default: React.ComponentType<P> }> | null = null;
+  const loadWithRecovery = async (): Promise<{ default: ComponentType<P> }> => {
+    try {
+      const mod = await importer();
+      const component = (exportName ? mod[exportName] : mod.default || Object.values(mod)[0]) as ComponentType<P>;
+      return { default: component };
+    } catch (error: any) {
+      console.warn('Dynamic route chunk failed to load, evaluating reload recovery:', error);
+      const isChunkError =
+        error?.message?.includes('Failed to fetch dynamically imported module') ||
+        error?.message?.includes('Importing a module script failed') ||
+        error?.message?.includes('error loading dynamically imported module') ||
+        error?.name === 'ChunkLoadError';
 
-  const load = () => {
-    if (!importPromise) {
-      importPromise = importer().then((mod) => {
-        const component = (exportName ? mod[exportName] : mod.default || Object.values(mod)[0]) as React.ComponentType<P>;
-        resolvedComponent = component;
-        return { default: component };
-      });
+      if (isChunkError && typeof window !== 'undefined') {
+        const reloadKey = `chunk_reload_guard_${window.location.pathname}`;
+        if (!sessionStorage.getItem(reloadKey)) {
+          sessionStorage.setItem(reloadKey, '1');
+          window.location.reload();
+          return new Promise(() => {}); // never resolve while reloading
+        }
+      }
+      throw error;
     }
-    return importPromise;
   };
 
-  // In test environment, pre-trigger load to ensure smooth synchronous-like resolution in test runners
+  // Pre-trigger in test environment
   if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
     try {
-      load();
-    } catch {
-      // Ignore in non-Node environments
-    }
+      loadWithRecovery();
+    } catch {}
   }
 
-  const LazyComponent = React.lazy(load);
+  const LazyComponent = React.lazy(loadWithRecovery);
 
-  return (props: P) => {
-    if (resolvedComponent) {
-      const Comp = resolvedComponent;
-      return <Comp {...props} />;
-    }
-
-    return (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <LazyComponent {...props} />
-      </Suspense>
-    );
-  };
+  return (props: P) => (
+    <Suspense fallback={<RouteLoadingFallback />}>
+      <LazyComponent {...props} />
+    </Suspense>
+  );
 }

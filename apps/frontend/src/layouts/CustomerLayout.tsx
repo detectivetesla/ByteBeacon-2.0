@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { AppShell } from './AppShell.js';
 import { CUSTOMER_NAVIGATION_GROUPS } from '../components/navigation/navigation.config.js';
 import { Zap } from 'lucide-react';
@@ -15,6 +15,7 @@ export const CustomerLayout: React.FC = () => {
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const { balancePesewas } = useWalletBalance();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const navigate = useNavigate();
 
   return (
     <>
@@ -28,7 +29,7 @@ export const CustomerLayout: React.FC = () => {
         navigationGroups={CUSTOMER_NAVIGATION_GROUPS}
         userRole="customer"
         balancePesewas={balancePesewas}
-        onTopUpClick={() => (window.location.href = '/app/wallet')}
+        onTopUpClick={() => navigate('/app/wallet')}
       >
         <Outlet />
       </AppShell>
