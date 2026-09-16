@@ -29,6 +29,10 @@ export const publicRoutes: RouteObject[] = [
     path: '/store/:slug',
     element: <PublicStorefrontPage />,
   },
+  {
+    path: '/store/:slug/:page',
+    element: <PublicStorefrontPage />,
+  },
 
   // 2. Main Platform Public Routes (Wrapped in PublicLayout)
   {
@@ -37,6 +41,14 @@ export const publicRoutes: RouteObject[] = [
       {
         path: '/',
         element: <DynamicHomeRoute />,
+      },
+      {
+        path: '/buy',
+        element: <PublicStorefrontPage />,
+      },
+      {
+        path: '/info',
+        element: <PublicStorefrontPage />,
       },
       {
         path: '/track',

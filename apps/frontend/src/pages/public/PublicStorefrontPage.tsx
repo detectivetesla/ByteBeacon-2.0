@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
-import { PhoneInput, Input, Card, Badge, Button, detectGhanaianNetwork } from '../../components/ui/index.js';
+import { useParams, useSearchParams, useLocation } from 'react-router-dom';
+import { PhoneInput, Input, Card, Button, detectGhanaianNetwork } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { useTheme } from '../../context/ThemeContext.js';
@@ -25,65 +25,69 @@ import {
   PhoneCall,
   X,
   Clock,
-  Truck,
-  Moon,
   Sun,
-  ChevronRight,
-  HelpCircle,
-  Check,
+  Moon,
+  Home,
+  ShoppingCart,
+  FileText,
+  Info,
 } from 'lucide-react';
 import { NetworkProvider, CustomerOrderDto } from '@bytebeacon/shared';
 
-const NETWORK_THEMES: Record<
-  NetworkProvider,
-  {
-    name: string;
-    badgeText: string;
-    badgeBg: string;
-    badgeColor: string;
-    cardBg: string;
-    textColor: string;
-    subColor: string;
-    btnColor: string;
-    btnTextColor: string;
-    accentColor: string;
-  }
-> = {
+// Network styling specifications matching design images
+interface NetworkThemeStyle {
+  name: string;
+  pillText: string;
+  pillBg: string;
+  pillColor: string;
+  cardBg: string;
+  textColor: string;
+  subColor: string;
+  priceColor: string;
+  btnBg: string;
+  btnColor: string;
+  accentColor: string;
+}
+
+const NETWORK_THEMES: Record<NetworkProvider, NetworkThemeStyle> = {
   [NetworkProvider.MTN]: {
-    name: 'MTN',
-    badgeText: 'MTN',
-    badgeBg: '#000000',
-    badgeColor: '#FFCC00',
-    cardBg: 'linear-gradient(135deg, #FFCC00 0%, #EAB308 100%)',
+    name: 'MTN Ghana',
+    pillText: 'MTN',
+    pillBg: '#000000',
+    pillColor: '#FFCC00',
+    cardBg: '#EAB308',
     textColor: '#0F172A',
     subColor: '#334155',
-    btnColor: '#0F172A',
-    btnTextColor: '#FFFFFF',
-    accentColor: '#FFCC00',
+    priceColor: '#0F172A',
+    btnBg: '#0F172A',
+    btnColor: '#FFFFFF',
+    accentColor: '#EAB308',
   },
   [NetworkProvider.TELECEL]: {
-    name: 'Telecel',
-    badgeText: 'T',
-    badgeBg: '#FFFFFF',
-    badgeColor: '#E11D48',
-    cardBg: 'linear-gradient(135deg, #E11D48 0%, #BE123C 100%)',
+    name: 'Telecel Ghana',
+    pillText: 'TELECEL',
+    pillBg: '#FFFFFF',
+    pillColor: '#DC2626',
+    cardBg: '#DC2626',
     textColor: '#FFFFFF',
     subColor: 'rgba(255, 255, 255, 0.85)',
-    btnColor: '#FFFFFF',
-    btnTextColor: '#BE123C',
-    accentColor: '#E11D48',
+    priceColor: '#FFFFFF',
+    btnBg: '#FFFFFF',
+    btnColor: '#DC2626',
+    accentColor: '#DC2626',
   },
   [NetworkProvider.AIRTELTIGO]: {
-    name: 'AirtelTigo',
-    badgeText: 'AT',
-    badgeBg: '#FFFFFF',
-    badgeColor: '#7C3AED',
-    cardBg: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
+    name: 'AT Ghana',
+    pillText: 'AIRTELTIGO',
+    pillBg: '#FFFFFF',
+    pillColor: '#2563EB',
+    cardBg: '#2563EB',
     textColor: '#FFFFFF',
     subColor: 'rgba(255, 255, 255, 0.85)',
-    btnColor: '#FFFFFF',
-    btnTextColor: '#6D28D9',
-    accentColor: '#7C3AED',
+    priceColor: '#FFFFFF',
+    btnBg: '#FFFFFF',
+    btnColor: '#2563EB',
+    accentColor: '#2563EB',
   },
 };
 
@@ -92,105 +96,163 @@ const formatDataAmount = (dataAmountMb: number): string => {
   return gb % 1 === 0 ? `${gb}GB` : `${gb.toFixed(1)}GB`;
 };
 
+const formatDataAmountWithSpace = (dataAmountMb: number): string => {
+  const gb = dataAmountMb / 1024;
+  return gb % 1 === 0 ? `${gb} GB` : `${gb.toFixed(1)} GB`;
+};
+
+type StorefrontNavPage = 'home' | 'buy' | 'track' | 'info';
+
+const RECENT_ORDERS_STORAGE_KEY = 'bb_customer_recent_orders';
+
 export const PublicStorefrontPage: React.FC = () => {
-  const { slug } = useParams<{ slug?: string }>();
+  const { slug, page } = useParams<{ slug?: string; page?: string }>();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
   const { resolvedTheme, toggleTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
 
+  // Extract slug from path, host, or query
+  const subdomainSlug = STOREFRONT_CONFIG.extractSlugFromSubdomain();
+  const querySlug = searchParams.get('store') || searchParams.get('slug');
+  const storeSlug = (slug || subdomainSlug || querySlug || 'default')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-');
+
+  // Determine current active navigation page
+  const determineActivePage = useCallback((): StorefrontNavPage => {
+    // 1. Check path parameter :page
+    if (page) {
+      const p = page.toLowerCase();
+      if (p === 'buy' || p === 'buy-data' || p === 'bundles') return 'buy';
+      if (p === 'track' || p === 'track-order') return 'track';
+      if (p === 'info' || p === 'about' || p === 'store-info') return 'info';
+      if (p === 'home') return 'home';
+    }
+    // 2. Check location pathname
+    const path = location.pathname.toLowerCase();
+    if (path.endsWith('/buy') || path.endsWith('/buy-data') || path.endsWith('/bundles')) return 'buy';
+    if (path.endsWith('/track') || path.endsWith('/track-order')) return 'track';
+    if (path.endsWith('/info') || path.endsWith('/about') || path.endsWith('/store-info')) return 'info';
+    // 3. Check query param e.g. ?tab=buy
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'buy') return 'buy';
+    if (tabParam === 'track') return 'track';
+    if (tabParam === 'info') return 'info';
+
+    return 'home';
+  }, [page, location.pathname, searchParams]);
+
+  const [activeNav, setActiveNav] = useState<StorefrontNavPage>(determineActivePage);
+
+  useEffect(() => {
+    setActiveNav(determineActivePage());
+  }, [determineActivePage]);
+
+  // Navigate helper that updates URL cleanly
+  const handleNavClick = (target: StorefrontNavPage) => {
+    setActiveNav(target);
+    const isSubdomain = STOREFRONT_CONFIG.isStorefrontHost();
+    const basePath = isSubdomain ? '' : `/store/${storeSlug}`;
+    const targetPath = target === 'home' ? (basePath || '/') : `${basePath}/${target}`;
+
+    if (typeof window !== 'undefined' && window.history?.pushState) {
+      try {
+        window.history.pushState(null, '', targetPath);
+      } catch {
+        // Safe fallback
+      }
+    }
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      try {
+        const isJsdom = typeof navigator !== 'undefined' && navigator.userAgent?.includes('jsdom');
+        if (!isJsdom) {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      } catch {
+        // Safe fallback
+      }
+    }
+  };
+
+  useEffect(() => {
+    const onPopState = () => {
+      setActiveNav(determineActivePage());
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [determineActivePage]);
+
+  // Color theme tokens matching screenshots
   const t = useMemo(() => ({
     isDark,
-    bgPage: isDark ? '#0F1117' : '#F8FAFC',
+    bgPage: isDark ? '#0A0C10' : '#F8FAFC',
     textPage: isDark ? '#F8FAFC' : '#0F172A',
 
-    // Announcement top bar
-    bgBar: isDark ? '#090B0E' : '#F1F5F9',
-    borderBar: isDark ? 'rgba(255, 255, 255, 0.06)' : '#E2E8F0',
-    textBar: isDark ? '#94A3B8' : '#64748B',
-    phoneLink: isDark ? '#CBD5E1' : '#334155',
-
-    // Header & Navbar
-    bgHeader: isDark ? 'rgba(15, 17, 24, 0.92)' : 'rgba(255, 255, 255, 0.94)',
-    borderHeader: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
-    avatarBg: isDark ? '#1E222D' : '#0F172A',
-    avatarBorder: isDark ? 'rgba(255, 255, 255, 0.15)' : '#CBD5E1',
-    avatarColor: '#FFFFFF',
+    // Top Header & Navbar
+    bgHeader: isDark ? '#0D0F14' : '#FFFFFF',
+    borderHeader: isDark ? 'rgba(255, 255, 255, 0.07)' : '#E2E8F0',
+    logoContainerBg: isDark ? '#1E293B' : '#0F172A',
+    logoContainerBorder: isDark ? 'rgba(59, 130, 246, 0.25)' : '#CBD5E1',
+    logoColor: '#60A5FA',
     storeNameColor: isDark ? '#FFFFFF' : '#0F172A',
+    storeSubColor: isDark ? '#64748B' : '#94A3B8',
 
+    // Nav Pills
     navContainerBg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#F1F5F9',
     navContainerBorder: isDark ? 'rgba(255, 255, 255, 0.06)' : '#E2E8F0',
-    navActiveBg: isDark ? '#252936' : '#0F172A',
-    navActiveColor: '#FFFFFF',
+    navActiveBg: '#A3E635', // Electric Lime Green from design
+    navActiveColor: '#000000',
     navInactiveColor: isDark ? '#94A3B8' : '#64748B',
 
-    // Theme toggle button
-    themeBtnBg: isDark ? 'rgba(255, 255, 255, 0.06)' : '#FFFFFF',
-    themeBtnBorder: isDark ? 'rgba(255, 255, 255, 0.1)' : '#CBD5E1',
-    themeBtnColor: isDark ? '#FBBF24' : '#334155',
+    // Utility Pills (Instant Delivery, Theme Toggle)
+    utilityPillBg: isDark ? '#141720' : '#FFFFFF',
+    utilityPillBorder: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+    utilityPillColor: isDark ? '#CBD5E1' : '#334155',
 
-    // General Card & Section Surfaces
-    cardBg: isDark ? '#161922' : '#FFFFFF',
+    // Cards & Sections
+    cardBg: isDark ? '#13161F' : '#FFFFFF',
+    cardInnerBg: isDark ? '#0B0E14' : '#F8FAFC',
     cardBorder: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
-    cardSubtleBorder: isDark ? 'rgba(255, 255, 255, 0.06)' : '#E2E8F0',
-    cardShadow: isDark ? '0 10px 30px rgba(0, 0, 0, 0.4)' : '0 4px 16px rgba(0, 0, 0, 0.05)',
-    cardShadowLg: isDark ? '0 20px 40px rgba(0, 0, 0, 0.6)' : '0 10px 30px rgba(0, 0, 0, 0.08)',
+    cardInnerBorder: isDark ? 'rgba(255, 255, 255, 0.05)' : '#E2E8F0',
+    cardShadow: isDark ? '0 10px 30px rgba(0, 0, 0, 0.5)' : '0 4px 16px rgba(0, 0, 0, 0.05)',
 
     // Headings & Text
     heading: isDark ? '#FFFFFF' : '#0F172A',
-    bodyText: isDark ? '#94A3B8' : '#64748B',
-    secondaryText: isDark ? '#CBD5E1' : '#334155',
+    subText: isDark ? '#64748B' : '#94A3B8',
+    bodyText: isDark ? '#94A3B8' : '#475569',
+    limeText: '#A3E635',
 
-    // Hero specifics
-    heroBg: isDark ? '#151821' : '#FFFFFF',
-    heroDot: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
-    heroGhostBg: isDark ? '#252936' : '#F8FAFC',
-    heroGhostBorder: isDark ? 'rgba(255, 255, 255, 0.1)' : '#CBD5E1',
-    heroGhostColor: isDark ? '#FFFFFF' : '#0F172A',
+    // Inputs
+    inputBg: isDark ? '#0C0E14' : '#FFFFFF',
+    inputBorder: isDark ? 'rgba(255, 255, 255, 0.1)' : '#CBD5E1',
 
-    // Feature Badges
-    badgeIconBoxBg: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9',
-
-    // Inputs & Forms
-    inputBg: isDark ? '#0F1117' : '#FFFFFF',
-    inputBorder: isDark ? 'rgba(255, 255, 255, 0.12)' : '#CBD5E1',
-
-    // Modal specifics
-    modalBg: isDark ? '#161922' : '#FFFFFF',
+    // Modal
+    modalBg: isDark ? '#141720' : '#FFFFFF',
+    modalOverlay: 'rgba(0, 0, 0, 0.85)',
     modalBorder: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
-    modalOverlay: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(15, 23, 42, 0.6)',
-    modalBoxBg: isDark ? '#0F1117' : '#F8FAFC',
-    modalBoxBorder: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
 
     // Footer
-    footerBg: isDark ? '#090B0E' : '#F8FAFC',
-    footerBorder: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
-    footerSubBorder: isDark ? 'rgba(255, 255, 255, 0.05)' : '#E2E8F0',
-    footerText: isDark ? '#94A3B8' : '#64748B',
-    footerSubText: isDark ? '#64748B' : '#94A3B8',
+    footerBg: isDark ? '#0A0C10' : '#F8FAFC',
+    footerBorder: isDark ? 'rgba(255, 255, 255, 0.07)' : '#E2E8F0',
+    footerText: isDark ? '#64748B' : '#94A3B8',
   }), [isDark]);
 
-  // Extract slug
-  const subdomainSlug = STOREFRONT_CONFIG.extractSlugFromSubdomain();
-  const querySlug = searchParams.get('store') || searchParams.get('slug');
-  const storeSlug = (slug || subdomainSlug || querySlug || 'default').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
-
-  // Store state
+  // Real store data state
   const [store, setStore] = useState<StoreProfileDto | null>(null);
   const [products, setProducts] = useState<PublicStoreProductDto[]>([]);
   const [isLoadingStore, setIsLoadingStore] = useState(true);
   const [storeNotFound, setStoreNotFound] = useState(false);
   const [notFoundSearch, setNotFoundSearch] = useState('');
 
-  // Active section & Navigation
-  const [activeNav, setActiveNav] = useState<'home' | 'buy' | 'track' | 'about'>('home');
+  // Network filter state for Buy Data view
+  const [activeNetworkFilter, setActiveNetworkFilter] = useState<'ALL' | NetworkProvider>('ALL');
 
-  // Filter & Network state
-  const [activeNetwork, setActiveNetwork] = useState<NetworkProvider>(NetworkProvider.MTN);
-  const [bundleSearch, setBundleSearch] = useState('');
-
-  // Checkout state
+  // Checkout modal state
   const [selectedProduct, setSelectedProduct] = useState<PublicStoreProductDto | null>(null);
   const [recipientPhone, setRecipientPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
@@ -199,38 +261,38 @@ export const PublicStorefrontPage: React.FC = () => {
   const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
   const [unapprovedPhone, setUnapprovedPhone] = useState('');
 
-  // Order Complete state
+  // Order Complete & Live Track state
   const [confirmedOrder, setConfirmedOrder] = useState<CustomerOrderDto | null>(null);
 
-  // In-store Track state
+  // Live order tracker & manual query state
+  const [activeCustomerOrder, setActiveCustomerOrder] = useState<CustomerOrderDto | null>(null);
+  const [manualTrackQuery, setManualTrackQuery] = useState('');
+  const [isTrackingManual, setIsTrackingManual] = useState(false);
+  const [manualTrackSearched, setManualTrackSearched] = useState(false);
+  const [manualTrackedOrder, setManualTrackedOrder] = useState<CustomerOrderDto | null>(null);
+
+  // Dedicated Track Page state
+  const [trackPageQuery, setTrackPageQuery] = useState('');
+  const [isTrackPageSearching, setIsTrackPageSearching] = useState(false);
+  const [trackPageSearched, setTrackPageSearched] = useState(false);
+  const [trackPageOrder, setTrackPageOrder] = useState<CustomerOrderDto | null>(null);
+
+  // In-store Track Order Modal state
   const [showTrackModal, setShowTrackModal] = useState(false);
-  const [trackQuery, setTrackQuery] = useState('');
-  const [trackedOrder, setTrackedOrder] = useState<CustomerOrderDto | null>(null);
-  const [isTracking, setIsTracking] = useState(false);
-  const [trackSearched, setTrackSearched] = useState(false);
+  const [modalTrackQuery, setModalTrackQuery] = useState('');
+  const [isModalTracking, setIsModalTracking] = useState(false);
+  const [modalTrackSearched, setModalTrackSearched] = useState(false);
+  const [modalTrackedOrder, setModalTrackedOrder] = useState<CustomerOrderDto | null>(null);
 
-  // Check a number precheck modal state
-  const [showNumberCheckModal, setShowNumberCheckModal] = useState(false);
-  const [checkNumberPhone, setCheckNumberPhone] = useState('');
-  const [isCheckingNumber, setIsCheckingNumber] = useState(false);
-  const [numberCheckResult, setNumberCheckResult] = useState<{
-    phone: string;
-    network: string;
-    valid: boolean;
-    status: string;
-    message: string;
-  } | null>(null);
-
-  // Dynamic favicon & tab title sanitization (ZERO ByteBeacon branding in tab)
+  // Dynamic favicon & tab title
   useEffect(() => {
-    const storeName = store?.storeName || 'Data Store';
+    const storeName = store?.storeName || 'ByteBeacon Test Hub';
     if (typeof document !== 'undefined') {
-      document.title = `${storeName} · Buy Data Bundles`;
+      document.title = `${storeName} · Instant Automated Telecom Data`;
 
-      // Set custom white-label SVG favicon matching store initial
-      const initial = (storeName.charAt(0) || 'D').toUpperCase();
-      const brandColor = store?.primaryColor || '#EAB308';
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${brandColor}"/><text x="16" y="22" font-size="18" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="900" fill="#0F172A" text-anchor="middle">${initial}</text></svg>`;
+      const initial = (storeName.charAt(0) || 'B').toUpperCase();
+      const brandColor = store?.primaryColor || '#A3E635';
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${brandColor}"/><text x="16" y="22" font-size="18" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="900" fill="#000000" text-anchor="middle">${initial}</text></svg>`;
       const faviconUrl = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 
       let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
@@ -248,7 +310,7 @@ export const PublicStorefrontPage: React.FC = () => {
     }
   }, [store?.storeName, store?.primaryColor]);
 
-  // Load store data
+  // Load real store data (Zero mock data)
   const loadStore = useCallback(async () => {
     setIsLoadingStore(true);
     setStoreNotFound(false);
@@ -258,11 +320,6 @@ export const PublicStorefrontPage: React.FC = () => {
         setStore(res.store);
         const prods = Array.isArray(res.products) ? res.products : [];
         setProducts(prods);
-
-        const availableNetworks = Array.from(new Set(prods.map((p) => p.network)));
-        if (availableNetworks.length > 0 && !availableNetworks.includes(activeNetwork)) {
-          setActiveNetwork(availableNetworks[0] as NetworkProvider);
-        }
       } else {
         setStoreNotFound(true);
       }
@@ -271,22 +328,24 @@ export const PublicStorefrontPage: React.FC = () => {
     } finally {
       setIsLoadingStore(false);
     }
-  }, [storeSlug, activeNetwork]);
+  }, [storeSlug]);
 
   useEffect(() => {
     loadStore();
-  }, [storeSlug]);
+  }, [loadStore]);
 
-  // Handle Paystack callback verification
+  // Paystack verification callback handler
   useEffect(() => {
     const ref = searchParams.get('ref') || searchParams.get('reference') || searchParams.get('trxref');
     if (ref) {
       setIsCheckingOut(true);
-      toastInfo('Verifying Payment', 'Confirming your mobile transaction with Paystack...');
+      toastInfo('Verifying Payment', 'Confirming your transaction with Paystack...');
       storesApi
         .verifyPublicPayment(ref)
         .then((orderRes) => {
           setConfirmedOrder(orderRes);
+          setActiveCustomerOrder(orderRes);
+          saveRecentOrder(orderRes);
           toastSuccess('Payment Verified', 'Your data bundle has been queued for immediate telecom delivery!');
         })
         .catch((err) => {
@@ -301,49 +360,106 @@ export const PublicStorefrontPage: React.FC = () => {
     }
   }, [searchParams]);
 
-  // Network counts
+  // Save recent order to sessionStorage for real-time live tracker
+  const saveRecentOrder = (order: CustomerOrderDto) => {
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        sessionStorage.setItem(RECENT_ORDERS_STORAGE_KEY, JSON.stringify(order));
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  // Load recent order on mount
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const saved = sessionStorage.getItem(RECENT_ORDERS_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.orderId) {
+            setActiveCustomerOrder(parsed);
+          }
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, []);
+
+  // Real-time polling for active order (Every 5s until final status)
+  useEffect(() => {
+    if (!activeCustomerOrder || !activeCustomerOrder.orderId) return;
+
+    const isFinalStatus =
+      activeCustomerOrder.status === 'DELIVERED' ||
+      activeCustomerOrder.status === 'UNABLE_TO_COMPLETE' ||
+      activeCustomerOrder.status === 'CANCELLED';
+
+    if (isFinalStatus) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const updated = await ordersApi.trackOrder(activeCustomerOrder.orderId);
+        if (updated) {
+          const raw = updated as any;
+          const mapped: CustomerOrderDto = {
+            orderId: raw.orderId || raw.publicId || raw.id || activeCustomerOrder.orderId,
+            status: raw.status || raw.orderStatus || 'PROCESSING',
+            statusLabel: raw.statusLabel || raw.orderStatus || 'Processing',
+            paymentStatus: raw.paymentStatus || 'PAID',
+            product: {
+              name: raw.product?.name || activeCustomerOrder.product.name,
+              network: raw.product?.network || activeCustomerOrder.product.network,
+              volumeDisplay: raw.product?.volumeDisplay || activeCustomerOrder.product.volumeDisplay,
+              validityDisplay: raw.product?.validityDisplay || 'Non-Expiry',
+            },
+            recipientPhone: raw.recipientPhone || activeCustomerOrder.recipientPhone,
+            amountPesewas: raw.amountPesewas || activeCustomerOrder.amountPesewas,
+            amountDisplay: raw.amountDisplay || activeCustomerOrder.amountDisplay,
+            currency: raw.currency || 'GHS',
+            createdAt: raw.createdAt || activeCustomerOrder.createdAt,
+            updatedAt: raw.updatedAt || new Date().toISOString(),
+          };
+          setActiveCustomerOrder(mapped);
+          saveRecentOrder(mapped);
+        }
+      } catch {
+        // Suppress background poll errors
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [activeCustomerOrder]);
+
+  // Filtered lists by network
   const mtnProducts = useMemo(() => products.filter((p) => p.network === NetworkProvider.MTN), [products]);
   const telecelProducts = useMemo(() => products.filter((p) => p.network === NetworkProvider.TELECEL), [products]);
   const airteltigoProducts = useMemo(() => products.filter((p) => p.network === NetworkProvider.AIRTELTIGO), [products]);
 
-  // Popular products: pick popular flag, or top 3 diverse products
+  // Products to display on Buy Data page
+  const displayProducts = useMemo(() => {
+    if (activeNetworkFilter === 'ALL') return products;
+    return products.filter((p) => p.network === activeNetworkFilter);
+  }, [products, activeNetworkFilter]);
+
+  // Featured popular products for Home view
   const popularProducts = useMemo(() => {
-    const marked = products.filter((p) => p.popular);
-    if (marked.length >= 3) return marked.slice(0, 6);
-
-    const mtnPop = mtnProducts.find((p) => p.dataAmountMb === 1024) || mtnProducts[0];
-    const telecelPop = telecelProducts.find((p) => p.dataAmountMb === 10240) || telecelProducts[0];
-    const atPop = airteltigoProducts.find((p) => p.dataAmountMb === 1024) || airteltigoProducts[0];
-
-    const fallback = [mtnPop, telecelPop, atPop].filter(Boolean) as PublicStoreProductDto[];
-    return fallback.length > 0 ? fallback : products.slice(0, 3);
-  }, [products, mtnProducts, telecelProducts, airteltigoProducts]);
-
-  // Filtered products for full catalog
-  const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const matchesNetwork = p.network === activeNetwork;
-      const dataLabel = formatDataAmount(p.dataAmountMb);
-      const priceGhs = (p.retailPricePesewas / 100).toFixed(2);
-      const matchesSearch =
-        !bundleSearch ||
-        p.name.toLowerCase().includes(bundleSearch.toLowerCase()) ||
-        dataLabel.toLowerCase().includes(bundleSearch.toLowerCase()) ||
-        priceGhs.includes(bundleSearch);
-      return matchesNetwork && matchesSearch;
-    });
-  }, [products, activeNetwork, bundleSearch]);
-
-  // Smooth scroll helper
-  const scrollToSection = (id: string, navKey: 'home' | 'buy' | 'track' | 'about') => {
-    setActiveNav(navKey);
-    const elem = document.getElementById(id);
-    if (elem) {
-      elem.scrollIntoView({ behavior: 'smooth' });
+    if (activeNetworkFilter !== 'ALL') {
+      return products.filter((p) => p.network === activeNetworkFilter);
     }
-  };
+    const populars = products.filter((p) => p.popular);
+    if (populars.length > 0) return populars;
+    // Fallback: Pick top diverse bundles from each network, MTN first
+    const list: PublicStoreProductDto[] = [];
+    if (mtnProducts[0]) list.push(mtnProducts[0]);
+    if (telecelProducts[0]) list.push(telecelProducts[0]);
+    if (airteltigoProducts[0]) list.push(airteltigoProducts[0]);
+    return list.length > 0 ? list : products.slice(0, 3);
+  }, [products, telecelProducts, mtnProducts, airteltigoProducts, activeNetworkFilter]);
 
-  // Submit checkout
+  // Handle Checkout submission
   const handleProcessCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isMaintenanceMode) {
@@ -354,7 +470,7 @@ export const PublicStorefrontPage: React.FC = () => {
 
     const cleanRecipient = recipientPhone.trim().replace(/\s+/g, '');
     if (!cleanRecipient || cleanRecipient.length < 10) {
-      toastError('Invalid Phone', 'Please enter a valid 10-digit Ghanaian recipient phone number (e.g. 0244123456).');
+      toastError('Invalid Phone', 'Please enter a valid 10-digit Ghanaian recipient phone number.');
       return;
     }
 
@@ -391,6 +507,11 @@ export const PublicStorefrontPage: React.FC = () => {
       }
 
       const idempotencyKey = `ord_sf_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const callbackUrl =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}${location.pathname}?ref=${idempotencyKey}`
+          : undefined;
+
       const checkoutRes = await storesApi.publicCheckout({
         slug: store?.slug || storeSlug,
         productId: selectedProduct.id,
@@ -399,11 +520,11 @@ export const PublicStorefrontPage: React.FC = () => {
         paymentMethod: 'PAYSTACK',
         channel: selectedChannel,
         idempotencyKey,
-        callbackUrl: typeof window !== 'undefined' ? `${window.location.origin}/store/${store?.slug || storeSlug}?ref=${idempotencyKey}` : undefined,
+        callbackUrl,
       });
 
       if (checkoutRes?.payment?.authorizationUrl) {
-        toastInfo('Redirecting to Paystack', 'Redirecting to secure Mobile Money & Card payment...');
+        toastInfo('Redirecting to Paystack', 'Redirecting to secure payment...');
         window.location.href = checkoutRes.payment.authorizationUrl;
         return;
       }
@@ -411,6 +532,8 @@ export const PublicStorefrontPage: React.FC = () => {
       if (checkoutRes?.payment?.reference) {
         const verified = await storesApi.verifyPublicPayment(checkoutRes.payment.reference, checkoutRes.order.orderId);
         setConfirmedOrder(verified);
+        setActiveCustomerOrder(verified);
+        saveRecentOrder(verified);
         setSelectedProduct(null);
         toastSuccess('Order Placed Successfully', 'Payment verified and data bundle is being dispatched!');
       } else {
@@ -433,6 +556,8 @@ export const PublicStorefrontPage: React.FC = () => {
           updatedAt: new Date().toISOString(),
         };
         setConfirmedOrder(fallbackOrder);
+        setActiveCustomerOrder(fallbackOrder);
+        saveRecentOrder(fallbackOrder);
         setSelectedProduct(null);
         toastSuccess('Order Placed', 'Payment processed and bundle is being dispatched!');
       }
@@ -454,103 +579,130 @@ export const PublicStorefrontPage: React.FC = () => {
     }
   };
 
-  // Run in-store tracking search
-  const handlePerformTrack = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const query = trackQuery.trim();
+  // Handle Manual Tracking on Home View
+  const handleHomeManualTrack = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = manualTrackQuery.trim();
     if (!query) return;
 
-    setIsTracking(true);
-    setTrackSearched(true);
+    setIsTrackingManual(true);
+    setManualTrackSearched(true);
     try {
       const res = await ordersApi.trackOrder(query);
       if (res) {
         const raw = res as any;
-        const dataDisplay = raw.product?.volumeDisplay || raw.dataDisplay || (raw.dataAmountMb ? formatDataAmount(raw.dataAmountMb) : 'Data Bundle');
-        const network = raw.product?.network || raw.network || 'MTN';
-        const priceDisplay = raw.amountDisplay || (raw.amountPesewas ? `GH₵ ${(raw.amountPesewas / 100).toFixed(2)}` : 'GH₵ 0.00');
         const mapped: CustomerOrderDto = {
           orderId: raw.orderId || raw.publicId || raw.id || query,
-          status: raw.status || (raw.orderStatus as any) || 'PROCESSING',
+          status: raw.status || raw.orderStatus || 'PROCESSING',
           statusLabel: raw.statusLabel || raw.orderStatus || 'Processing',
-          paymentStatus: (raw.paymentStatus as any) || 'PENDING',
+          paymentStatus: raw.paymentStatus || 'PENDING',
           product: {
-            name: raw.product?.name || `${network} ${dataDisplay} Data Bundle`,
-            network,
-            volumeDisplay: dataDisplay,
+            name: raw.product?.name || `${raw.network || 'Data'} Bundle`,
+            network: raw.product?.network || raw.network || 'MTN',
+            volumeDisplay: raw.product?.volumeDisplay || (raw.dataAmountMb ? formatDataAmount(raw.dataAmountMb) : 'Data Bundle'),
             validityDisplay: raw.product?.validityDisplay || 'Non-Expiry',
           },
           recipientPhone: raw.recipientPhone || '',
           amountPesewas: raw.amountPesewas || 0,
-          amountDisplay: priceDisplay,
-          currency: (raw.currency as any) || 'GHS',
+          amountDisplay: raw.amountDisplay || (raw.amountPesewas ? `GH₵ ${(raw.amountPesewas / 100).toFixed(2)}` : 'GH₵ 0.00'),
+          currency: raw.currency || 'GHS',
           createdAt: raw.createdAt || new Date().toISOString(),
           updatedAt: raw.updatedAt || new Date().toISOString(),
-          completedAt: raw.completedAt || raw.providerOrder?.lastSyncedAt || null,
         };
-        setTrackedOrder(mapped);
+        setManualTrackedOrder(mapped);
       } else {
-        setTrackedOrder(null);
+        setManualTrackedOrder(null);
       }
     } catch {
-      setTrackedOrder(null);
+      setManualTrackedOrder(null);
     } finally {
-      setIsTracking(false);
+      setIsTrackingManual(false);
     }
   };
 
-  // Check phone number precheck verification
-  const handleCheckNumber = async (e: React.FormEvent) => {
+  // Handle Dedicated Track Page Search
+  const handleTrackPageSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    const phone = checkNumberPhone.trim().replace(/\s+/g, '');
-    if (!phone || phone.length < 10) {
-      toastError('Invalid Phone', 'Please enter a valid 10-digit Ghanaian phone number.');
-      return;
-    }
+    const query = trackPageQuery.trim();
+    if (!query) return;
 
-    setIsCheckingNumber(true);
-    setNumberCheckResult(null);
+    setIsTrackPageSearching(true);
+    setTrackPageSearched(true);
     try {
-      const detected = detectGhanaianNetwork(phone) || 'MTN';
-      if (detected === 'MTN') {
-        const res = await beneficiaryApi.precheckPublic({
-          network: NetworkProvider.MTN,
-          phoneNumbers: [phone],
-        });
-        const result = res?.results?.[0];
-        const isApproved = result?.known && result?.status === 'APPROVED';
-        setNumberCheckResult({
-          phone,
-          network: 'MTN Ghana',
-          valid: true,
-          status: isApproved ? 'Approved & Ready' : 'Validation Required',
-          message: isApproved
-            ? 'This phone number is approved for instant MTN high-speed delivery!'
-            : 'This MTN number is awaiting operator approval. You can still place your order and our system will queue it for processing.',
-        });
+      const res = await ordersApi.trackOrder(query);
+      if (res) {
+        const raw = res as any;
+        const mapped: CustomerOrderDto = {
+          orderId: raw.orderId || raw.publicId || raw.id || query,
+          status: raw.status || raw.orderStatus || 'PROCESSING',
+          statusLabel: raw.statusLabel || raw.orderStatus || 'Processing',
+          paymentStatus: raw.paymentStatus || 'PENDING',
+          product: {
+            name: raw.product?.name || `${raw.network || 'Data'} Bundle`,
+            network: raw.product?.network || raw.network || 'MTN',
+            volumeDisplay: raw.product?.volumeDisplay || (raw.dataAmountMb ? formatDataAmount(raw.dataAmountMb) : 'Data Bundle'),
+            validityDisplay: raw.product?.validityDisplay || 'Non-Expiry',
+          },
+          recipientPhone: raw.recipientPhone || '',
+          amountPesewas: raw.amountPesewas || 0,
+          amountDisplay: raw.amountDisplay || (raw.amountPesewas ? `GH₵ ${(raw.amountPesewas / 100).toFixed(2)}` : 'GH₵ 0.00'),
+          currency: raw.currency || 'GHS',
+          createdAt: raw.createdAt || new Date().toISOString(),
+          updatedAt: raw.updatedAt || new Date().toISOString(),
+        };
+        setTrackPageOrder(mapped);
       } else {
-        setNumberCheckResult({
-          phone,
-          network: detected === 'TELECEL' ? 'Telecel Ghana' : 'AirtelTigo',
-          valid: true,
-          status: 'Ready for Instant Delivery',
-          message: `${detected === 'TELECEL' ? 'Telecel' : 'AirtelTigo'} numbers do not require beneficiary approval. Orders are delivered instantly!`,
-        });
+        setTrackPageOrder(null);
       }
-    } catch (err: any) {
-      setNumberCheckResult({
-        phone,
-        network: 'Ghana Network',
-        valid: true,
-        status: 'Ready',
-        message: 'Number format is valid. You can proceed with bundle purchase.',
-      });
+    } catch {
+      setTrackPageOrder(null);
     } finally {
-      setIsCheckingNumber(false);
+      setIsTrackPageSearching(false);
     }
   };
 
-  // 1. Loading Skeleton View
+  // Handle in-store Tracking Modal Search
+  const handleModalTrackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = modalTrackQuery.trim();
+    if (!query) return;
+
+    setIsModalTracking(true);
+    setModalTrackSearched(true);
+    try {
+      const res = await ordersApi.trackOrder(query);
+      if (res) {
+        const raw = res as any;
+        const mapped: CustomerOrderDto = {
+          orderId: raw.orderId || raw.publicId || raw.id || query,
+          status: raw.status || raw.orderStatus || 'PROCESSING',
+          statusLabel: raw.statusLabel || raw.orderStatus || 'Processing',
+          paymentStatus: raw.paymentStatus || 'PENDING',
+          product: {
+            name: raw.product?.name || `${raw.network || 'Data'} Bundle`,
+            network: raw.product?.network || raw.network || 'MTN',
+            volumeDisplay: raw.product?.volumeDisplay || (raw.dataAmountMb ? formatDataAmountWithSpace(raw.dataAmountMb) : 'Data Bundle'),
+            validityDisplay: raw.product?.validityDisplay || 'Non-Expiry',
+          },
+          recipientPhone: raw.recipientPhone || '',
+          amountPesewas: raw.amountPesewas || 0,
+          amountDisplay: raw.amountDisplay || (raw.amountPesewas ? `GH₵ ${(raw.amountPesewas / 100).toFixed(2)}` : 'GH₵ 0.00'),
+          currency: raw.currency || 'GHS',
+          createdAt: raw.createdAt || new Date().toISOString(),
+          updatedAt: raw.updatedAt || new Date().toISOString(),
+        };
+        setModalTrackedOrder(mapped);
+      } else {
+        setModalTrackedOrder(null);
+      }
+    } catch {
+      setModalTrackedOrder(null);
+    } finally {
+      setIsModalTracking(false);
+    }
+  };
+
+  // 1. Loading Skeleton
   if (isLoadingStore) {
     return (
       <div
@@ -563,7 +715,7 @@ export const PublicStorefrontPage: React.FC = () => {
           alignItems: 'center',
           justifyContent: 'center',
           gap: '1rem',
-          padding: 'var(--space-6)',
+          padding: '2rem',
         }}
       >
         <div
@@ -571,19 +723,19 @@ export const PublicStorefrontPage: React.FC = () => {
             width: '42px',
             height: '42px',
             borderRadius: '50%',
-            border: '3px solid #EAB308',
+            border: '3px solid #A3E635',
             borderTopColor: 'transparent',
             animation: 'spin 1s linear infinite',
           }}
         />
-        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: t.bodyText }}>
-          Loading Storefront & Real-Time Bundles...
+        <span style={{ fontSize: '13px', fontWeight: 700, color: t.subText }}>
+          Loading Storefront & Bundles...
         </span>
       </div>
     );
   }
 
-  // 2. Storefront Not Found View (Zero ByteBeacon branding)
+  // 2. Storefront Not Found / Maintenance State
   if (storeNotFound || !store) {
     return (
       <div
@@ -595,7 +747,7 @@ export const PublicStorefrontPage: React.FC = () => {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: 'var(--space-6)',
+          padding: '2rem',
           textAlign: 'center',
         }}
       >
@@ -603,11 +755,11 @@ export const PublicStorefrontPage: React.FC = () => {
           style={{
             maxWidth: '500px',
             width: '100%',
-            padding: 'var(--space-8)',
+            padding: '2rem',
             backgroundColor: t.cardBg,
             border: `1px solid ${t.cardBorder}`,
-            borderRadius: '24px',
-            boxShadow: t.cardShadowLg,
+            borderRadius: '20px',
+            boxShadow: t.cardShadow,
           }}
         >
           <div
@@ -620,20 +772,20 @@ export const PublicStorefrontPage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              margin: '0 auto var(--space-4) auto',
+              margin: '0 auto 1rem auto',
             }}
           >
             <Store size={28} />
           </div>
 
-          <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: t.heading, margin: 0 }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 900, color: t.heading, margin: 0 }}>
             Storefront Unavailable
           </h2>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, marginTop: '0.5rem', lineHeight: 1.5 }}>
-            The merchant storefront <code style={{ color: '#EAB308', fontFamily: 'var(--font-mono)' }}>/{storeSlug}</code> is currently undergoing maintenance or is unavailable.
+          <p style={{ fontSize: '13px', color: t.bodyText, marginTop: '0.5rem', lineHeight: 1.5 }}>
+            The merchant storefront <code style={{ color: '#A3E635', fontFamily: 'monospace' }}>/{storeSlug}</code> is currently undergoing maintenance or is unavailable.
           </p>
 
-          <div style={{ marginTop: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -642,7 +794,7 @@ export const PublicStorefrontPage: React.FC = () => {
                   window.location.href = `/store/${target}`;
                 }
               }}
-              style={{ display: 'flex', gap: '0.4rem' }}
+              style={{ display: 'flex', gap: '0.5rem' }}
             >
               <Input
                 placeholder="Search merchant by slug"
@@ -654,36 +806,33 @@ export const PublicStorefrontPage: React.FC = () => {
               </Button>
             </form>
 
-            <button
-              type="button"
-              onClick={() => setShowTrackModal(true)}
+            <a
+              href={STOREFRONT_CONFIG.getMainPlatformUrl('/')}
               style={{
                 padding: '0.65rem 1rem',
-                borderRadius: '12px',
-                backgroundColor: t.heroGhostBg,
-                color: t.heroGhostColor,
-                border: `1px solid ${t.heroGhostBorder}`,
-                fontSize: 'var(--font-size-xs)',
+                borderRadius: '10px',
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                color: t.heading,
+                textDecoration: 'none',
+                fontSize: '12px',
                 fontWeight: 700,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '0.4rem',
-                cursor: 'pointer',
               }}
             >
-              <Search size={14} />
-              <span>Track an Existing Order</span>
-            </button>
+              Visit ByteBeacon Platform
+            </a>
           </div>
         </Card>
       </div>
     );
   }
 
-  const storeName = store.storeName || "Jackson's Data Hub";
-  const storeInitial = (storeName.charAt(0) || 'J').toUpperCase();
-  const contactPhone = store.contactPhone || '0544824759';
+  const storeName = store.storeName || 'ByteBeacon Test Hub';
+  const storeTagline = store.tagline || 'Instant Automated Telecommunications Data';
+  const contactPhone = store.contactPhone || '0241234567';
   const whatsappNumber = store.contactWhatsapp || contactPhone;
 
   return (
@@ -695,1299 +844,1535 @@ export const PublicStorefrontPage: React.FC = () => {
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
         display: 'flex',
         flexDirection: 'column',
+        overflowX: 'hidden',
         transition: 'background-color 200ms ease, color 200ms ease',
       }}
     >
       <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
 
       {/* ==================================================================== */}
-      {/* 1. TOP ANNOUNCEMENT BAR (Image 1) */}
-      {/* ==================================================================== */}
-      <div
-        style={{
-          backgroundColor: t.bgBar,
-          borderBottom: `1px solid ${t.borderBar}`,
-          padding: '0.4rem var(--space-6)',
-          fontSize: '11px',
-          color: t.textBar,
-          transition: 'background-color 200ms ease, border-color 200ms ease',
-        }}
-      >
-        <div
-          style={{
-            maxWidth: '1050px',
-            margin: '0 auto',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '0.5rem',
-          }}
-        >
-          {/* Left: Delivery Time & Open Status */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-              <Truck size={12} color={t.textBar} />
-              <span>Delivery: 10min - 1hr</span>
-            </span>
-            <span style={{ color: isDark ? '#334155' : '#CBD5E1' }}>•</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#10B981', fontWeight: 700 }}>
-              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }} />
-              Open Now
-            </span>
-          </div>
-
-          {/* Right: Phone & WhatsApp */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-            {contactPhone && (
-              <a
-                href={`tel:${contactPhone}`}
-                style={{
-                  color: t.phoneLink,
-                  textDecoration: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.3rem',
-                  fontWeight: 600,
-                }}
-              >
-                <PhoneCall size={11} color={t.textBar} />
-                <span>{contactPhone}</span>
-              </a>
-            )}
-            {whatsappNumber && (
-              <a
-                href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  color: '#22C55E',
-                  textDecoration: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.3rem',
-                  fontWeight: 700,
-                }}
-              >
-                <MessageSquare size={11} color="#22C55E" />
-                <span>WhatsApp</span>
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ==================================================================== */}
-      {/* 2. MAIN HEADER & NAVBAR (Image 1 & 2) */}
+      {/* 1. TOP HEADER & NAVBAR (Exact visual match from images) */}
       {/* ==================================================================== */}
       <header
         style={{
           borderBottom: `1px solid ${t.borderHeader}`,
           backgroundColor: t.bgHeader,
-          backdropFilter: 'blur(16px)',
           position: 'sticky',
           top: 0,
           zIndex: 40,
-          padding: '0.75rem var(--space-6)',
+          padding: '0.85rem 1.25rem',
           transition: 'background-color 200ms ease, border-color 200ms ease',
         }}
       >
         <div
           style={{
-            maxWidth: '1050px',
+            maxWidth: '1100px',
             margin: '0 auto',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             gap: '1rem',
+            flexWrap: 'wrap',
           }}
         >
-          {/* Store Brand / Avatar */}
+          {/* Store Brand / Logo Squircle */}
           <div
-            onClick={() => scrollToSection('hero', 'home')}
+            onClick={() => handleNavClick('home')}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '0.65rem',
+              gap: '0.75rem',
               cursor: 'pointer',
+              userSelect: 'none',
             }}
           >
             <div
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                backgroundColor: t.avatarBg,
-                border: `1px solid ${t.avatarBorder}`,
-                color: t.avatarColor,
+                width: '40px',
+                height: '40px',
+                borderRadius: '12px',
+                backgroundColor: t.logoContainerBg,
+                border: `1px solid ${t.logoContainerBorder}`,
+                color: t.logoColor,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontWeight: 900,
-                fontSize: '16px',
-                boxShadow: isDark ? '0 4px 12px rgba(0, 0, 0, 0.4)' : '0 2px 6px rgba(0, 0, 0, 0.08)',
                 flexShrink: 0,
+                boxShadow: isDark ? '0 4px 14px rgba(0, 0, 0, 0.4)' : '0 2px 6px rgba(0, 0, 0, 0.06)',
               }}
             >
-              {storeInitial}
+              <Store size={20} />
             </div>
-            <span
-              style={{
-                fontSize: 'var(--font-size-sm)',
-                fontWeight: 900,
-                color: t.storeNameColor,
-                letterSpacing: '-0.01em',
-              }}
-            >
-              {storeName}
-            </span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span
+                  style={{
+                    fontSize: '16px',
+                    fontWeight: 900,
+                    color: t.storeNameColor,
+                    letterSpacing: '-0.01em',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {storeName}
+                </span>
+                <span className="sr-only">Verified Merchant</span>
+              </div>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: t.storeSubColor,
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                }}
+              >
+                <span>{storeTagline}</span>
+              </div>
+            </div>
           </div>
 
-          {/* Navigation Links (Home, Buy Data, Track Order, About) */}
-          <nav
+          {/* Navigation Links & Right Utility Badges */}
+          <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '0.4rem',
-              backgroundColor: t.navContainerBg,
-              padding: '3px',
-              borderRadius: '100px',
-              border: `1px solid ${t.navContainerBorder}`,
-              transition: 'all 200ms ease',
+              gap: '0.5rem',
+              flexWrap: 'wrap',
             }}
           >
-            <button
-              type="button"
-              onClick={() => scrollToSection('hero', 'home')}
+            {/* Nav Group Pills */}
+            <nav
               style={{
-                background: activeNav === 'home' ? t.navActiveBg : 'transparent',
-                color: activeNav === 'home' ? t.navActiveColor : t.navInactiveColor,
-                border: 'none',
-                padding: '0.35rem 0.9rem',
-                borderRadius: '100px',
-                fontSize: '12px',
-                fontWeight: activeNav === 'home' ? 800 : 600,
-                cursor: 'pointer',
-                transition: 'all 120ms ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
               }}
             >
-              Home
-            </button>
+              {/* Home Link */}
+              <button
+                type="button"
+                onClick={() => handleNavClick('home')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.45rem 1rem',
+                  borderRadius: '100px',
+                  border: 'none',
+                  backgroundColor: activeNav === 'home' ? t.navActiveBg : 'transparent',
+                  color: activeNav === 'home' ? t.navActiveColor : t.navInactiveColor,
+                  fontSize: '12px',
+                  fontWeight: activeNav === 'home' ? 800 : 600,
+                  cursor: 'pointer',
+                  transition: 'all 120ms ease',
+                }}
+              >
+                <Home size={14} color={activeNav === 'home' ? '#000000' : 'currentColor'} />
+                <span>Home</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => scrollToSection('bundles', 'buy')}
+              {/* Buy Data Link */}
+              <button
+                type="button"
+                onClick={() => handleNavClick('buy')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.45rem 1rem',
+                  borderRadius: '100px',
+                  border: 'none',
+                  backgroundColor: activeNav === 'buy' ? t.navActiveBg : 'transparent',
+                  color: activeNav === 'buy' ? t.navActiveColor : t.navInactiveColor,
+                  fontSize: '12px',
+                  fontWeight: activeNav === 'buy' ? 800 : 600,
+                  cursor: 'pointer',
+                  transition: 'all 120ms ease',
+                }}
+              >
+                <ShoppingCart size={14} color={activeNav === 'buy' ? '#000000' : 'currentColor'} />
+                <span>Buy Data</span>
+              </button>
+
+              {/* Track Order Link */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTrackModal(true);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.45rem 1rem',
+                  borderRadius: '100px',
+                  border: 'none',
+                  backgroundColor: activeNav === 'track' ? t.navActiveBg : 'transparent',
+                  color: activeNav === 'track' ? t.navActiveColor : t.navInactiveColor,
+                  fontSize: '12px',
+                  fontWeight: activeNav === 'track' ? 800 : 600,
+                  cursor: 'pointer',
+                  transition: 'all 120ms ease',
+                }}
+              >
+                <FileText size={14} color={activeNav === 'track' ? '#000000' : 'currentColor'} />
+                <span>Track Order</span>
+              </button>
+
+              {/* Info Link */}
+              <button
+                type="button"
+                onClick={() => handleNavClick('info')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.45rem 1rem',
+                  borderRadius: '100px',
+                  border: 'none',
+                  backgroundColor: activeNav === 'info' ? t.navActiveBg : 'transparent',
+                  color: activeNav === 'info' ? t.navActiveColor : t.navInactiveColor,
+                  fontSize: '12px',
+                  fontWeight: activeNav === 'info' ? 800 : 600,
+                  cursor: 'pointer',
+                  transition: 'all 120ms ease',
+                }}
+              >
+                <Info size={14} color={activeNav === 'info' ? '#000000' : 'currentColor'} />
+                <span>Info</span>
+              </button>
+            </nav>
+
+            {/* Instant Delivery Badge */}
+            <div
               style={{
-                background: activeNav === 'buy' ? t.navActiveBg : 'transparent',
-                color: activeNav === 'buy' ? t.navActiveColor : t.navInactiveColor,
-                border: 'none',
-                padding: '0.35rem 0.9rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                backgroundColor: t.utilityPillBg,
+                border: `1px solid ${t.utilityPillBorder}`,
                 borderRadius: '100px',
-                fontSize: '12px',
-                fontWeight: activeNav === 'buy' ? 800 : 600,
-                cursor: 'pointer',
-                transition: 'all 120ms ease',
+                padding: '0.4rem 0.8rem',
+                fontSize: '11px',
+                fontWeight: 700,
+                color: t.utilityPillColor,
               }}
             >
-              Buy Data
-            </button>
+              <Zap size={12} color="#A3E635" fill="#A3E635" />
+              <span>Instant Delivery</span>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setShowTrackModal(true);
-                setActiveNav('track');
-              }}
-              style={{
-                background: activeNav === 'track' ? t.navActiveBg : 'transparent',
-                color: activeNav === 'track' ? t.navActiveColor : t.navInactiveColor,
-                border: 'none',
-                padding: '0.35rem 0.9rem',
-                borderRadius: '100px',
-                fontSize: '12px',
-                fontWeight: activeNav === 'track' ? 800 : 600,
-                cursor: 'pointer',
-                transition: 'all 120ms ease',
-              }}
-            >
-              Track Order
-            </button>
-
-            <button
-              type="button"
-              onClick={() => scrollToSection('about', 'about')}
-              style={{
-                background: activeNav === 'about' ? t.navActiveBg : 'transparent',
-                color: activeNav === 'about' ? t.navActiveColor : t.navInactiveColor,
-                border: 'none',
-                padding: '0.35rem 0.9rem',
-                borderRadius: '100px',
-                fontSize: '12px',
-                fontWeight: activeNav === 'about' ? 800 : 600,
-                cursor: 'pointer',
-                transition: 'all 120ms ease',
-              }}
-            >
-              About
-            </button>
-          </nav>
-
-          {/* Theme Toggle Icon */}
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+            {/* Theme Toggle Button */}
             <button
               type="button"
               onClick={toggleTheme}
-              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
               style={{
-                width: '34px',
-                height: '34px',
-                borderRadius: '50%',
-                backgroundColor: t.themeBtnBg,
-                border: `1px solid ${t.themeBtnBorder}`,
-                color: t.themeBtnColor,
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
-                justifyContent: 'center',
+                gap: '0.35rem',
+                backgroundColor: t.utilityPillBg,
+                border: `1px solid ${t.utilityPillBorder}`,
+                borderRadius: '100px',
+                padding: '0.4rem 0.8rem',
+                fontSize: '11px',
+                fontWeight: 700,
+                color: t.utilityPillColor,
                 cursor: 'pointer',
-                transition: 'all 150ms ease',
-                boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.3)' : '0 2px 6px rgba(0, 0, 0, 0.06)',
+                transition: 'all 120ms ease',
               }}
             >
-              {isDark ? <Sun size={15} /> : <Moon size={15} />}
+              {isDark ? (
+                <>
+                  <Sun size={13} color="#FACC15" />
+                  <span>Light</span>
+                </>
+              ) : (
+                <>
+                  <Moon size={13} color="#38BDF8" />
+                  <span>Dark</span>
+                </>
+              )}
             </button>
           </div>
         </div>
       </header>
 
       {/* ==================================================================== */}
-      {/* PAGE BODY CONTAINER */}
+      {/* 2. PAGE CONTENT ROUTER / RENDERER */}
       {/* ==================================================================== */}
-      <main style={{ maxWidth: '1050px', margin: '0 auto', width: '100%', padding: 'var(--space-6)', flex: 1 }}>
-        {/* ================================================================== */}
-        {/* 3. HERO SECTION (Images 1 & 3) */}
-        {/* ================================================================== */}
-        <section
-          id="hero"
-          style={{
-            backgroundColor: t.heroBg,
-            backgroundImage: `radial-gradient(${t.heroDot} 1px, transparent 1px)`,
-            backgroundSize: '18px 18px',
-            border: `1px solid ${t.cardBorder}`,
-            borderRadius: '24px',
-            padding: 'var(--space-10) var(--space-8)',
-            marginBottom: 'var(--space-5)',
-            boxShadow: t.cardShadow,
-            transition: 'background-color 200ms ease, border-color 200ms ease',
-          }}
-        >
-          <div style={{ maxWidth: '680px' }}>
-            {/* Instant Delivery Pill Badge */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                backgroundColor: '#FFCC00',
-                color: '#0F172A',
-                fontSize: '11px',
-                fontWeight: 900,
-                padding: '3px 10px',
-                borderRadius: '100px',
-                marginBottom: 'var(--space-4)',
-              }}
-            >
-              <Zap size={12} fill="#0F172A" />
-              <span>Instant Delivery</span>
-            </div>
-
-            {/* Headline matching image 1 */}
-            <h1
-              style={{
-                fontSize: 'clamp(2rem, 4.5vw, 2.85rem)',
-                fontWeight: 900,
-                color: t.heading,
-                lineHeight: 1.15,
-                margin: '0 0 0.5rem 0',
-                letterSpacing: '-0.02em',
-              }}
-            >
-              Buy Data Bundles
-              <span style={{ display: 'block', color: '#EAB308' }}>At Unbeatable Prices</span>
-            </h1>
-
-            {/* Subtitle matching image 1 */}
-            <p
-              style={{
-                fontSize: 'var(--font-size-sm)',
-                color: t.bodyText,
-                lineHeight: 1.5,
-                margin: '0 0 var(--space-6) 0',
-              }}
-            >
-              MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
-            </p>
-
-            {/* Action Buttons matching image 1 */}
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => scrollToSection('bundles', 'buy')}
-                style={{
-                  backgroundColor: '#EAB308',
-                  color: '#0F172A',
-                  border: 'none',
-                  padding: '0.65rem 1.35rem',
-                  borderRadius: '12px',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  boxShadow: '0 4px 14px rgba(234, 179, 8, 0.35)',
-                  transition: 'transform 100ms ease',
-                }}
-              >
-                <span>Shop Now</span>
-                <ArrowRight size={15} strokeWidth={2.4} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowTrackModal(true)}
-                style={{
-                  backgroundColor: t.heroGhostBg,
-                  color: t.heroGhostColor,
-                  border: `1px solid ${t.heroGhostBorder}`,
-                  padding: '0.65rem 1.35rem',
-                  borderRadius: '12px',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  transition: 'background-color 120ms ease',
-                }}
-              >
-                <span>Track Order</span>
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* ================================================================== */}
-        {/* 4. DELIVERY PROGRESS & REAL-TIME TRACKING BANNER (Image 1) */}
-        {/* ================================================================== */}
-        <section
-          style={{
-            backgroundColor: t.cardBg,
-            border: `1px solid ${t.cardBorder}`,
-            borderRadius: '16px',
-            padding: 'var(--space-4) var(--space-5)',
-            marginBottom: 'var(--space-5)',
-            boxShadow: t.cardShadow,
-            transition: 'background-color 200ms ease, border-color 200ms ease',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
-            <Truck size={14} color={t.bodyText} />
-            <strong style={{ fontSize: '12px', fontWeight: 800, color: t.heading }}>Delivery Progress</strong>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '11px' }}>
-            {/* Telemetry Status Note */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#F87171' }}>
-              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#EF4444', display: 'inline-block', flexShrink: 0 }} />
-              <span>Network status is active. All placed orders are processed and verified immediately upon payment.</span>
-            </div>
-
-            {/* Last Delivered Real-Time Status */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#10B981' }}>
-              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block', flexShrink: 0 }} />
-              <span>
-                Last delivered: <strong style={{ color: '#38BDF8', fontFamily: 'var(--font-mono)' }}>#2013957</strong> — 100% automated high-speed fulfillment active
-              </span>
-            </div>
-          </div>
-        </section>
-
-        {/* ================================================================== */}
-        {/* 5. FEATURE BADGES ROW (4 cards matching Image 1) */}
-        {/* ================================================================== */}
-        <section
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: 'var(--space-3)',
-            marginBottom: 'var(--space-8)',
-          }}
-        >
-          {[
-            { icon: <Zap size={16} color="#EAB308" />, label: '10-60 Min Delivery' },
-            { icon: <ShieldCheck size={16} color="#10B981" />, label: '100% Secure' },
-            { icon: <Clock size={16} color="#38BDF8" />, label: '24/7 Available' },
-            { icon: <Smartphone size={16} color="#A855F7" />, label: 'All Networks' },
-          ].map((feat, i) => (
-            <div
-              key={i}
+      <main
+        style={{
+          maxWidth: '1100px',
+          margin: '0 auto',
+          width: '100%',
+          padding: '1.5rem 1.25rem',
+          flex: 1,
+        }}
+      >
+        {/* VIEW 1: HOME PAGE (Matches media_1789552950052.png) */}
+        {activeNav === 'home' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            {/* Section 1: Hero Card */}
+            <section
               style={{
                 backgroundColor: t.cardBg,
-                border: `1px solid ${t.cardSubtleBorder}`,
-                borderRadius: '14px',
-                padding: 'var(--space-4)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                fontSize: '12px',
-                fontWeight: 800,
-                color: t.heading,
+                border: `1px solid ${t.cardBorder}`,
+                borderRadius: '20px',
+                padding: '2.5rem 2rem',
                 boxShadow: t.cardShadow,
-                transition: 'background-color 200ms ease, border-color 200ms ease',
               }}
             >
-              {feat.icon}
-              <span>{feat.label}</span>
-            </div>
-          ))}
-        </section>
-
-        {/* ================================================================== */}
-        {/* 6. CHOOSE YOUR NETWORK (Image 1) */}
-        {/* ================================================================== */}
-        <section style={{ marginBottom: 'var(--space-8)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading, margin: 0 }}>
-              Choose Your Network
-            </h2>
-            <button
-              type="button"
-              onClick={() => scrollToSection('bundles', 'buy')}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: t.bodyText,
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.2rem',
-              }}
-            >
-              <span>View All</span>
-              <ChevronRight size={14} />
-            </button>
-          </div>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-              gap: 'var(--space-4)',
-            }}
-          >
-            {[
-              {
-                id: NetworkProvider.MTN,
-                theme: NETWORK_THEMES[NetworkProvider.MTN],
-                count: mtnProducts.length,
-              },
-              {
-                id: NetworkProvider.TELECEL,
-                theme: NETWORK_THEMES[NetworkProvider.TELECEL],
-                count: telecelProducts.length,
-              },
-              {
-                id: NetworkProvider.AIRTELTIGO,
-                theme: NETWORK_THEMES[NetworkProvider.AIRTELTIGO],
-                count: airteltigoProducts.length,
-              },
-            ].map(({ id, theme, count }) => {
-              const isSelected = activeNetwork === id;
-
-              return (
+              <div style={{ maxWidth: '640px' }}>
                 <div
-                  key={id}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    backgroundColor: isDark ? 'rgba(163, 230, 53, 0.12)' : '#ECFDF5',
+                    border: '1px solid rgba(163, 230, 53, 0.3)',
+                    color: isDark ? '#A3E635' : '#15803D',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    padding: '3px 10px',
+                    borderRadius: '100px',
+                    marginBottom: '1rem',
+                  }}
+                >
+                  <Zap size={12} fill="currentColor" />
+                  <span>Instant Delivery</span>
+                </div>
+
+                <h1
+                  style={{
+                    fontSize: 'clamp(2rem, 4.5vw, 2.75rem)',
+                    fontWeight: 900,
+                    color: t.heading,
+                    lineHeight: 1.15,
+                    margin: '0 0 0.5rem 0',
+                    letterSpacing: '-0.02em',
+                  }}
+                >
+                  Buy Data Bundles
+                  <span style={{ display: 'block', color: '#A3E635' }}>At Unbeatable Prices</span>
+                </h1>
+
+                <p
+                  style={{
+                    fontSize: '14px',
+                    color: t.bodyText,
+                    lineHeight: 1.5,
+                    margin: '0 0 1.75rem 0',
+                  }}
+                >
+                  MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
+                </p>
+
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('buy')}
+                    style={{
+                      backgroundColor: '#A3E635',
+                      color: '#000000',
+                      border: 'none',
+                      padding: '0.65rem 1.35rem',
+                      borderRadius: '10px',
+                      fontSize: '13px',
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      transition: 'transform 100ms ease',
+                    }}
+                  >
+                    <ShoppingCart size={15} color="#000000" />
+                    <span>Buy Data Now</span>
+                    <ArrowRight size={15} strokeWidth={2.5} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowTrackModal(true);
+                      handleNavClick('track');
+                    }}
+                    style={{
+                      backgroundColor: isDark ? '#1C212D' : '#F1F5F9',
+                      color: t.heading,
+                      border: `1px solid ${t.cardBorder}`,
+                      padding: '0.65rem 1.35rem',
+                      borderRadius: '10px',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                    }}
+                  >
+                    <FileText size={15} />
+                    <span>Order Tracking</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* Section 2: Live Order Tracker */}
+            <section
+              style={{
+                backgroundColor: t.cardBg,
+                border: `1px solid ${t.cardBorder}`,
+                borderRadius: '20px',
+                padding: '1.75rem',
+                boxShadow: t.cardShadow,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.25rem' }}>
+                <Clock size={16} color="#A3E635" />
+                <h3 style={{ fontSize: '15px', fontWeight: 900, color: t.heading, margin: 0 }}>
+                  Live Order Tracker
+                </h3>
+              </div>
+              <p style={{ fontSize: '12px', color: t.subText, margin: '0 0 1.25rem 0' }}>
+                Automated real-time tracking for your current purchase
+              </p>
+
+              {/* Inner Box: Real-Time Order or Empty State */}
+              <div
+                style={{
+                  backgroundColor: t.cardInnerBg,
+                  border: `1px solid ${t.cardInnerBorder}`,
+                  borderRadius: '14px',
+                  padding: '2.25rem 1.5rem',
+                  textAlign: 'center',
+                }}
+              >
+                {activeCustomerOrder && !confirmedOrder ? (
+                  <div style={{ maxWidth: '480px', margin: '0 auto', textAlign: 'left' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '12px', color: t.bodyText }}>Order ID:</span>
+                      <strong style={{ fontSize: '13px', color: '#A3E635', fontFamily: 'monospace' }}>
+                        {activeCustomerOrder.orderId}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '12px', color: t.bodyText }}>Package:</span>
+                      <strong style={{ fontSize: '13px', color: t.heading }}>
+                        {activeCustomerOrder.product.name}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '12px', color: t.bodyText }}>Recipient:</span>
+                      <strong style={{ fontSize: '13px', color: t.heading, fontFamily: 'monospace' }}>
+                        {activeCustomerOrder.recipientPhone}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <span style={{ fontSize: '12px', color: t.bodyText }}>Live Status:</span>
+                      <span style={{ color: '#10B981', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981' }} />
+                        {activeCustomerOrder.statusLabel || activeCustomerOrder.status}
+                      </span>
+                    </div>
+
+                    <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTrackPageQuery(activeCustomerOrder.orderId);
+                          handleNavClick('track');
+                        }}
+                        style={{
+                          backgroundColor: '#A3E635',
+                          color: '#000000',
+                          border: 'none',
+                          padding: '0.5rem 1.25rem',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        View Full Tracking Details
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ marginBottom: '0.65rem' }}>
+                      <Clock size={36} color={isDark ? '#475569' : '#94A3B8'} style={{ margin: '0 auto' }} />
+                    </div>
+                    <strong style={{ fontSize: '14px', fontWeight: 800, color: t.heading, display: 'block', marginBottom: '0.25rem' }}>
+                      No active orders found.
+                    </strong>
+                    <p style={{ fontSize: '12px', color: t.subText, margin: '0 0 1.25rem 0' }}>
+                      When you place an order, live tracking will automatically appear here.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleNavClick('buy')}
+                      style={{
+                        backgroundColor: '#A3E635',
+                        color: '#000000',
+                        border: 'none',
+                        padding: '0.55rem 1.25rem',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                      }}
+                    >
+                      <ShoppingCart size={14} color="#000000" />
+                      <span>Buy Data Now</span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Manual Lookup Sub-section */}
+              <div style={{ marginTop: '1.25rem' }}>
+                <span style={{ fontSize: '12px', color: t.subText, display: 'block', marginBottom: '0.5rem' }}>
+                  Look up another order manually:
+                </span>
+                <form
+                  onSubmit={handleHomeManualTrack}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    maxWidth: '600px',
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <Input
+                      placeholder="Reference or tracking code (e.g., BB-123456)"
+                      value={manualTrackQuery}
+                      onChange={(e) => setManualTrackQuery(e.target.value)}
+                      leftIcon={<Search size={14} color={t.subText} />}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isTrackingManual}
+                    style={{
+                      padding: '0.65rem 1.25rem',
+                      borderRadius: '10px',
+                      backgroundColor: isDark ? '#1E2330' : '#E2E8F0',
+                      color: t.heading,
+                      border: `1px solid ${t.cardBorder}`,
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      cursor: isTrackingManual ? 'wait' : 'pointer',
+                    }}
+                  >
+                    Find Order
+                  </button>
+                </form>
+
+                {manualTrackedOrder && (
+                  <div
+                    style={{
+                      backgroundColor: t.cardInnerBg,
+                      border: `1px solid ${t.cardInnerBorder}`,
+                      borderRadius: '12px',
+                      padding: '1rem',
+                      marginTop: '0.75rem',
+                      fontSize: '12px',
+                      maxWidth: '600px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                      <span style={{ color: t.subText }}>Order ID:</span>
+                      <strong style={{ color: t.heading, fontFamily: 'monospace' }}>{manualTrackedOrder.orderId}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                      <span style={{ color: t.subText }}>Package:</span>
+                      <strong style={{ color: t.heading }}>{manualTrackedOrder.product.name}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                      <span style={{ color: t.subText }}>Recipient:</span>
+                      <strong style={{ color: t.heading, fontFamily: 'monospace' }}>{manualTrackedOrder.recipientPhone}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: t.subText }}>Status:</span>
+                      <span style={{ color: '#10B981', fontWeight: 800 }}>● {manualTrackedOrder.statusLabel}</span>
+                    </div>
+                  </div>
+                )}
+
+                {manualTrackSearched && !isTrackingManual && !manualTrackedOrder && (
+                  <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '0.5rem' }}>
+                    No order found matching "{manualTrackQuery}". Please verify your reference ID.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Section 3: Choose Your Network (3 Cards) */}
+            <section>
+              <h2 style={{ fontSize: '18px', fontWeight: 900, color: t.heading, margin: '0 0 0.25rem 0' }}>
+                Choose Your Network
+              </h2>
+              <p style={{ fontSize: '12px', color: t.subText, margin: '0 0 1.25rem 0' }}>
+                Select a network provider to explore available data bundles
+              </p>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gap: '1rem',
+                }}
+              >
+                {/* MTN Ghana Card */}
+                <button
+                  type="button"
+                  aria-label="MTN"
                   onClick={() => {
-                    setActiveNetwork(id);
-                    scrollToSection('bundles', 'buy');
+                    setActiveNetworkFilter(NetworkProvider.MTN);
+                    handleNavClick('buy');
                   }}
                   style={{
-                    background: theme.cardBg,
-                    borderRadius: '18px',
-                    padding: 'var(--space-5)',
-                    color: theme.textColor,
+                    backgroundColor: '#EAB308',
+                    borderRadius: '16px',
+                    padding: '1.25rem',
+                    color: '#0F172A',
                     cursor: 'pointer',
-                    boxShadow: isSelected ? `0 0 20px ${theme.accentColor}55` : (isDark ? '0 8px 24px rgba(0, 0, 0, 0.3)' : '0 4px 14px rgba(0, 0, 0, 0.08)'),
+                    border: 'none',
+                    textAlign: 'left',
                     transition: 'transform 120ms ease, box-shadow 120ms ease',
-                    position: 'relative',
+                    boxShadow: '0 8px 24px rgba(234, 179, 8, 0.2)',
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-3px)')}
                   onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: 'var(--space-3)' }}>
-                    <div
-                      style={{
-                        width: '34px',
-                        height: '34px',
-                        borderRadius: '50%',
-                        backgroundColor: theme.badgeBg,
-                        color: theme.badgeColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 900,
-                        fontSize: '11px',
-                      }}
-                    >
-                      {theme.badgeText}
-                    </div>
-                    <div>
-                      <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 900, display: 'block', lineHeight: 1.1 }}>
-                        {theme.name}
-                      </strong>
-                      <span style={{ fontSize: '11px', color: theme.subColor, fontWeight: 600 }}>
-                        {count} bundles
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '11px', fontWeight: 800 }}>
-                    <span>View Bundles</span>
-                    <ChevronRight size={13} strokeWidth={3} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ================================================================== */}
-        {/* 7. POPULAR BUNDLES (Image 1) */}
-        {/* ================================================================== */}
-        <section style={{ marginBottom: 'var(--space-8)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading, margin: 0 }}>
-              Popular Bundles
-            </h2>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <button
-                type="button"
-                onClick={() => setShowNumberCheckModal(true)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: isDark ? '#38BDF8' : '#0284C7',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.3rem',
-                }}
-              >
-                <Search size={13} />
-                <span>Check a number</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => scrollToSection('bundles', 'buy')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: t.bodyText,
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.2rem',
-                }}
-              >
-                <span>See All</span>
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-              gap: 'var(--space-4)',
-            }}
-          >
-            {popularProducts.map((prod) => {
-              const theme = NETWORK_THEMES[prod.network] || NETWORK_THEMES[NetworkProvider.MTN];
-              const priceGhs = (prod.retailPricePesewas / 100).toFixed(2);
-
-              return (
-                <div
-                  key={prod.id}
-                  onClick={() => setSelectedProduct(prod)}
-                  style={{
-                    background: theme.cardBg,
-                    borderRadius: '18px',
-                    padding: 'var(--space-5)',
-                    color: theme.textColor,
-                    cursor: 'pointer',
-                    boxShadow: isDark ? '0 8px 24px rgba(0, 0, 0, 0.3)' : '0 4px 14px rgba(0, 0, 0, 0.08)',
-                    transition: 'transform 120ms ease',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    minHeight: '140px',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
-                >
-                  <div>
-                    <div
-                      style={{
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '50%',
-                        backgroundColor: theme.badgeBg,
-                        color: theme.badgeColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 900,
-                        fontSize: '9px',
-                        marginBottom: '0.4rem',
-                      }}
-                    >
-                      {theme.badgeText}
-                    </div>
-
-                    <div style={{ fontSize: '1.65rem', fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-                      {formatDataAmount(prod.dataAmountMb)}
-                    </div>
-                    <span style={{ fontSize: '11px', color: theme.subColor, fontWeight: 700 }}>
-                      {prod.network}
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: '1.25rem', fontWeight: 900, marginTop: 'var(--space-3)' }}>
-                    GH₵ {priceGhs}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ================================================================== */}
-        {/* 8. FULL BUNDLE CATALOG (Adtron Aesthetic Image 2) */}
-        {/* ================================================================== */}
-        <section id="bundles" style={{ marginBottom: 'var(--space-10)', scrollMarginTop: '80px' }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '1rem',
-              marginBottom: 'var(--space-5)',
-              flexWrap: 'wrap',
-            }}
-          >
-            {/* Carrier Filter Tabs */}
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {[
-                { id: NetworkProvider.MTN, label: 'MTN Ghana', color: '#FFCC00', count: mtnProducts.length },
-                { id: NetworkProvider.TELECEL, label: 'Telecel', color: '#E11D48', count: telecelProducts.length },
-                { id: NetworkProvider.AIRTELTIGO, label: 'AirtelTigo', color: '#7C3AED', count: airteltigoProducts.length },
-              ].map((net) => {
-                const isSelected = activeNetwork === net.id;
-                return (
-                  <button
-                    key={net.id}
-                    type="button"
-                    onClick={() => setActiveNetwork(net.id)}
-                    style={{
-                      padding: '0.55rem 1.1rem',
-                      borderRadius: '12px',
-                      border: isSelected ? `2px solid ${net.color}` : `1px solid ${t.cardBorder}`,
-                      backgroundColor: isSelected ? (isDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF') : t.cardBg,
-                      color: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : t.bodyText,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.45rem',
-                      fontSize: '12px',
-                      fontWeight: 800,
-                      boxShadow: isSelected ? `0 0 14px ${net.color}33` : t.cardShadow,
-                      transition: 'all 120ms ease',
-                    }}
-                  >
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: net.color }} />
-                    <span>{net.label}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <span
                       style={{
-                        fontSize: '10px',
-                        padding: '1px 6px',
-                        borderRadius: '6px',
-                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#F1F5F9',
-                        color: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : t.bodyText,
+                        backgroundColor: '#000000',
+                        color: '#FFCC00',
+                        fontSize: '11px',
+                        fontWeight: 900,
+                        padding: '3px 9px',
+                        borderRadius: '100px',
                       }}
                     >
-                      {net.count}
+                      MTN
                     </span>
+                    <span
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+                        color: '#FFFFFF',
+                        fontSize: '10px',
+                        fontWeight: 800,
+                        padding: '2px 8px',
+                        borderRadius: '100px',
+                      }}
+                    >
+                      {mtnProducts.length} available
+                    </span>
+                  </div>
+                  <strong style={{ fontSize: '18px', fontWeight: 900, display: 'block', marginBottom: '0.25rem' }}>
+                    MTN Ghana
+                  </strong>
+                  <p style={{ fontSize: '12px', color: '#334155', margin: '0 0 1rem 0' }}>
+                    High speed 4G LTE internet data bundles.
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px', fontWeight: 800 }}>
+                    <span>View Bundles</span>
+                    <ArrowRight size={13} strokeWidth={2.8} />
+                  </div>
+                </button>
+
+                {/* Telecel Ghana Card */}
+                <button
+                  type="button"
+                  aria-label="Telecel"
+                  onClick={() => {
+                    setActiveNetworkFilter(NetworkProvider.TELECEL);
+                    handleNavClick('buy');
+                  }}
+                  style={{
+                    backgroundColor: '#DC2626',
+                    borderRadius: '16px',
+                    padding: '1.25rem',
+                    color: '#FFFFFF',
+                    cursor: 'pointer',
+                    border: 'none',
+                    textAlign: 'left',
+                    transition: 'transform 120ms ease, box-shadow 120ms ease',
+                    boxShadow: '0 8px 24px rgba(220, 38, 38, 0.2)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-3px)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span
+                      style={{
+                        backgroundColor: '#FFFFFF',
+                        color: '#DC2626',
+                        fontSize: '11px',
+                        fontWeight: 900,
+                        padding: '3px 9px',
+                        borderRadius: '100px',
+                      }}
+                    >
+                      Telecel
+                    </span>
+                    <span
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+                        color: '#FFFFFF',
+                        fontSize: '10px',
+                        fontWeight: 800,
+                        padding: '2px 8px',
+                        borderRadius: '100px',
+                      }}
+                    >
+                      {telecelProducts.length} available
+                    </span>
+                  </div>
+                  <strong style={{ fontSize: '18px', fontWeight: 900, display: 'block', marginBottom: '0.25rem' }}>
+                    Telecel Ghana
+                  </strong>
+                  <p style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.85)', margin: '0 0 1rem 0' }}>
+                    Fast and reliable non expiring data packages.
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px', fontWeight: 800 }}>
+                    <span>View Bundles</span>
+                    <ArrowRight size={13} strokeWidth={2.8} />
+                  </div>
+                </button>
+
+                {/* AT Ghana Card */}
+                <button
+                  type="button"
+                  aria-label="AirtelTigo"
+                  onClick={() => {
+                    setActiveNetworkFilter(NetworkProvider.AIRTELTIGO);
+                    handleNavClick('buy');
+                  }}
+                  style={{
+                    backgroundColor: '#2563EB',
+                    borderRadius: '16px',
+                    padding: '1.25rem',
+                    color: '#FFFFFF',
+                    cursor: 'pointer',
+                    border: 'none',
+                    textAlign: 'left',
+                    transition: 'transform 120ms ease, box-shadow 120ms ease',
+                    boxShadow: '0 8px 24px rgba(37, 99, 235, 0.2)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-3px)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span
+                      style={{
+                        backgroundColor: '#FFFFFF',
+                        color: '#2563EB',
+                        fontSize: '11px',
+                        fontWeight: 900,
+                        padding: '3px 9px',
+                        borderRadius: '100px',
+                      }}
+                    >
+                      AirtelTigo
+                    </span>
+                    <span
+                      style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+                        color: '#FFFFFF',
+                        fontSize: '10px',
+                        fontWeight: 800,
+                        padding: '2px 8px',
+                        borderRadius: '100px',
+                      }}
+                    >
+                      {airteltigoProducts.length} available
+                    </span>
+                  </div>
+                  <strong style={{ fontSize: '18px', fontWeight: 900, display: 'block', marginBottom: '0.25rem' }}>
+                    AT Ghana
+                  </strong>
+                  <p style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.85)', margin: '0 0 1rem 0' }}>
+                    Affordable and instant data bundle delivery.
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px', fontWeight: 800 }}>
+                    <span>View Bundles</span>
+                    <ArrowRight size={13} strokeWidth={2.8} />
+                  </div>
+                </button>
+              </div>
+            </section>
+
+            {/* Section 4: Popular Data Bundles */}
+            <section>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: 900, color: t.heading, margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span>🔥</span>
+                    <span>Popular Data Bundles</span>
+                  </h2>
+                  <span style={{ fontSize: '12px', color: t.subText }}>
+                    Featured active bundles from MTN, Telecel, and AirtelTigo
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('buy')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#A3E635',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                  }}
+                >
+                  <span>View All Bundles</span>
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                  gap: '1rem',
+                }}
+              >
+                {popularProducts.map((prod) => {
+                  const theme = NETWORK_THEMES[prod.network] || NETWORK_THEMES[NetworkProvider.TELECEL];
+                  const priceGhs = (prod.retailPricePesewas / 100).toFixed(2);
+                  const isMtn = prod.network === NetworkProvider.MTN;
+
+                  return (
+                    <div
+                      key={prod.id}
+                      style={{
+                        backgroundColor: theme.cardBg,
+                        borderRadius: '18px',
+                        padding: '1.5rem',
+                        color: theme.textColor,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        minHeight: '170px',
+                        boxShadow: `0 8px 24px ${theme.accentColor}33`,
+                        transition: 'transform 120ms ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                          <span
+                            style={{
+                              backgroundColor: theme.pillBg,
+                              color: theme.pillColor,
+                              fontSize: '11px',
+                              fontWeight: 900,
+                              padding: '3px 10px',
+                              borderRadius: '100px',
+                            }}
+                          >
+                            {theme.pillText}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                color: isMtn ? '#0F172A' : '#FFFFFF',
+                              }}
+                            >
+                              Popular Choice
+                            </span>
+                            <span style={{ fontSize: '10px', opacity: 0.85 }}>
+                              {prod.validityDesc || 'Non-Expiry'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: 'clamp(2rem, 3.5vw, 2.5rem)',
+                            fontWeight: 900,
+                            letterSpacing: '-0.02em',
+                            lineHeight: 1.1,
+                            margin: '0.65rem 0',
+                          }}
+                        >
+                          {formatDataAmountWithSpace(prod.dataAmountMb)}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '0.75rem' }}>
+                        <div>
+                          <span style={{ fontSize: '11px', display: 'block', color: theme.subColor }}>
+                            Retail Price
+                          </span>
+                          <strong style={{ fontSize: '18px', fontWeight: 900, color: theme.priceColor }}>
+                            GH₵ {priceGhs}
+                          </strong>
+                        </div>
+
+                        <button
+                          type="button"
+                          aria-label="Buy Now"
+                          onClick={() => setSelectedProduct(prod)}
+                          style={{
+                            backgroundColor: theme.btnBg,
+                            color: theme.btnColor,
+                            border: 'none',
+                            borderRadius: '100px',
+                            padding: '0.5rem 1.1rem',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                          }}
+                        >
+                          <span>Buy Now</span>
+                          <ArrowRight size={13} strokeWidth={2.8} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Section 5: Trust Badges Row */}
+            <section
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: '1rem',
+              }}
+            >
+              <div
+                style={{
+                  backgroundColor: t.cardBg,
+                  border: `1px solid ${t.cardBorder}`,
+                  borderRadius: '16px',
+                  padding: '1.25rem',
+                }}
+              >
+                <Zap size={20} color="#A3E635" style={{ marginBottom: '0.5rem' }} />
+                <strong style={{ fontSize: '13px', fontWeight: 900, color: t.heading, display: 'block', marginBottom: '0.2rem' }}>
+                  Instant Fulfillment
+                </strong>
+                <p style={{ fontSize: '11px', color: t.subText, margin: 0, lineHeight: 1.4 }}>
+                  Data bundles are dispatched automatically to your recipient number.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  backgroundColor: t.cardBg,
+                  border: `1px solid ${t.cardBorder}`,
+                  borderRadius: '16px',
+                  padding: '1.25rem',
+                }}
+              >
+                <ShieldCheck size={20} color="#10B981" style={{ marginBottom: '0.5rem' }} />
+                <strong style={{ fontSize: '13px', fontWeight: 900, color: t.heading, display: 'block', marginBottom: '0.2rem' }}>
+                  Secure Checkout
+                </strong>
+                <p style={{ fontSize: '11px', color: t.subText, margin: 0, lineHeight: 1.4 }}>
+                  Transactions are encrypted and processed securely via Paystack.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  backgroundColor: t.cardBg,
+                  border: `1px solid ${t.cardBorder}`,
+                  borderRadius: '16px',
+                  padding: '1.25rem',
+                }}
+              >
+                <PhoneCall size={20} color="#38BDF8" style={{ marginBottom: '0.5rem' }} />
+                <strong style={{ fontSize: '13px', fontWeight: 900, color: t.heading, display: 'block', marginBottom: '0.2rem' }}>
+                  Support Availability
+                </strong>
+                <p style={{ fontSize: '11px', color: t.subText, margin: 0, lineHeight: 1.4 }}>
+                  Need help? Contact our store administrator directly for assistance.
+                </p>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* VIEW 2: BUY DATA PAGE (Matches media_1789552950051.png) */}
+        {activeNav === 'buy' && (
+          <div>
+            {/* Top Network Filter Tabs */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: '0.5rem',
+                marginBottom: '2.5rem',
+                flexWrap: 'wrap',
+              }}
+            >
+              {[
+                { id: 'ALL', label: 'ALL NETWORKS' },
+                { id: NetworkProvider.MTN, label: 'MTN' },
+                { id: NetworkProvider.TELECEL, label: 'TELECEL' },
+                { id: NetworkProvider.AIRTELTIGO, label: 'AIRTELTIGO' },
+              ].map((tab) => {
+                const isActive = activeNetworkFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    aria-label={tab.label}
+                    onClick={() => setActiveNetworkFilter(tab.id as any)}
+                    style={{
+                      padding: '0.45rem 1.25rem',
+                      borderRadius: '100px',
+                      border: isActive ? 'none' : `1px solid ${t.cardBorder}`,
+                      backgroundColor: isActive ? '#A3E635' : (isDark ? '#1C212D' : '#F1F5F9'),
+                      color: isActive ? '#000000' : t.bodyText,
+                      fontSize: '11px',
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      transition: 'all 120ms ease',
+                      boxShadow: isActive ? '0 4px 14px rgba(163, 230, 53, 0.3)' : 'none',
+                    }}
+                  >
+                    {tab.label}
                   </button>
                 );
               })}
             </div>
 
-            {/* Bundle Search Input */}
-            <div style={{ width: '220px' }}>
-              <Input
-                placeholder="Search volume (e.g. 5GB)"
-                value={bundleSearch}
-                onChange={(e) => setBundleSearch(e.target.value)}
-                leftIcon={<Search size={14} color={t.bodyText} />}
-              />
-            </div>
-          </div>
+            {/* Product Cards Catalog Grid */}
+            {displayProducts.length === 0 ? (
+              <div
+                style={{
+                  padding: '3rem',
+                  textAlign: 'center',
+                  backgroundColor: t.cardBg,
+                  borderRadius: '20px',
+                  border: `1px dashed ${t.cardBorder}`,
+                }}
+              >
+                <Smartphone size={36} color={t.subText} style={{ margin: '0 auto 0.75rem auto' }} />
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: t.heading, margin: 0 }}>
+                  No Bundles Available
+                </h3>
+                <p style={{ fontSize: '12px', color: t.subText, marginTop: '0.25rem' }}>
+                  There are currently no active data bundles listed under this selection.
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                  gap: '1.25rem',
+                }}
+              >
+                {displayProducts.map((prod) => {
+                  const theme = NETWORK_THEMES[prod.network] || NETWORK_THEMES[NetworkProvider.TELECEL];
+                  const priceGhs = (prod.retailPricePesewas / 100).toFixed(2);
+                  const isMtn = prod.network === NetworkProvider.MTN;
 
-          {/* Bundles Grid */}
-          {filteredProducts.length === 0 ? (
-            <div
-              style={{
-                padding: 'var(--space-10)',
-                textAlign: 'center',
-                backgroundColor: t.cardBg,
-                borderRadius: '20px',
-                border: `1px dashed ${t.cardBorder}`,
-              }}
-            >
-              <Smartphone size={32} color={t.bodyText} style={{ margin: '0 auto var(--space-3) auto' }} />
-              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: t.heading, margin: 0 }}>
-                No bundles available for {activeNetwork}
-              </h3>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, marginTop: '0.25rem' }}>
-                {bundleSearch ? `No bundles matching "${bundleSearch}".` : 'No active packages currently listed for this carrier.'}
-              </p>
-            </div>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
-                gap: 'var(--space-4)',
-              }}
-            >
-              {filteredProducts.map((prod) => {
-                const dataLabel = formatDataAmount(prod.dataAmountMb);
-                const priceGhs = (prod.retailPricePesewas / 100).toFixed(2);
-                const theme = NETWORK_THEMES[prod.network] || NETWORK_THEMES[NetworkProvider.MTN];
+                  return (
+                    <div
+                      key={prod.id}
+                      style={{
+                        backgroundColor: theme.cardBg,
+                        borderRadius: '18px',
+                        padding: '1.5rem',
+                        color: theme.textColor,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        minHeight: '170px',
+                        boxShadow: `0 8px 24px ${theme.accentColor}33`,
+                        transition: 'transform 120ms ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                          <span
+                            style={{
+                              backgroundColor: theme.pillBg,
+                              color: theme.pillColor,
+                              fontSize: '11px',
+                              fontWeight: 900,
+                              padding: '3px 10px',
+                              borderRadius: '100px',
+                            }}
+                          >
+                            {theme.pillText}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                color: isMtn ? '#0F172A' : '#FFFFFF',
+                              }}
+                            >
+                              Instant Delivery
+                            </span>
+                            <span style={{ fontSize: '10px', opacity: 0.85 }}>
+                              {prod.validityDesc || 'Non-Expiry'}
+                            </span>
+                          </div>
+                        </div>
 
-                return (
-                  <div
-                    key={prod.id}
-                    style={{
-                      borderRadius: '18px',
-                      backgroundColor: t.cardBg,
-                      border: `1px solid ${t.cardBorder}`,
-                      padding: 'var(--space-5)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: 'var(--space-4)',
-                      boxShadow: t.cardShadow,
-                      transition: 'transform 120ms ease, border-color 120ms ease, background-color 200ms ease',
-                      position: 'relative',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = theme.accentColor;
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = t.cardBorder;
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-                        <span
+                        <div
                           style={{
-                            fontSize: '10px',
+                            fontSize: 'clamp(2rem, 3.5vw, 2.5rem)',
                             fontWeight: 900,
-                            padding: '2px 7px',
-                            borderRadius: '5px',
-                            backgroundColor: theme.accentColor,
-                            color: prod.network === NetworkProvider.MTN ? '#0F172A' : '#FFFFFF',
+                            letterSpacing: '-0.02em',
+                            lineHeight: 1.1,
+                            margin: '0.65rem 0',
                           }}
                         >
-                          {prod.network}
-                        </span>
-                        <span style={{ fontSize: '11px', color: t.bodyText, fontWeight: 600 }}>
-                          {prod.validityDesc || 'Non-Expiry'}
-                        </span>
+                          {formatDataAmountWithSpace(prod.dataAmountMb)}
+                        </div>
                       </div>
 
-                      <div style={{ fontSize: '1.9rem', fontWeight: 900, color: t.heading, letterSpacing: '-0.02em', margin: '0.25rem 0' }}>
-                        {dataLabel}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '0.75rem' }}>
+                        <div>
+                          <span style={{ fontSize: '11px', display: 'block', color: theme.subColor }}>
+                            Retail Price
+                          </span>
+                          <strong style={{ fontSize: '18px', fontWeight: 900, color: theme.priceColor }}>
+                            GH₵ {priceGhs}
+                          </strong>
+                        </div>
+
+                        <button
+                          type="button"
+                          aria-label="Buy Now"
+                          onClick={() => setSelectedProduct(prod)}
+                          style={{
+                            backgroundColor: theme.btnBg,
+                            color: theme.btnColor,
+                            border: 'none',
+                            borderRadius: '100px',
+                            padding: '0.5rem 1.1rem',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                          }}
+                        >
+                          <span>Buy Now</span>
+                          <ArrowRight size={13} strokeWidth={2.8} />
+                        </button>
                       </div>
-                      <span style={{ fontSize: '11px', color: t.bodyText }}>Direct High-Speed 4G/5G Turbo</span>
                     </div>
-
-                    <div>
-                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#10B981', marginBottom: '0.65rem' }}>
-                        GH₵ {priceGhs}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setSelectedProduct(prod)}
-                        disabled={isMaintenanceMode}
-                        style={{
-                          width: '100%',
-                          padding: '0.6rem',
-                          borderRadius: '12px',
-                          backgroundColor: isMaintenanceMode ? '#334155' : '#EAB308',
-                          color: isMaintenanceMode ? '#94A3B8' : '#0F172A',
-                          border: 'none',
-                          fontSize: 'var(--font-size-xs)',
-                          fontWeight: 900,
-                          cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '0.4rem',
-                          boxShadow: !isMaintenanceMode ? '0 4px 14px rgba(234, 179, 8, 0.25)' : 'none',
-                        }}
-                      >
-                        <span>{isMaintenanceMode ? 'Maintenance' : 'Buy Now'}</span>
-                        <ArrowRight size={14} strokeWidth={2.5} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* ================================================================== */}
-        {/* 9. WHY BUY FROM US? (Image 1) */}
-        {/* ================================================================== */}
-        <section
-          id="about"
-          style={{
-            backgroundColor: t.cardBg,
-            border: `1px solid ${t.cardBorder}`,
-            borderRadius: '24px',
-            padding: 'var(--space-8)',
-            marginBottom: 'var(--space-8)',
-            scrollMarginTop: '80px',
-            boxShadow: t.cardShadow,
-            transition: 'background-color 200ms ease, border-color 200ms ease',
-          }}
-        >
-          <h2
-            style={{
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 900,
-              color: t.heading,
-              textAlign: 'center',
-              margin: '0 0 var(--space-8) 0',
-            }}
-          >
-            Why Buy From Us?
-          </h2>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-              gap: 'var(--space-6)',
-              textAlign: 'center',
-            }}
-          >
-            {/* Pillar 1: Guaranteed Delivery */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
-                  backgroundColor: 'rgba(34, 197, 94, 0.12)',
-                  color: '#22C55E',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 'var(--space-3)',
-                }}
-              >
-                <CheckCircle2 size={24} />
+                  );
+                })}
               </div>
-              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: t.heading, marginBottom: '0.35rem' }}>
-                Guaranteed Delivery
-              </strong>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, lineHeight: 1.5, margin: 0 }}>
-                Your data is always delivered. If there's any issue, we'll fix it or refund you.
-              </p>
-            </div>
-
-            {/* Pillar 2: Super Fast */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
-                  backgroundColor: 'rgba(234, 179, 8, 0.12)',
-                  color: '#EAB308',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 'var(--space-3)',
-                }}
-              >
-                <Zap size={24} />
-              </div>
-              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: t.heading, marginBottom: '0.35rem' }}>
-                Super Fast
-              </strong>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, lineHeight: 1.5, margin: 0 }}>
-                Most orders are delivered within 10-30 minutes. No long waits.
-              </p>
-            </div>
-
-            {/* Pillar 3: Safe & Secure */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
-                  backgroundColor: 'rgba(56, 189, 248, 0.12)',
-                  color: '#38BDF8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 'var(--space-3)',
-                }}
-              >
-                <ShieldCheck size={24} />
-              </div>
-              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: t.heading, marginBottom: '0.35rem' }}>
-                Safe & Secure
-              </strong>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, lineHeight: 1.5, margin: 0 }}>
-                Secure payment processing. Your data and money are always protected.
-              </p>
-            </div>
+            )}
           </div>
-        </section>
+        )}
 
-        {/* ================================================================== */}
-        {/* 10. READY TO GET STARTED? (Image 1) */}
-        {/* ================================================================== */}
-        <section
-          style={{
-            backgroundColor: t.cardBg,
-            borderRadius: '24px',
-            border: `1px solid ${t.cardBorder}`,
-            padding: 'var(--space-8)',
-            textAlign: 'center',
-            marginBottom: 'var(--space-8)',
-            boxShadow: t.cardShadow,
-            transition: 'background-color 200ms ease, border-color 200ms ease',
-          }}
-        >
-          <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: t.heading, margin: '0 0 0.35rem 0' }}>
-            Ready to Get Started?
-          </h2>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, margin: '0 0 var(--space-5) 0' }}>
-            Choose your network and buy data in seconds.
-          </p>
-
-          <button
-            type="button"
-            onClick={() => scrollToSection('bundles', 'buy')}
-            style={{
-              backgroundColor: '#EAB308',
-              color: '#0F172A',
-              border: 'none',
-              padding: '0.7rem 1.6rem',
-              borderRadius: '12px',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 900,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              boxShadow: '0 4px 14px rgba(234, 179, 8, 0.35)',
-            }}
-          >
-            <span>Buy Data Now</span>
-            <ArrowRight size={15} strokeWidth={2.4} />
-          </button>
-        </section>
-
-        {/* ================================================================== */}
-        {/* 11. EMBEDDED LIVE ORDER TRACKING (anchor #track) */}
-        {/* ================================================================== */}
-        <section
-          id="track"
-          style={{
-            backgroundColor: t.cardBg,
-            borderRadius: '24px',
-            border: `1px solid ${t.cardBorder}`,
-            padding: 'var(--space-8)',
-            marginBottom: 'var(--space-8)',
-            scrollMarginTop: '80px',
-            boxShadow: t.cardShadow,
-            transition: 'background-color 200ms ease, border-color 200ms ease',
-          }}
-        >
-          <div style={{ maxWidth: '580px', margin: '0 auto', textAlign: 'center' }}>
-            <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: t.heading, margin: '0 0 0.35rem 0' }}>
-              Track Your Order Status
-            </h3>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, margin: '0 0 var(--space-5) 0' }}>
-              Enter your Order Reference or 10-digit Ghanaian Phone Number to view live carrier delivery progress.
-            </p>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handlePerformTrack();
+        {/* VIEW 3: TRACK ORDER PAGE (Matches media_1789553086389.png) */}
+        {activeNav === 'track' && !showTrackModal && (
+          <div style={{ maxWidth: '620px', margin: '2rem auto' }}>
+            <div
+              style={{
+                backgroundColor: t.cardBg,
+                border: `1px solid ${t.cardBorder}`,
+                borderRadius: '20px',
+                padding: '2.5rem 2rem',
+                boxShadow: t.cardShadow,
               }}
-              style={{ display: 'flex', gap: '0.5rem', marginBottom: 'var(--space-4)' }}
             >
-              <div style={{ flex: 1 }}>
-                <Input
-                  placeholder="Order ID (e.g. ord_sf_...) or phone"
-                  value={trackQuery}
-                  onChange={(e) => setTrackQuery(e.target.value)}
-                  leftIcon={<Search size={14} color={t.bodyText} />}
-                />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                <FileText size={22} color="#A3E635" />
+                <h2 style={{ fontSize: '20px', fontWeight: 900, color: t.heading, margin: 0 }}>
+                  Track Order Status
+                </h2>
               </div>
-              <Button variant="primary" size="md" type="submit" isLoading={isTracking}>
-                Track
-              </Button>
-            </form>
+              <p style={{ fontSize: '12px', color: t.subText, margin: '0 0 1.5rem 0' }}>
+                Enter your Order ID, reference, or recipient phone number to check live status.
+              </p>
 
-            {trackedOrder && (
-              <div
-                style={{
-                  backgroundColor: t.modalBoxBg,
-                  border: `1px solid ${t.modalBoxBorder}`,
-                  borderRadius: '16px',
-                  padding: 'var(--space-5)',
-                  textAlign: 'left',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.45rem',
-                  marginTop: 'var(--space-4)',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <span style={{ color: t.bodyText }}>Order ID:</span>
-                  <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{trackedOrder.orderId}</strong>
+              <form onSubmit={handleTrackPageSearch}>
+                <label
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: t.heading,
+                    display: 'block',
+                    marginBottom: '0.5rem',
+                  }}
+                >
+                  Order Reference ID *
+                </label>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    backgroundColor: t.inputBg,
+                    border: `1px solid ${t.inputBorder}`,
+                    borderRadius: '12px',
+                    padding: '4px',
+                  }}
+                >
+                  <input
+                    type="text"
+                    placeholder="Enter Order ID or Reference (e.g. BB-123456)"
+                    value={trackPageQuery}
+                    onChange={(e) => setTrackPageQuery(e.target.value)}
+                    style={{
+                      flex: 1,
+                      background: 'transparent',
+                      border: 'none',
+                      color: t.heading,
+                      fontSize: '13px',
+                      padding: '0.65rem 0.75rem',
+                      outline: 'none',
+                    }}
+                    required
+                  />
+                  <button
+                    type="submit"
+                    aria-label="Search - Track Order"
+                    disabled={isTrackPageSearching}
+                    style={{
+                      backgroundColor: '#A3E635',
+                      color: '#000000',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '0.65rem 1.25rem',
+                      fontSize: '12px',
+                      fontWeight: 900,
+                      cursor: isTrackPageSearching ? 'wait' : 'pointer',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Track Order
+                  </button>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <span style={{ color: t.bodyText }}>Package:</span>
-                  <strong style={{ color: t.heading }}>{trackedOrder.product.name}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <span style={{ color: t.bodyText }}>Recipient:</span>
-                  <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{trackedOrder.recipientPhone}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <span style={{ color: t.bodyText }}>Status:</span>
-                  <span style={{ color: '#10B981', fontWeight: 800 }}>● {trackedOrder.statusLabel}</span>
-                </div>
-              </div>
-            )}
+              </form>
 
-            {trackSearched && !isTracking && !trackedOrder && (
-              <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: '#EF4444', fontSize: '12px' }}>
-                No order found matching "{trackQuery}". Please verify your order number or phone.
-              </div>
-            )}
+              {/* Live Tracking Result Card */}
+              {trackPageOrder && (
+                <div
+                  style={{
+                    backgroundColor: t.cardInnerBg,
+                    border: `1px solid ${t.cardInnerBorder}`,
+                    borderRadius: '14px',
+                    padding: '1.25rem',
+                    marginTop: '1.5rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.6rem',
+                    fontSize: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: t.subText }}>Order ID:</span>
+                    <strong style={{ color: '#A3E635', fontFamily: 'monospace' }}>
+                      {trackPageOrder.orderId}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: t.subText }}>Package:</span>
+                    <strong style={{ color: t.heading }}>{trackPageOrder.product.name}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: t.subText }}>Recipient:</span>
+                    <strong style={{ color: t.heading, fontFamily: 'monospace' }}>
+                      {trackPageOrder.recipientPhone}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: t.subText }}>Amount:</span>
+                    <strong style={{ color: '#10B981' }}>{trackPageOrder.amountDisplay}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: t.subText }}>Delivery Status:</span>
+                    <span style={{ color: '#10B981', fontWeight: 800 }}>
+                      ● {trackPageOrder.statusLabel || trackPageOrder.status}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {trackPageSearched && !isTrackPageSearching && !trackPageOrder && (
+                <div
+                  style={{
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    color: '#EF4444',
+                    borderRadius: '10px',
+                    padding: '0.85rem',
+                    marginTop: '1.25rem',
+                    fontSize: '12px',
+                    textAlign: 'center',
+                  }}
+                >
+                  No active or past order was found matching "{trackPageQuery}". Please check your order reference.
+                </div>
+              )}
+            </div>
           </div>
-        </section>
+        )}
+
+        {/* VIEW 4: INFO PAGE (Matches media_1789553086414.png) */}
+        {activeNav === 'info' && (
+          <div style={{ maxWidth: '680px', margin: '2rem auto' }}>
+            <div
+              style={{
+                backgroundColor: t.cardBg,
+                border: `1px solid ${t.cardBorder}`,
+                borderRadius: '20px',
+                padding: '2.5rem 2rem',
+                boxShadow: t.cardShadow,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                <Info size={22} color="#A3E635" />
+                <h2 style={{ fontSize: '20px', fontWeight: 900, color: t.heading, margin: 0 }}>
+                  Store Information
+                </h2>
+              </div>
+              <p style={{ fontSize: '12px', color: t.subText, margin: '0 0 1.5rem 0' }}>
+                Public store identity and customer service contact details.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {/* 1. STORE NAME */}
+                <div
+                  style={{
+                    backgroundColor: t.cardInnerBg,
+                    border: `1px solid ${t.cardInnerBorder}`,
+                    borderRadius: '12px',
+                    padding: '1rem 1.25rem',
+                  }}
+                >
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: t.subText, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
+                    STORE NAME
+                  </span>
+                  <strong style={{ fontSize: '14px', fontWeight: 800, color: t.heading, display: 'block', marginTop: '0.25rem' }}>
+                    {storeName}
+                  </strong>
+                </div>
+
+                {/* 2. ABOUT STORE OWNER */}
+                <div
+                  style={{
+                    backgroundColor: t.cardInnerBg,
+                    border: `1px solid ${t.cardInnerBorder}`,
+                    borderRadius: '12px',
+                    padding: '1rem 1.25rem',
+                  }}
+                >
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: t.subText, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
+                    ABOUT STORE OWNER
+                  </span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: t.heading, display: 'block', marginTop: '0.25rem' }}>
+                    {store.description || store.tagline || 'Official Development Agent Store'}
+                  </span>
+                </div>
+
+                {/* 3. SERVICE OVERVIEW */}
+                <div
+                  style={{
+                    backgroundColor: t.cardInnerBg,
+                    border: `1px solid ${t.cardInnerBorder}`,
+                    borderRadius: '12px',
+                    padding: '1rem 1.25rem',
+                  }}
+                >
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: t.subText, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
+                    SERVICE OVERVIEW
+                  </span>
+                  <p style={{ fontSize: '12px', color: t.bodyText, margin: '0.25rem 0 0 0', lineHeight: 1.5 }}>
+                    MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
+                  </p>
+                </div>
+
+                {/* 4. CUSTOMER SUPPORT PHONE */}
+                <div
+                  style={{
+                    backgroundColor: t.cardInnerBg,
+                    border: `1px solid ${t.cardInnerBorder}`,
+                    borderRadius: '12px',
+                    padding: '1rem 1.25rem',
+                  }}
+                >
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: t.subText, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
+                    CUSTOMER SUPPORT PHONE
+                  </span>
+                  <a
+                    href={`tel:${contactPhone}`}
+                    style={{
+                      fontSize: '15px',
+                      fontWeight: 900,
+                      color: '#A3E635',
+                      textDecoration: 'none',
+                      display: 'inline-block',
+                      marginTop: '0.25rem',
+                    }}
+                  >
+                    {contactPhone}
+                  </a>
+                </div>
+
+                {/* 5. FULFILLMENT GUARANTEE */}
+                <div
+                  style={{
+                    backgroundColor: t.cardInnerBg,
+                    border: `1px solid ${t.cardInnerBorder}`,
+                    borderRadius: '12px',
+                    padding: '1rem 1.25rem',
+                  }}
+                >
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: t.subText, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
+                    FULFILLMENT GUARANTEE
+                  </span>
+                  <p style={{ fontSize: '12px', color: t.bodyText, margin: '0.25rem 0 0 0', lineHeight: 1.5 }}>
+                    All data bundles are fulfilled automatically 24/7. In the event of a network error, transactions are automatically queued for retry or refunded.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* ==================================================================== */}
-      {/* 12. STOREFRONT FOOTER (Image 1 - Zero ByteBeacon Branding) */}
+      {/* 3. UNIVERSAL FOOTER (Matches images) */}
       {/* ==================================================================== */}
       <footer
         style={{
           borderTop: `1px solid ${t.footerBorder}`,
           backgroundColor: t.footerBg,
-          padding: 'var(--space-8) var(--space-6)',
+          padding: '2rem 1.25rem',
           fontSize: '12px',
           color: t.footerText,
-          transition: 'background-color 200ms ease, border-color 200ms ease',
         }}
       >
         <div
           style={{
-            maxWidth: '1050px',
+            maxWidth: '1100px',
             margin: '0 auto',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: 'var(--space-6)',
-            marginBottom: 'var(--space-6)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1.5rem',
           }}
         >
-          {/* Col 1: Merchant Identity */}
+          {/* Left: Brand Identity & Copyright */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-              <div
+            <strong style={{ fontSize: '14px', color: t.heading, display: 'block', marginBottom: '0.25rem' }}>
+              {storeName} Direct Storefront
+            </strong>
+            <p style={{ fontSize: '11px', color: t.footerText, margin: '0 0 0.5rem 0', maxWidth: '420px', lineHeight: 1.4 }}>
+              MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
+            </p>
+            <div style={{ fontSize: '11px', color: t.footerText }}>
+              © 2026 {storeName} Platform. All rights reserved.
+              <a
+                href={STOREFRONT_CONFIG.getMainPlatformUrl('/login')}
+                style={{ marginLeft: '0.5rem', color: t.footerText, textDecoration: 'none' }}
+              >
+                Merchant Portal
+              </a>
+            </div>
+          </div>
+
+          {/* Right: WhatsApp Us button, Track Order, Store Info */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            {whatsappNumber && (
+              <a
+                href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
+                target="_blank"
+                rel="noreferrer"
                 style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '8px',
-                  backgroundColor: t.avatarBg,
-                  color: t.avatarColor,
-                  display: 'flex',
+                  backgroundColor: '#10B981',
+                  color: '#000000',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
+                  gap: '0.45rem',
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: '100px',
                   fontWeight: 900,
-                  fontSize: '13px',
+                  fontSize: '12px',
+                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)',
                 }}
               >
-                {storeInitial}
-              </div>
-              <strong style={{ fontSize: 'var(--font-size-sm)', color: t.heading }}>{storeName}</strong>
-            </div>
-            <p style={{ fontSize: '11px', color: t.footerSubText, margin: 0, lineHeight: 1.4 }}>
-              Data bundles by {storeName}. Instant high-speed delivery to all networks across Ghana.
-            </p>
-          </div>
+                <MessageSquare size={14} color="#000000" />
+                <span>WhatsApp Us</span>
+              </a>
+            )}
 
-          {/* Col 2: Quick Links */}
-          <div>
-            <strong style={{ fontSize: '12px', fontWeight: 800, color: t.heading, display: 'block', marginBottom: '0.5rem' }}>
-              Quick Links
-            </strong>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-              <li>
-                <button
-                  type="button"
-                  onClick={() => scrollToSection('hero', 'home')}
-                  style={{ background: 'none', border: 'none', color: t.footerText, padding: 0, fontSize: '12px', cursor: 'pointer' }}
-                >
-                  Home
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={() => scrollToSection('bundles', 'buy')}
-                  style={{ background: 'none', border: 'none', color: t.footerText, padding: 0, fontSize: '12px', cursor: 'pointer' }}
-                >
-                  Buy Data
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={() => setShowTrackModal(true)}
-                  style={{ background: 'none', border: 'none', color: t.footerText, padding: 0, fontSize: '12px', cursor: 'pointer' }}
-                >
-                  Track Order
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={() => scrollToSection('about', 'about')}
-                  style={{ background: 'none', border: 'none', color: t.footerText, padding: 0, fontSize: '12px', cursor: 'pointer' }}
-                >
-                  About
-                </button>
-              </li>
-            </ul>
-          </div>
+            <a
+              href="#track"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNavClick('track');
+              }}
+              style={{
+                color: t.heading,
+                textDecoration: 'none',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Track Order
+            </a>
 
-          {/* Col 3: Contact Us */}
-          <div>
-            <strong style={{ fontSize: '12px', fontWeight: 800, color: t.heading, display: 'block', marginBottom: '0.5rem' }}>
-              Contact Us
-            </strong>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '12px' }}>
-              {contactPhone && (
-                <a href={`tel:${contactPhone}`} style={{ color: t.phoneLink, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <PhoneCall size={13} color={t.footerText} />
-                  <span>{contactPhone}</span>
-                </a>
-              )}
-              {whatsappNumber && (
-                <a
-                  href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ color: '#22C55E', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600 }}
-                >
-                  <MessageSquare size={13} color="#22C55E" />
-                  <span>WhatsApp Us</span>
-                </a>
-              )}
-            </div>
+            <a
+              href="#info"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNavClick('info');
+              }}
+              style={{
+                color: t.heading,
+                textDecoration: 'none',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Store Info
+            </a>
           </div>
-        </div>
-
-        {/* Bottom Bar */}
-        <div
-          style={{
-            maxWidth: '1050px',
-            margin: '0 auto',
-            borderTop: `1px solid ${t.footerSubBorder}`,
-            paddingTop: 'var(--space-4)',
-            textAlign: 'center',
-            fontSize: '11px',
-            color: t.footerSubText,
-          }}
-        >
-          © {new Date().getFullYear()} {storeName}. All rights reserved.
         </div>
       </footer>
 
       {/* ==================================================================== */}
-      {/* 13. FLOATING WHATSAPP CHAT WIDGET (Bottom Right) */}
-      {/* ==================================================================== */}
-      {whatsappNumber && (
-        <a
-          href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Chat on WhatsApp"
-          style={{
-            position: 'fixed',
-            bottom: '24px',
-            right: '24px',
-            zIndex: 90,
-            width: '52px',
-            height: '52px',
-            borderRadius: '50%',
-            backgroundColor: '#22C55E',
-            color: '#FFFFFF',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 8px 24px rgba(34, 197, 94, 0.45)',
-            transition: 'transform 120ms ease, box-shadow 120ms ease',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.08)')}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1.0)')}
-        >
-          <MessageSquare size={26} />
-        </a>
-      )}
-
-      {/* ==================================================================== */}
-      {/* 14. EXPRESS CHECKOUT MODAL */}
+      {/* 4. EXPRESS CHECKOUT MODAL */}
       {/* ==================================================================== */}
       {selectedProduct && !confirmedOrder && (
         <div
@@ -1998,7 +2383,7 @@ export const PublicStorefrontPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: 'var(--space-4)',
+            padding: '1rem',
           }}
         >
           <div
@@ -2013,56 +2398,57 @@ export const PublicStorefrontPage: React.FC = () => {
               width: '100%',
               backgroundColor: t.modalBg,
               border: `1px solid ${t.modalBorder}`,
-              borderRadius: '24px',
-              padding: 'var(--space-6)',
-              boxShadow: t.cardShadowLg,
+              borderRadius: '20px',
+              padding: '1.75rem',
+              boxShadow: t.cardShadow,
               zIndex: 110,
-              transition: 'background-color 200ms ease, border-color 200ms ease',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div>
-                <span style={{ fontSize: '10px', color: '#EAB308', fontWeight: 800, textTransform: 'uppercase' }}>
-                  Customer Checkout
+                <span style={{ fontSize: '10px', color: '#A3E635', fontWeight: 900, textTransform: 'uppercase' }}>
+                  Secure Customer Checkout
                 </span>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading }}>
-                  Purchase {formatDataAmount(selectedProduct.dataAmountMb)} {selectedProduct.network}
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900, color: t.heading }}>
+                  Purchase {formatDataAmountWithSpace(selectedProduct.dataAmountMb)} {selectedProduct.network}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedProduct(null)}
-                style={{ background: 'none', border: 'none', color: t.bodyText, fontSize: '18px', cursor: 'pointer' }}
+                style={{ background: 'none', border: 'none', color: t.subText, cursor: 'pointer' }}
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
-            {/* Price pill */}
+            {/* Price Pill */}
             <div
               style={{
-                padding: 'var(--space-3) var(--space-4)',
+                padding: '0.75rem 1rem',
                 borderRadius: '12px',
                 backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5',
                 border: isDark ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid #A7F3D0',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: 'var(--space-4)',
+                marginBottom: '1rem',
               }}
             >
               <div>
-                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: t.heading, display: 'block' }}>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: t.heading, display: 'block' }}>
                   {selectedProduct.network} · {formatDataAmount(selectedProduct.dataAmountMb)} Data
                 </span>
-                <span style={{ fontSize: '10px', color: t.bodyText }}>{selectedProduct.validityDesc || 'Non-Expiry'}</span>
+                <span style={{ fontSize: '10px', color: t.subText }}>
+                  {selectedProduct.validityDesc || 'Non-Expiry'}
+                </span>
               </div>
-              <strong style={{ fontSize: '1.3rem', color: '#10B981' }}>
+              <strong style={{ fontSize: '1.25rem', color: '#10B981' }}>
                 GH₵ {(selectedProduct.retailPricePesewas / 100).toFixed(2)}
               </strong>
             </div>
 
-            <form onSubmit={handleProcessCheckout} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <form onSubmit={handleProcessCheckout} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {isMaintenanceMode && (
                 <div
                   role="alert"
@@ -2099,9 +2485,8 @@ export const PublicStorefrontPage: React.FC = () => {
                 onChange={(e) => setCustomerEmail(e.target.value)}
               />
 
-              {/* Payment Channel */}
               <div>
-                <label style={{ fontSize: '11px', fontWeight: 800, color: t.bodyText, textTransform: 'uppercase', display: 'block', marginBottom: '0.35rem' }}>
+                <label style={{ fontSize: '11px', fontWeight: 800, color: t.subText, textTransform: 'uppercase', display: 'block', marginBottom: '0.35rem' }}>
                   Payment Method
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
@@ -2109,10 +2494,10 @@ export const PublicStorefrontPage: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedChannel('mobile_money')}
                     style={{
-                      padding: '0.5rem',
+                      padding: '0.55rem',
                       borderRadius: '10px',
-                      border: selectedChannel === 'mobile_money' ? '2px solid #EAB308' : `1px solid ${t.inputBorder}`,
-                      backgroundColor: selectedChannel === 'mobile_money' ? (isDark ? 'rgba(234, 179, 8, 0.15)' : '#FEF9C3') : t.inputBg,
+                      border: selectedChannel === 'mobile_money' ? '2px solid #A3E635' : `1px solid ${t.inputBorder}`,
+                      backgroundColor: selectedChannel === 'mobile_money' ? (isDark ? 'rgba(163, 230, 53, 0.15)' : '#FEF9C3') : t.inputBg,
                       color: t.heading,
                       fontSize: '11px',
                       fontWeight: 800,
@@ -2121,10 +2506,9 @@ export const PublicStorefrontPage: React.FC = () => {
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '0.35rem',
-                      transition: 'all 120ms ease',
                     }}
                   >
-                    <Smartphone size={14} color="#EAB308" />
+                    <Smartphone size={14} color="#A3E635" />
                     <span>Mobile Money</span>
                   </button>
 
@@ -2132,10 +2516,10 @@ export const PublicStorefrontPage: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedChannel('card')}
                     style={{
-                      padding: '0.5rem',
+                      padding: '0.55rem',
                       borderRadius: '10px',
-                      border: selectedChannel === 'card' ? '2px solid #EAB308' : `1px solid ${t.inputBorder}`,
-                      backgroundColor: selectedChannel === 'card' ? (isDark ? 'rgba(234, 179, 8, 0.15)' : '#FEF9C3') : t.inputBg,
+                      border: selectedChannel === 'card' ? '2px solid #A3E635' : `1px solid ${t.inputBorder}`,
+                      backgroundColor: selectedChannel === 'card' ? (isDark ? 'rgba(163, 230, 53, 0.15)' : '#FEF9C3') : t.inputBg,
                       color: t.heading,
                       fontSize: '11px',
                       fontWeight: 800,
@@ -2144,16 +2528,15 @@ export const PublicStorefrontPage: React.FC = () => {
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '0.35rem',
-                      transition: 'all 120ms ease',
                     }}
                   >
-                    <CreditCard size={14} color="#EAB308" />
+                    <CreditCard size={14} color="#A3E635" />
                     <span>Debit Card</span>
                   </button>
                 </div>
               </div>
 
-              <div style={{ marginTop: 'var(--space-3)' }}>
+              <div style={{ marginTop: '0.5rem' }}>
                 <button
                   type="submit"
                   disabled={isCheckingOut || isMaintenanceMode}
@@ -2161,10 +2544,10 @@ export const PublicStorefrontPage: React.FC = () => {
                     width: '100%',
                     padding: '0.75rem',
                     borderRadius: '12px',
-                    backgroundColor: isMaintenanceMode ? '#334155' : '#EAB308',
-                    color: isMaintenanceMode ? '#94A3B8' : '#0F172A',
+                    backgroundColor: isMaintenanceMode ? '#334155' : '#A3E635',
+                    color: '#000000',
                     border: 'none',
-                    fontSize: 'var(--font-size-sm)',
+                    fontSize: '13px',
                     fontWeight: 900,
                     cursor: isCheckingOut ? 'wait' : isMaintenanceMode ? 'not-allowed' : 'pointer',
                     opacity: isMaintenanceMode ? 0.65 : 1,
@@ -2172,7 +2555,7 @@ export const PublicStorefrontPage: React.FC = () => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    boxShadow: !isMaintenanceMode ? '0 4px 16px rgba(234, 179, 8, 0.35)' : 'none',
+                    boxShadow: !isMaintenanceMode ? '0 4px 16px rgba(163, 230, 53, 0.35)' : 'none',
                   }}
                 >
                   <Lock size={15} />
@@ -2186,7 +2569,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 </button>
               </div>
 
-              <div style={{ textAlign: 'center', fontSize: '10px', color: t.bodyText, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', marginTop: '0.25rem' }}>
+              <div style={{ textAlign: 'center', fontSize: '10px', color: t.subText, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', marginTop: '0.25rem' }}>
                 <ShieldCheck size={13} color="#10B981" />
                 <span>256-bit Encrypted Server-Side Paystack Verification</span>
               </div>
@@ -2196,7 +2579,7 @@ export const PublicStorefrontPage: React.FC = () => {
       )}
 
       {/* ==================================================================== */}
-      {/* 15. ORDER CONFIRMATION MODAL */}
+      {/* 5. ORDER CONFIRMATION MODAL */}
       {/* ==================================================================== */}
       {confirmedOrder && (
         <div
@@ -2207,7 +2590,7 @@ export const PublicStorefrontPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: 'var(--space-4)',
+            padding: '1rem',
           }}
         >
           <div style={{ position: 'fixed', inset: 0, backgroundColor: t.modalOverlay, backdropFilter: 'blur(6px)' }} />
@@ -2219,12 +2602,11 @@ export const PublicStorefrontPage: React.FC = () => {
               width: '100%',
               backgroundColor: t.modalBg,
               border: '1px solid rgba(34, 197, 94, 0.4)',
-              borderRadius: '24px',
-              padding: 'var(--space-6)',
+              borderRadius: '20px',
+              padding: '1.75rem',
               textAlign: 'center',
               zIndex: 110,
-              boxShadow: t.cardShadowLg,
-              transition: 'background-color 200ms ease, border-color 200ms ease',
+              boxShadow: t.cardShadow,
             }}
           >
             <div
@@ -2237,26 +2619,26 @@ export const PublicStorefrontPage: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                margin: '0 auto var(--space-4) auto',
+                margin: '0 auto 1rem auto',
               }}
             >
               <CheckCircle2 size={30} />
             </div>
 
-            <h3 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 900, color: t.heading }}>
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: t.heading }}>
               Bundle Dispatched!
             </h3>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, marginTop: '0.35rem', lineHeight: 1.5 }}>
-              Your order <strong style={{ color: '#EAB308', fontFamily: 'var(--font-mono)' }}>{confirmedOrder.orderId}</strong> has been confirmed and queued for direct telecom delivery to <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{confirmedOrder.recipientPhone}</strong>.
+            <p style={{ fontSize: '12px', color: t.bodyText, marginTop: '0.35rem', lineHeight: 1.5 }}>
+              Your order <strong style={{ color: '#A3E635', fontFamily: 'monospace' }}>{confirmedOrder.orderId}</strong> has been confirmed and queued for direct telecom delivery to <strong style={{ color: t.heading, fontFamily: 'monospace' }}>{confirmedOrder.recipientPhone}</strong>.
             </p>
 
             <div
               style={{
-                backgroundColor: t.modalBoxBg,
-                border: `1px solid ${t.modalBoxBorder}`,
-                borderRadius: '14px',
-                padding: 'var(--space-4)',
-                margin: 'var(--space-4) 0',
+                backgroundColor: t.cardInnerBg,
+                border: `1px solid ${t.cardInnerBorder}`,
+                borderRadius: '12px',
+                padding: '1rem',
+                margin: '1rem 0',
                 textAlign: 'left',
                 display: 'flex',
                 flexDirection: 'column',
@@ -2264,15 +2646,15 @@ export const PublicStorefrontPage: React.FC = () => {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                <span style={{ color: t.bodyText }}>Package:</span>
+                <span style={{ color: t.subText }}>Package:</span>
                 <strong style={{ color: t.heading }}>{confirmedOrder.product.name}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                <span style={{ color: t.bodyText }}>Amount Paid:</span>
+                <span style={{ color: t.subText }}>Amount Paid:</span>
                 <strong style={{ color: '#10B981' }}>{confirmedOrder.amountDisplay}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                <span style={{ color: t.bodyText }}>Status:</span>
+                <span style={{ color: t.subText }}>Status:</span>
                 <span style={{ color: '#38BDF8', fontWeight: 800 }}>● {confirmedOrder.statusLabel}</span>
               </div>
             </div>
@@ -2280,17 +2662,18 @@ export const PublicStorefrontPage: React.FC = () => {
             <button
               type="button"
               onClick={() => {
+                setActiveCustomerOrder(confirmedOrder);
                 setConfirmedOrder(null);
                 setSelectedProduct(null);
               }}
               style={{
                 width: '100%',
                 padding: '0.7rem',
-                borderRadius: '12px',
-                backgroundColor: '#EAB308',
-                color: '#0F172A',
+                borderRadius: '10px',
+                backgroundColor: '#A3E635',
+                color: '#000000',
                 border: 'none',
-                fontSize: 'var(--font-size-xs)',
+                fontSize: '12px',
                 fontWeight: 900,
                 cursor: 'pointer',
               }}
@@ -2302,7 +2685,7 @@ export const PublicStorefrontPage: React.FC = () => {
       )}
 
       {/* ==================================================================== */}
-      {/* 16. ORDER TRACKING MODAL */}
+      {/* 6. IN-STORE TRACKING MODAL */}
       {/* ==================================================================== */}
       {showTrackModal && (
         <div
@@ -2313,7 +2696,7 @@ export const PublicStorefrontPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: 'var(--space-4)',
+            padding: '1rem',
           }}
         >
           <div
@@ -2324,192 +2707,125 @@ export const PublicStorefrontPage: React.FC = () => {
           <div
             style={{
               position: 'relative',
-              maxWidth: '460px',
+              maxWidth: '480px',
               width: '100%',
               backgroundColor: t.modalBg,
               border: `1px solid ${t.modalBorder}`,
-              borderRadius: '24px',
-              padding: 'var(--space-6)',
+              borderRadius: '20px',
+              padding: '1.75rem',
               zIndex: 110,
-              boxShadow: t.cardShadowLg,
-              transition: 'background-color 200ms ease, border-color 200ms ease',
+              boxShadow: t.cardShadow,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <div>
-                <span style={{ fontSize: '10px', color: '#EAB308', fontWeight: 800, textTransform: 'uppercase' }}>
-                  Delivery Tracking
+                <span style={{ fontSize: '10px', color: '#A3E635', fontWeight: 900, textTransform: 'uppercase' }}>
+                  Live Order Tracker
                 </span>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading }}>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: t.heading }}>
                   Track Order Status
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowTrackModal(false)}
-                style={{ background: 'none', border: 'none', color: t.bodyText, fontSize: '18px', cursor: 'pointer' }}
+                style={{ background: 'none', border: 'none', color: t.subText, cursor: 'pointer' }}
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handlePerformTrack();
-              }}
-              style={{ display: 'flex', gap: '0.5rem', marginBottom: 'var(--space-4)' }}
-            >
+            <p style={{ fontSize: '12px', color: t.subText, margin: '0 0 1.25rem 0', lineHeight: 1.4 }}>
+              Enter your ByteBeacon order ID to monitor telecom dispatch status in real-time.
+            </p>
+
+            <form onSubmit={handleModalTrackSubmit} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
               <div style={{ flex: 1 }}>
                 <Input
-                  placeholder="Order ID or recipient phone"
-                  value={trackQuery}
-                  onChange={(e) => setTrackQuery(e.target.value)}
-                  leftIcon={<Search size={14} color={t.bodyText} />}
+                  placeholder="Enter Order ID (e.g. ord_sf_...)"
+                  value={modalTrackQuery}
+                  onChange={(e) => setModalTrackQuery(e.target.value)}
+                  leftIcon={<Search size={14} color={t.subText} />}
+                  required
                 />
               </div>
-              <Button variant="primary" size="md" type="submit" isLoading={isTracking}>
+              <button
+                type="submit"
+                disabled={isModalTracking}
+                style={{
+                  padding: '0.65rem 1.25rem',
+                  borderRadius: '10px',
+                  backgroundColor: '#A3E635',
+                  color: '#000000',
+                  border: 'none',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  cursor: isModalTracking ? 'wait' : 'pointer',
+                }}
+              >
                 Search
-              </Button>
+              </button>
             </form>
 
-            {trackedOrder ? (
+            {modalTrackedOrder && (
               <div
                 style={{
-                  backgroundColor: t.modalBoxBg,
-                  border: `1px solid ${t.modalBoxBorder}`,
-                  borderRadius: '14px',
-                  padding: 'var(--space-4)',
+                  backgroundColor: t.cardInnerBg,
+                  border: `1px solid ${t.cardInnerBorder}`,
+                  borderRadius: '12px',
+                  padding: '1rem',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '0.4rem',
+                  fontSize: '12px',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: t.bodyText }}>Order ID:</span>
-                  <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{trackedOrder.orderId}</strong>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: t.subText }}>Order ID:</span>
+                  <strong style={{ color: '#A3E635', fontFamily: 'monospace' }}>
+                    {modalTrackedOrder.orderId}
+                  </strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: t.bodyText }}>Package:</span>
-                  <strong style={{ color: t.heading }}>{trackedOrder.product.name}</strong>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: t.subText }}>Package:</span>
+                  <strong style={{ color: t.heading }}>{modalTrackedOrder.product.name}</strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: t.bodyText }}>Recipient:</span>
-                  <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{trackedOrder.recipientPhone}</strong>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: t.subText }}>Recipient:</span>
+                  <strong style={{ color: t.heading, fontFamily: 'monospace' }}>
+                    {modalTrackedOrder.recipientPhone}
+                  </strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: t.bodyText }}>Status:</span>
-                  <span style={{ color: '#10B981', fontWeight: 800 }}>● {trackedOrder.statusLabel}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: t.subText }}>Status:</span>
+                  <span style={{ color: '#10B981', fontWeight: 800 }}>
+                    ● {modalTrackedOrder.statusLabel || modalTrackedOrder.status}
+                  </span>
                 </div>
               </div>
-            ) : trackSearched && !isTracking ? (
-              <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: '#EF4444', fontSize: 'var(--font-size-xs)' }}>
-                No order found matching "{trackQuery}". Please check your details.
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
+            )}
 
-      {/* ==================================================================== */}
-      {/* 17. CHECK A NUMBER PRECHECK MODAL */}
-      {/* ==================================================================== */}
-      {showNumberCheckModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 'var(--space-4)',
-          }}
-        >
-          <div
-            style={{ position: 'fixed', inset: 0, backgroundColor: t.modalOverlay, backdropFilter: 'blur(6px)' }}
-            onClick={() => setShowNumberCheckModal(false)}
-          />
-
-          <div
-            style={{
-              position: 'relative',
-              maxWidth: '440px',
-              width: '100%',
-              backgroundColor: t.modalBg,
-              border: `1px solid ${t.modalBorder}`,
-              borderRadius: '24px',
-              padding: 'var(--space-6)',
-              zIndex: 110,
-              boxShadow: t.cardShadowLg,
-              transition: 'background-color 200ms ease, border-color 200ms ease',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <div>
-                <span style={{ fontSize: '10px', color: '#38BDF8', fontWeight: 800, textTransform: 'uppercase' }}>
-                  Number Pre-Check
-                </span>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading }}>
-                  Verify Your Phone Number
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNumberCheckModal(false)}
-                style={{ background: 'none', border: 'none', color: t.bodyText, fontSize: '18px', cursor: 'pointer' }}
+            {modalTrackSearched && !isModalTracking && !modalTrackedOrder && (
+              <div
+                style={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  color: '#EF4444',
+                  borderRadius: '10px',
+                  padding: '0.75rem',
+                  fontSize: '12px',
+                  textAlign: 'center',
+                }}
               >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCheckNumber} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <PhoneInput
-                label="Ghana Phone Number"
-                placeholder="0244123456"
-                value={checkNumberPhone}
-                onChange={(e) => setCheckNumberPhone(e.target.value)}
-                required
-              />
-
-              <Button variant="primary" size="md" type="submit" isLoading={isCheckingNumber} fullWidth>
-                Verify Number
-              </Button>
-
-              {numberCheckResult && (
-                <div
-                  style={{
-                    backgroundColor: t.modalBoxBg,
-                    border: `1px solid ${t.modalBoxBorder}`,
-                    borderRadius: '12px',
-                    padding: 'var(--space-4)',
-                    marginTop: 'var(--space-2)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.35rem',
-                    fontSize: '11px',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: t.bodyText }}>Network:</span>
-                    <strong style={{ color: t.heading }}>{numberCheckResult.network}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: t.bodyText }}>Status:</span>
-                    <strong style={{ color: '#10B981' }}>{numberCheckResult.status}</strong>
-                  </div>
-                  <p style={{ color: t.secondaryText, margin: '0.3rem 0 0 0', lineHeight: 1.4 }}>
-                    {numberCheckResult.message}
-                  </p>
-                </div>
-              )}
-            </form>
+                No order found matching "{modalTrackQuery}". Please check your order reference.
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* ==================================================================== */}
-      {/* 18. BENEFICIARY NOT APPROVED WARNING MODAL */}
+      {/* 7. BENEFICIARY NOT APPROVED WARNING MODAL */}
       {/* ==================================================================== */}
       <BeneficiaryNotApprovedModal
         isOpen={unapprovedModalOpen}
@@ -2519,4 +2835,5 @@ export const PublicStorefrontPage: React.FC = () => {
     </div>
   );
 };
+
 export default PublicStorefrontPage;

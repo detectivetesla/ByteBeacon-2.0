@@ -56,6 +56,10 @@ export const routes: RouteObject[] = [
     path: '/:slug',
     element: <StorefrontSlugRoute />,
   },
+  {
+    path: '/:slug/:page',
+    element: <StorefrontSlugRoute />,
+  },
 
   // Fallback Wildcard
   {
