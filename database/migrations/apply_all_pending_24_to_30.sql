@@ -171,6 +171,9 @@ ON CONFLICT (version) DO NOTHING;
 -- ------------------------------------------------------------------------------
 DO $$
 BEGIN
+    -- Drop view dependent on actor_id before altering column type
+    DROP VIEW IF EXISTS audit_events CASCADE;
+
     ALTER TABLE audit_logs ALTER COLUMN actor_id TYPE VARCHAR(100) USING actor_id::text;
 
     ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_email VARCHAR(255);
@@ -188,6 +191,29 @@ BEGIN
     CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_logs(category);
     CREATE INDEX IF NOT EXISTS idx_audit_severity ON audit_logs(severity);
     CREATE INDEX IF NOT EXISTS idx_audit_result ON audit_logs(result);
+
+    CREATE OR REPLACE VIEW audit_events AS
+    SELECT 
+        id,
+        correlation_id,
+        actor_id,
+        actor_type,
+        action,
+        resource_type,
+        resource_id,
+        severity,
+        category,
+        result,
+        before_state,
+        after_state,
+        metadata,
+        reason,
+        ip_address,
+        user_agent,
+        event_hash,
+        previous_event_hash,
+        created_at
+    FROM audit_logs;
 END $$;
 
 INSERT INTO schema_migrations (version, name)
