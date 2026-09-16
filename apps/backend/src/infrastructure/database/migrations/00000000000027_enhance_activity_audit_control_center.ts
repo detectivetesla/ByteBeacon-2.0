@@ -27,12 +27,12 @@ export const migration00000000000027: MigrationFile = {
 
         -- 3. Backfill actor_role for existing rows where null
         UPDATE audit_logs l
-        SET actor_role = LOWER(u.role)
+        SET actor_role = LOWER(u.role::text)
         FROM users u
-        WHERE l.actor_role IS NULL AND l.actor_id = u.id;
+        WHERE l.actor_role IS NULL AND l.actor_id::text = u.id::text;
 
         UPDATE audit_logs
-        SET actor_role = LOWER(actor_type)
+        SET actor_role = LOWER(actor_type::text)
         WHERE actor_role IS NULL;
     END $$;
   `,

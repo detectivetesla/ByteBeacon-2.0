@@ -952,57 +952,6 @@ export async function customerAuthRoutes(
     },
   );
 
-  // 2A. LOGOUT
-  app.post(
-    '/logout',
-    async (req: FastifyRequest, reply: FastifyReply) => {
-      let actorId: string | null = null;
-      let actorEmail: string | undefined;
-      let actorRole: string = 'customer';
-      let actorType: any = 'CUSTOMER';
-
-      try {
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-          const token = authHeader.slice(7);
-          const payload = tokenService.verifyAccessToken(token);
-          if (payload) {
-            actorId = payload.sub;
-            actorEmail = payload.email;
-            actorRole = payload.role || 'customer';
-            const rLow = actorRole.toLowerCase();
-            if (rLow === 'admin' || rLow === 'super_admin') {
-              actorType = 'ADMIN';
-            } else if (rLow === 'agent') {
-              actorType = 'AGENT';
-            }
-            if (payload.sessionId) {
-              await sessionService.revokeSession(payload.sessionId).catch(() => {});
-            }
-          }
-        }
-      } catch {}
-
-      await auditService.logEvent({
-        correlationId: req.id,
-        actorId,
-        actorType,
-        actorRole,
-        actorEmail,
-        action: actorType === 'ADMIN' ? 'ADMIN_LOGOUT' : actorType === 'AGENT' ? 'AGENT_LOGOUT' : 'CUSTOMER_LOGOUT',
-        category: AuditCategory.AUTH,
-        resourceType: 'sessions',
-        result: AuditResult.SUCCESS,
-        severity: AuditSeverity.INFO,
-        description: actorEmail ? `User session terminated for ${actorEmail} (${actorRole})` : 'User session terminated',
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'] as string,
-      });
-
-      return reply.send({ success: true, message: 'Logged out successfully' });
-    },
-  );
-
   // 2B. GOOGLE OAUTH SIGN-IN / SIGN-UP
   app.post<{
     Body: {
@@ -1280,37 +1229,79 @@ export async function customerAuthRoutes(
   // 4. LOGOUT (Session Invalidation)
   app.post(
     '/logout',
-    { preHandler: [authHooks.authenticateCustomer] },
     async (req: FastifyRequest, reply: FastifyReply) => {
-      if (req.user?.sessionId) {
-        await sessionService.revokeSession(req.user.sessionId);
-      }
+      let actorId: string | null = null;
+      let actorEmail: string | undefined;
+      let actorRole: string = 'customer';
+      let actorType: any = 'CUSTOMER';
+      let sessionId: string | null = null;
 
-      const userRole = req.user?.role || 'customer';
-      const isPrivileged = userRole === 'admin' || userRole === 'super_admin';
-      const actorType = isPrivileged ? 'ADMIN' : userRole === 'agent' ? 'AGENT' : 'CUSTOMER';
-      const action = isPrivileged ? 'ADMIN_LOGOUT' : userRole === 'agent' ? 'AGENT_LOGOUT' : 'CUSTOMER_LOGOUT';
+      try {
+        if (req.user) {
+          actorId = req.user.sub;
+          actorEmail = req.user.email;
+          actorRole = req.user.role || 'customer';
+          sessionId = req.user.sessionId || null;
+        } else {
+          const authHeader = req.headers.authorization;
+          if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.slice(7).trim();
+            let payload: any = null;
+            try {
+              payload = tokenService.verifyAccessToken(token);
+            } catch {
+              try {
+                const parts = token.split('.');
+                if (parts.length >= 2) {
+                  payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+                }
+              } catch {}
+            }
+
+            if (payload) {
+              actorId = payload.sub || null;
+              actorEmail = payload.email || undefined;
+              actorRole = payload.role || 'customer';
+              sessionId = payload.sessionId || null;
+            }
+          }
+        }
+
+        const rLow = (actorRole || 'customer').toLowerCase();
+        if (rLow === 'admin' || rLow === 'super_admin') {
+          actorType = 'ADMIN';
+        } else if (rLow === 'agent') {
+          actorType = 'AGENT';
+        }
+
+        if (sessionId) {
+          await sessionService.revokeSession(sessionId).catch(() => {});
+        }
+      } catch {}
+
+      const isPrivileged = actorRole === 'admin' || actorRole === 'super_admin';
+      const action = isPrivileged ? 'ADMIN_LOGOUT' : actorRole === 'agent' ? 'AGENT_LOGOUT' : 'CUSTOMER_LOGOUT';
 
       await auditService.logEvent({
         correlationId: req.id,
         requestId: (req.headers['x-request-id'] as string) || req.id,
-        sessionId: req.user?.sessionId,
-        actorId: req.user?.sub,
-        actorName: (req.user as any)?.fullName || req.user?.email,
-        actorEmail: req.user?.email,
-        actorRole: userRole,
+        sessionId: sessionId || undefined,
+        actorId,
+        actorName: actorEmail,
+        actorEmail,
+        actorRole,
         actorType,
         action,
         category: AuditCategory.AUTH,
         resourceType: 'session',
-        resourceId: req.user?.sessionId || null,
+        resourceId: sessionId,
         result: AuditResult.SUCCESS,
         severity: AuditSeverity.INFO,
         source: 'WEB',
         endpoint: req.url,
         httpMethod: 'POST',
         httpStatus: 200,
-        description: `${actorType} ${req.user?.email || ''} logged out`,
+        description: actorEmail ? `${actorType} ${actorEmail} logged out` : 'User logged out',
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'] as string,
       });

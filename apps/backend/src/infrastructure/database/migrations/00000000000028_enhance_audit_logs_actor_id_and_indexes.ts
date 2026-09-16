@@ -18,7 +18,7 @@ export const migration00000000000028: MigrationFile = {
         SET actor_email = u.email,
             actor_name = COALESCE(u.full_name, u.email)
         FROM users u
-        WHERE l.actor_email IS NULL AND l.actor_id = u.id::text;
+        WHERE l.actor_email IS NULL AND l.actor_id::text = u.id::text;
 
         -- 4. Create performance indexes
         CREATE INDEX IF NOT EXISTS idx_audit_actor_email ON audit_logs(actor_email);
