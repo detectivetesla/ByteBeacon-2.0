@@ -382,7 +382,7 @@ describe('Public Customer Storefront Integration Tests', () => {
 
     expect(await screen.findByText('Storefront Unavailable')).toBeInTheDocument();
     expect(screen.getByText(/is currently undergoing maintenance/i)).toBeInTheDocument();
-    expect(screen.getByText(/Visit ByteBeacon Platform/i)).toBeInTheDocument();
+    expect(screen.getByText(/Visit Store Directory/i)).toBeInTheDocument();
   });
 
   it('correctly detects apisolutions.store host and extracts subdomain slug', async () => {
@@ -406,7 +406,7 @@ describe('Public Customer Storefront Integration Tests', () => {
     expect(STOREFRONT_CONFIG.getMainPlatformUrl('/signin')).toContain('bytebeacon.online/signin');
   });
 
-  it('renders storefront via direct /:slug route for customer links', async () => {
+  it('renders storefront via direct /:slug route for customer links without ByteBeacon branding', async () => {
     vi.mocked(storesApi.getPublicStore).mockResolvedValueOnce({
       store: {
         id: 'str_direct_1',
@@ -441,7 +441,8 @@ describe('Public Customer Storefront Integration Tests', () => {
 
     expect(await screen.findByText('Direct Agent Store')).toBeInTheDocument();
     expect(screen.getByText('Verified Merchant')).toBeInTheDocument();
-    expect(screen.getByText('Merchant Portal')).toBeInTheDocument();
+    // Zero ByteBeacon branding in customer storefront
+    expect(screen.queryByText(/ByteBeacon/i)).toBeNull();
   });
 });
 

@@ -589,7 +589,7 @@ export const AgentStorePage: React.FC = () => {
                 </button>
 
                 <a
-                  href={publicStoreUrl}
+                  href={canonicalStoreUrl}
                   target="_blank"
                   rel="noreferrer"
                   style={{

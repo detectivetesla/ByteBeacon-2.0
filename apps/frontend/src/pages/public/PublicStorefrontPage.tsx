@@ -286,11 +286,11 @@ export const PublicStorefrontPage: React.FC = () => {
 
   // Dynamic favicon & tab title
   useEffect(() => {
-    const storeName = store?.storeName || 'ByteBeacon Test Hub';
+    const storeName = store?.storeName || 'Telecom Data Store';
     if (typeof document !== 'undefined') {
       document.title = `${storeName} · Instant Automated Telecom Data`;
 
-      const initial = (storeName.charAt(0) || 'B').toUpperCase();
+      const initial = (storeName.charAt(0) || 'D').toUpperCase();
       const brandColor = store?.primaryColor || '#A3E635';
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${brandColor}"/><text x="16" y="22" font-size="18" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="900" fill="#000000" text-anchor="middle">${initial}</text></svg>`;
       const faviconUrl = `data:image/svg+xml,${encodeURIComponent(svg)}`;
@@ -807,7 +807,7 @@ export const PublicStorefrontPage: React.FC = () => {
             </form>
 
             <a
-              href={STOREFRONT_CONFIG.getMainPlatformUrl('/')}
+              href="https://apisolutions.store"
               style={{
                 padding: '0.65rem 1rem',
                 borderRadius: '10px',
@@ -822,7 +822,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 gap: '0.4rem',
               }}
             >
-              Visit ByteBeacon Platform
+              Visit Store Directory
             </a>
           </div>
         </Card>
@@ -830,7 +830,7 @@ export const PublicStorefrontPage: React.FC = () => {
     );
   }
 
-  const storeName = store.storeName || 'ByteBeacon Test Hub';
+  const storeName = store.storeName || 'Telecom Data Store';
   const storeTagline = store.tagline || 'Instant Automated Telecommunications Data';
   const contactPhone = store.contactPhone || '0241234567';
   const whatsappNumber = store.contactWhatsapp || contactPhone;
@@ -2298,13 +2298,7 @@ export const PublicStorefrontPage: React.FC = () => {
               MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
             </p>
             <div style={{ fontSize: '11px', color: t.footerText }}>
-              © 2026 {storeName} Platform. All rights reserved.
-              <a
-                href={STOREFRONT_CONFIG.getMainPlatformUrl('/login')}
-                style={{ marginLeft: '0.5rem', color: t.footerText, textDecoration: 'none' }}
-              >
-                Merchant Portal
-              </a>
+              © {new Date().getFullYear()} {storeName}. All rights reserved.
             </div>
           </div>
 
@@ -2736,7 +2730,7 @@ export const PublicStorefrontPage: React.FC = () => {
             </div>
 
             <p style={{ fontSize: '12px', color: t.subText, margin: '0 0 1.25rem 0', lineHeight: 1.4 }}>
-              Enter your ByteBeacon order ID to monitor telecom dispatch status in real-time.
+              Enter your order ID to monitor telecom dispatch status in real-time.
             </p>
 
             <form onSubmit={handleModalTrackSubmit} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
