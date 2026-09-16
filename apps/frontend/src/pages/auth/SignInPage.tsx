@@ -209,33 +209,6 @@ export const SignInPage: React.FC = () => {
         >
           Sign In
         </Button>
-
-        {/* Quick Portal Switchers */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem',
-            alignItems: 'center',
-            marginTop: 'var(--space-2)',
-            fontSize: 'var(--font-size-2xs)',
-            color: 'var(--color-text-muted)',
-            textAlign: 'center',
-          }}
-        >
-          <div>
-            Data reseller or store owner?{' '}
-            <Link to="/agent/signup" style={{ color: 'var(--color-agent)', fontWeight: 600, textDecoration: 'none' }}>
-              Create an Agent Account
-            </Link>
-          </div>
-          <div>
-            Platform administrator?{' '}
-            <Link to="/admin/login" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'none' }}>
-              Admin Gateway
-            </Link>
-          </div>
-        </div>
       </form>
     </AuthLayout>
   );
