@@ -28,6 +28,8 @@ import { migration00000000000025 } from './migrations/00000000000025_enhance_sto
 import { migration00000000000026 } from './migrations/00000000000026_enhance_api_usage_metrics_request_response_tracking.js';
 import { migration00000000000027 } from './migrations/00000000000027_enhance_activity_audit_control_center.js';
 import { migration00000000000028 } from './migrations/00000000000028_enhance_audit_logs_actor_id_and_indexes.js';
+import { migration00000000000029 } from './migrations/00000000000029_enhance_store_settings_and_visits.js';
+import { migration00000000000030 } from './migrations/00000000000030_performance_and_auth_indexes.js';
 
 export const allMigrations: MigrationFile[] = [
   migration00000000000000,
@@ -59,6 +61,8 @@ export const allMigrations: MigrationFile[] = [
   migration00000000000026,
   migration00000000000027,
   migration00000000000028,
+  migration00000000000029,
+  migration00000000000030,
 ];
 
 
