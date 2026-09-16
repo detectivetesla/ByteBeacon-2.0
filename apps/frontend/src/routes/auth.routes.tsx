@@ -1,14 +1,13 @@
 import { RouteObject, Navigate } from 'react-router-dom';
 import { PublicOnlyRoute } from '../auth/guards/PublicOnlyRoute.js';
-import { withLazy } from '../components/common/LazyRoute.js';
 import { SignInPage } from '../pages/auth/SignInPage.js';
 import { SignUpPage } from '../pages/auth/SignUpPage.js';
 import { AgentSignUpPage } from '../pages/auth/AgentSignUpPage.js';
 import { AdminSignInPage } from '../pages/auth/AdminSignInPage.js';
 
-const ForgotPasswordPage = withLazy(() => import('../pages/auth/ForgotPasswordPage.js'), 'ForgotPasswordPage');
-const ResetPasswordPage = withLazy(() => import('../pages/auth/ResetPasswordPage.js'), 'ResetPasswordPage');
-const StoreLoginPage = withLazy(() => import('../pages/store/StoreLoginPage.js'), 'StoreLoginPage');
+import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage.js';
+import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage.js';
+import { StoreLoginPage } from '../pages/store/StoreLoginPage.js';
 
 export const authRoutes: RouteObject[] = [
   {
@@ -29,11 +28,11 @@ export const authRoutes: RouteObject[] = [
   },
   {
     path: '/admin-auth/login',
-    element: <Navigate to="/" replace />,
+    element: <AdminSignInPage />,
   },
   {
     path: '/admin/login',
-    element: <Navigate to="/" replace />,
+    element: <AdminSignInPage />,
   },
   {
     path: '/gateway/secure-admin-entry',

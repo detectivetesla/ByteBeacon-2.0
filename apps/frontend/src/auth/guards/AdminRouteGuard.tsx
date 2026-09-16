@@ -82,13 +82,22 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
             <p style={{ fontSize: '0.875rem', color: '#94A3B8', margin: '0 0 var(--space-6) 0', lineHeight: 1.5 }}>
               The page you're looking for doesn't exist or has been moved.
             </p>
-            <Button
-              variant="primary"
-              onClick={() => navigate('/')}
-              style={{ width: '100%', minHeight: '44px' }}
-            >
-              Go Home
-            </Button>
+            <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column' }}>
+              <Button
+                variant="primary"
+                onClick={() => navigate(`/admin/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`)}
+                style={{ width: '100%', minHeight: '44px' }}
+              >
+                Administrator Sign In
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate('/')}
+                style={{ width: '100%', minHeight: '40px' }}
+              >
+                Go Home
+              </Button>
+            </div>
           </div>
         </div>
       );
@@ -96,14 +105,15 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
 
     return (
       <Navigate
-        to={`/admin-auth/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
+        to={`/admin/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
         replace
       />
     );
   }
 
   // 2. Non-Administrative Authenticated Users (Customers / Agents attempting access)
-  const isAdminRole = user.role === 'admin' || user.role === 'super_admin';
+  const roleLower = (user.role || '').toLowerCase().trim();
+  const isAdminRole = roleLower === 'admin' || roleLower === 'super_admin';
   if (!isAdminRole) {
     return (
       <div

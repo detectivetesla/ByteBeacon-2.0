@@ -36,7 +36,7 @@ export const authApi = {
 
   logout: async (): Promise<void> => {
     try {
-      await apiClient.post('/auth/logout');
+      await apiClient.post('/auth/logout', undefined, { skipAuth: true });
     } catch {
       // Ignore network failure on logout
     }
@@ -44,7 +44,7 @@ export const authApi = {
 
   adminLogout: async (): Promise<void> => {
     try {
-      await apiClient.post('/admin/auth/logout');
+      await apiClient.post('/admin/auth/logout', undefined, { skipAuth: true });
     } catch {
       // Ignore network failure on logout
     }
@@ -58,8 +58,13 @@ export const authApi = {
     return apiClient.get<UserSummaryDto>('/admin/auth/me');
   },
 
-  forgotPassword: async (email: string): Promise<{ message: string }> => {
-    return apiClient.post<{ message: string }>('/auth/forgot-password', { email }, { skipAuth: true });
+  forgotPassword: async (identifierOrEmail: string): Promise<{ message: string }> => {
+    const trimmed = (identifierOrEmail || '').trim();
+    return apiClient.post<{ message: string }>(
+      '/auth/forgot-password',
+      { emailOrPhone: trimmed, email: trimmed, identifier: trimmed },
+      { skipAuth: true },
+    );
   },
 
   resetPassword: async (payload: { token: string; newPassword: string }): Promise<{ message: string }> => {

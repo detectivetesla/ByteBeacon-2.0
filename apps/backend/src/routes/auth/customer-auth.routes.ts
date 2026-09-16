@@ -1424,15 +1424,16 @@ export async function customerAuthRoutes(
     '/forgot-password',
     { preHandler: [strictRateLimit] },
     async (req: FastifyRequest<{ Body: ForgotPasswordRequest }>, reply: FastifyReply) => {
-      const { emailOrPhone } = req.body || {};
+      const body = (req.body || {}) as any;
+      const target = (body.emailOrPhone || body.email || body.identifier || body.phone || '').trim();
 
-      if (!emailOrPhone) {
+      if (!target) {
         throw new BadRequestError('Email or phone is required');
       }
 
       const userRes = await db.query<{ id: string; email: string }>(
         'SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) OR phone = $1',
-        [emailOrPhone.trim()],
+        [target],
       );
 
       // Always return positive response to avoid user enumeration

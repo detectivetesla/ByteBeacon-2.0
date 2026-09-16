@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/index.js';
+import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { authApi } from '../../api/auth.api.js';
@@ -17,6 +18,7 @@ export const AgentSignUpPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ storeName?: string; fullName?: string; email?: string; phone?: string; password?: string }>({});
 
+  const { login } = useAuth();
   const { isMaintenanceMode } = usePlatformStatus();
   const { error: toastError, success: toastSuccess } = useToast();
   const navigate = useNavigate();
@@ -46,7 +48,7 @@ export const AgentSignUpPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await authApi.registerAgent({
+      const res = await authApi.registerAgent({
         fullName: fullName.trim(),
         email: email.trim(),
         phone: phone.trim(),
@@ -54,8 +56,14 @@ export const AgentSignUpPage: React.FC = () => {
         password,
       });
 
-      toastSuccess('Agent Account Created Successfully!', 'Please sign in with your credentials.');
-      navigate('/signin');
+      if (res?.user && res?.tokens) {
+        login(res.user, res.tokens);
+        toastSuccess('Agent Account Created!', `Welcome to ByteBeacon, ${res.user.fullName || res.user.email}`);
+        navigate('/agent');
+      } else {
+        toastSuccess('Agent Account Created Successfully!', 'Please sign in with your credentials.');
+        navigate('/signin');
+      }
     } catch (err: any) {
       toastError('Registration failed', err.message || 'Unable to register agent right now. Please try again.');
     } finally {

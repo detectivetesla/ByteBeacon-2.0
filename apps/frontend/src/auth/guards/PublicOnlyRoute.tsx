@@ -19,10 +19,11 @@ export const PublicOnlyRoute: React.FC<PublicOnlyRouteProps> = ({ children }) =>
   }
 
   if (isAuthenticated && user) {
-    if (user.role === 'admin' || user.role === 'super_admin') {
+    const role = (user.role || '').toLowerCase().trim();
+    if (role === 'admin' || role === 'super_admin' || user.securityDomain === 'ADMIN') {
       return <Navigate to="/admin" replace />;
     }
-    if (user.role === 'agent') {
+    if (role === 'agent' || user.securityDomain === 'AGENT') {
       return <Navigate to="/agent" replace />;
     }
     return <Navigate to="/app/dashboard" replace />;

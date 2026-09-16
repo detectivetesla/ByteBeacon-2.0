@@ -62,8 +62,16 @@ export class HttpClient {
         } catch {
           // Ignore
         }
-        if (typeof window !== 'undefined' && window.location.pathname !== '/signin' && !window.location.pathname.startsWith('/auth')) {
-          window.location.href = '/signin';
+        if (typeof window !== 'undefined') {
+          const path = window.location.pathname;
+          const isProtected =
+            path.startsWith('/app') ||
+            path.startsWith('/agent') ||
+            path.startsWith('/admin') ||
+            path.startsWith('/store-console');
+          if (isProtected) {
+            window.location.href = `/signin?returnUrl=${encodeURIComponent(path)}`;
+          }
         }
       },
       ...config,
@@ -203,7 +211,13 @@ export class HttpClient {
       clearTimeout(timer);
 
       // Handle 401 Unauthorized with Automatic Token Refresh & Request Replay
-      if (response.status === 401 && !skipAuth && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh')) {
+      if (
+        response.status === 401 &&
+        !skipAuth &&
+        !endpoint.includes('/auth/login') &&
+        !endpoint.includes('/auth/refresh') &&
+        !endpoint.includes('/auth/logout')
+      ) {
         if (!this.isRefreshing) {
           this.isRefreshing = true;
           const newToken = await this.executeTokenRefresh();

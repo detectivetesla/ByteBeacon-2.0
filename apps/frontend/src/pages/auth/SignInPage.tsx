@@ -23,6 +23,22 @@ export const SignInPage: React.FC = () => {
   const { error: toastError, success: toastSuccess, info: toastInfo } = useToast();
   const navigate = useNavigate();
 
+  const navigateAfterAuth = (authUser: any) => {
+    const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
+    if (returnUrl && returnUrl.startsWith('/')) {
+      navigate(returnUrl);
+      return;
+    }
+    const role = (authUser?.role || '').toLowerCase().trim();
+    if (role === 'agent' || authUser?.securityDomain === 'AGENT') {
+      navigate('/agent');
+    } else if (role === 'admin' || role === 'super_admin' || authUser?.securityDomain === 'ADMIN') {
+      navigate('/admin');
+    } else {
+      navigate('/app/dashboard');
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     if (isMaintenanceMode) {
       toastError('Maintenance Mode Active', 'Google sign-in is disabled during scheduled maintenance. Administrators may sign in below with credentials.');
@@ -37,20 +53,7 @@ export const SignInPage: React.FC = () => {
       if (data?.user && data?.tokens) {
         login(data.user, data.tokens);
         toastSuccess('Welcome to ByteBeacon!', `Signed in as ${data.user.fullName || data.user.email}`);
-
-        const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
-        if (returnUrl && returnUrl.startsWith('/')) {
-          navigate(returnUrl);
-          return;
-        }
-
-        if (data.user.role === 'agent') {
-          navigate('/agent');
-        } else if (data.user.role === 'admin' || data.user.role === 'super_admin') {
-          navigate('/admin');
-        } else {
-          navigate('/app/dashboard');
-        }
+        navigateAfterAuth(data.user);
       }
     } catch (err: any) {
       if (err.message && !err.message.includes('cancelled')) {
@@ -87,20 +90,7 @@ export const SignInPage: React.FC = () => {
       if (data?.user && data?.tokens) {
         login(data.user, data.tokens);
         toastSuccess('Welcome back!', `Signed in as ${data.user.fullName || data.user.email}`);
-
-        const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
-        if (returnUrl && returnUrl.startsWith('/')) {
-          navigate(returnUrl);
-          return;
-        }
-
-        if (data.user.role === 'agent') {
-          navigate('/agent');
-        } else if (data.user.role === 'admin' || data.user.role === 'super_admin') {
-          navigate('/admin');
-        } else {
-          navigate('/app/dashboard');
-        }
+        navigateAfterAuth(data.user);
       }
     } catch (err: any) {
       toastError('Sign in failed', err.message || 'Unable to sign in right now. Please try again.');
@@ -219,6 +209,33 @@ export const SignInPage: React.FC = () => {
         >
           Sign In
         </Button>
+
+        {/* Quick Portal Switchers */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+            alignItems: 'center',
+            marginTop: 'var(--space-2)',
+            fontSize: 'var(--font-size-2xs)',
+            color: 'var(--color-text-muted)',
+            textAlign: 'center',
+          }}
+        >
+          <div>
+            Data reseller or store owner?{' '}
+            <Link to="/agent/signup" style={{ color: 'var(--color-agent)', fontWeight: 600, textDecoration: 'none' }}>
+              Create an Agent Account
+            </Link>
+          </div>
+          <div>
+            Platform administrator?{' '}
+            <Link to="/admin/login" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'none' }}>
+              Admin Gateway
+            </Link>
+          </div>
+        </div>
       </form>
     </AuthLayout>
   );

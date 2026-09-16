@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { UserSummaryDto } from '@bytebeacon/shared';
 import { apiClient } from '../api/httpClient.js';
 import { catalogApi } from '../api/catalog.api.js';
@@ -23,7 +23,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserSummaryDto | null>(() => {
     try {
       const stored = localStorage.getItem(AUTH_USER_KEY);
-      if (stored) {
+      const tokens = localStorage.getItem(AUTH_TOKENS_KEY);
+      if (stored && tokens) {
         return JSON.parse(stored);
       }
     } catch {
@@ -33,10 +34,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const isLoggingOutRef = useRef<boolean>(false);
+  const userRef = useRef<UserSummaryDto | null>(user);
+  userRef.current = user;
 
   const logout = useCallback(() => {
-    // Notify server of logout so it is immutably logged to audit stream and session is revoked
-    const isAdm = user?.securityDomain === 'ADMIN' || user?.role === 'admin' || user?.role === 'super_admin';
+    if (isLoggingOutRef.current) return;
+    isLoggingOutRef.current = true;
+
+    const currentUser = userRef.current;
+    const isAdm =
+      currentUser?.securityDomain === 'ADMIN' ||
+      currentUser?.role === 'admin' ||
+      currentUser?.role === 'super_admin';
+
     if (isAdm) {
       authApi.adminLogout().catch(() => {});
     } else {
@@ -51,7 +62,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // LocalStorage access failsafe
     }
-  }, [user]);
+
+    setTimeout(() => {
+      isLoggingOutRef.current = false;
+    }, 500);
+  }, []);
+
+  const logoutRef = useRef<() => void>(logout);
+  logoutRef.current = logout;
 
   useEffect(() => {
     // Configure centralized API Client with dynamic token getters and auth failure callback
@@ -76,7 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch {}
       },
       onAuthFailure: () => {
-        logout();
+        logoutRef.current();
       },
     });
 
@@ -86,13 +104,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const storedTokens = localStorage.getItem(AUTH_TOKENS_KEY);
       if (storedUser && storedTokens) {
         setUser(JSON.parse(storedUser));
+      } else {
+        localStorage.removeItem(AUTH_USER_KEY);
+        localStorage.removeItem(AUTH_TOKENS_KEY);
+        setUser(null);
       }
     } catch {
       setUser(null);
     } finally {
       setIsLoading(false);
     }
-  }, [logout]);
+  }, []);
 
   const login = useCallback((newUser: UserSummaryDto, newTokens: AuthTokens) => {
     setUser(newUser);

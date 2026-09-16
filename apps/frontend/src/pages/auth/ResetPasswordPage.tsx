@@ -24,6 +24,11 @@ export const ResetPasswordPage: React.FC = () => {
     e.preventDefault();
     setErrorMsg('');
 
+    if (!token) {
+      setErrorMsg('Invalid or missing password reset token.');
+      return;
+    }
+
     const passValidation = validatePassword(newPassword);
     if (!passValidation.isValid) {
       setErrorMsg(passValidation.error || 'Password does not meet complexity requirements');
@@ -47,6 +52,34 @@ export const ResetPasswordPage: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  if (!token) {
+    return (
+      <AuthLayout
+        title="Invalid Reset Link"
+        subtitle="This password recovery link is invalid or incomplete"
+        visualTitle="Account Security & Access Recovery"
+        visualSubtitle="ByteBeacon protects your account with multi-layered credential encryption."
+        topActionText="Remember password?"
+        topActionLinkText="Sign In"
+        topActionHref="/signin"
+      >
+        <div style={{ textAlign: 'center', padding: 'var(--space-6) 0' }}>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-6)' }}>
+            The recovery token is missing from your URL. Please request a fresh password reset link.
+          </p>
+          <Button
+            variant="primary"
+            size="lg"
+            fullWidth
+            onClick={() => navigate('/forgot-password')}
+          >
+            Request New Reset Link
+          </Button>
+        </div>
+      </AuthLayout>
+    );
+  }
 
   if (isSuccess) {
     return (

@@ -27,7 +27,7 @@ export const adminRoutes: RouteObject[] = [
   {
     path: '/admin',
     element: (
-      <AdminRouteGuard stealthMode>
+      <AdminRouteGuard>
         <AdminLayout />
       </AdminRouteGuard>
     ),

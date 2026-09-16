@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { SocialAuthButton } from '../../components/auth/SocialAuthButton.js';
 import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/index.js';
@@ -81,15 +81,21 @@ export const SignUpPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await authApi.register({
+      const res = await authApi.register({
         fullName: fullName.trim(),
         email: email.trim(),
         phone: phone.trim(),
         password,
       });
 
-      toastSuccess('Account Created Successfully!', 'Please sign in with your credentials.');
-      navigate('/signin');
+      if (res?.user && res?.tokens) {
+        login(res.user, res.tokens);
+        toastSuccess('Account Created!', `Welcome to ByteBeacon, ${res.user.fullName || res.user.email}`);
+        navigate('/app/dashboard');
+      } else {
+        toastSuccess('Account Created Successfully!', 'Please sign in with your credentials.');
+        navigate('/signin');
+      }
     } catch (err: any) {
       toastError('Registration failed', err.message || 'Unable to register right now. Please try again.');
     } finally {
@@ -212,6 +218,20 @@ export const SignUpPage: React.FC = () => {
         >
           {isMaintenanceMode ? 'Registration Paused' : 'Create Account'}
         </Button>
+
+        <div
+          style={{
+            textAlign: 'center',
+            marginTop: 'var(--space-2)',
+            fontSize: 'var(--font-size-2xs)',
+            color: 'var(--color-text-muted)',
+          }}
+        >
+          Want to resell data and earn commissions?{' '}
+          <Link to="/agent/signup" style={{ color: 'var(--color-agent)', fontWeight: 700, textDecoration: 'none' }}>
+            Register as an Agent
+          </Link>
+        </div>
       </form>
     </AuthLayout>
   );

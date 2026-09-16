@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { Input, Button } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -6,30 +7,32 @@ import { authApi } from '../../api/auth.api.js';
 import { ArrowRight, CheckCircle2, Mail } from 'lucide-react';
 
 export const ForgotPasswordPage: React.FC = () => {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const { error: toastError, success: toastSuccess } = useToast();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!email.trim() || !email.includes('@')) {
-      setErrorMsg('Please enter a valid email address.');
+    const trimmed = identifier.trim();
+    if (!trimmed) {
+      setErrorMsg('Please enter your email address or phone number.');
       return;
     }
 
     setIsLoading(true);
 
     try {
-      await authApi.forgotPassword(email.trim());
+      await authApi.forgotPassword(trimmed);
       setIsSubmitted(true);
-      toastSuccess('Reset Link Sent', 'If an account exists with this email, instructions have been sent.');
+      toastSuccess('Reset Link Sent', 'If an account exists with this identifier, instructions have been sent.');
     } catch (err: any) {
-      toastError('Request failed', err.message || 'Unable to send reset email.');
+      toastError('Request failed', err.message || 'Unable to send reset instructions.');
     } finally {
       setIsLoading(false);
     }
@@ -39,7 +42,7 @@ export const ForgotPasswordPage: React.FC = () => {
     return (
       <AuthLayout
         title="Check your email"
-        subtitle={`We've sent password reset instructions to ${email}`}
+        subtitle={`We've sent password reset instructions to ${identifier}`}
         visualTitle="Account Security & Access Recovery"
         visualSubtitle="ByteBeacon protects your account with multi-layered credential encryption and instant security alerts."
         topActionText="Remember your password?"
@@ -64,14 +67,14 @@ export const ForgotPasswordPage: React.FC = () => {
           </div>
 
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-6)' }}>
-            Please check your inbox and spam folder for the secure reset link. The link expires in 30 minutes.
+            Please check your inbox or SMS for your secure reset link. The link expires in 30 minutes.
           </p>
 
           <Button
             variant="primary"
             size="lg"
             fullWidth
-            onClick={() => (window.location.href = '/signin')}
+            onClick={() => navigate('/signin')}
           >
             Back to Sign In
           </Button>
@@ -83,7 +86,7 @@ export const ForgotPasswordPage: React.FC = () => {
   return (
     <AuthLayout
       title="Reset your password"
-      subtitle="Enter your email and we'll send you a secure recovery link"
+      subtitle="Enter your email or phone number and we'll send you a recovery link"
       visualTitle="Account Security & Access Recovery"
       visualSubtitle="ByteBeacon protects your account with multi-layered credential encryption and instant security alerts."
       topActionText="Remember your password?"
@@ -93,11 +96,11 @@ export const ForgotPasswordPage: React.FC = () => {
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
         <Input
           id="forgot-email"
-          label="Email Address"
-          type="email"
-          placeholder="Enter your email address"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          label="Email Address or Phone Number"
+          type="text"
+          placeholder="e.g. kofi@example.com or 0241234567"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
           disabled={isLoading}
           error={errorMsg}
           leftIcon={<Mail size={15} color="var(--color-text-muted)" />}
