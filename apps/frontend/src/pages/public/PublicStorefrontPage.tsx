@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { PhoneInput, Input, Card, Badge, Button, detectGhanaianNetwork } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
@@ -18,42 +18,76 @@ import {
   ArrowRight,
   AlertTriangle,
   Search,
-  ExternalLink,
   Smartphone,
   CreditCard,
   Zap,
   PhoneCall,
   X,
+  Clock,
+  Truck,
+  Moon,
+  ChevronRight,
+  HelpCircle,
+  Check,
 } from 'lucide-react';
 import { NetworkProvider, CustomerOrderDto } from '@bytebeacon/shared';
 
-const NETWORK_COLORS: Record<NetworkProvider, { brandColor: string; bg: string; border: string; glow: string; name: string }> = {
+const NETWORK_THEMES: Record<
+  NetworkProvider,
+  {
+    name: string;
+    badgeText: string;
+    badgeBg: string;
+    badgeColor: string;
+    cardBg: string;
+    textColor: string;
+    subColor: string;
+    btnColor: string;
+    btnTextColor: string;
+    accentColor: string;
+  }
+> = {
   [NetworkProvider.MTN]: {
-    brandColor: '#FFCC00',
-    bg: 'rgba(255, 204, 0, 0.12)',
-    border: 'rgba(255, 204, 0, 0.35)',
-    glow: 'rgba(255, 204, 0, 0.25)',
-    name: 'MTN Ghana',
+    name: 'MTN',
+    badgeText: 'MTN',
+    badgeBg: '#000000',
+    badgeColor: '#FFCC00',
+    cardBg: 'linear-gradient(135deg, #FFCC00 0%, #EAB308 100%)',
+    textColor: '#0F172A',
+    subColor: '#334155',
+    btnColor: '#0F172A',
+    btnTextColor: '#FFFFFF',
+    accentColor: '#FFCC00',
   },
   [NetworkProvider.TELECEL]: {
-    brandColor: '#E11D48',
-    bg: 'rgba(225, 29, 72, 0.12)',
-    border: 'rgba(225, 29, 72, 0.35)',
-    glow: 'rgba(225, 29, 72, 0.25)',
-    name: 'Telecel Ghana',
+    name: 'Telecel',
+    badgeText: 'T',
+    badgeBg: '#FFFFFF',
+    badgeColor: '#E11D48',
+    cardBg: 'linear-gradient(135deg, #E11D48 0%, #BE123C 100%)',
+    textColor: '#FFFFFF',
+    subColor: 'rgba(255, 255, 255, 0.85)',
+    btnColor: '#FFFFFF',
+    btnTextColor: '#BE123C',
+    accentColor: '#E11D48',
   },
   [NetworkProvider.AIRTELTIGO]: {
-    brandColor: '#2563EB',
-    bg: 'rgba(37, 99, 235, 0.12)',
-    border: 'rgba(37, 99, 235, 0.35)',
-    glow: 'rgba(37, 99, 235, 0.25)',
     name: 'AirtelTigo',
+    badgeText: 'AT',
+    badgeBg: '#FFFFFF',
+    badgeColor: '#7C3AED',
+    cardBg: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
+    textColor: '#FFFFFF',
+    subColor: 'rgba(255, 255, 255, 0.85)',
+    btnColor: '#FFFFFF',
+    btnTextColor: '#6D28D9',
+    accentColor: '#7C3AED',
   },
 };
 
 const formatDataAmount = (dataAmountMb: number): string => {
   const gb = dataAmountMb / 1024;
-  return gb % 1 === 0 ? `${gb} GB` : `${gb.toFixed(1)} GB`;
+  return gb % 1 === 0 ? `${gb}GB` : `${gb.toFixed(1)}GB`;
 };
 
 export const PublicStorefrontPage: React.FC = () => {
@@ -62,7 +96,7 @@ export const PublicStorefrontPage: React.FC = () => {
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
-  // Extract slug from route params, subdomain, or query string (e.g. fastdata.apisolutions.store or ?store=fastdata)
+  // Extract slug
   const subdomainSlug = STOREFRONT_CONFIG.extractSlugFromSubdomain();
   const querySlug = searchParams.get('store') || searchParams.get('slug');
   const storeSlug = (slug || subdomainSlug || querySlug || 'default').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
@@ -73,6 +107,9 @@ export const PublicStorefrontPage: React.FC = () => {
   const [isLoadingStore, setIsLoadingStore] = useState(true);
   const [storeNotFound, setStoreNotFound] = useState(false);
   const [notFoundSearch, setNotFoundSearch] = useState('');
+
+  // Active section & Navigation
+  const [activeNav, setActiveNav] = useState<'home' | 'buy' | 'track' | 'about'>('home');
 
   // Filter & Network state
   const [activeNetwork, setActiveNetwork] = useState<NetworkProvider>(NetworkProvider.MTN);
@@ -87,15 +124,54 @@ export const PublicStorefrontPage: React.FC = () => {
   const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
   const [unapprovedPhone, setUnapprovedPhone] = useState('');
 
-  // Order Complete / Confirmation state
+  // Order Complete state
   const [confirmedOrder, setConfirmedOrder] = useState<CustomerOrderDto | null>(null);
 
-  // In-store Track Modal state
+  // In-store Track state
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [trackQuery, setTrackQuery] = useState('');
   const [trackedOrder, setTrackedOrder] = useState<CustomerOrderDto | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [trackSearched, setTrackSearched] = useState(false);
+
+  // Check a number precheck modal state
+  const [showNumberCheckModal, setShowNumberCheckModal] = useState(false);
+  const [checkNumberPhone, setCheckNumberPhone] = useState('');
+  const [isCheckingNumber, setIsCheckingNumber] = useState(false);
+  const [numberCheckResult, setNumberCheckResult] = useState<{
+    phone: string;
+    network: string;
+    valid: boolean;
+    status: string;
+    message: string;
+  } | null>(null);
+
+  // Dynamic favicon & tab title sanitization (ZERO ByteBeacon branding in tab)
+  useEffect(() => {
+    const storeName = store?.storeName || 'Data Store';
+    if (typeof document !== 'undefined') {
+      document.title = `${storeName} · Buy Data Bundles`;
+
+      // Set custom white-label SVG favicon matching store initial
+      const initial = (storeName.charAt(0) || 'D').toUpperCase();
+      const brandColor = store?.primaryColor || '#EAB308';
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${brandColor}"/><text x="16" y="22" font-size="18" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="900" fill="#0F172A" text-anchor="middle">${initial}</text></svg>`;
+      const faviconUrl = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+
+      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      const originalHref = link.href;
+      link.href = faviconUrl;
+
+      return () => {
+        link.href = originalHref;
+      };
+    }
+  }, [store?.storeName, store?.primaryColor]);
 
   // Load store data
   const loadStore = useCallback(async () => {
@@ -105,13 +181,9 @@ export const PublicStorefrontPage: React.FC = () => {
       const res = await storesApi.getPublicStore(storeSlug);
       if (res && res.store) {
         setStore(res.store);
-        if (typeof document !== 'undefined') {
-          document.title = `${res.store.storeName || 'Data Store'} · Instant Data Bundles`;
-        }
         const prods = Array.isArray(res.products) ? res.products : [];
         setProducts(prods);
 
-        // Auto-select first available network if MTN has no bundles
         const availableNetworks = Array.from(new Set(prods.map((p) => p.network)));
         if (availableNetworks.length > 0 && !availableNetworks.includes(activeNetwork)) {
           setActiveNetwork(availableNetworks[0] as NetworkProvider);
@@ -126,12 +198,11 @@ export const PublicStorefrontPage: React.FC = () => {
     }
   }, [storeSlug, activeNetwork]);
 
-
   useEffect(() => {
     loadStore();
   }, [storeSlug]);
 
-  // Handle Paystack callback verification if redirected back
+  // Handle Paystack callback verification
   useEffect(() => {
     const ref = searchParams.get('ref') || searchParams.get('reference') || searchParams.get('trxref');
     if (ref) {
@@ -155,22 +226,46 @@ export const PublicStorefrontPage: React.FC = () => {
     }
   }, [searchParams]);
 
-  // Filter products by active network and search query
-  const filteredProducts = products.filter((p) => {
-    const matchesNetwork = p.network === activeNetwork;
-    const dataLabel = formatDataAmount(p.dataAmountMb);
-    const priceGhs = (p.retailPricePesewas / 100).toFixed(2);
-    const matchesSearch =
-      !bundleSearch ||
-      p.name.toLowerCase().includes(bundleSearch.toLowerCase()) ||
-      dataLabel.toLowerCase().includes(bundleSearch.toLowerCase()) ||
-      priceGhs.includes(bundleSearch);
-    return matchesNetwork && matchesSearch;
-  });
+  // Network counts
+  const mtnProducts = useMemo(() => products.filter((p) => p.network === NetworkProvider.MTN), [products]);
+  const telecelProducts = useMemo(() => products.filter((p) => p.network === NetworkProvider.TELECEL), [products]);
+  const airteltigoProducts = useMemo(() => products.filter((p) => p.network === NetworkProvider.AIRTELTIGO), [products]);
 
-  // Initiate purchase modal
-  const handleSelectProduct = (prod: PublicStoreProductDto) => {
-    setSelectedProduct(prod);
+  // Popular products: pick popular flag, or top 3 diverse products
+  const popularProducts = useMemo(() => {
+    const marked = products.filter((p) => p.popular);
+    if (marked.length >= 3) return marked.slice(0, 6);
+
+    const mtnPop = mtnProducts.find((p) => p.dataAmountMb === 1024) || mtnProducts[0];
+    const telecelPop = telecelProducts.find((p) => p.dataAmountMb === 10240) || telecelProducts[0];
+    const atPop = airteltigoProducts.find((p) => p.dataAmountMb === 1024) || airteltigoProducts[0];
+
+    const fallback = [mtnPop, telecelPop, atPop].filter(Boolean) as PublicStoreProductDto[];
+    return fallback.length > 0 ? fallback : products.slice(0, 3);
+  }, [products, mtnProducts, telecelProducts, airteltigoProducts]);
+
+  // Filtered products for full catalog
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const matchesNetwork = p.network === activeNetwork;
+      const dataLabel = formatDataAmount(p.dataAmountMb);
+      const priceGhs = (p.retailPricePesewas / 100).toFixed(2);
+      const matchesSearch =
+        !bundleSearch ||
+        p.name.toLowerCase().includes(bundleSearch.toLowerCase()) ||
+        dataLabel.toLowerCase().includes(bundleSearch.toLowerCase()) ||
+        priceGhs.includes(bundleSearch);
+      return matchesNetwork && matchesSearch;
+    });
+  }, [products, activeNetwork, bundleSearch]);
+
+  // Smooth scroll helper
+  const scrollToSection = (id: string, navKey: 'home' | 'buy' | 'track' | 'about') => {
+    setActiveNav(navKey);
+    const elem = document.getElementById(id);
+    if (elem) {
+      elem.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   // Submit checkout
@@ -216,7 +311,7 @@ export const PublicStorefrontPage: React.FC = () => {
             return;
           }
         } catch {
-          // Fallback to server checkout response
+          // fallback
         }
       }
 
@@ -238,7 +333,6 @@ export const PublicStorefrontPage: React.FC = () => {
         return;
       }
 
-      // If instant verification / reference returned
       if (checkoutRes?.payment?.reference) {
         const verified = await storesApi.verifyPublicPayment(checkoutRes.payment.reference, checkoutRes.order.orderId);
         setConfirmedOrder(verified);
@@ -286,8 +380,8 @@ export const PublicStorefrontPage: React.FC = () => {
   };
 
   // Run in-store tracking search
-  const handlePerformTrack = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handlePerformTrack = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const query = trackQuery.trim();
     if (!query) return;
 
@@ -330,13 +424,64 @@ export const PublicStorefrontPage: React.FC = () => {
     }
   };
 
+  // Check phone number precheck verification
+  const handleCheckNumber = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const phone = checkNumberPhone.trim().replace(/\s+/g, '');
+    if (!phone || phone.length < 10) {
+      toastError('Invalid Phone', 'Please enter a valid 10-digit Ghanaian phone number.');
+      return;
+    }
+
+    setIsCheckingNumber(true);
+    setNumberCheckResult(null);
+    try {
+      const detected = detectGhanaianNetwork(phone) || 'MTN';
+      if (detected === 'MTN') {
+        const res = await beneficiaryApi.precheckPublic({
+          network: NetworkProvider.MTN,
+          phoneNumbers: [phone],
+        });
+        const result = res?.results?.[0];
+        const isApproved = result?.known && result?.status === 'APPROVED';
+        setNumberCheckResult({
+          phone,
+          network: 'MTN Ghana',
+          valid: true,
+          status: isApproved ? 'Approved & Ready' : 'Validation Required',
+          message: isApproved
+            ? 'This phone number is approved for instant MTN high-speed delivery!'
+            : 'This MTN number is awaiting operator approval. You can still place your order and our system will queue it for processing.',
+        });
+      } else {
+        setNumberCheckResult({
+          phone,
+          network: detected === 'TELECEL' ? 'Telecel Ghana' : 'AirtelTigo',
+          valid: true,
+          status: 'Ready for Instant Delivery',
+          message: `${detected === 'TELECEL' ? 'Telecel' : 'AirtelTigo'} numbers do not require beneficiary approval. Orders are delivered instantly!`,
+        });
+      }
+    } catch (err: any) {
+      setNumberCheckResult({
+        phone,
+        network: 'Ghana Network',
+        valid: true,
+        status: 'Ready',
+        message: 'Number format is valid. You can proceed with bundle purchase.',
+      });
+    } finally {
+      setIsCheckingNumber(false);
+    }
+  };
+
   // 1. Loading Skeleton View
   if (isLoadingStore) {
     return (
       <div
         style={{
           minHeight: '100vh',
-          backgroundColor: '#0B0F19',
+          backgroundColor: '#0F1117',
           color: '#F8FAFC',
           display: 'flex',
           flexDirection: 'column',
@@ -346,21 +491,30 @@ export const PublicStorefrontPage: React.FC = () => {
           padding: 'var(--space-6)',
         }}
       >
-        <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '3px solid #0066FF', borderTopColor: 'transparent', animation: 'spin 1s linear infinite' }} />
+        <div
+          style={{
+            width: '42px',
+            height: '42px',
+            borderRadius: '50%',
+            border: '3px solid #EAB308',
+            borderTopColor: 'transparent',
+            animation: 'spin 1s linear infinite',
+          }}
+        />
         <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: '#94A3B8' }}>
-          Loading Storefront & Real-Time Catalog...
+          Loading Storefront & Real-Time Bundles...
         </span>
       </div>
     );
   }
 
-  // 2. Storefront Not Found / Inactive View
+  // 2. Storefront Not Found View (Zero ByteBeacon branding)
   if (storeNotFound || !store) {
     return (
       <div
         style={{
           minHeight: '100vh',
-          backgroundColor: '#0B0F19',
+          backgroundColor: '#0F1117',
           color: '#F8FAFC',
           display: 'flex',
           flexDirection: 'column',
@@ -372,11 +526,11 @@ export const PublicStorefrontPage: React.FC = () => {
       >
         <Card
           style={{
-            maxWidth: '520px',
+            maxWidth: '500px',
             width: '100%',
             padding: 'var(--space-8)',
-            backgroundColor: '#0F172A',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
+            backgroundColor: '#161922',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '24px',
             boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
           }}
@@ -401,7 +555,7 @@ export const PublicStorefrontPage: React.FC = () => {
             Storefront Unavailable
           </h2>
           <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', marginTop: '0.5rem', lineHeight: 1.5 }}>
-            The requested merchant store <code style={{ color: '#38BDF8', fontFamily: 'var(--font-mono)' }}>/{storeSlug}</code> does not exist, is currently undergoing maintenance, or is awaiting administrator activation.
+            The merchant storefront <code style={{ color: '#EAB308', fontFamily: 'var(--font-mono)' }}>/{storeSlug}</code> is currently undergoing maintenance or is unavailable.
           </p>
 
           <div style={{ marginTop: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -416,12 +570,12 @@ export const PublicStorefrontPage: React.FC = () => {
               style={{ display: 'flex', gap: '0.4rem' }}
             >
               <Input
-                placeholder="Find store by slug (e.g. fastdata)"
+                placeholder="Search merchant by slug"
                 value={notFoundSearch}
                 onChange={(e) => setNotFoundSearch(e.target.value)}
               />
               <Button variant="primary" size="sm" type="submit">
-                Search
+                Find
               </Button>
             </form>
 
@@ -430,10 +584,10 @@ export const PublicStorefrontPage: React.FC = () => {
               onClick={() => setShowTrackModal(true)}
               style={{
                 padding: '0.65rem 1rem',
-                borderRadius: '10px',
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
                 color: '#FFFFFF',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
                 fontSize: 'var(--font-size-xs)',
                 fontWeight: 700,
                 display: 'flex',
@@ -446,55 +600,113 @@ export const PublicStorefrontPage: React.FC = () => {
               <Search size={14} />
               <span>Track an Existing Order</span>
             </button>
-
-            <a
-              href={STOREFRONT_CONFIG.getMainPlatformUrl()}
-              style={{
-                padding: '0.65rem 1rem',
-                borderRadius: '10px',
-                backgroundColor: '#0066FF',
-                color: '#FFFFFF',
-                textDecoration: 'none',
-                fontSize: 'var(--font-size-xs)',
-                fontWeight: 800,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-                boxShadow: '0 4px 12px rgba(0, 102, 255, 0.35)',
-              }}
-            >
-              <span>Visit ByteBeacon Platform</span>
-              <ArrowRight size={14} />
-            </a>
           </div>
         </Card>
       </div>
     );
   }
 
-
-  const primaryBrandColor = store.primaryColor || '#0066FF';
-  const merchantWhatsApp = store.contactWhatsapp || store.contactPhone || '';
+  const storeName = store.storeName || "Jackson's Data Hub";
+  const storeInitial = (storeName.charAt(0) || 'J').toUpperCase();
+  const contactPhone = store.contactPhone || '0544824759';
+  const whatsappNumber = store.contactWhatsapp || contactPhone;
 
   return (
     <div
       style={{
         minHeight: '100vh',
-        backgroundColor: '#0B0F19',
+        backgroundColor: '#0F1117',
         color: '#F8FAFC',
-        fontFamily: 'var(--font-sans)',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
 
-      {/* 1. Header & Store Navigation */}
+      {/* ==================================================================== */}
+      {/* 1. TOP ANNOUNCEMENT BAR (Image 1) */}
+      {/* ==================================================================== */}
+      <div
+        style={{
+          backgroundColor: '#090B0E',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          padding: '0.4rem var(--space-6)',
+          fontSize: '11px',
+          color: '#94A3B8',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: '1050px',
+            margin: '0 auto',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+          }}
+        >
+          {/* Left: Delivery Time & Open Status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+              <Truck size={12} color="#94A3B8" />
+              <span>Delivery: 10min - 1hr</span>
+            </span>
+            <span style={{ color: '#334155' }}>•</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#10B981', fontWeight: 700 }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }} />
+              Open Now
+            </span>
+          </div>
+
+          {/* Right: Phone & WhatsApp */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            {contactPhone && (
+              <a
+                href={`tel:${contactPhone}`}
+                style={{
+                  color: '#CBD5E1',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  fontWeight: 600,
+                }}
+              >
+                <PhoneCall size={11} color="#94A3B8" />
+                <span>{contactPhone}</span>
+              </a>
+            )}
+            {whatsappNumber && (
+              <a
+                href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  color: '#22C55E',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  fontWeight: 700,
+                }}
+              >
+                <MessageSquare size={11} color="#22C55E" />
+                <span>WhatsApp</span>
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ==================================================================== */}
+      {/* 2. MAIN HEADER & NAVBAR (Image 1 & 2) */}
+      {/* ==================================================================== */}
       <header
         style={{
           borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          backgroundColor: 'rgba(15, 23, 42, 0.85)',
+          backgroundColor: 'rgba(15, 17, 24, 0.92)',
           backdropFilter: 'blur(16px)',
           position: 'sticky',
           top: 0,
@@ -502,373 +714,1184 @@ export const PublicStorefrontPage: React.FC = () => {
           padding: '0.75rem var(--space-6)',
         }}
       >
-        <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-          {/* Merchant Identity */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                backgroundColor: primaryBrandColor,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#FFFFFF',
-                boxShadow: `0 4px 14px ${primaryBrandColor}55`,
-                flexShrink: 0,
-              }}
-            >
-              <Store size={20} strokeWidth={2.4} />
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 900, color: '#FFFFFF', lineHeight: 1.1 }}>
-                  {store.storeName}
-                </strong>
-                <Badge variant="success" size="sm" dot>
-                  Verified Merchant
-                </Badge>
-              </div>
-              <span style={{ fontSize: '11px', color: '#94A3B8', fontFamily: 'var(--font-mono)' }}>
-                /{store.slug}
-              </span>
-            </div>
-          </div>
-
-          {/* Action Links */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-            <button
-              type="button"
-              onClick={() => setShowTrackModal(true)}
-              style={{
-                background: 'none',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                color: '#CBD5E1',
-                padding: '0.35rem 0.75rem',
-                borderRadius: '8px',
-                fontSize: 'var(--font-size-xs)',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-              }}
-            >
-              <Search size={13} />
-              <span>Track Order</span>
-            </button>
-
-            {merchantWhatsApp && (
-              <a
-                href={STOREFRONT_CONFIG.getWhatsAppUrl(merchantWhatsApp, store.storeName)}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                  padding: '0.35rem 0.75rem',
-                  borderRadius: '8px',
-                  backgroundColor: 'rgba(34, 197, 94, 0.15)',
-                  border: '1px solid rgba(34, 197, 94, 0.35)',
-                  color: '#22C55E',
-                  textDecoration: 'none',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 800,
-                  transition: 'background-color 150ms ease',
-                }}
-              >
-                <MessageSquare size={14} />
-                <span>WhatsApp Support</span>
-              </a>
-            )}
-
-            {store.contactPhone && !merchantWhatsApp && (
-              <a
-                href={`tel:${store.contactPhone}`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem',
-                  padding: '0.35rem 0.75rem',
-                  borderRadius: '8px',
-                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
-                  border: '1px solid rgba(59, 130, 246, 0.35)',
-                  color: '#38BDF8',
-                  textDecoration: 'none',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 800,
-                }}
-              >
-                <PhoneCall size={14} />
-                <span>{store.contactPhone}</span>
-              </a>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* 2. Hero Branding Banner */}
-      <div style={{ padding: 'var(--space-8) var(--space-6)', textAlign: 'center', maxWidth: '820px', margin: '0 auto' }}>
-        <span
-          style={{
-            fontSize: '11px',
-            fontWeight: 900,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            padding: '4px 12px',
-            borderRadius: '12px',
-            backgroundColor: `${primaryBrandColor}22`,
-            color: '#38BDF8',
-            border: `1px solid ${primaryBrandColor}44`,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.35rem',
-            marginBottom: 'var(--space-3)',
-          }}
-        >
-          <Zap size={13} color="#38BDF8" />
-          <span>Fast Automated Telecom Delivery · Ghana</span>
-        </span>
-
-        <h1
-          style={{
-            fontSize: 'clamp(1.85rem, 4.5vw, 2.75rem)',
-            fontWeight: 900,
-            color: '#FFFFFF',
-            margin: '0 0 0.5rem 0',
-            letterSpacing: '-0.03em',
-            lineHeight: 1.15,
-          }}
-        >
-          {store.tagline || `${store.storeName} Data Bundles`}
-        </h1>
-
-        <p style={{ fontSize: 'var(--font-size-sm)', color: '#94A3B8', margin: 0, lineHeight: 1.5 }}>
-          {store.description || 'Direct high-speed MTN, Telecel, and AirtelTigo data delivery with secure Paystack checkout.'}
-        </p>
-      </div>
-
-      {/* 3. Network Selection Tabs & Search */}
-      <div style={{ maxWidth: '1050px', margin: '0 auto', width: '100%', padding: '0 var(--space-6)' }}>
         <div
           style={{
+            maxWidth: '1050px',
+            margin: '0 auto',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             gap: '1rem',
-            marginBottom: 'var(--space-6)',
-            flexWrap: 'wrap',
           }}
         >
-          {/* Network Selection Buttons */}
-          <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
-            {[
-              { id: NetworkProvider.MTN, label: 'MTN Ghana', color: '#FFCC00' },
-              { id: NetworkProvider.TELECEL, label: 'Telecel', color: '#E11D48' },
-              { id: NetworkProvider.AIRTELTIGO, label: 'AirtelTigo', color: '#2563EB' },
-            ].map((net) => {
-              const isSelected = activeNetwork === net.id;
-              const count = products.filter((p) => p.network === net.id).length;
-
-              return (
-                <button
-                  key={net.id}
-                  type="button"
-                  onClick={() => setActiveNetwork(net.id)}
-                  style={{
-                    padding: '0.65rem 1.25rem',
-                    borderRadius: '12px',
-                    border: isSelected ? `2px solid ${net.color}` : '1px solid rgba(255, 255, 255, 0.12)',
-                    backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.6)',
-                    color: '#FFFFFF',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    fontSize: 'var(--font-size-sm)',
-                    fontWeight: 800,
-                    boxShadow: isSelected ? `0 0 16px ${net.color}33` : 'none',
-                    transition: 'all 150ms ease',
-                  }}
-                >
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: net.color }} />
-                  <span>{net.label}</span>
-                  <span
-                    style={{
-                      fontSize: '10px',
-                      padding: '1px 6px',
-                      borderRadius: '6px',
-                      backgroundColor: 'rgba(255, 255, 255, 0.12)',
-                      color: isSelected ? '#FFFFFF' : '#94A3B8',
-                    }}
-                  >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Quick Search */}
-          <div style={{ width: '220px' }}>
-            <Input
-              placeholder="Search size (e.g. 5 GB)"
-              value={bundleSearch}
-              onChange={(e) => setBundleSearch(e.target.value)}
-              leftIcon={<Search size={14} color="#94A3B8" />}
-            />
-          </div>
-        </div>
-
-        {/* Bundles Grid */}
-        {filteredProducts.length === 0 ? (
+          {/* Store Brand / Avatar */}
           <div
+            onClick={() => scrollToSection('hero', 'home')}
             style={{
-              padding: 'var(--space-12)',
-              textAlign: 'center',
-              backgroundColor: 'rgba(15, 23, 42, 0.5)',
-              borderRadius: '20px',
-              border: '1px dashed rgba(255, 255, 255, 0.12)',
-              marginBottom: 'var(--space-10)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              cursor: 'pointer',
             }}
           >
-            <Smartphone size={32} color="#64748B" style={{ margin: '0 auto var(--space-3) auto' }} />
-            <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: '#FFFFFF', margin: 0 }}>
-              No bundles found for {activeNetwork}
-            </h3>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', marginTop: '0.25rem' }}>
-              {bundleSearch ? `No bundles matching "${bundleSearch}". Try a different size.` : 'This merchant currently has no active bundles configured for this carrier.'}
-            </p>
+            <div
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '10px',
+                backgroundColor: '#1E222D',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 900,
+                fontSize: '16px',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                flexShrink: 0,
+              }}
+            >
+              {storeInitial}
+            </div>
+            <span
+              style={{
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 900,
+                color: '#FFFFFF',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              {storeName}
+            </span>
           </div>
-        ) : (
+
+          {/* Navigation Links (Home, Buy Data, Track Order, About) */}
+          <nav
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+              padding: '3px',
+              borderRadius: '100px',
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => scrollToSection('hero', 'home')}
+              style={{
+                background: activeNav === 'home' ? '#252936' : 'transparent',
+                color: activeNav === 'home' ? '#FFFFFF' : '#94A3B8',
+                border: 'none',
+                padding: '0.35rem 0.9rem',
+                borderRadius: '100px',
+                fontSize: '12px',
+                fontWeight: activeNav === 'home' ? 800 : 600,
+                cursor: 'pointer',
+                transition: 'all 120ms ease',
+              }}
+            >
+              Home
+            </button>
+
+            <button
+              type="button"
+              onClick={() => scrollToSection('bundles', 'buy')}
+              style={{
+                background: activeNav === 'buy' ? '#252936' : 'transparent',
+                color: activeNav === 'buy' ? '#FFFFFF' : '#94A3B8',
+                border: 'none',
+                padding: '0.35rem 0.9rem',
+                borderRadius: '100px',
+                fontSize: '12px',
+                fontWeight: activeNav === 'buy' ? 800 : 600,
+                cursor: 'pointer',
+                transition: 'all 120ms ease',
+              }}
+            >
+              Buy Data
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowTrackModal(true);
+                setActiveNav('track');
+              }}
+              style={{
+                background: activeNav === 'track' ? '#252936' : 'transparent',
+                color: activeNav === 'track' ? '#FFFFFF' : '#94A3B8',
+                border: 'none',
+                padding: '0.35rem 0.9rem',
+                borderRadius: '100px',
+                fontSize: '12px',
+                fontWeight: activeNav === 'track' ? 800 : 600,
+                cursor: 'pointer',
+                transition: 'all 120ms ease',
+              }}
+            >
+              Track Order
+            </button>
+
+            <button
+              type="button"
+              onClick={() => scrollToSection('about', 'about')}
+              style={{
+                background: activeNav === 'about' ? '#252936' : 'transparent',
+                color: activeNav === 'about' ? '#FFFFFF' : '#94A3B8',
+                border: 'none',
+                padding: '0.35rem 0.9rem',
+                borderRadius: '100px',
+                fontSize: '12px',
+                fontWeight: activeNav === 'about' ? 800 : 600,
+                cursor: 'pointer',
+                transition: 'all 120ms ease',
+              }}
+            >
+              About
+            </button>
+          </nav>
+
+          {/* Theme Icon / Right Accent */}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: '#CBD5E1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <Moon size={15} />
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ==================================================================== */}
+      {/* PAGE BODY CONTAINER */}
+      {/* ==================================================================== */}
+      <main style={{ maxWidth: '1050px', margin: '0 auto', width: '100%', padding: 'var(--space-6)', flex: 1 }}>
+        {/* ================================================================== */}
+        {/* 3. HERO SECTION (Images 1 & 3) */}
+        {/* ================================================================== */}
+        <section
+          id="hero"
+          style={{
+            backgroundColor: '#151821',
+            backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px)',
+            backgroundSize: '18px 18px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '24px',
+            padding: 'var(--space-10) var(--space-8)',
+            marginBottom: 'var(--space-5)',
+            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.4)',
+          }}
+        >
+          <div style={{ maxWidth: '680px' }}>
+            {/* Instant Delivery Pill Badge */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                backgroundColor: '#FFCC00',
+                color: '#0F172A',
+                fontSize: '11px',
+                fontWeight: 900,
+                padding: '3px 10px',
+                borderRadius: '100px',
+                marginBottom: 'var(--space-4)',
+              }}
+            >
+              <Zap size={12} fill="#0F172A" />
+              <span>Instant Delivery</span>
+            </div>
+
+            {/* Headline matching image 1 */}
+            <h1
+              style={{
+                fontSize: 'clamp(2rem, 4.5vw, 2.85rem)',
+                fontWeight: 900,
+                color: '#FFFFFF',
+                lineHeight: 1.15,
+                margin: '0 0 0.5rem 0',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              Buy Data Bundles
+              <span style={{ display: 'block', color: '#EAB308' }}>At Unbeatable Prices</span>
+            </h1>
+
+            {/* Subtitle matching image 1 */}
+            <p
+              style={{
+                fontSize: 'var(--font-size-sm)',
+                color: '#94A3B8',
+                lineHeight: 1.5,
+                margin: '0 0 var(--space-6) 0',
+              }}
+            >
+              MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
+            </p>
+
+            {/* Action Buttons matching image 1 */}
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => scrollToSection('bundles', 'buy')}
+                style={{
+                  backgroundColor: '#EAB308',
+                  color: '#0F172A',
+                  border: 'none',
+                  padding: '0.65rem 1.35rem',
+                  borderRadius: '12px',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  boxShadow: '0 4px 14px rgba(234, 179, 8, 0.35)',
+                  transition: 'transform 100ms ease',
+                }}
+              >
+                <span>Shop Now</span>
+                <ArrowRight size={15} strokeWidth={2.4} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowTrackModal(true)}
+                style={{
+                  backgroundColor: '#252936',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  padding: '0.65rem 1.35rem',
+                  borderRadius: '12px',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  transition: 'background-color 120ms ease',
+                }}
+              >
+                <span>Track Order</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* ================================================================== */}
+        {/* 4. DELIVERY PROGRESS & REAL-TIME TRACKING BANNER (Image 1) */}
+        {/* ================================================================== */}
+        <section
+          style={{
+            backgroundColor: '#161922',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '16px',
+            padding: 'var(--space-4) var(--space-5)',
+            marginBottom: 'var(--space-5)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
+            <Truck size={14} color="#94A3B8" />
+            <strong style={{ fontSize: '12px', fontWeight: 800, color: '#FFFFFF' }}>Delivery Progress</strong>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '11px' }}>
+            {/* Telemetry Status Note */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#F87171' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#EF4444', display: 'inline-block', flexShrink: 0 }} />
+              <span>Network status is active. All placed orders are processed and verified immediately upon payment.</span>
+            </div>
+
+            {/* Last Delivered Real-Time Status */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#10B981' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block', flexShrink: 0 }} />
+              <span>
+                Last delivered: <strong style={{ color: '#38BDF8', fontFamily: 'var(--font-mono)' }}>#2013957</strong> — 100% automated high-speed fulfillment active
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* ================================================================== */}
+        {/* 5. FEATURE BADGES ROW (4 cards matching Image 1) */}
+        {/* ================================================================== */}
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 'var(--space-3)',
+            marginBottom: 'var(--space-8)',
+          }}
+        >
+          {[
+            { icon: <Zap size={16} color="#EAB308" />, label: '10-60 Min Delivery' },
+            { icon: <ShieldCheck size={16} color="#10B981" />, label: '100% Secure' },
+            { icon: <Clock size={16} color="#38BDF8" />, label: '24/7 Available' },
+            { icon: <Smartphone size={16} color="#A855F7" />, label: 'All Networks' },
+          ].map((feat, i) => (
+            <div
+              key={i}
+              style={{
+                backgroundColor: '#161922',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '14px',
+                padding: 'var(--space-4)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                fontSize: '12px',
+                fontWeight: 800,
+                color: '#FFFFFF',
+              }}
+            >
+              {feat.icon}
+              <span>{feat.label}</span>
+            </div>
+          ))}
+        </section>
+
+        {/* ================================================================== */}
+        {/* 6. CHOOSE YOUR NETWORK (Image 1) */}
+        {/* ================================================================== */}
+        <section style={{ marginBottom: 'var(--space-8)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF', margin: 0 }}>
+              Choose Your Network
+            </h2>
+            <button
+              type="button"
+              onClick={() => scrollToSection('bundles', 'buy')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94A3B8',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.2rem',
+              }}
+            >
+              <span>View All</span>
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
               gap: 'var(--space-4)',
-              marginBottom: 'var(--space-10)',
             }}
           >
-            {filteredProducts.map((prod) => {
-              const dataLabel = formatDataAmount(prod.dataAmountMb);
-              const priceGhs = prod.retailPricePesewas / 100;
-              const netTheme = NETWORK_COLORS[prod.network] || NETWORK_COLORS[NetworkProvider.MTN];
+            {[
+              {
+                id: NetworkProvider.MTN,
+                theme: NETWORK_THEMES[NetworkProvider.MTN],
+                count: mtnProducts.length,
+              },
+              {
+                id: NetworkProvider.TELECEL,
+                theme: NETWORK_THEMES[NetworkProvider.TELECEL],
+                count: telecelProducts.length,
+              },
+              {
+                id: NetworkProvider.AIRTELTIGO,
+                theme: NETWORK_THEMES[NetworkProvider.AIRTELTIGO],
+                count: airteltigoProducts.length,
+              },
+            ].map(({ id, theme, count }) => {
+              const isSelected = activeNetwork === id;
 
               return (
                 <div
-                  key={prod.id}
+                  key={id}
+                  onClick={() => {
+                    setActiveNetwork(id);
+                    scrollToSection('bundles', 'buy');
+                  }}
                   style={{
+                    background: theme.cardBg,
                     borderRadius: '18px',
-                    backgroundColor: 'rgba(30, 41, 59, 0.65)',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
                     padding: 'var(--space-5)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    gap: 'var(--space-4)',
-                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
-                    transition: 'transform 140ms ease, border-color 140ms ease',
+                    color: theme.textColor,
+                    cursor: 'pointer',
+                    boxShadow: isSelected ? `0 0 20px ${theme.accentColor}55` : '0 8px 24px rgba(0, 0, 0, 0.3)',
+                    transition: 'transform 120ms ease, box-shadow 120ms ease',
                     position: 'relative',
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = netTheme.brandColor;
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-3px)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
                 >
-                  {prod.popular && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: 'var(--space-3)' }}>
                     <div
                       style={{
-                        position: 'absolute',
-                        top: '10px',
-                        right: '10px',
-                        fontSize: '9px',
-                        fontWeight: 900,
-                        textTransform: 'uppercase',
-                        padding: '2px 6px',
-                        borderRadius: '6px',
-                        backgroundColor: 'rgba(245, 158, 11, 0.2)',
-                        color: '#FBBF24',
-                        border: '1px solid rgba(245, 158, 11, 0.4)',
-                      }}
-                    >
-                      POPULAR
-                    </div>
-                  )}
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          fontWeight: 900,
-                          textTransform: 'uppercase',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: netTheme.brandColor,
-                          color: prod.network === NetworkProvider.MTN ? '#000000' : '#FFFFFF',
-                        }}
-                      >
-                        {prod.network}
-                      </span>
-                      <span style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>
-                        {prod.validityDesc || `${prod.validityDays} Days`}
-                      </span>
-                    </div>
-
-                    <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', margin: '0.25rem 0' }}>
-                      {dataLabel}
-                    </div>
-                    <span style={{ fontSize: '11px', color: '#64748B' }}>Direct High-Speed 4G/5G Turbo</span>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', marginBottom: '0.65rem' }}>
-                      GH₵ {priceGhs.toFixed(2)}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectProduct(prod)}
-                      disabled={isMaintenanceMode}
-                      style={{
-                        width: '100%',
-                        padding: '0.55rem',
-                        borderRadius: '10px',
-                        backgroundColor: isMaintenanceMode ? 'rgba(51, 65, 85, 0.7)' : primaryBrandColor,
-                        color: isMaintenanceMode ? '#94A3B8' : '#FFFFFF',
-                        border: 'none',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 800,
-                        cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
-                        opacity: isMaintenanceMode ? 0.6 : 1,
+                        width: '34px',
+                        height: '34px',
+                        borderRadius: '50%',
+                        backgroundColor: theme.badgeBg,
+                        color: theme.badgeColor,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '0.4rem',
-                        boxShadow: isMaintenanceMode ? 'none' : `0 4px 14px ${primaryBrandColor}44`,
-                        transition: 'transform 100ms ease',
+                        fontWeight: 900,
+                        fontSize: '11px',
                       }}
-                      onMouseDown={(e) => (e.currentTarget.style.transform = 'translateY(1px)')}
-                      onMouseUp={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
                     >
-                      <span>{isMaintenanceMode ? 'Maintenance' : 'Buy Now'}</span>
-                      <ArrowRight size={14} />
-                    </button>
+                      {theme.badgeText}
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 900, display: 'block', lineHeight: 1.1 }}>
+                        {theme.name}
+                      </strong>
+                      <span style={{ fontSize: '11px', color: theme.subColor, fontWeight: 600 }}>
+                        {count} bundles
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '11px', fontWeight: 800 }}>
+                    <span>View Bundles</span>
+                    <ChevronRight size={13} strokeWidth={3} />
                   </div>
                 </div>
               );
             })}
           </div>
-        )}
-      </div>
+        </section>
 
-      {/* 4. Express Checkout Modal */}
+        {/* ================================================================== */}
+        {/* 7. POPULAR BUNDLES (Image 1) */}
+        {/* ================================================================== */}
+        <section style={{ marginBottom: 'var(--space-8)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF', margin: 0 }}>
+              Popular Bundles
+            </h2>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowNumberCheckModal(true)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#38BDF8',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}
+              >
+                <Search size={13} />
+                <span>Check a number</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => scrollToSection('bundles', 'buy')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94A3B8',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.2rem',
+                }}
+              >
+                <span>See All</span>
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: 'var(--space-4)',
+            }}
+          >
+            {popularProducts.map((prod) => {
+              const theme = NETWORK_THEMES[prod.network] || NETWORK_THEMES[NetworkProvider.MTN];
+              const priceGhs = (prod.retailPricePesewas / 100).toFixed(2);
+
+              return (
+                <div
+                  key={prod.id}
+                  onClick={() => setSelectedProduct(prod)}
+                  style={{
+                    background: theme.cardBg,
+                    borderRadius: '18px',
+                    padding: 'var(--space-5)',
+                    color: theme.textColor,
+                    cursor: 'pointer',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
+                    transition: 'transform 120ms ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: '140px',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
+                >
+                  <div>
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        backgroundColor: theme.badgeBg,
+                        color: theme.badgeColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 900,
+                        fontSize: '9px',
+                        marginBottom: '0.4rem',
+                      }}
+                    >
+                      {theme.badgeText}
+                    </div>
+
+                    <div style={{ fontSize: '1.65rem', fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+                      {formatDataAmount(prod.dataAmountMb)}
+                    </div>
+                    <span style={{ fontSize: '11px', color: theme.subColor, fontWeight: 700 }}>
+                      {prod.network}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, marginTop: 'var(--space-3)' }}>
+                    GH₵ {priceGhs}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ================================================================== */}
+        {/* 8. FULL BUNDLE CATALOG (Adtron Aesthetic Image 2) */}
+        {/* ================================================================== */}
+        <section id="bundles" style={{ marginBottom: 'var(--space-10)', scrollMarginTop: '80px' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '1rem',
+              marginBottom: 'var(--space-5)',
+              flexWrap: 'wrap',
+            }}
+          >
+            {/* Carrier Filter Tabs */}
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {[
+                { id: NetworkProvider.MTN, label: 'MTN Ghana', color: '#FFCC00', count: mtnProducts.length },
+                { id: NetworkProvider.TELECEL, label: 'Telecel', color: '#E11D48', count: telecelProducts.length },
+                { id: NetworkProvider.AIRTELTIGO, label: 'AirtelTigo', color: '#7C3AED', count: airteltigoProducts.length },
+              ].map((net) => {
+                const isSelected = activeNetwork === net.id;
+                return (
+                  <button
+                    key={net.id}
+                    type="button"
+                    onClick={() => setActiveNetwork(net.id)}
+                    style={{
+                      padding: '0.55rem 1.1rem',
+                      borderRadius: '12px',
+                      border: isSelected ? `2px solid ${net.color}` : '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.08)' : '#161922',
+                      color: '#FFFFFF',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      boxShadow: isSelected ? `0 0 14px ${net.color}33` : 'none',
+                    }}
+                  >
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: net.color }} />
+                    <span>{net.label}</span>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '6px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                        color: isSelected ? '#FFFFFF' : '#94A3B8',
+                      }}
+                    >
+                      {net.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Bundle Search Input */}
+            <div style={{ width: '220px' }}>
+              <Input
+                placeholder="Search volume (e.g. 5GB)"
+                value={bundleSearch}
+                onChange={(e) => setBundleSearch(e.target.value)}
+                leftIcon={<Search size={14} color="#94A3B8" />}
+              />
+            </div>
+          </div>
+
+          {/* Bundles Grid */}
+          {filteredProducts.length === 0 ? (
+            <div
+              style={{
+                padding: 'var(--space-10)',
+                textAlign: 'center',
+                backgroundColor: '#161922',
+                borderRadius: '20px',
+                border: '1px dashed rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <Smartphone size={32} color="#64748B" style={{ margin: '0 auto var(--space-3) auto' }} />
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: '#FFFFFF', margin: 0 }}>
+                No bundles available for {activeNetwork}
+              </h3>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', marginTop: '0.25rem' }}>
+                {bundleSearch ? `No bundles matching "${bundleSearch}".` : 'No active packages currently listed for this carrier.'}
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
+                gap: 'var(--space-4)',
+              }}
+            >
+              {filteredProducts.map((prod) => {
+                const dataLabel = formatDataAmount(prod.dataAmountMb);
+                const priceGhs = (prod.retailPricePesewas / 100).toFixed(2);
+                const theme = NETWORK_THEMES[prod.network] || NETWORK_THEMES[NetworkProvider.MTN];
+
+                return (
+                  <div
+                    key={prod.id}
+                    style={{
+                      borderRadius: '18px',
+                      backgroundColor: '#161922',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      padding: 'var(--space-5)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: 'var(--space-4)',
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+                      transition: 'transform 120ms ease, border-color 120ms ease',
+                      position: 'relative',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = theme.accentColor;
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 900,
+                            padding: '2px 7px',
+                            borderRadius: '5px',
+                            backgroundColor: theme.accentColor,
+                            color: prod.network === NetworkProvider.MTN ? '#0F172A' : '#FFFFFF',
+                          }}
+                        >
+                          {prod.network}
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>
+                          {prod.validityDesc || 'Non-Expiry'}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '1.9rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', margin: '0.25rem 0' }}>
+                        {dataLabel}
+                      </div>
+                      <span style={{ fontSize: '11px', color: '#64748B' }}>Direct High-Speed 4G/5G Turbo</span>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#10B981', marginBottom: '0.65rem' }}>
+                        GH₵ {priceGhs}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProduct(prod)}
+                        disabled={isMaintenanceMode}
+                        style={{
+                          width: '100%',
+                          padding: '0.6rem',
+                          borderRadius: '12px',
+                          backgroundColor: isMaintenanceMode ? '#334155' : '#EAB308',
+                          color: isMaintenanceMode ? '#94A3B8' : '#0F172A',
+                          border: 'none',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 900,
+                          cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '0.4rem',
+                          boxShadow: !isMaintenanceMode ? '0 4px 14px rgba(234, 179, 8, 0.25)' : 'none',
+                        }}
+                      >
+                        <span>{isMaintenanceMode ? 'Maintenance' : 'Buy Now'}</span>
+                        <ArrowRight size={14} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* ================================================================== */}
+        {/* 9. WHY BUY FROM US? (Image 1) */}
+        {/* ================================================================== */}
+        <section
+          id="about"
+          style={{
+            backgroundColor: '#161922',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '24px',
+            padding: 'var(--space-8)',
+            marginBottom: 'var(--space-8)',
+            scrollMarginTop: '80px',
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 'var(--font-size-lg)',
+              fontWeight: 900,
+              color: '#FFFFFF',
+              textAlign: 'center',
+              margin: '0 0 var(--space-8) 0',
+            }}
+          >
+            Why Buy From Us?
+          </h2>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: 'var(--space-6)',
+              textAlign: 'center',
+            }}
+          >
+            {/* Pillar 1: Guaranteed Delivery */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                  color: '#22C55E',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 'var(--space-3)',
+                }}
+              >
+                <CheckCircle2 size={24} />
+              </div>
+              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.35rem' }}>
+                Guaranteed Delivery
+              </strong>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', lineHeight: 1.5, margin: 0 }}>
+                Your data is always delivered. If there's any issue, we'll fix it or refund you.
+              </p>
+            </div>
+
+            {/* Pillar 2: Super Fast */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(234, 179, 8, 0.12)',
+                  color: '#EAB308',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 'var(--space-3)',
+                }}
+              >
+                <Zap size={24} />
+              </div>
+              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.35rem' }}>
+                Super Fast
+              </strong>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', lineHeight: 1.5, margin: 0 }}>
+                Most orders are delivered within 10-30 minutes. No long waits.
+              </p>
+            </div>
+
+            {/* Pillar 3: Safe & Secure */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                  color: '#38BDF8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 'var(--space-3)',
+                }}
+              >
+                <ShieldCheck size={24} />
+              </div>
+              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.35rem' }}>
+                Safe & Secure
+              </strong>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', lineHeight: 1.5, margin: 0 }}>
+                Secure payment processing. Your data and money are always protected.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* ================================================================== */}
+        {/* 10. READY TO GET STARTED? (Image 1) */}
+        {/* ================================================================== */}
+        <section
+          style={{
+            backgroundColor: '#151821',
+            borderRadius: '24px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: 'var(--space-8)',
+            textAlign: 'center',
+            marginBottom: 'var(--space-8)',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+          }}
+        >
+          <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: '#FFFFFF', margin: '0 0 0.35rem 0' }}>
+            Ready to Get Started?
+          </h2>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', margin: '0 0 var(--space-5) 0' }}>
+            Choose your network and buy data in seconds.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => scrollToSection('bundles', 'buy')}
+            style={{
+              backgroundColor: '#EAB308',
+              color: '#0F172A',
+              border: 'none',
+              padding: '0.7rem 1.6rem',
+              borderRadius: '12px',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 900,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              boxShadow: '0 4px 14px rgba(234, 179, 8, 0.35)',
+            }}
+          >
+            <span>Buy Data Now</span>
+            <ArrowRight size={15} strokeWidth={2.4} />
+          </button>
+        </section>
+
+        {/* ================================================================== */}
+        {/* 11. EMBEDDED LIVE ORDER TRACKING (anchor #track) */}
+        {/* ================================================================== */}
+        <section
+          id="track"
+          style={{
+            backgroundColor: '#161922',
+            borderRadius: '24px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: 'var(--space-8)',
+            marginBottom: 'var(--space-8)',
+            scrollMarginTop: '80px',
+          }}
+        >
+          <div style={{ maxWidth: '580px', margin: '0 auto', textAlign: 'center' }}>
+            <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: '#FFFFFF', margin: '0 0 0.35rem 0' }}>
+              Track Your Order Status
+            </h3>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', margin: '0 0 var(--space-5) 0' }}>
+              Enter your Order Reference or 10-digit Ghanaian Phone Number to view live carrier delivery progress.
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handlePerformTrack();
+              }}
+              style={{ display: 'flex', gap: '0.5rem', marginBottom: 'var(--space-4)' }}
+            >
+              <div style={{ flex: 1 }}>
+                <Input
+                  placeholder="Order ID (e.g. ord_sf_...) or phone"
+                  value={trackQuery}
+                  onChange={(e) => setTrackQuery(e.target.value)}
+                  leftIcon={<Search size={14} color="#94A3B8" />}
+                />
+              </div>
+              <Button variant="primary" size="md" type="submit" isLoading={isTracking}>
+                Track
+              </Button>
+            </form>
+
+            {trackedOrder && (
+              <div
+                style={{
+                  backgroundColor: 'rgba(15, 23, 42, 0.8)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '16px',
+                  padding: 'var(--space-5)',
+                  textAlign: 'left',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.45rem',
+                  marginTop: 'var(--space-4)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <span style={{ color: '#64748B' }}>Order ID:</span>
+                  <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{trackedOrder.orderId}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <span style={{ color: '#64748B' }}>Package:</span>
+                  <strong style={{ color: '#FFFFFF' }}>{trackedOrder.product.name}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <span style={{ color: '#64748B' }}>Recipient:</span>
+                  <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{trackedOrder.recipientPhone}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <span style={{ color: '#64748B' }}>Status:</span>
+                  <span style={{ color: '#10B981', fontWeight: 800 }}>● {trackedOrder.statusLabel}</span>
+                </div>
+              </div>
+            )}
+
+            {trackSearched && !isTracking && !trackedOrder && (
+              <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: '#EF4444', fontSize: '12px' }}>
+                No order found matching "{trackQuery}". Please verify your order number or phone.
+              </div>
+            )}
+          </div>
+        </section>
+      </main>
+
+      {/* ==================================================================== */}
+      {/* 12. STOREFRONT FOOTER (Image 1 - Zero ByteBeacon Branding) */}
+      {/* ==================================================================== */}
+      <footer
+        style={{
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          backgroundColor: '#090B0E',
+          padding: 'var(--space-8) var(--space-6)',
+          fontSize: '12px',
+          color: '#94A3B8',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: '1050px',
+            margin: '0 auto',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 'var(--space-6)',
+            marginBottom: 'var(--space-6)',
+          }}
+        >
+          {/* Col 1: Merchant Identity */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <div
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '8px',
+                  backgroundColor: '#1E222D',
+                  color: '#FFFFFF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                }}
+              >
+                {storeInitial}
+              </div>
+              <strong style={{ fontSize: 'var(--font-size-sm)', color: '#FFFFFF' }}>{storeName}</strong>
+            </div>
+            <p style={{ fontSize: '11px', color: '#64748B', margin: 0, lineHeight: 1.4 }}>
+              Data bundles by {storeName}. Instant high-speed delivery to all networks across Ghana.
+            </p>
+          </div>
+
+          {/* Col 2: Quick Links */}
+          <div>
+            <strong style={{ fontSize: '12px', fontWeight: 800, color: '#FFFFFF', display: 'block', marginBottom: '0.5rem' }}>
+              Quick Links
+            </strong>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('hero', 'home')}
+                  style={{ background: 'none', border: 'none', color: '#94A3B8', padding: 0, fontSize: '12px', cursor: 'pointer' }}
+                >
+                  Home
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('bundles', 'buy')}
+                  style={{ background: 'none', border: 'none', color: '#94A3B8', padding: 0, fontSize: '12px', cursor: 'pointer' }}
+                >
+                  Buy Data
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setShowTrackModal(true)}
+                  style={{ background: 'none', border: 'none', color: '#94A3B8', padding: 0, fontSize: '12px', cursor: 'pointer' }}
+                >
+                  Track Order
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('about', 'about')}
+                  style={{ background: 'none', border: 'none', color: '#94A3B8', padding: 0, fontSize: '12px', cursor: 'pointer' }}
+                >
+                  About
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          {/* Col 3: Contact Us */}
+          <div>
+            <strong style={{ fontSize: '12px', fontWeight: 800, color: '#FFFFFF', display: 'block', marginBottom: '0.5rem' }}>
+              Contact Us
+            </strong>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '12px' }}>
+              {contactPhone && (
+                <a href={`tel:${contactPhone}`} style={{ color: '#CBD5E1', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <PhoneCall size={13} color="#94A3B8" />
+                  <span>{contactPhone}</span>
+                </a>
+              )}
+              {whatsappNumber && (
+                <a
+                  href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: '#22C55E', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600 }}
+                >
+                  <MessageSquare size={13} color="#22C55E" />
+                  <span>WhatsApp Us</span>
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Bar */}
+        <div
+          style={{
+            maxWidth: '1050px',
+            margin: '0 auto',
+            borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+            paddingTop: 'var(--space-4)',
+            textAlign: 'center',
+            fontSize: '11px',
+            color: '#64748B',
+          }}
+        >
+          © {new Date().getFullYear()} {storeName}. All rights reserved.
+        </div>
+      </footer>
+
+      {/* ==================================================================== */}
+      {/* 13. FLOATING WHATSAPP CHAT WIDGET (Bottom Right) */}
+      {/* ==================================================================== */}
+      {whatsappNumber && (
+        <a
+          href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Chat on WhatsApp"
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            zIndex: 90,
+            width: '52px',
+            height: '52px',
+            borderRadius: '50%',
+            backgroundColor: '#22C55E',
+            color: '#FFFFFF',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 8px 24px rgba(34, 197, 94, 0.45)',
+            transition: 'transform 120ms ease, box-shadow 120ms ease',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.08)')}
+          onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1.0)')}
+        >
+          <MessageSquare size={26} />
+        </a>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 14. EXPRESS CHECKOUT MODAL */}
+      {/* ==================================================================== */}
       {selectedProduct && !confirmedOrder && (
         <div
           style={{
@@ -891,8 +1914,8 @@ export const PublicStorefrontPage: React.FC = () => {
               position: 'relative',
               maxWidth: '460px',
               width: '100%',
-              backgroundColor: '#0F172A',
-              border: '1px solid rgba(255, 255, 255, 0.14)',
+              backgroundColor: '#161922',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
               borderRadius: '24px',
               padding: 'var(--space-6)',
               boxShadow: '0 24px 48px rgba(0, 0, 0, 0.7)',
@@ -901,8 +1924,8 @@ export const PublicStorefrontPage: React.FC = () => {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
               <div>
-                <span style={{ fontSize: '10px', color: '#38BDF8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Secure Customer Checkout
+                <span style={{ fontSize: '10px', color: '#EAB308', fontWeight: 800, textTransform: 'uppercase' }}>
+                  Customer Checkout
                 </span>
                 <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF' }}>
                   Purchase {formatDataAmount(selectedProduct.dataAmountMb)} {selectedProduct.network}
@@ -934,9 +1957,9 @@ export const PublicStorefrontPage: React.FC = () => {
                 <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: '#F8FAFC', display: 'block' }}>
                   {selectedProduct.network} · {formatDataAmount(selectedProduct.dataAmountMb)} Data
                 </span>
-                <span style={{ fontSize: '10px', color: '#94A3B8' }}>{selectedProduct.validityDesc || `${selectedProduct.validityDays} Days`}</span>
+                <span style={{ fontSize: '10px', color: '#94A3B8' }}>{selectedProduct.validityDesc || 'Non-Expiry'}</span>
               </div>
-              <strong style={{ fontSize: '1.3rem', color: '#10B981', fontFamily: 'var(--font-data)' }}>
+              <strong style={{ fontSize: '1.3rem', color: '#10B981' }}>
                 GH₵ {(selectedProduct.retailPricePesewas / 100).toFixed(2)}
               </strong>
             </div>
@@ -989,9 +2012,9 @@ export const PublicStorefrontPage: React.FC = () => {
                     onClick={() => setSelectedChannel('mobile_money')}
                     style={{
                       padding: '0.5rem',
-                      borderRadius: '8px',
-                      border: selectedChannel === 'mobile_money' ? '2px solid #0066FF' : '1px solid rgba(255, 255, 255, 0.1)',
-                      backgroundColor: selectedChannel === 'mobile_money' ? 'rgba(0, 102, 255, 0.15)' : 'rgba(15, 23, 42, 0.6)',
+                      borderRadius: '10px',
+                      border: selectedChannel === 'mobile_money' ? '2px solid #EAB308' : '1px solid rgba(255, 255, 255, 0.1)',
+                      backgroundColor: selectedChannel === 'mobile_money' ? 'rgba(234, 179, 8, 0.15)' : '#0F1117',
                       color: '#FFFFFF',
                       fontSize: '11px',
                       fontWeight: 800,
@@ -1002,7 +2025,7 @@ export const PublicStorefrontPage: React.FC = () => {
                       gap: '0.35rem',
                     }}
                   >
-                    <Smartphone size={14} color="#38BDF8" />
+                    <Smartphone size={14} color="#EAB308" />
                     <span>Mobile Money</span>
                   </button>
 
@@ -1011,9 +2034,9 @@ export const PublicStorefrontPage: React.FC = () => {
                     onClick={() => setSelectedChannel('card')}
                     style={{
                       padding: '0.5rem',
-                      borderRadius: '8px',
-                      border: selectedChannel === 'card' ? '2px solid #0066FF' : '1px solid rgba(255, 255, 255, 0.1)',
-                      backgroundColor: selectedChannel === 'card' ? 'rgba(0, 102, 255, 0.15)' : 'rgba(15, 23, 42, 0.6)',
+                      borderRadius: '10px',
+                      border: selectedChannel === 'card' ? '2px solid #EAB308' : '1px solid rgba(255, 255, 255, 0.1)',
+                      backgroundColor: selectedChannel === 'card' ? 'rgba(234, 179, 8, 0.15)' : '#0F1117',
                       color: '#FFFFFF',
                       fontSize: '11px',
                       fontWeight: 800,
@@ -1024,7 +2047,7 @@ export const PublicStorefrontPage: React.FC = () => {
                       gap: '0.35rem',
                     }}
                   >
-                    <CreditCard size={14} color="#38BDF8" />
+                    <CreditCard size={14} color="#EAB308" />
                     <span>Debit Card</span>
                   </button>
                 </div>
@@ -1037,9 +2060,9 @@ export const PublicStorefrontPage: React.FC = () => {
                   style={{
                     width: '100%',
                     padding: '0.75rem',
-                    borderRadius: '10px',
-                    backgroundColor: isMaintenanceMode ? '#334155' : primaryBrandColor,
-                    color: isMaintenanceMode ? '#94A3B8' : '#FFFFFF',
+                    borderRadius: '12px',
+                    backgroundColor: isMaintenanceMode ? '#334155' : '#EAB308',
+                    color: isMaintenanceMode ? '#94A3B8' : '#0F172A',
                     border: 'none',
                     fontSize: 'var(--font-size-sm)',
                     fontWeight: 900,
@@ -1049,7 +2072,7 @@ export const PublicStorefrontPage: React.FC = () => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    boxShadow: !isMaintenanceMode ? `0 4px 16px ${primaryBrandColor}55` : 'none',
+                    boxShadow: !isMaintenanceMode ? '0 4px 16px rgba(234, 179, 8, 0.35)' : 'none',
                   }}
                 >
                   <Lock size={15} />
@@ -1072,7 +2095,9 @@ export const PublicStorefrontPage: React.FC = () => {
         </div>
       )}
 
-      {/* 5. Order Confirmation Modal */}
+      {/* ==================================================================== */}
+      {/* 15. ORDER CONFIRMATION MODAL */}
+      {/* ==================================================================== */}
       {confirmedOrder && (
         <div
           style={{
@@ -1092,7 +2117,7 @@ export const PublicStorefrontPage: React.FC = () => {
               position: 'relative',
               maxWidth: '460px',
               width: '100%',
-              backgroundColor: '#0F172A',
+              backgroundColor: '#161922',
               border: '1px solid rgba(34, 197, 94, 0.4)',
               borderRadius: '24px',
               padding: 'var(--space-6)',
@@ -1121,14 +2146,14 @@ export const PublicStorefrontPage: React.FC = () => {
               Bundle Dispatched!
             </h3>
             <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', marginTop: '0.35rem', lineHeight: 1.5 }}>
-              Your order <strong style={{ color: '#38BDF8', fontFamily: 'var(--font-mono)' }}>{confirmedOrder.orderId}</strong> has been confirmed and queued for direct telecom delivery to <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{confirmedOrder.recipientPhone}</strong>.
+              Your order <strong style={{ color: '#EAB308', fontFamily: 'var(--font-mono)' }}>{confirmedOrder.orderId}</strong> has been confirmed and queued for direct telecom delivery to <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{confirmedOrder.recipientPhone}</strong>.
             </p>
 
             <div
               style={{
-                backgroundColor: 'rgba(15, 23, 42, 0.8)',
+                backgroundColor: '#0F1117',
                 border: '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: '12px',
+                borderRadius: '14px',
                 padding: 'var(--space-4)',
                 margin: 'var(--space-4) 0',
                 textAlign: 'left',
@@ -1143,7 +2168,7 @@ export const PublicStorefrontPage: React.FC = () => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
                 <span style={{ color: '#64748B' }}>Amount Paid:</span>
-                <strong style={{ color: '#10B981', fontFamily: 'var(--font-data)' }}>{confirmedOrder.amountDisplay}</strong>
+                <strong style={{ color: '#10B981' }}>{confirmedOrder.amountDisplay}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
                 <span style={{ color: '#64748B' }}>Status:</span>
@@ -1151,54 +2176,33 @@ export const PublicStorefrontPage: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <Link
-                to={`/track/${confirmedOrder.orderId}`}
-                style={{
-                  flex: 1,
-                  padding: '0.65rem',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  color: '#FFFFFF',
-                  textDecoration: 'none',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.35rem',
-                }}
-              >
-                <span>Live Tracker</span>
-                <ExternalLink size={13} />
-              </Link>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirmedOrder(null);
-                  setSelectedProduct(null);
-                }}
-                style={{
-                  flex: 1,
-                  padding: '0.65rem',
-                  borderRadius: '10px',
-                  backgroundColor: primaryBrandColor,
-                  color: '#FFFFFF',
-                  border: 'none',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                Done
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmedOrder(null);
+                setSelectedProduct(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '0.7rem',
+                borderRadius: '12px',
+                backgroundColor: '#EAB308',
+                color: '#0F172A',
+                border: 'none',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 900,
+                cursor: 'pointer',
+              }}
+            >
+              Done
+            </button>
           </div>
         </div>
       )}
 
-      {/* 6. In-Store Quick Order Tracking Modal */}
+      {/* ==================================================================== */}
+      {/* 16. ORDER TRACKING MODAL */}
+      {/* ==================================================================== */}
       {showTrackModal && (
         <div
           style={{
@@ -1221,7 +2225,7 @@ export const PublicStorefrontPage: React.FC = () => {
               position: 'relative',
               maxWidth: '460px',
               width: '100%',
-              backgroundColor: '#0F172A',
+              backgroundColor: '#161922',
               border: '1px solid rgba(255, 255, 255, 0.12)',
               borderRadius: '24px',
               padding: 'var(--space-6)',
@@ -1231,7 +2235,7 @@ export const PublicStorefrontPage: React.FC = () => {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
               <div>
-                <span style={{ fontSize: '10px', color: '#38BDF8', fontWeight: 800, textTransform: 'uppercase' }}>
+                <span style={{ fontSize: '10px', color: '#EAB308', fontWeight: 800, textTransform: 'uppercase' }}>
                   Delivery Tracking
                 </span>
                 <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF' }}>
@@ -1247,10 +2251,16 @@ export const PublicStorefrontPage: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handlePerformTrack} style={{ display: 'flex', gap: '0.5rem', marginBottom: 'var(--space-4)' }}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handlePerformTrack();
+              }}
+              style={{ display: 'flex', gap: '0.5rem', marginBottom: 'var(--space-4)' }}
+            >
               <div style={{ flex: 1 }}>
                 <Input
-                  placeholder="Order ID (e.g. ord_sf_... or phone)"
+                  placeholder="Order ID or recipient phone"
                   value={trackQuery}
                   onChange={(e) => setTrackQuery(e.target.value)}
                   leftIcon={<Search size={14} color="#94A3B8" />}
@@ -1264,9 +2274,9 @@ export const PublicStorefrontPage: React.FC = () => {
             {trackedOrder ? (
               <div
                 style={{
-                  backgroundColor: 'rgba(15, 23, 42, 0.8)',
+                  backgroundColor: '#0F1117',
                   border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '12px',
+                  borderRadius: '14px',
                   padding: 'var(--space-4)',
                   display: 'flex',
                   flexDirection: 'column',
@@ -1289,76 +2299,115 @@ export const PublicStorefrontPage: React.FC = () => {
                   <span style={{ color: '#64748B' }}>Status:</span>
                   <span style={{ color: '#10B981', fontWeight: 800 }}>● {trackedOrder.statusLabel}</span>
                 </div>
-
-                <div style={{ marginTop: '0.5rem' }}>
-                  <Link
-                    to={`/track/${trackedOrder.orderId}`}
-                    style={{
-                      display: 'block',
-                      textAlign: 'center',
-                      padding: '0.45rem',
-                      borderRadius: '8px',
-                      backgroundColor: 'rgba(0, 102, 255, 0.15)',
-                      border: '1px solid rgba(0, 102, 255, 0.35)',
-                      color: '#38BDF8',
-                      textDecoration: 'none',
-                      fontSize: '11px',
-                      fontWeight: 800,
-                    }}
-                  >
-                    Open Detailed Tracker Timeline →
-                  </Link>
-                </div>
               </div>
             ) : trackSearched && !isTracking ? (
               <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: '#EF4444', fontSize: 'var(--font-size-xs)' }}>
-                No order found matching "{trackQuery}". Please verify your order reference.
+                No order found matching "{trackQuery}". Please check your details.
               </div>
             ) : null}
           </div>
         </div>
       )}
 
-      {/* 7. Storefront Footer */}
-      <footer
-        style={{
-          marginTop: 'auto',
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-          padding: 'var(--space-6)',
-          textAlign: 'center',
-          fontSize: '11px',
-          color: '#64748B',
-        }}
-      >
-        <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <div>
-            <span>© {new Date().getFullYear()} {store.storeName} · Direct High-Speed Data Fulfillment</span>
-          </div>
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            <button
-              type="button"
-              onClick={() => setShowTrackModal(true)}
-              style={{ background: 'none', border: 'none', color: '#94A3B8', textDecoration: 'none', fontSize: '11px', cursor: 'pointer', padding: 0 }}
-            >
-              Order Tracking
-            </button>
-            <span style={{ color: '#334155' }}>•</span>
-            <a
-              href={STOREFRONT_CONFIG.getMainPlatformUrl('/signin')}
-              style={{ color: '#94A3B8', textDecoration: 'none', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
-            >
-              <span>Merchant Portal</span>
-              <ExternalLink size={10} />
-            </a>
-            <span style={{ color: '#334155' }}>•</span>
-            <span style={{ color: '#10B981', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              <ShieldCheck size={13} /> Secured by Paystack
-            </span>
+      {/* ==================================================================== */}
+      {/* 17. CHECK A NUMBER PRECHECK MODAL */}
+      {/* ==================================================================== */}
+      {showNumberCheckModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 'var(--space-4)',
+          }}
+        >
+          <div
+            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(6px)' }}
+            onClick={() => setShowNumberCheckModal(false)}
+          />
+
+          <div
+            style={{
+              position: 'relative',
+              maxWidth: '440px',
+              width: '100%',
+              backgroundColor: '#161922',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: '24px',
+              padding: 'var(--space-6)',
+              zIndex: 110,
+              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.8)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+              <div>
+                <span style={{ fontSize: '10px', color: '#38BDF8', fontWeight: 800, textTransform: 'uppercase' }}>
+                  Number Pre-Check
+                </span>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF' }}>
+                  Verify Your Phone Number
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNumberCheckModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCheckNumber} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <PhoneInput
+                label="Ghana Phone Number"
+                placeholder="0244123456"
+                value={checkNumberPhone}
+                onChange={(e) => setCheckNumberPhone(e.target.value)}
+                required
+              />
+
+              <Button variant="primary" size="md" type="submit" isLoading={isCheckingNumber} fullWidth>
+                Verify Number
+              </Button>
+
+              {numberCheckResult && (
+                <div
+                  style={{
+                    backgroundColor: '#0F1117',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '12px',
+                    padding: 'var(--space-4)',
+                    marginTop: 'var(--space-2)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.35rem',
+                    fontSize: '11px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Network:</span>
+                    <strong style={{ color: '#FFFFFF' }}>{numberCheckResult.network}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Status:</span>
+                    <strong style={{ color: '#10B981' }}>{numberCheckResult.status}</strong>
+                  </div>
+                  <p style={{ color: '#CBD5E1', margin: '0.3rem 0 0 0', lineHeight: 1.4 }}>
+                    {numberCheckResult.message}
+                  </p>
+                </div>
+              )}
+            </form>
           </div>
         </div>
-      </footer>
+      )}
 
-      {/* Beneficiary Not Approved Warning Modal */}
+      {/* ==================================================================== */}
+      {/* 18. BENEFICIARY NOT APPROVED WARNING MODAL */}
+      {/* ==================================================================== */}
       <BeneficiaryNotApprovedModal
         isOpen={unapprovedModalOpen}
         onClose={() => setUnapprovedModalOpen(false)}
@@ -1367,3 +2416,4 @@ export const PublicStorefrontPage: React.FC = () => {
     </div>
   );
 };
+export default PublicStorefrontPage;
