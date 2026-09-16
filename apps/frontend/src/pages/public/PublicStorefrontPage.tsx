@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { PhoneInput, Input, Card, Badge, Button, detectGhanaianNetwork } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
+import { useTheme } from '../../context/ThemeContext.js';
 import { MaintenanceBanner } from '../../components/navigation/MaintenanceBanner.js';
 import { storesApi, StoreProfileDto, PublicStoreProductDto } from '../../api/stores.api.js';
 import { ordersApi } from '../../api/orders.api.js';
@@ -26,6 +27,7 @@ import {
   Clock,
   Truck,
   Moon,
+  Sun,
   ChevronRight,
   HelpCircle,
   Check,
@@ -95,6 +97,79 @@ export const PublicStorefrontPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
+
+  const t = useMemo(() => ({
+    isDark,
+    bgPage: isDark ? '#0F1117' : '#F8FAFC',
+    textPage: isDark ? '#F8FAFC' : '#0F172A',
+
+    // Announcement top bar
+    bgBar: isDark ? '#090B0E' : '#F1F5F9',
+    borderBar: isDark ? 'rgba(255, 255, 255, 0.06)' : '#E2E8F0',
+    textBar: isDark ? '#94A3B8' : '#64748B',
+    phoneLink: isDark ? '#CBD5E1' : '#334155',
+
+    // Header & Navbar
+    bgHeader: isDark ? 'rgba(15, 17, 24, 0.92)' : 'rgba(255, 255, 255, 0.94)',
+    borderHeader: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+    avatarBg: isDark ? '#1E222D' : '#0F172A',
+    avatarBorder: isDark ? 'rgba(255, 255, 255, 0.15)' : '#CBD5E1',
+    avatarColor: '#FFFFFF',
+    storeNameColor: isDark ? '#FFFFFF' : '#0F172A',
+
+    navContainerBg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#F1F5F9',
+    navContainerBorder: isDark ? 'rgba(255, 255, 255, 0.06)' : '#E2E8F0',
+    navActiveBg: isDark ? '#252936' : '#0F172A',
+    navActiveColor: '#FFFFFF',
+    navInactiveColor: isDark ? '#94A3B8' : '#64748B',
+
+    // Theme toggle button
+    themeBtnBg: isDark ? 'rgba(255, 255, 255, 0.06)' : '#FFFFFF',
+    themeBtnBorder: isDark ? 'rgba(255, 255, 255, 0.1)' : '#CBD5E1',
+    themeBtnColor: isDark ? '#FBBF24' : '#334155',
+
+    // General Card & Section Surfaces
+    cardBg: isDark ? '#161922' : '#FFFFFF',
+    cardBorder: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+    cardSubtleBorder: isDark ? 'rgba(255, 255, 255, 0.06)' : '#E2E8F0',
+    cardShadow: isDark ? '0 10px 30px rgba(0, 0, 0, 0.4)' : '0 4px 16px rgba(0, 0, 0, 0.05)',
+    cardShadowLg: isDark ? '0 20px 40px rgba(0, 0, 0, 0.6)' : '0 10px 30px rgba(0, 0, 0, 0.08)',
+
+    // Headings & Text
+    heading: isDark ? '#FFFFFF' : '#0F172A',
+    bodyText: isDark ? '#94A3B8' : '#64748B',
+    secondaryText: isDark ? '#CBD5E1' : '#334155',
+
+    // Hero specifics
+    heroBg: isDark ? '#151821' : '#FFFFFF',
+    heroDot: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+    heroGhostBg: isDark ? '#252936' : '#F8FAFC',
+    heroGhostBorder: isDark ? 'rgba(255, 255, 255, 0.1)' : '#CBD5E1',
+    heroGhostColor: isDark ? '#FFFFFF' : '#0F172A',
+
+    // Feature Badges
+    badgeIconBoxBg: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9',
+
+    // Inputs & Forms
+    inputBg: isDark ? '#0F1117' : '#FFFFFF',
+    inputBorder: isDark ? 'rgba(255, 255, 255, 0.12)' : '#CBD5E1',
+
+    // Modal specifics
+    modalBg: isDark ? '#161922' : '#FFFFFF',
+    modalBorder: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
+    modalOverlay: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(15, 23, 42, 0.6)',
+    modalBoxBg: isDark ? '#0F1117' : '#F8FAFC',
+    modalBoxBorder: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+
+    // Footer
+    footerBg: isDark ? '#090B0E' : '#F8FAFC',
+    footerBorder: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+    footerSubBorder: isDark ? 'rgba(255, 255, 255, 0.05)' : '#E2E8F0',
+    footerText: isDark ? '#94A3B8' : '#64748B',
+    footerSubText: isDark ? '#64748B' : '#94A3B8',
+  }), [isDark]);
 
   // Extract slug
   const subdomainSlug = STOREFRONT_CONFIG.extractSlugFromSubdomain();
@@ -481,8 +556,8 @@ export const PublicStorefrontPage: React.FC = () => {
       <div
         style={{
           minHeight: '100vh',
-          backgroundColor: '#0F1117',
-          color: '#F8FAFC',
+          backgroundColor: t.bgPage,
+          color: t.textPage,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -501,7 +576,7 @@ export const PublicStorefrontPage: React.FC = () => {
             animation: 'spin 1s linear infinite',
           }}
         />
-        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: '#94A3B8' }}>
+        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: t.bodyText }}>
           Loading Storefront & Real-Time Bundles...
         </span>
       </div>
@@ -514,8 +589,8 @@ export const PublicStorefrontPage: React.FC = () => {
       <div
         style={{
           minHeight: '100vh',
-          backgroundColor: '#0F1117',
-          color: '#F8FAFC',
+          backgroundColor: t.bgPage,
+          color: t.textPage,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -529,10 +604,10 @@ export const PublicStorefrontPage: React.FC = () => {
             maxWidth: '500px',
             width: '100%',
             padding: 'var(--space-8)',
-            backgroundColor: '#161922',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            backgroundColor: t.cardBg,
+            border: `1px solid ${t.cardBorder}`,
             borderRadius: '24px',
-            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
+            boxShadow: t.cardShadowLg,
           }}
         >
           <div
@@ -551,10 +626,10 @@ export const PublicStorefrontPage: React.FC = () => {
             <Store size={28} />
           </div>
 
-          <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: '#FFFFFF', margin: 0 }}>
+          <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: t.heading, margin: 0 }}>
             Storefront Unavailable
           </h2>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', marginTop: '0.5rem', lineHeight: 1.5 }}>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, marginTop: '0.5rem', lineHeight: 1.5 }}>
             The merchant storefront <code style={{ color: '#EAB308', fontFamily: 'var(--font-mono)' }}>/{storeSlug}</code> is currently undergoing maintenance or is unavailable.
           </p>
 
@@ -585,9 +660,9 @@ export const PublicStorefrontPage: React.FC = () => {
               style={{
                 padding: '0.65rem 1rem',
                 borderRadius: '12px',
-                backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                color: '#FFFFFF',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
+                backgroundColor: t.heroGhostBg,
+                color: t.heroGhostColor,
+                border: `1px solid ${t.heroGhostBorder}`,
                 fontSize: 'var(--font-size-xs)',
                 fontWeight: 700,
                 display: 'flex',
@@ -615,11 +690,12 @@ export const PublicStorefrontPage: React.FC = () => {
     <div
       style={{
         minHeight: '100vh',
-        backgroundColor: '#0F1117',
-        color: '#F8FAFC',
+        backgroundColor: t.bgPage,
+        color: t.textPage,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
         display: 'flex',
         flexDirection: 'column',
+        transition: 'background-color 200ms ease, color 200ms ease',
       }}
     >
       <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
@@ -629,11 +705,12 @@ export const PublicStorefrontPage: React.FC = () => {
       {/* ==================================================================== */}
       <div
         style={{
-          backgroundColor: '#090B0E',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          backgroundColor: t.bgBar,
+          borderBottom: `1px solid ${t.borderBar}`,
           padding: '0.4rem var(--space-6)',
           fontSize: '11px',
-          color: '#94A3B8',
+          color: t.textBar,
+          transition: 'background-color 200ms ease, border-color 200ms ease',
         }}
       >
         <div
@@ -650,10 +727,10 @@ export const PublicStorefrontPage: React.FC = () => {
           {/* Left: Delivery Time & Open Status */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-              <Truck size={12} color="#94A3B8" />
+              <Truck size={12} color={t.textBar} />
               <span>Delivery: 10min - 1hr</span>
             </span>
-            <span style={{ color: '#334155' }}>•</span>
+            <span style={{ color: isDark ? '#334155' : '#CBD5E1' }}>•</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#10B981', fontWeight: 700 }}>
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }} />
               Open Now
@@ -666,7 +743,7 @@ export const PublicStorefrontPage: React.FC = () => {
               <a
                 href={`tel:${contactPhone}`}
                 style={{
-                  color: '#CBD5E1',
+                  color: t.phoneLink,
                   textDecoration: 'none',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -674,7 +751,7 @@ export const PublicStorefrontPage: React.FC = () => {
                   fontWeight: 600,
                 }}
               >
-                <PhoneCall size={11} color="#94A3B8" />
+                <PhoneCall size={11} color={t.textBar} />
                 <span>{contactPhone}</span>
               </a>
             )}
@@ -705,13 +782,14 @@ export const PublicStorefrontPage: React.FC = () => {
       {/* ==================================================================== */}
       <header
         style={{
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          backgroundColor: 'rgba(15, 17, 24, 0.92)',
+          borderBottom: `1px solid ${t.borderHeader}`,
+          backgroundColor: t.bgHeader,
           backdropFilter: 'blur(16px)',
           position: 'sticky',
           top: 0,
           zIndex: 40,
           padding: '0.75rem var(--space-6)',
+          transition: 'background-color 200ms ease, border-color 200ms ease',
         }}
       >
         <div
@@ -739,15 +817,15 @@ export const PublicStorefrontPage: React.FC = () => {
                 width: '36px',
                 height: '36px',
                 borderRadius: '10px',
-                backgroundColor: '#1E222D',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                color: '#FFFFFF',
+                backgroundColor: t.avatarBg,
+                border: `1px solid ${t.avatarBorder}`,
+                color: t.avatarColor,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 900,
                 fontSize: '16px',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                boxShadow: isDark ? '0 4px 12px rgba(0, 0, 0, 0.4)' : '0 2px 6px rgba(0, 0, 0, 0.08)',
                 flexShrink: 0,
               }}
             >
@@ -757,7 +835,7 @@ export const PublicStorefrontPage: React.FC = () => {
               style={{
                 fontSize: 'var(--font-size-sm)',
                 fontWeight: 900,
-                color: '#FFFFFF',
+                color: t.storeNameColor,
                 letterSpacing: '-0.01em',
               }}
             >
@@ -771,18 +849,19 @@ export const PublicStorefrontPage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               gap: '0.4rem',
-              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+              backgroundColor: t.navContainerBg,
               padding: '3px',
               borderRadius: '100px',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              border: `1px solid ${t.navContainerBorder}`,
+              transition: 'all 200ms ease',
             }}
           >
             <button
               type="button"
               onClick={() => scrollToSection('hero', 'home')}
               style={{
-                background: activeNav === 'home' ? '#252936' : 'transparent',
-                color: activeNav === 'home' ? '#FFFFFF' : '#94A3B8',
+                background: activeNav === 'home' ? t.navActiveBg : 'transparent',
+                color: activeNav === 'home' ? t.navActiveColor : t.navInactiveColor,
                 border: 'none',
                 padding: '0.35rem 0.9rem',
                 borderRadius: '100px',
@@ -799,8 +878,8 @@ export const PublicStorefrontPage: React.FC = () => {
               type="button"
               onClick={() => scrollToSection('bundles', 'buy')}
               style={{
-                background: activeNav === 'buy' ? '#252936' : 'transparent',
-                color: activeNav === 'buy' ? '#FFFFFF' : '#94A3B8',
+                background: activeNav === 'buy' ? t.navActiveBg : 'transparent',
+                color: activeNav === 'buy' ? t.navActiveColor : t.navInactiveColor,
                 border: 'none',
                 padding: '0.35rem 0.9rem',
                 borderRadius: '100px',
@@ -820,8 +899,8 @@ export const PublicStorefrontPage: React.FC = () => {
                 setActiveNav('track');
               }}
               style={{
-                background: activeNav === 'track' ? '#252936' : 'transparent',
-                color: activeNav === 'track' ? '#FFFFFF' : '#94A3B8',
+                background: activeNav === 'track' ? t.navActiveBg : 'transparent',
+                color: activeNav === 'track' ? t.navActiveColor : t.navInactiveColor,
                 border: 'none',
                 padding: '0.35rem 0.9rem',
                 borderRadius: '100px',
@@ -838,8 +917,8 @@ export const PublicStorefrontPage: React.FC = () => {
               type="button"
               onClick={() => scrollToSection('about', 'about')}
               style={{
-                background: activeNav === 'about' ? '#252936' : 'transparent',
-                color: activeNav === 'about' ? '#FFFFFF' : '#94A3B8',
+                background: activeNav === 'about' ? t.navActiveBg : 'transparent',
+                color: activeNav === 'about' ? t.navActiveColor : t.navInactiveColor,
                 border: 'none',
                 padding: '0.35rem 0.9rem',
                 borderRadius: '100px',
@@ -853,24 +932,30 @@ export const PublicStorefrontPage: React.FC = () => {
             </button>
           </nav>
 
-          {/* Theme Icon / Right Accent */}
+          {/* Theme Toggle Icon */}
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <div
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
               style={{
-                width: '32px',
-                height: '32px',
+                width: '34px',
+                height: '34px',
                 borderRadius: '50%',
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                color: '#CBD5E1',
+                backgroundColor: t.themeBtnBg,
+                border: `1px solid ${t.themeBtnBorder}`,
+                color: t.themeBtnColor,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
+                transition: 'all 150ms ease',
+                boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.3)' : '0 2px 6px rgba(0, 0, 0, 0.06)',
               }}
             >
-              <Moon size={15} />
-            </div>
+              {isDark ? <Sun size={15} /> : <Moon size={15} />}
+            </button>
           </div>
         </div>
       </header>
@@ -885,14 +970,15 @@ export const PublicStorefrontPage: React.FC = () => {
         <section
           id="hero"
           style={{
-            backgroundColor: '#151821',
-            backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px)',
+            backgroundColor: t.heroBg,
+            backgroundImage: `radial-gradient(${t.heroDot} 1px, transparent 1px)`,
             backgroundSize: '18px 18px',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            border: `1px solid ${t.cardBorder}`,
             borderRadius: '24px',
             padding: 'var(--space-10) var(--space-8)',
             marginBottom: 'var(--space-5)',
-            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.4)',
+            boxShadow: t.cardShadow,
+            transition: 'background-color 200ms ease, border-color 200ms ease',
           }}
         >
           <div style={{ maxWidth: '680px' }}>
@@ -920,7 +1006,7 @@ export const PublicStorefrontPage: React.FC = () => {
               style={{
                 fontSize: 'clamp(2rem, 4.5vw, 2.85rem)',
                 fontWeight: 900,
-                color: '#FFFFFF',
+                color: t.heading,
                 lineHeight: 1.15,
                 margin: '0 0 0.5rem 0',
                 letterSpacing: '-0.02em',
@@ -934,7 +1020,7 @@ export const PublicStorefrontPage: React.FC = () => {
             <p
               style={{
                 fontSize: 'var(--font-size-sm)',
-                color: '#94A3B8',
+                color: t.bodyText,
                 lineHeight: 1.5,
                 margin: '0 0 var(--space-6) 0',
               }}
@@ -971,9 +1057,9 @@ export const PublicStorefrontPage: React.FC = () => {
                 type="button"
                 onClick={() => setShowTrackModal(true)}
                 style={{
-                  backgroundColor: '#252936',
-                  color: '#FFFFFF',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  backgroundColor: t.heroGhostBg,
+                  color: t.heroGhostColor,
+                  border: `1px solid ${t.heroGhostBorder}`,
                   padding: '0.65rem 1.35rem',
                   borderRadius: '12px',
                   fontSize: 'var(--font-size-xs)',
@@ -996,16 +1082,18 @@ export const PublicStorefrontPage: React.FC = () => {
         {/* ================================================================== */}
         <section
           style={{
-            backgroundColor: '#161922',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            backgroundColor: t.cardBg,
+            border: `1px solid ${t.cardBorder}`,
             borderRadius: '16px',
             padding: 'var(--space-4) var(--space-5)',
             marginBottom: 'var(--space-5)',
+            boxShadow: t.cardShadow,
+            transition: 'background-color 200ms ease, border-color 200ms ease',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
-            <Truck size={14} color="#94A3B8" />
-            <strong style={{ fontSize: '12px', fontWeight: 800, color: '#FFFFFF' }}>Delivery Progress</strong>
+            <Truck size={14} color={t.bodyText} />
+            <strong style={{ fontSize: '12px', fontWeight: 800, color: t.heading }}>Delivery Progress</strong>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '11px' }}>
@@ -1045,8 +1133,8 @@ export const PublicStorefrontPage: React.FC = () => {
             <div
               key={i}
               style={{
-                backgroundColor: '#161922',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
+                backgroundColor: t.cardBg,
+                border: `1px solid ${t.cardSubtleBorder}`,
                 borderRadius: '14px',
                 padding: 'var(--space-4)',
                 display: 'flex',
@@ -1055,7 +1143,9 @@ export const PublicStorefrontPage: React.FC = () => {
                 gap: '0.5rem',
                 fontSize: '12px',
                 fontWeight: 800,
-                color: '#FFFFFF',
+                color: t.heading,
+                boxShadow: t.cardShadow,
+                transition: 'background-color 200ms ease, border-color 200ms ease',
               }}
             >
               {feat.icon}
@@ -1069,7 +1159,7 @@ export const PublicStorefrontPage: React.FC = () => {
         {/* ================================================================== */}
         <section style={{ marginBottom: 'var(--space-8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF', margin: 0 }}>
+            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading, margin: 0 }}>
               Choose Your Network
             </h2>
             <button
@@ -1078,7 +1168,7 @@ export const PublicStorefrontPage: React.FC = () => {
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#94A3B8',
+                color: t.bodyText,
                 fontSize: '12px',
                 fontWeight: 700,
                 cursor: 'pointer',
@@ -1131,7 +1221,7 @@ export const PublicStorefrontPage: React.FC = () => {
                     padding: 'var(--space-5)',
                     color: theme.textColor,
                     cursor: 'pointer',
-                    boxShadow: isSelected ? `0 0 20px ${theme.accentColor}55` : '0 8px 24px rgba(0, 0, 0, 0.3)',
+                    boxShadow: isSelected ? `0 0 20px ${theme.accentColor}55` : (isDark ? '0 8px 24px rgba(0, 0, 0, 0.3)' : '0 4px 14px rgba(0, 0, 0, 0.08)'),
                     transition: 'transform 120ms ease, box-shadow 120ms ease',
                     position: 'relative',
                   }}
@@ -1180,7 +1270,7 @@ export const PublicStorefrontPage: React.FC = () => {
         {/* ================================================================== */}
         <section style={{ marginBottom: 'var(--space-8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF', margin: 0 }}>
+            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading, margin: 0 }}>
               Popular Bundles
             </h2>
 
@@ -1191,7 +1281,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: '#38BDF8',
+                  color: isDark ? '#38BDF8' : '#0284C7',
                   fontSize: '12px',
                   fontWeight: 700,
                   cursor: 'pointer',
@@ -1210,7 +1300,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: '#94A3B8',
+                  color: t.bodyText,
                   fontSize: '12px',
                   fontWeight: 700,
                   cursor: 'pointer',
@@ -1246,7 +1336,7 @@ export const PublicStorefrontPage: React.FC = () => {
                     padding: 'var(--space-5)',
                     color: theme.textColor,
                     cursor: 'pointer',
-                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
+                    boxShadow: isDark ? '0 8px 24px rgba(0, 0, 0, 0.3)' : '0 4px 14px rgba(0, 0, 0, 0.08)',
                     transition: 'transform 120ms ease',
                     display: 'flex',
                     flexDirection: 'column',
@@ -1322,16 +1412,17 @@ export const PublicStorefrontPage: React.FC = () => {
                     style={{
                       padding: '0.55rem 1.1rem',
                       borderRadius: '12px',
-                      border: isSelected ? `2px solid ${net.color}` : '1px solid rgba(255, 255, 255, 0.08)',
-                      backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.08)' : '#161922',
-                      color: '#FFFFFF',
+                      border: isSelected ? `2px solid ${net.color}` : `1px solid ${t.cardBorder}`,
+                      backgroundColor: isSelected ? (isDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF') : t.cardBg,
+                      color: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : t.bodyText,
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '0.45rem',
                       fontSize: '12px',
                       fontWeight: 800,
-                      boxShadow: isSelected ? `0 0 14px ${net.color}33` : 'none',
+                      boxShadow: isSelected ? `0 0 14px ${net.color}33` : t.cardShadow,
+                      transition: 'all 120ms ease',
                     }}
                   >
                     <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: net.color }} />
@@ -1341,8 +1432,8 @@ export const PublicStorefrontPage: React.FC = () => {
                         fontSize: '10px',
                         padding: '1px 6px',
                         borderRadius: '6px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        color: isSelected ? '#FFFFFF' : '#94A3B8',
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#F1F5F9',
+                        color: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : t.bodyText,
                       }}
                     >
                       {net.count}
@@ -1358,7 +1449,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 placeholder="Search volume (e.g. 5GB)"
                 value={bundleSearch}
                 onChange={(e) => setBundleSearch(e.target.value)}
-                leftIcon={<Search size={14} color="#94A3B8" />}
+                leftIcon={<Search size={14} color={t.bodyText} />}
               />
             </div>
           </div>
@@ -1369,16 +1460,16 @@ export const PublicStorefrontPage: React.FC = () => {
               style={{
                 padding: 'var(--space-10)',
                 textAlign: 'center',
-                backgroundColor: '#161922',
+                backgroundColor: t.cardBg,
                 borderRadius: '20px',
-                border: '1px dashed rgba(255, 255, 255, 0.1)',
+                border: `1px dashed ${t.cardBorder}`,
               }}
             >
-              <Smartphone size={32} color="#64748B" style={{ margin: '0 auto var(--space-3) auto' }} />
-              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: '#FFFFFF', margin: 0 }}>
+              <Smartphone size={32} color={t.bodyText} style={{ margin: '0 auto var(--space-3) auto' }} />
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: t.heading, margin: 0 }}>
                 No bundles available for {activeNetwork}
               </h3>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', marginTop: '0.25rem' }}>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, marginTop: '0.25rem' }}>
                 {bundleSearch ? `No bundles matching "${bundleSearch}".` : 'No active packages currently listed for this carrier.'}
               </p>
             </div>
@@ -1400,15 +1491,15 @@ export const PublicStorefrontPage: React.FC = () => {
                     key={prod.id}
                     style={{
                       borderRadius: '18px',
-                      backgroundColor: '#161922',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      backgroundColor: t.cardBg,
+                      border: `1px solid ${t.cardBorder}`,
                       padding: 'var(--space-5)',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
                       gap: 'var(--space-4)',
-                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
-                      transition: 'transform 120ms ease, border-color 120ms ease',
+                      boxShadow: t.cardShadow,
+                      transition: 'transform 120ms ease, border-color 120ms ease, background-color 200ms ease',
                       position: 'relative',
                     }}
                     onMouseEnter={(e) => {
@@ -1416,7 +1507,7 @@ export const PublicStorefrontPage: React.FC = () => {
                       e.currentTarget.style.transform = 'translateY(-2px)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.borderColor = t.cardBorder;
                       e.currentTarget.style.transform = 'translateY(0)';
                     }}
                   >
@@ -1434,15 +1525,15 @@ export const PublicStorefrontPage: React.FC = () => {
                         >
                           {prod.network}
                         </span>
-                        <span style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>
+                        <span style={{ fontSize: '11px', color: t.bodyText, fontWeight: 600 }}>
                           {prod.validityDesc || 'Non-Expiry'}
                         </span>
                       </div>
 
-                      <div style={{ fontSize: '1.9rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.02em', margin: '0.25rem 0' }}>
+                      <div style={{ fontSize: '1.9rem', fontWeight: 900, color: t.heading, letterSpacing: '-0.02em', margin: '0.25rem 0' }}>
                         {dataLabel}
                       </div>
-                      <span style={{ fontSize: '11px', color: '#64748B' }}>Direct High-Speed 4G/5G Turbo</span>
+                      <span style={{ fontSize: '11px', color: t.bodyText }}>Direct High-Speed 4G/5G Turbo</span>
                     </div>
 
                     <div>
@@ -1488,19 +1579,21 @@ export const PublicStorefrontPage: React.FC = () => {
         <section
           id="about"
           style={{
-            backgroundColor: '#161922',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            backgroundColor: t.cardBg,
+            border: `1px solid ${t.cardBorder}`,
             borderRadius: '24px',
             padding: 'var(--space-8)',
             marginBottom: 'var(--space-8)',
             scrollMarginTop: '80px',
+            boxShadow: t.cardShadow,
+            transition: 'background-color 200ms ease, border-color 200ms ease',
           }}
         >
           <h2
             style={{
               fontSize: 'var(--font-size-lg)',
               fontWeight: 900,
-              color: '#FFFFFF',
+              color: t.heading,
               textAlign: 'center',
               margin: '0 0 var(--space-8) 0',
             }}
@@ -1533,10 +1626,10 @@ export const PublicStorefrontPage: React.FC = () => {
               >
                 <CheckCircle2 size={24} />
               </div>
-              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.35rem' }}>
+              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: t.heading, marginBottom: '0.35rem' }}>
                 Guaranteed Delivery
               </strong>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', lineHeight: 1.5, margin: 0 }}>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, lineHeight: 1.5, margin: 0 }}>
                 Your data is always delivered. If there's any issue, we'll fix it or refund you.
               </p>
             </div>
@@ -1558,10 +1651,10 @@ export const PublicStorefrontPage: React.FC = () => {
               >
                 <Zap size={24} />
               </div>
-              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.35rem' }}>
+              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: t.heading, marginBottom: '0.35rem' }}>
                 Super Fast
               </strong>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', lineHeight: 1.5, margin: 0 }}>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, lineHeight: 1.5, margin: 0 }}>
                 Most orders are delivered within 10-30 minutes. No long waits.
               </p>
             </div>
@@ -1583,10 +1676,10 @@ export const PublicStorefrontPage: React.FC = () => {
               >
                 <ShieldCheck size={24} />
               </div>
-              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.35rem' }}>
+              <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: t.heading, marginBottom: '0.35rem' }}>
                 Safe & Secure
               </strong>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', lineHeight: 1.5, margin: 0 }}>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, lineHeight: 1.5, margin: 0 }}>
                 Secure payment processing. Your data and money are always protected.
               </p>
             </div>
@@ -1598,19 +1691,20 @@ export const PublicStorefrontPage: React.FC = () => {
         {/* ================================================================== */}
         <section
           style={{
-            backgroundColor: '#151821',
+            backgroundColor: t.cardBg,
             borderRadius: '24px',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            border: `1px solid ${t.cardBorder}`,
             padding: 'var(--space-8)',
             textAlign: 'center',
             marginBottom: 'var(--space-8)',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+            boxShadow: t.cardShadow,
+            transition: 'background-color 200ms ease, border-color 200ms ease',
           }}
         >
-          <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: '#FFFFFF', margin: '0 0 0.35rem 0' }}>
+          <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: t.heading, margin: '0 0 0.35rem 0' }}>
             Ready to Get Started?
           </h2>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', margin: '0 0 var(--space-5) 0' }}>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, margin: '0 0 var(--space-5) 0' }}>
             Choose your network and buy data in seconds.
           </p>
 
@@ -1643,19 +1737,21 @@ export const PublicStorefrontPage: React.FC = () => {
         <section
           id="track"
           style={{
-            backgroundColor: '#161922',
+            backgroundColor: t.cardBg,
             borderRadius: '24px',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            border: `1px solid ${t.cardBorder}`,
             padding: 'var(--space-8)',
             marginBottom: 'var(--space-8)',
             scrollMarginTop: '80px',
+            boxShadow: t.cardShadow,
+            transition: 'background-color 200ms ease, border-color 200ms ease',
           }}
         >
           <div style={{ maxWidth: '580px', margin: '0 auto', textAlign: 'center' }}>
-            <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: '#FFFFFF', margin: '0 0 0.35rem 0' }}>
+            <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: t.heading, margin: '0 0 0.35rem 0' }}>
               Track Your Order Status
             </h3>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', margin: '0 0 var(--space-5) 0' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, margin: '0 0 var(--space-5) 0' }}>
               Enter your Order Reference or 10-digit Ghanaian Phone Number to view live carrier delivery progress.
             </p>
 
@@ -1671,7 +1767,7 @@ export const PublicStorefrontPage: React.FC = () => {
                   placeholder="Order ID (e.g. ord_sf_...) or phone"
                   value={trackQuery}
                   onChange={(e) => setTrackQuery(e.target.value)}
-                  leftIcon={<Search size={14} color="#94A3B8" />}
+                  leftIcon={<Search size={14} color={t.bodyText} />}
                 />
               </div>
               <Button variant="primary" size="md" type="submit" isLoading={isTracking}>
@@ -1682,8 +1778,8 @@ export const PublicStorefrontPage: React.FC = () => {
             {trackedOrder && (
               <div
                 style={{
-                  backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  backgroundColor: t.modalBoxBg,
+                  border: `1px solid ${t.modalBoxBorder}`,
                   borderRadius: '16px',
                   padding: 'var(--space-5)',
                   textAlign: 'left',
@@ -1694,19 +1790,19 @@ export const PublicStorefrontPage: React.FC = () => {
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <span style={{ color: '#64748B' }}>Order ID:</span>
-                  <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{trackedOrder.orderId}</strong>
+                  <span style={{ color: t.bodyText }}>Order ID:</span>
+                  <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{trackedOrder.orderId}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <span style={{ color: '#64748B' }}>Package:</span>
-                  <strong style={{ color: '#FFFFFF' }}>{trackedOrder.product.name}</strong>
+                  <span style={{ color: t.bodyText }}>Package:</span>
+                  <strong style={{ color: t.heading }}>{trackedOrder.product.name}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <span style={{ color: '#64748B' }}>Recipient:</span>
-                  <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{trackedOrder.recipientPhone}</strong>
+                  <span style={{ color: t.bodyText }}>Recipient:</span>
+                  <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{trackedOrder.recipientPhone}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <span style={{ color: '#64748B' }}>Status:</span>
+                  <span style={{ color: t.bodyText }}>Status:</span>
                   <span style={{ color: '#10B981', fontWeight: 800 }}>● {trackedOrder.statusLabel}</span>
                 </div>
               </div>
@@ -1726,11 +1822,12 @@ export const PublicStorefrontPage: React.FC = () => {
       {/* ==================================================================== */}
       <footer
         style={{
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-          backgroundColor: '#090B0E',
+          borderTop: `1px solid ${t.footerBorder}`,
+          backgroundColor: t.footerBg,
           padding: 'var(--space-8) var(--space-6)',
           fontSize: '12px',
-          color: '#94A3B8',
+          color: t.footerText,
+          transition: 'background-color 200ms ease, border-color 200ms ease',
         }}
       >
         <div
@@ -1751,8 +1848,8 @@ export const PublicStorefrontPage: React.FC = () => {
                   width: '28px',
                   height: '28px',
                   borderRadius: '8px',
-                  backgroundColor: '#1E222D',
-                  color: '#FFFFFF',
+                  backgroundColor: t.avatarBg,
+                  color: t.avatarColor,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -1762,16 +1859,16 @@ export const PublicStorefrontPage: React.FC = () => {
               >
                 {storeInitial}
               </div>
-              <strong style={{ fontSize: 'var(--font-size-sm)', color: '#FFFFFF' }}>{storeName}</strong>
+              <strong style={{ fontSize: 'var(--font-size-sm)', color: t.heading }}>{storeName}</strong>
             </div>
-            <p style={{ fontSize: '11px', color: '#64748B', margin: 0, lineHeight: 1.4 }}>
+            <p style={{ fontSize: '11px', color: t.footerSubText, margin: 0, lineHeight: 1.4 }}>
               Data bundles by {storeName}. Instant high-speed delivery to all networks across Ghana.
             </p>
           </div>
 
           {/* Col 2: Quick Links */}
           <div>
-            <strong style={{ fontSize: '12px', fontWeight: 800, color: '#FFFFFF', display: 'block', marginBottom: '0.5rem' }}>
+            <strong style={{ fontSize: '12px', fontWeight: 800, color: t.heading, display: 'block', marginBottom: '0.5rem' }}>
               Quick Links
             </strong>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
@@ -1779,7 +1876,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => scrollToSection('hero', 'home')}
-                  style={{ background: 'none', border: 'none', color: '#94A3B8', padding: 0, fontSize: '12px', cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', color: t.footerText, padding: 0, fontSize: '12px', cursor: 'pointer' }}
                 >
                   Home
                 </button>
@@ -1788,7 +1885,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => scrollToSection('bundles', 'buy')}
-                  style={{ background: 'none', border: 'none', color: '#94A3B8', padding: 0, fontSize: '12px', cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', color: t.footerText, padding: 0, fontSize: '12px', cursor: 'pointer' }}
                 >
                   Buy Data
                 </button>
@@ -1797,7 +1894,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowTrackModal(true)}
-                  style={{ background: 'none', border: 'none', color: '#94A3B8', padding: 0, fontSize: '12px', cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', color: t.footerText, padding: 0, fontSize: '12px', cursor: 'pointer' }}
                 >
                   Track Order
                 </button>
@@ -1806,7 +1903,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => scrollToSection('about', 'about')}
-                  style={{ background: 'none', border: 'none', color: '#94A3B8', padding: 0, fontSize: '12px', cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', color: t.footerText, padding: 0, fontSize: '12px', cursor: 'pointer' }}
                 >
                   About
                 </button>
@@ -1816,13 +1913,13 @@ export const PublicStorefrontPage: React.FC = () => {
 
           {/* Col 3: Contact Us */}
           <div>
-            <strong style={{ fontSize: '12px', fontWeight: 800, color: '#FFFFFF', display: 'block', marginBottom: '0.5rem' }}>
+            <strong style={{ fontSize: '12px', fontWeight: 800, color: t.heading, display: 'block', marginBottom: '0.5rem' }}>
               Contact Us
             </strong>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '12px' }}>
               {contactPhone && (
-                <a href={`tel:${contactPhone}`} style={{ color: '#CBD5E1', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <PhoneCall size={13} color="#94A3B8" />
+                <a href={`tel:${contactPhone}`} style={{ color: t.phoneLink, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <PhoneCall size={13} color={t.footerText} />
                   <span>{contactPhone}</span>
                 </a>
               )}
@@ -1846,11 +1943,11 @@ export const PublicStorefrontPage: React.FC = () => {
           style={{
             maxWidth: '1050px',
             margin: '0 auto',
-            borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+            borderTop: `1px solid ${t.footerSubBorder}`,
             paddingTop: 'var(--space-4)',
             textAlign: 'center',
             fontSize: '11px',
-            color: '#64748B',
+            color: t.footerSubText,
           }}
         >
           © {new Date().getFullYear()} {storeName}. All rights reserved.
@@ -1905,7 +2002,7 @@ export const PublicStorefrontPage: React.FC = () => {
           }}
         >
           <div
-            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(6px)' }}
+            style={{ position: 'fixed', inset: 0, backgroundColor: t.modalOverlay, backdropFilter: 'blur(6px)' }}
             onClick={() => setSelectedProduct(null)}
           />
 
@@ -1914,12 +2011,13 @@ export const PublicStorefrontPage: React.FC = () => {
               position: 'relative',
               maxWidth: '460px',
               width: '100%',
-              backgroundColor: '#161922',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
+              backgroundColor: t.modalBg,
+              border: `1px solid ${t.modalBorder}`,
               borderRadius: '24px',
               padding: 'var(--space-6)',
-              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.7)',
+              boxShadow: t.cardShadowLg,
               zIndex: 110,
+              transition: 'background-color 200ms ease, border-color 200ms ease',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
@@ -1927,14 +2025,14 @@ export const PublicStorefrontPage: React.FC = () => {
                 <span style={{ fontSize: '10px', color: '#EAB308', fontWeight: 800, textTransform: 'uppercase' }}>
                   Customer Checkout
                 </span>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF' }}>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading }}>
                   Purchase {formatDataAmount(selectedProduct.dataAmountMb)} {selectedProduct.network}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedProduct(null)}
-                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+                style={{ background: 'none', border: 'none', color: t.bodyText, fontSize: '18px', cursor: 'pointer' }}
               >
                 <X size={18} />
               </button>
@@ -1945,8 +2043,8 @@ export const PublicStorefrontPage: React.FC = () => {
               style={{
                 padding: 'var(--space-3) var(--space-4)',
                 borderRadius: '12px',
-                backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.35)',
+                backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5',
+                border: isDark ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid #A7F3D0',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
@@ -1954,10 +2052,10 @@ export const PublicStorefrontPage: React.FC = () => {
               }}
             >
               <div>
-                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: '#F8FAFC', display: 'block' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: t.heading, display: 'block' }}>
                   {selectedProduct.network} · {formatDataAmount(selectedProduct.dataAmountMb)} Data
                 </span>
-                <span style={{ fontSize: '10px', color: '#94A3B8' }}>{selectedProduct.validityDesc || 'Non-Expiry'}</span>
+                <span style={{ fontSize: '10px', color: t.bodyText }}>{selectedProduct.validityDesc || 'Non-Expiry'}</span>
               </div>
               <strong style={{ fontSize: '1.3rem', color: '#10B981' }}>
                 GH₵ {(selectedProduct.retailPricePesewas / 100).toFixed(2)}
@@ -2003,7 +2101,7 @@ export const PublicStorefrontPage: React.FC = () => {
 
               {/* Payment Channel */}
               <div>
-                <label style={{ fontSize: '11px', fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', display: 'block', marginBottom: '0.35rem' }}>
+                <label style={{ fontSize: '11px', fontWeight: 800, color: t.bodyText, textTransform: 'uppercase', display: 'block', marginBottom: '0.35rem' }}>
                   Payment Method
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
@@ -2013,9 +2111,9 @@ export const PublicStorefrontPage: React.FC = () => {
                     style={{
                       padding: '0.5rem',
                       borderRadius: '10px',
-                      border: selectedChannel === 'mobile_money' ? '2px solid #EAB308' : '1px solid rgba(255, 255, 255, 0.1)',
-                      backgroundColor: selectedChannel === 'mobile_money' ? 'rgba(234, 179, 8, 0.15)' : '#0F1117',
-                      color: '#FFFFFF',
+                      border: selectedChannel === 'mobile_money' ? '2px solid #EAB308' : `1px solid ${t.inputBorder}`,
+                      backgroundColor: selectedChannel === 'mobile_money' ? (isDark ? 'rgba(234, 179, 8, 0.15)' : '#FEF9C3') : t.inputBg,
+                      color: t.heading,
                       fontSize: '11px',
                       fontWeight: 800,
                       cursor: 'pointer',
@@ -2023,6 +2121,7 @@ export const PublicStorefrontPage: React.FC = () => {
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '0.35rem',
+                      transition: 'all 120ms ease',
                     }}
                   >
                     <Smartphone size={14} color="#EAB308" />
@@ -2035,9 +2134,9 @@ export const PublicStorefrontPage: React.FC = () => {
                     style={{
                       padding: '0.5rem',
                       borderRadius: '10px',
-                      border: selectedChannel === 'card' ? '2px solid #EAB308' : '1px solid rgba(255, 255, 255, 0.1)',
-                      backgroundColor: selectedChannel === 'card' ? 'rgba(234, 179, 8, 0.15)' : '#0F1117',
-                      color: '#FFFFFF',
+                      border: selectedChannel === 'card' ? '2px solid #EAB308' : `1px solid ${t.inputBorder}`,
+                      backgroundColor: selectedChannel === 'card' ? (isDark ? 'rgba(234, 179, 8, 0.15)' : '#FEF9C3') : t.inputBg,
+                      color: t.heading,
                       fontSize: '11px',
                       fontWeight: 800,
                       cursor: 'pointer',
@@ -2045,6 +2144,7 @@ export const PublicStorefrontPage: React.FC = () => {
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '0.35rem',
+                      transition: 'all 120ms ease',
                     }}
                   >
                     <CreditCard size={14} color="#EAB308" />
@@ -2086,7 +2186,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 </button>
               </div>
 
-              <div style={{ textAlign: 'center', fontSize: '10px', color: '#64748B', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', marginTop: '0.25rem' }}>
+              <div style={{ textAlign: 'center', fontSize: '10px', color: t.bodyText, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', marginTop: '0.25rem' }}>
                 <ShieldCheck size={13} color="#10B981" />
                 <span>256-bit Encrypted Server-Side Paystack Verification</span>
               </div>
@@ -2110,20 +2210,21 @@ export const PublicStorefrontPage: React.FC = () => {
             padding: 'var(--space-4)',
           }}
         >
-          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(6px)' }} />
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: t.modalOverlay, backdropFilter: 'blur(6px)' }} />
 
           <div
             style={{
               position: 'relative',
               maxWidth: '460px',
               width: '100%',
-              backgroundColor: '#161922',
+              backgroundColor: t.modalBg,
               border: '1px solid rgba(34, 197, 94, 0.4)',
               borderRadius: '24px',
               padding: 'var(--space-6)',
               textAlign: 'center',
               zIndex: 110,
-              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.8)',
+              boxShadow: t.cardShadowLg,
+              transition: 'background-color 200ms ease, border-color 200ms ease',
             }}
           >
             <div
@@ -2142,17 +2243,17 @@ export const PublicStorefrontPage: React.FC = () => {
               <CheckCircle2 size={30} />
             </div>
 
-            <h3 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 900, color: '#FFFFFF' }}>
+            <h3 style={{ margin: 0, fontSize: 'var(--font-size-xl)', fontWeight: 900, color: t.heading }}>
               Bundle Dispatched!
             </h3>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: '#94A3B8', marginTop: '0.35rem', lineHeight: 1.5 }}>
-              Your order <strong style={{ color: '#EAB308', fontFamily: 'var(--font-mono)' }}>{confirmedOrder.orderId}</strong> has been confirmed and queued for direct telecom delivery to <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{confirmedOrder.recipientPhone}</strong>.
+            <p style={{ fontSize: 'var(--font-size-xs)', color: t.bodyText, marginTop: '0.35rem', lineHeight: 1.5 }}>
+              Your order <strong style={{ color: '#EAB308', fontFamily: 'var(--font-mono)' }}>{confirmedOrder.orderId}</strong> has been confirmed and queued for direct telecom delivery to <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{confirmedOrder.recipientPhone}</strong>.
             </p>
 
             <div
               style={{
-                backgroundColor: '#0F1117',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
+                backgroundColor: t.modalBoxBg,
+                border: `1px solid ${t.modalBoxBorder}`,
                 borderRadius: '14px',
                 padding: 'var(--space-4)',
                 margin: 'var(--space-4) 0',
@@ -2163,15 +2264,15 @@ export const PublicStorefrontPage: React.FC = () => {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                <span style={{ color: '#64748B' }}>Package:</span>
-                <strong style={{ color: '#FFFFFF' }}>{confirmedOrder.product.name}</strong>
+                <span style={{ color: t.bodyText }}>Package:</span>
+                <strong style={{ color: t.heading }}>{confirmedOrder.product.name}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                <span style={{ color: '#64748B' }}>Amount Paid:</span>
+                <span style={{ color: t.bodyText }}>Amount Paid:</span>
                 <strong style={{ color: '#10B981' }}>{confirmedOrder.amountDisplay}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                <span style={{ color: '#64748B' }}>Status:</span>
+                <span style={{ color: t.bodyText }}>Status:</span>
                 <span style={{ color: '#38BDF8', fontWeight: 800 }}>● {confirmedOrder.statusLabel}</span>
               </div>
             </div>
@@ -2216,7 +2317,7 @@ export const PublicStorefrontPage: React.FC = () => {
           }}
         >
           <div
-            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(6px)' }}
+            style={{ position: 'fixed', inset: 0, backgroundColor: t.modalOverlay, backdropFilter: 'blur(6px)' }}
             onClick={() => setShowTrackModal(false)}
           />
 
@@ -2225,12 +2326,13 @@ export const PublicStorefrontPage: React.FC = () => {
               position: 'relative',
               maxWidth: '460px',
               width: '100%',
-              backgroundColor: '#161922',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
+              backgroundColor: t.modalBg,
+              border: `1px solid ${t.modalBorder}`,
               borderRadius: '24px',
               padding: 'var(--space-6)',
               zIndex: 110,
-              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.8)',
+              boxShadow: t.cardShadowLg,
+              transition: 'background-color 200ms ease, border-color 200ms ease',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
@@ -2238,14 +2340,14 @@ export const PublicStorefrontPage: React.FC = () => {
                 <span style={{ fontSize: '10px', color: '#EAB308', fontWeight: 800, textTransform: 'uppercase' }}>
                   Delivery Tracking
                 </span>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF' }}>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading }}>
                   Track Order Status
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowTrackModal(false)}
-                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+                style={{ background: 'none', border: 'none', color: t.bodyText, fontSize: '18px', cursor: 'pointer' }}
               >
                 <X size={18} />
               </button>
@@ -2263,7 +2365,7 @@ export const PublicStorefrontPage: React.FC = () => {
                   placeholder="Order ID or recipient phone"
                   value={trackQuery}
                   onChange={(e) => setTrackQuery(e.target.value)}
-                  leftIcon={<Search size={14} color="#94A3B8" />}
+                  leftIcon={<Search size={14} color={t.bodyText} />}
                 />
               </div>
               <Button variant="primary" size="md" type="submit" isLoading={isTracking}>
@@ -2274,8 +2376,8 @@ export const PublicStorefrontPage: React.FC = () => {
             {trackedOrder ? (
               <div
                 style={{
-                  backgroundColor: '#0F1117',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  backgroundColor: t.modalBoxBg,
+                  border: `1px solid ${t.modalBoxBorder}`,
                   borderRadius: '14px',
                   padding: 'var(--space-4)',
                   display: 'flex',
@@ -2284,19 +2386,19 @@ export const PublicStorefrontPage: React.FC = () => {
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: '#64748B' }}>Order ID:</span>
-                  <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{trackedOrder.orderId}</strong>
+                  <span style={{ color: t.bodyText }}>Order ID:</span>
+                  <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{trackedOrder.orderId}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: '#64748B' }}>Package:</span>
-                  <strong style={{ color: '#FFFFFF' }}>{trackedOrder.product.name}</strong>
+                  <span style={{ color: t.bodyText }}>Package:</span>
+                  <strong style={{ color: t.heading }}>{trackedOrder.product.name}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: '#64748B' }}>Recipient:</span>
-                  <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-mono)' }}>{trackedOrder.recipientPhone}</strong>
+                  <span style={{ color: t.bodyText }}>Recipient:</span>
+                  <strong style={{ color: t.heading, fontFamily: 'var(--font-mono)' }}>{trackedOrder.recipientPhone}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: '#64748B' }}>Status:</span>
+                  <span style={{ color: t.bodyText }}>Status:</span>
                   <span style={{ color: '#10B981', fontWeight: 800 }}>● {trackedOrder.statusLabel}</span>
                 </div>
               </div>
@@ -2325,7 +2427,7 @@ export const PublicStorefrontPage: React.FC = () => {
           }}
         >
           <div
-            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(6px)' }}
+            style={{ position: 'fixed', inset: 0, backgroundColor: t.modalOverlay, backdropFilter: 'blur(6px)' }}
             onClick={() => setShowNumberCheckModal(false)}
           />
 
@@ -2334,12 +2436,13 @@ export const PublicStorefrontPage: React.FC = () => {
               position: 'relative',
               maxWidth: '440px',
               width: '100%',
-              backgroundColor: '#161922',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
+              backgroundColor: t.modalBg,
+              border: `1px solid ${t.modalBorder}`,
               borderRadius: '24px',
               padding: 'var(--space-6)',
               zIndex: 110,
-              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.8)',
+              boxShadow: t.cardShadowLg,
+              transition: 'background-color 200ms ease, border-color 200ms ease',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
@@ -2347,14 +2450,14 @@ export const PublicStorefrontPage: React.FC = () => {
                 <span style={{ fontSize: '10px', color: '#38BDF8', fontWeight: 800, textTransform: 'uppercase' }}>
                   Number Pre-Check
                 </span>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: '#FFFFFF' }}>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 900, color: t.heading }}>
                   Verify Your Phone Number
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowNumberCheckModal(false)}
-                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+                style={{ background: 'none', border: 'none', color: t.bodyText, fontSize: '18px', cursor: 'pointer' }}
               >
                 <X size={18} />
               </button>
@@ -2376,8 +2479,8 @@ export const PublicStorefrontPage: React.FC = () => {
               {numberCheckResult && (
                 <div
                   style={{
-                    backgroundColor: '#0F1117',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    backgroundColor: t.modalBoxBg,
+                    border: `1px solid ${t.modalBoxBorder}`,
                     borderRadius: '12px',
                     padding: 'var(--space-4)',
                     marginTop: 'var(--space-2)',
@@ -2388,14 +2491,14 @@ export const PublicStorefrontPage: React.FC = () => {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#64748B' }}>Network:</span>
-                    <strong style={{ color: '#FFFFFF' }}>{numberCheckResult.network}</strong>
+                    <span style={{ color: t.bodyText }}>Network:</span>
+                    <strong style={{ color: t.heading }}>{numberCheckResult.network}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#64748B' }}>Status:</span>
+                    <span style={{ color: t.bodyText }}>Status:</span>
                     <strong style={{ color: '#10B981' }}>{numberCheckResult.status}</strong>
                   </div>
-                  <p style={{ color: '#CBD5E1', margin: '0.3rem 0 0 0', lineHeight: 1.4 }}>
+                  <p style={{ color: t.secondaryText, margin: '0.3rem 0 0 0', lineHeight: 1.4 }}>
                     {numberCheckResult.message}
                   </p>
                 </div>
