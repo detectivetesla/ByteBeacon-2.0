@@ -444,5 +444,123 @@ describe('Public Customer Storefront Integration Tests', () => {
     // Zero ByteBeacon branding in customer storefront
     expect(screen.queryByText(/ByteBeacon/i)).toBeNull();
   });
+
+  it('renders merchant custom logo in navbar, sets document title, favicon, and dynamic meta tags', async () => {
+    vi.mocked(storesApi.getPublicStore).mockResolvedValueOnce({
+      store: {
+        id: 'str_logo_1',
+        userId: 'usr_agent_logo',
+        storeName: 'Kofi Telecom Hub',
+        slug: 'kofi-telecom',
+        tagline: 'Best Data Bundles in Kumasi',
+        description: 'Instant automated telecom data for everyone.',
+        logoUrl: 'https://cdn.example.com/kofi-logo.png',
+        bannerUrl: 'https://cdn.example.com/kofi-banner.png',
+        primaryColor: '#8B5CF6',
+        accentColor: '#10B981',
+        paymentStatus: 'PAID',
+        approvalStatus: 'APPROVED',
+        storeStatus: 'ACTIVE',
+        activationFeePesewas: 9000,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      products: [],
+    });
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/kofi-telecom']}>
+        <PlatformStatusProvider>
+          <ToastProvider>
+            <Routes>
+              <Route path="/:slug" element={<PublicStorefrontPage />} />
+            </Routes>
+          </ToastProvider>
+        </PlatformStatusProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Kofi Telecom Hub')).toBeInTheDocument();
+
+    // Verify navbar renders custom logo image with correct src and alt
+    const logoImg = screen.getByAltText('Kofi Telecom Hub') as HTMLImageElement;
+    expect(logoImg).toBeInTheDocument();
+    expect(logoImg.src).toBe('https://cdn.example.com/kofi-logo.png');
+
+    // Verify browser tab title is white-labeled without ByteBeacon
+    expect(document.title).toBe('Kofi Telecom Hub · Instant Mobile Data');
+    expect(document.title).not.toContain('ByteBeacon');
+
+    // Verify browser tab favicon points to the merchant's custom logo
+    const iconLink = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    expect(iconLink).not.toBeNull();
+    expect(iconLink.href).toBe('https://cdn.example.com/kofi-logo.png');
+
+    // Verify meta tags
+    const descMeta = document.querySelector('meta[name="description"]');
+    expect(descMeta?.getAttribute('content')).toBe('Best Data Bundles in Kumasi');
+    expect(descMeta?.getAttribute('content')).not.toContain('ByteBeacon');
+
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    expect(ogTitle?.getAttribute('content')).toBe('Kofi Telecom Hub');
+
+    const ogDesc = document.querySelector('meta[property="og:description"]');
+    expect(ogDesc?.getAttribute('content')).toBe('Best Data Bundles in Kumasi');
+
+    const ogImage = document.querySelector('meta[property="og:image"]');
+    expect(ogImage?.getAttribute('content')).toBe('https://cdn.example.com/kofi-logo.png');
+
+    const twitterTitle = document.querySelector('meta[name="twitter:title"]');
+    expect(twitterTitle?.getAttribute('content')).toBe('Kofi Telecom Hub');
+
+    unmount();
+  });
+
+  it('generates dynamic brand-colored initial SVG favicon when no logoUrl is provided', async () => {
+    vi.mocked(storesApi.getPublicStore).mockResolvedValueOnce({
+      store: {
+        id: 'str_nologo_1',
+        userId: 'usr_agent_nologo',
+        storeName: 'Adom Express',
+        slug: 'adom-express',
+        tagline: 'Reliable Telecom Bundles',
+        description: 'Instant data deliveries.',
+        primaryColor: '#F59E0B',
+        accentColor: '#10B981',
+        paymentStatus: 'PAID',
+        approvalStatus: 'APPROVED',
+        storeStatus: 'ACTIVE',
+        activationFeePesewas: 9000,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      products: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/adom-express']}>
+        <PlatformStatusProvider>
+          <ToastProvider>
+            <Routes>
+              <Route path="/:slug" element={<PublicStorefrontPage />} />
+            </Routes>
+          </ToastProvider>
+        </PlatformStatusProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Adom Express')).toBeInTheDocument();
+
+    // Verify tab title
+    expect(document.title).toBe('Adom Express · Instant Mobile Data');
+
+    // Verify favicon is a brand-colored dynamic SVG with initial "A"
+    const iconLink = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    expect(iconLink).not.toBeNull();
+    expect(iconLink.href).toContain('data:image/svg+xml');
+    expect(decodeURIComponent(iconLink.href)).toContain('#F59E0B');
+    expect(decodeURIComponent(iconLink.href)).toContain('>A<');
+    expect(decodeURIComponent(iconLink.href)).not.toContain('ByteBeacon');
+  });
 });
 

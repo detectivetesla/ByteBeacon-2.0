@@ -2,12 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Input, PhoneInput } from '../../components/ui/index.js';
+import { Input, PhoneInput, Textarea } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { storesApi, StoreDto } from '../../api/stores.api.js';
 import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
-
 
 import {
   Store,
@@ -24,6 +23,11 @@ import {
   Layers,
   Copy,
   Check,
+  Upload,
+  Trash2,
+  Image as ImageIcon,
+  Save,
+  Sparkles,
 } from 'lucide-react';
 
 export type StoreSetupState =
@@ -45,6 +49,14 @@ export const AgentStorePage: React.FC = () => {
   const [slug, setSlug] = useState(user?.fullName ? user.fullName.toLowerCase().replace(/[^a-z0-9]/g, '-') : '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [email, setEmail] = useState(user?.email || '');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [tagline, setTagline] = useState('');
+  const [description, setDescription] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [primaryColor, setPrimaryColor] = useState('#0066FF');
+  const [accentColor, setAccentColor] = useState('#10B981');
+  const [isSavingChanges, setIsSavingChanges] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -52,9 +64,87 @@ export const AgentStorePage: React.FC = () => {
 
   const publicStoreUrl = STOREFRONT_CONFIG.getRelativeStorePath(slug);
   const canonicalStoreUrl = STOREFRONT_CONFIG.getStoreUrl(slug);
+  const cleanSlugVal = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+  const directStoreUrl = STOREFRONT_CONFIG.getDirectStoreUrl(cleanSlugVal);
+  const namespacedStoreUrl = STOREFRONT_CONFIG.getStoreUrl(cleanSlugVal);
+  const subdomainStoreUrl = STOREFRONT_CONFIG.getSubdomainStoreUrl(cleanSlugVal);
 
   const userPhone = user?.phone;
   const userEmail = user?.email;
+
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      toastError('File Too Large', 'Please select an image file under 2MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setLogoUrl(reader.result);
+        toastSuccess('Logo Loaded', 'Preview updated. Click Save Storefront Changes to apply.');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCopyLink = (url: string, key: string) => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(url);
+      setCopiedKey(key);
+      toastSuccess('Link Copied', `${url} copied to clipboard.`);
+      setTimeout(() => setCopiedKey(null), 2500);
+    }
+  };
+
+  const handleSaveActiveStore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!storeName.trim()) {
+      toastError('Validation Error', 'Store business name is required.');
+      return;
+    }
+    const clean = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (!clean || clean.length < 2) {
+      toastError('Validation Error', 'Custom URL slug must be at least 2 characters.');
+      return;
+    }
+
+    setIsSavingChanges(true);
+    try {
+      const res = await storesApi.saveStoreConfig({
+        storeName: storeName.trim(),
+        slug: clean,
+        tagline: tagline.trim(),
+        description: description.trim(),
+        contactPhone: phone.trim(),
+        contactEmail: email.trim(),
+        contactWhatsapp: whatsapp.trim(),
+        primaryColor,
+        accentColor,
+        logoUrl: logoUrl.trim(),
+      });
+
+      if (res) {
+        setStoreRaw(res);
+        if (res.slug) setSlug(res.slug);
+        if (res.storeName) setStoreName(res.storeName);
+        if (res.logoUrl !== undefined) setLogoUrl(res.logoUrl || '');
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bytebeacon:store-updated'));
+      }
+
+      toastSuccess('Storefront Saved', 'Store details, logo, and links updated successfully!');
+    } catch (err: any) {
+      toastError('Save Failed', err.message || 'Unable to update store configuration.');
+    } finally {
+      setIsSavingChanges(false);
+    }
+  };
 
   const fetchStore = useCallback(async () => {
     try {
@@ -74,6 +164,12 @@ export const AgentStorePage: React.FC = () => {
         else if (userPhone) setPhone(userPhone);
         if (store.contactEmail) setEmail(store.contactEmail);
         else if (userEmail) setEmail(userEmail);
+        if (store.logoUrl) setLogoUrl(store.logoUrl);
+        if (store.tagline) setTagline(store.tagline);
+        if (store.description) setDescription(store.description);
+        if (store.contactWhatsapp) setWhatsapp(store.contactWhatsapp);
+        if (store.primaryColor) setPrimaryColor(store.primaryColor);
+        if (store.accentColor) setAccentColor(store.accentColor);
 
         if (store.activationFeePesewas) {
           setActivationFeeGhs(Number((store.activationFeePesewas / 100).toFixed(2)));
@@ -378,7 +474,7 @@ export const AgentStorePage: React.FC = () => {
                   100% Automated Delivery
                 </strong>
                 <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                  Instant telecom fulfillment via ByteBeacon direct API
+                  Instant telecom fulfillment via automated direct API
                 </span>
               </div>
 
@@ -452,6 +548,26 @@ export const AgentStorePage: React.FC = () => {
                   leftIcon={<Mail size={14} color="var(--color-text-muted)" />}
                   required
                 />
+              </div>
+
+              {/* Optional Branding in Paywall */}
+              <div style={{ padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-subtle)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: '#F97316', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFFFFF', flexShrink: 0, overflow: 'hidden' }}>
+                  {logoUrl ? <img src={logoUrl} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ImageIcon size={20} />}
+                </div>
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <Input
+                    placeholder="Optional Storefront Logo URL (e.g. https://.../logo.png)"
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    style={{ fontSize: 'var(--font-size-xs)' }}
+                  />
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', fontSize: 'var(--font-size-xs)', fontWeight: 700, cursor: 'pointer' }}>
+                  <Upload size={13} />
+                  <span>Upload</span>
+                  <input type="file" accept="image/*" onChange={handleLogoFileUpload} style={{ display: 'none' }} />
+                </label>
               </div>
 
               <div style={{ marginTop: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -634,35 +750,439 @@ export const AgentStorePage: React.FC = () => {
           </Card>
 
 
-          {/* Configuration Summary Card */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: '0 0 var(--space-4) 0' }}>
-              Storefront Details & Configuration
-            </h3>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
-              <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>Store Slug</span>
-                <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>
-                  /{slug}
+          {/* 2. Public Storefront Links Hub */}
+          <Card
+            style={{
+              padding: 'var(--space-6)',
+              borderRadius: 'var(--radius-2xl)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              boxShadow: '0 4px 20px -2px rgba(16, 185, 129, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-4)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div
+                  style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                    color: '#10B981',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Globe size={22} />
+                </div>
+                <div>
+                  <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Primary Customer Storefront URL
+                  </span>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
+                    {directStoreUrl}
+                  </div>
                 </div>
               </div>
 
-              <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>Support Phone</span>
-                <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                  {phone}
-                </div>
-              </div>
-
-              <div style={{ padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>Support Email</span>
-                <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                  {email}
-                </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleCopyLink(directStoreUrl, 'primary')}
+                  leftIcon={copiedKey === 'primary' ? <Check size={14} color="#10B981" /> : <Copy size={14} />}
+                  style={{ fontWeight: 700 }}
+                >
+                  {copiedKey === 'primary' ? 'Copied!' : 'Copy Link'}
+                </Button>
+                <a
+                  href={directStoreUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.4rem 0.85rem',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: '#10B981',
+                    color: '#000000',
+                    textDecoration: 'none',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 800,
+                    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                  }}
+                >
+                  <span>Visit Storefront</span>
+                  <ExternalLink size={13} />
+                </a>
               </div>
             </div>
+
+            {/* Alternative link formats */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: 'var(--space-3)',
+                paddingTop: 'var(--space-3)',
+                borderTop: '1px solid var(--color-border-subtle)',
+              }}
+            >
+              <div
+                style={{
+                  padding: 'var(--space-3) var(--space-4)',
+                  borderRadius: 'var(--radius-xl)',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  border: '1px solid var(--color-border-subtle)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                    Store Path Link
+                  </span>
+                  <div style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                    {namespacedStoreUrl}
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => handleCopyLink(namespacedStoreUrl, 'namespaced')}
+                >
+                  {copiedKey === 'namespaced' ? <Check size={13} color="#10B981" /> : <Copy size={13} />}
+                </Button>
+              </div>
+
+              <div
+                style={{
+                  padding: 'var(--space-3) var(--space-4)',
+                  borderRadius: 'var(--radius-xl)',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  border: '1px solid var(--color-border-subtle)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                    Merchant Subdomain Link
+                  </span>
+                  <div style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                    {subdomainStoreUrl}
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => handleCopyLink(subdomainStoreUrl, 'subdomain')}
+                >
+                  {copiedKey === 'subdomain' ? <Check size={13} color="#10B981" /> : <Copy size={13} />}
+                </Button>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Sparkles size={12} color="#10B981" />
+              <span>
+                All purchases made through your link deposit 100% payments via Paystack and credit your reseller profit markup automatically.
+              </span>
+            </div>
           </Card>
+
+          {/* 3. Storefront Customization & Profile Form */}
+          <form onSubmit={handleSaveActiveStore}>
+            <Card
+              style={{
+                padding: 'var(--space-6)',
+                borderRadius: 'var(--radius-2xl)',
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border-default)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-5)',
+              }}
+            >
+              {/* Storefront Logo & Branding Card */}
+              <div
+                style={{
+                  padding: 'var(--space-4) var(--space-5)',
+                  borderRadius: 'var(--radius-xl)',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  border: '1px solid var(--color-border-subtle)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--space-3)',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
+                    <ImageIcon size={15} color="#10B981" />
+                    <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                      Storefront Logo & Custom Branding
+                    </h3>
+                  </div>
+                  <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                    Upload your custom logo to replace all platform icons on your customer storefront, browser tab favicon, and social previews.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+                  {/* Live Preview Squircle */}
+                  <div
+                    style={{
+                      width: '68px',
+                      height: '68px',
+                      borderRadius: '16px',
+                      backgroundColor: primaryColor,
+                      border: '2px solid rgba(255, 255, 255, 0.15)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      overflow: 'hidden',
+                      boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
+                    }}
+                  >
+                    {logoUrl ? (
+                      <img
+                        src={logoUrl}
+                        alt="Store Logo"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <span style={{ fontSize: '24px', fontWeight: 900, color: '#000000' }}>
+                        {(storeName.charAt(0) || 'S').toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Upload Controls & URL input */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minWidth: '260px' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <label
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          padding: '0.45rem 0.95rem',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: '#10B981',
+                          color: '#000000',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
+                        }}
+                      >
+                        <Upload size={14} />
+                        <span>Upload Logo File</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                          onChange={handleLogoFileUpload}
+                          style={{ display: 'none' }}
+                        />
+                      </label>
+
+                      {logoUrl && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          type="button"
+                          onClick={() => setLogoUrl('')}
+                          leftIcon={<Trash2 size={13} color="#EF4444" />}
+                          style={{ color: '#EF4444', fontWeight: 700 }}
+                        >
+                          Remove Logo
+                        </Button>
+                      )}
+
+                      <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                        PNG, JPG, SVG, WebP up to 2MB
+                      </span>
+                    </div>
+
+                    <Input
+                      placeholder="Or paste direct image URL (e.g. https://.../logo.png)"
+                      value={logoUrl}
+                      onChange={(e) => setLogoUrl(e.target.value)}
+                      style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Store Identity & Custom Slug */}
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Store Identity & Custom Slug
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.2rem 0 0 0' }}>
+                  Your Custom URL Slug defines your storefront link across the apisolutions.store network.
+                </p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
+                <Input
+                  label="Store Business Name"
+                  value={storeName}
+                  onChange={(e) => setStoreName(e.target.value)}
+                  placeholder="e.g. DataHub Express"
+                  required
+                />
+
+                <div>
+                  <Input
+                    label="Custom URL Slug"
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                    placeholder="e.g. datahub-express"
+                    required
+                  />
+                  <div style={{ marginTop: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Preview: https://apisolutions.store/{cleanSlugVal || 'your-slug'}
+                    </span>
+                    {cleanSlugVal && cleanSlugVal.length >= 2 ? (
+                      <span style={{ fontSize: 'var(--font-size-3xs)', color: '#10B981', fontWeight: 700 }}>
+                        ✓ Valid slug format
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                        Letters, numbers, and hyphens
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Input
+                label="Tagline (Catchy Headline)"
+                value={tagline}
+                onChange={(e) => setTagline(e.target.value)}
+                placeholder="e.g. Instant Automated Telecom Data Bundles at Best Rates"
+              />
+
+              <Textarea
+                label="Storefront Description (About Your Store)"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Explain your services to customers visiting your storefront..."
+                rows={3}
+              />
+
+              {/* Customer Support Contacts */}
+              <div style={{ paddingTop: 'var(--space-4)', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Customer Support Contacts
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.2rem 0 0 0' }}>
+                  These contact details are shown on your customer storefront so buyers can reach you for inquiries.
+                </p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--space-4)' }}>
+                <PhoneInput
+                  label="Support Phone Number"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="024XXXXXXX"
+                />
+
+                <Input
+                  label="Support Email Address"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="support@yourstore.com"
+                  leftIcon={<Mail size={14} color="var(--color-text-muted)" />}
+                />
+
+                <PhoneInput
+                  label="Support WhatsApp (Instant Chat)"
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(e.target.value)}
+                  placeholder="024XXXXXXX"
+                />
+              </div>
+
+              {/* Theme Colors */}
+              <div style={{ paddingTop: 'var(--space-4)', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Theme & Brand Colors
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.2rem 0 0 0' }}>
+                  Customize the primary and accent colors used across your public storefront.
+                </p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: '0.35rem' }}>
+                    Primary Color
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input
+                      type="color"
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer' }}
+                    />
+                    <Input
+                      type="text"
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      style={{ width: '110px', fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: '0.35rem' }}>
+                    Accent Highlight Color
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input
+                      type="color"
+                      value={accentColor}
+                      onChange={(e) => setAccentColor(e.target.value)}
+                      style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer' }}
+                    />
+                    <Input
+                      type="text"
+                      value={accentColor}
+                      onChange={(e) => setAccentColor(e.target.value)}
+                      style={{ width: '110px', fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div style={{ marginTop: 'var(--space-2)', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <Button
+                  variant="primary"
+                  size="md"
+                  type="submit"
+                  isLoading={isSavingChanges}
+                  leftIcon={<Save size={15} />}
+                  style={{ fontWeight: 800, backgroundColor: '#10B981', color: '#000000' }}
+                >
+                  Save Storefront Changes
+                </Button>
+              </div>
+            </Card>
+          </form>
         </div>
       )}
     </div>

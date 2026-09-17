@@ -26,6 +26,7 @@ export const StoreAppearancePage: React.FC = () => {
   const [primaryColor, setPrimaryColor] = useState('#0066FF');
   const [accentColor, setAccentColor] = useState('#00E599');
   const [storeName, setStoreName] = useState('My Store');
+  const [logoUrl, setLogoUrl] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -34,6 +35,7 @@ export const StoreAppearancePage: React.FC = () => {
         if (st.primaryColor) setPrimaryColor(st.primaryColor);
         if (st.accentColor) setAccentColor(st.accentColor);
         if (st.storeName) setStoreName(st.storeName);
+        if (st.logoUrl) setLogoUrl(st.logoUrl);
       }
     }).catch(() => {
       // Use defaults if store not yet provisioned
@@ -47,6 +49,9 @@ export const StoreAppearancePage: React.FC = () => {
         primaryColor,
         accentColor,
       });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bytebeacon:store-updated'));
+      }
       toastSuccess('Appearance Saved', 'Storefront theme and branding updated successfully.');
     } catch (err: any) {
       toastError('Save Failed', err.message || 'Unable to update store appearance.');
@@ -183,8 +188,12 @@ export const StoreAppearancePage: React.FC = () => {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Store size={15} color="#FFFFFF" />
+                <div style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {logoUrl ? (
+                    <img src={logoUrl} alt={storeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <Store size={15} color="#FFFFFF" />
+                  )}
                 </div>
                 <strong style={{ fontSize: 'var(--font-size-xs)', color: '#FFFFFF' }}>{storeName}</strong>
               </div>

@@ -223,7 +223,7 @@ export const AGENT_NAVIGATION_GROUPS: NavGroupConfig[] = [
     title: 'Store',
     items: [
       {
-        label: 'Storefront Setup',
+        label: 'Store Link & Setup',
         path: '/agent/store',
         icon: React.createElement(Store, { size: 18, strokeWidth: 2.4, color: '#F97316' }),
         permission: 'agent_store.manage',

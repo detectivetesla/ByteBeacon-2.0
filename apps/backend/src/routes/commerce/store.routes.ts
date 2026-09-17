@@ -167,12 +167,28 @@ export async function storeRoutes(
       contactPhone?: string;
       contactEmail?: string;
       contactWhatsapp?: string;
+      logoUrl?: string;
+      bannerUrl?: string;
+      primaryColor?: string;
+      accentColor?: string;
     };
   }>(
     '/stores/setup',
     { preHandler: [authHooks.authenticateCustomer, maintenanceHook] },
     async (req, reply) => {
-      const { storeName, slug, tagline, description, contactPhone, contactEmail, contactWhatsapp } = req.body || {};
+      const {
+        storeName,
+        slug,
+        tagline,
+        description,
+        contactPhone,
+        contactEmail,
+        contactWhatsapp,
+        logoUrl,
+        bannerUrl,
+        primaryColor,
+        accentColor,
+      } = req.body || {};
       if (!storeName || !slug) {
         throw new BadRequestError('Store business name and custom URL slug are required');
       }
@@ -222,9 +238,13 @@ export async function storeRoutes(
           `UPDATE stores
            SET store_name = $1, slug = $2, tagline = $3, description = $4,
                contact_phone = $5, contact_email = $6, contact_whatsapp = $7,
+               logo_url = CASE WHEN $8 IS NOT NULL THEN (CASE WHEN $8 = '' THEN NULL ELSE $8 END) ELSE logo_url END,
+               banner_url = CASE WHEN $9 IS NOT NULL THEN (CASE WHEN $9 = '' THEN NULL ELSE $9 END) ELSE banner_url END,
+               primary_color = COALESCE($10, primary_color),
+               accent_color = COALESCE($11, accent_color),
                payment_status = CASE WHEN payment_status = 'NOT_STARTED' THEN 'PAYMENT_REQUIRED' ELSE payment_status END,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $8
+           WHERE id = $12
            RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                      slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
                      primary_color as "primaryColor", accent_color as "accentColor",
@@ -233,7 +253,20 @@ export async function storeRoutes(
                      approval_status as "approvalStatus", store_status as "storeStatus",
                      activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
                      created_at as "createdAt", updated_at as "updatedAt"`,
-          [storeName.trim(), cleanSlug, tagline || '', description || '', contactPhone || '', contactEmail || '', contactWhatsapp || '', existingStore.id],
+          [
+            storeName.trim(),
+            cleanSlug,
+            tagline || '',
+            description || '',
+            contactPhone || '',
+            contactEmail || '',
+            contactWhatsapp || '',
+            logoUrl !== undefined ? logoUrl : null,
+            bannerUrl !== undefined ? bannerUrl : null,
+            primaryColor && primaryColor.trim() ? primaryColor.trim() : null,
+            accentColor && accentColor.trim() ? accentColor.trim() : null,
+            existingStore.id,
+          ],
         );
         storeRow = updateRes.rows[0];
       } else {
@@ -241,9 +274,10 @@ export async function storeRoutes(
         const insertRes = await db.query(
           `INSERT INTO stores (
               agent_id, user_id, store_name, slug, tagline, description,
-              contact_phone, contact_email, contact_whatsapp, payment_status, approval_status, store_status
+              contact_phone, contact_email, contact_whatsapp, logo_url, banner_url,
+              primary_color, accent_color, payment_status, approval_status, store_status
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PAYMENT_REQUIRED', 'NOT_SUBMITTED', 'INACTIVE')
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, '#0066FF'), COALESCE($13, '#10B981'), 'PAYMENT_REQUIRED', 'NOT_SUBMITTED', 'INACTIVE')
            RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                      slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
                      primary_color as "primaryColor", accent_color as "accentColor",
@@ -252,7 +286,21 @@ export async function storeRoutes(
                      approval_status as "approvalStatus", store_status as "storeStatus",
                      activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
                      created_at as "createdAt", updated_at as "updatedAt"`,
-          [agentId, req.user!.sub, storeName.trim(), cleanSlug, tagline || '', description || '', contactPhone || '', contactEmail || '', contactWhatsapp || ''],
+          [
+            agentId,
+            req.user!.sub,
+            storeName.trim(),
+            cleanSlug,
+            tagline || '',
+            description || '',
+            contactPhone || '',
+            contactEmail || '',
+            contactWhatsapp || '',
+            logoUrl && logoUrl.trim() ? logoUrl.trim() : null,
+            bannerUrl && bannerUrl.trim() ? bannerUrl.trim() : null,
+            primaryColor && primaryColor.trim() ? primaryColor.trim() : null,
+            accentColor && accentColor.trim() ? accentColor.trim() : null,
+          ],
         );
         storeRow = insertRes.rows[0];
       }
@@ -288,21 +336,7 @@ export async function storeRoutes(
   );
 
   // 2b. UPDATE STORE PROFILE & CUSTOM SLUG (/stores/my-store)
-  const updateStoreProfileHandler = async (req: FastifyRequest<{
-    Body: {
-      storeName?: string;
-      slug?: string;
-      tagline?: string;
-      description?: string;
-      contactPhone?: string;
-      contactEmail?: string;
-      contactWhatsapp?: string;
-      primaryColor?: string;
-      accentColor?: string;
-      logoUrl?: string;
-      bannerUrl?: string;
-    };
-  }>, reply: FastifyReply) => {
+  const updateStoreProfileHandler = async (req: FastifyRequest<any>, reply: FastifyReply) => {
     const existingStore = await getAgentStore(req.user!.sub);
     if (!existingStore) {
       throw new NotFoundError('Store profile not found. Please initialize your store first.');
@@ -320,7 +354,7 @@ export async function storeRoutes(
       accentColor,
       logoUrl,
       bannerUrl,
-    } = req.body || {};
+    } = (req.body as any) || {};
 
     let targetSlug = existingStore.slug;
     if (slug && slug.trim()) {
@@ -349,8 +383,8 @@ export async function storeRoutes(
            contact_whatsapp = COALESCE($7, contact_whatsapp),
            primary_color = COALESCE($8, primary_color),
            accent_color = COALESCE($9, accent_color),
-           logo_url = COALESCE($10, logo_url),
-           banner_url = COALESCE($11, banner_url),
+           logo_url = CASE WHEN $10 IS NOT NULL THEN (CASE WHEN $10 = '' THEN NULL ELSE $10 END) ELSE logo_url END,
+           banner_url = CASE WHEN $11 IS NOT NULL THEN (CASE WHEN $11 = '' THEN NULL ELSE $11 END) ELSE banner_url END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $12
        RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",

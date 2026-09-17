@@ -285,17 +285,14 @@ export const PublicStorefrontPage: React.FC = () => {
   const [modalTrackSearched, setModalTrackSearched] = useState(false);
   const [modalTrackedOrder, setModalTrackedOrder] = useState<CustomerOrderDto | null>(null);
 
-  // Dynamic favicon & tab title
+  // Dynamic favicon, tab title, and white-labeled meta tags (Zero ByteBeacon branding)
   useEffect(() => {
-    const storeName = store?.storeName || 'Telecom Data Store';
+    const storeName = store?.storeName || 'Mobile Data Store';
     if (typeof document !== 'undefined') {
-      document.title = `${storeName} · Instant Automated Telecom Data`;
+      const originalTitle = document.title;
+      document.title = `${storeName} · Instant Mobile Data`;
 
-      const initial = (storeName.charAt(0) || 'D').toUpperCase();
-      const brandColor = store?.primaryColor || '#A3E635';
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${brandColor}"/><text x="16" y="22" font-size="18" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="900" fill="#000000" text-anchor="middle">${initial}</text></svg>`;
-      const faviconUrl = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-
+      // Favicon handling: prioritize merchant custom logoUrl, fallback to brand initial SVG
       let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
       if (!link) {
         link = document.createElement('link');
@@ -303,13 +300,61 @@ export const PublicStorefrontPage: React.FC = () => {
         document.head.appendChild(link);
       }
       const originalHref = link.href;
-      link.href = faviconUrl;
+
+      if (store?.logoUrl && store.logoUrl.trim()) {
+        link.href = store.logoUrl.trim();
+      } else {
+        const initial = (storeName.charAt(0) || 'D').toUpperCase();
+        const brandColor = store?.primaryColor || '#10B981';
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${brandColor}"/><text x="16" y="22" font-size="18" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="900" fill="#000000" text-anchor="middle">${initial}</text></svg>`;
+        link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+      }
+
+      // Dynamic White-Labeled Meta Tags
+      const metaDescriptionText = store?.tagline || store?.description || `${storeName} - Fast, reliable mobile telecom data delivery.`;
+      const metaImage = store?.logoUrl || store?.bannerUrl || '';
+
+      const updatedMetas: { el: HTMLMetaElement; originalContent: string | null; isNew: boolean }[] = [];
+
+      const setOrCreateMeta = (attrName: string, attrVal: string, contentVal: string) => {
+        let el = document.querySelector(`meta[${attrName}="${attrVal}"]`) as HTMLMetaElement;
+        if (el) {
+          updatedMetas.push({ el, originalContent: el.getAttribute('content'), isNew: false });
+          el.setAttribute('content', contentVal);
+        } else {
+          el = document.createElement('meta');
+          el.setAttribute(attrName, attrVal);
+          el.setAttribute('content', contentVal);
+          document.head.appendChild(el);
+          updatedMetas.push({ el, originalContent: null, isNew: true });
+        }
+      };
+
+      setOrCreateMeta('name', 'description', metaDescriptionText);
+      setOrCreateMeta('property', 'og:title', storeName);
+      setOrCreateMeta('property', 'og:description', metaDescriptionText);
+      setOrCreateMeta('property', 'og:type', 'website');
+      if (metaImage) {
+        setOrCreateMeta('property', 'og:image', metaImage);
+        setOrCreateMeta('name', 'twitter:image', metaImage);
+      }
+      setOrCreateMeta('name', 'twitter:card', 'summary_large_image');
+      setOrCreateMeta('name', 'twitter:title', storeName);
+      setOrCreateMeta('name', 'twitter:description', metaDescriptionText);
 
       return () => {
+        document.title = originalTitle;
         link.href = originalHref;
+        updatedMetas.forEach(({ el, originalContent, isNew }) => {
+          if (isNew) {
+            el.remove();
+          } else if (originalContent !== null) {
+            el.setAttribute('content', originalContent);
+          }
+        });
       };
     }
-  }, [store?.storeName, store?.primaryColor]);
+  }, [store?.storeName, store?.primaryColor, store?.logoUrl, store?.bannerUrl, store?.tagline, store?.description]);
 
   // Load real store data (Zero mock data)
   const loadStore = useCallback(async () => {
@@ -908,10 +953,19 @@ export const PublicStorefrontPage: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
+                overflow: 'hidden',
                 boxShadow: isDark ? '0 4px 14px rgba(0, 0, 0, 0.4)' : '0 2px 6px rgba(0, 0, 0, 0.06)',
               }}
             >
-              <Store size={20} />
+              {store?.logoUrl ? (
+                <img
+                  src={store.logoUrl}
+                  alt={storeName}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <Store size={20} />
+              )}
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -2183,14 +2237,32 @@ export const PublicStorefrontPage: React.FC = () => {
                     border: `1px solid ${t.cardInnerBorder}`,
                     borderRadius: '12px',
                     padding: '1rem 1.25rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                   }}
                 >
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: t.subText, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
-                    STORE NAME
-                  </span>
-                  <strong style={{ fontSize: '14px', fontWeight: 800, color: t.heading, display: 'block', marginTop: '0.25rem' }}>
-                    {storeName}
-                  </strong>
+                  <div>
+                    <span style={{ fontSize: '10px', fontWeight: 800, color: t.subText, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
+                      STORE NAME
+                    </span>
+                    <strong style={{ fontSize: '15px', fontWeight: 800, color: t.heading, display: 'block', marginTop: '0.25rem' }}>
+                      {storeName}
+                    </strong>
+                  </div>
+                  {store?.logoUrl && (
+                    <img
+                      src={store.logoUrl}
+                      alt={storeName}
+                      style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '10px',
+                        objectFit: 'cover',
+                        border: `1px solid ${t.cardInnerBorder}`,
+                      }}
+                    />
+                  )}
                 </div>
 
                 {/* 2. ABOUT STORE OWNER */}

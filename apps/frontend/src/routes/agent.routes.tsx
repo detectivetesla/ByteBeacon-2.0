@@ -60,6 +60,14 @@ export const agentRoutes: RouteObject[] = [
         element: <AgentStorePage />,
       },
       {
+        path: 'store-link',
+        element: <AgentStorePage />,
+      },
+      {
+        path: 'store/link',
+        element: <AgentStorePage />,
+      },
+      {
         path: 'orders',
         element: <AgentOrdersPage />,
       },

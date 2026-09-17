@@ -17,6 +17,9 @@ import {
   Loader2,
   Sparkles,
   ShieldCheck,
+  Upload,
+  Trash2,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 export const StoreProfilePage: React.FC = () => {
@@ -35,10 +38,30 @@ export const StoreProfilePage: React.FC = () => {
   const [contactWhatsapp, setContactWhatsapp] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#0066FF');
   const [accentColor, setAccentColor] = useState('#10B981');
+  const [logoUrl, setLogoUrl] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      toastError('File Too Large', 'Please select an image file under 2MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setLogoUrl(reader.result);
+        toastSuccess('Logo Loaded', 'Preview updated. Click Save Store Profile to apply changes.');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const fetchStoreProfile = async () => {
     try {
@@ -54,6 +77,7 @@ export const StoreProfilePage: React.FC = () => {
         if (st.contactWhatsapp) setContactWhatsapp(st.contactWhatsapp);
         if (st.primaryColor) setPrimaryColor(st.primaryColor);
         if (st.accentColor) setAccentColor(st.accentColor);
+        if (st.logoUrl) setLogoUrl(st.logoUrl);
       }
     } catch {
       // Use defaults if initial load fails
@@ -113,6 +137,7 @@ export const StoreProfilePage: React.FC = () => {
         contactWhatsapp: contactWhatsapp.trim(),
         primaryColor,
         accentColor,
+        logoUrl: logoUrl.trim(),
       };
 
       const result = await storesApi.saveStoreConfig(payload);
@@ -121,11 +146,16 @@ export const StoreProfilePage: React.FC = () => {
         setStoreData(result);
         if (result.slug) setSlug(result.slug);
         if (result.storeName) setStoreName(result.storeName);
+        if (result.logoUrl !== undefined) setLogoUrl(result.logoUrl || '');
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bytebeacon:store-updated'));
       }
 
       toastSuccess(
         'Storefront Saved',
-        `Store profile and custom link updated to ${STOREFRONT_CONFIG.getDirectStoreUrl(normalizedSlug)}`
+        `Store profile, logo, and custom link updated to ${STOREFRONT_CONFIG.getDirectStoreUrl(normalizedSlug)}`
       );
     } catch (err: any) {
       toastError('Save Failed', err.message || 'Unable to update store profile.');
@@ -334,6 +364,116 @@ export const StoreProfilePage: React.FC = () => {
             gap: 'var(--space-5)',
           }}
         >
+          {/* Storefront Logo & White-Label Branding */}
+          <div
+            style={{
+              padding: 'var(--space-4) var(--space-5)',
+              borderRadius: 'var(--radius-xl)',
+              backgroundColor: 'var(--color-bg-surface-elevated)',
+              border: '1px solid var(--color-border-subtle)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
+                <ImageIcon size={15} color="#10B981" />
+                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Storefront Logo & Custom Branding
+                </h3>
+              </div>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                Upload your custom logo to replace all platform icons on your customer storefront, browser tab favicon, and social previews.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+              {/* Live Preview Squircle */}
+              <div
+                style={{
+                  width: '68px',
+                  height: '68px',
+                  borderRadius: '16px',
+                  backgroundColor: primaryColor,
+                  border: '2px solid rgba(255, 255, 255, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  overflow: 'hidden',
+                  boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
+                }}
+              >
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt="Store Logo"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <span style={{ fontSize: '24px', fontWeight: 900, color: '#000000' }}>
+                    {(storeName.charAt(0) || 'S').toUpperCase()}
+                  </span>
+                )}
+              </div>
+
+              {/* Upload Controls & URL input */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minWidth: '260px' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      padding: '0.45rem 0.95rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: '#10B981',
+                      color: '#000000',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
+                    }}
+                  >
+                    <Upload size={14} />
+                    <span>Upload Logo File</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      onChange={handleLogoFileUpload}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+
+                  {logoUrl && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                      onClick={() => setLogoUrl('')}
+                      leftIcon={<Trash2 size={13} color="#EF4444" />}
+                      style={{ color: '#EF4444', fontWeight: 700 }}
+                    >
+                      Remove Logo
+                    </Button>
+                  )}
+
+                  <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                    PNG, JPG, SVG, WebP up to 2MB
+                  </span>
+                </div>
+
+                <Input
+                  placeholder="Or paste direct image URL (e.g. https://.../logo.png)"
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+                />
+              </div>
+            </div>
+          </div>
+
           <div>
             <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Store Identity & Custom Slug

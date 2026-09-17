@@ -34,16 +34,27 @@ export const StoreLayout: React.FC = () => {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [storeSlug, setStoreSlug] = useState('');
   const [storeName, setStoreName] = useState('Agent Store');
+  const [logoUrl, setLogoUrl] = useState('');
 
   // Load active store profile
-  useEffect(() => {
+  const fetchStore = React.useCallback(() => {
     storesApi.getStore().then((st) => {
       if (st && st.id) {
         if (st.slug) setStoreSlug(st.slug);
         if (st.storeName) setStoreName(st.storeName);
+        if (st.logoUrl) setLogoUrl(st.logoUrl);
+        else setLogoUrl('');
       }
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchStore();
+    window.addEventListener('bytebeacon:store-updated', fetchStore);
+    return () => {
+      window.removeEventListener('bytebeacon:store-updated', fetchStore);
+    };
+  }, [fetchStore]);
 
   // Close mobile drawer on route change
   useEffect(() => {
@@ -120,10 +131,15 @@ export const StoreLayout: React.FC = () => {
                     justifyContent: 'center',
                     color: '#FFFFFF',
                     flexShrink: 0,
+                    overflow: 'hidden',
                     boxShadow: '0 4px 12px rgba(22, 163, 74, 0.35)',
                   }}
                 >
-                  <Store size={18} strokeWidth={2.4} />
+                  {logoUrl ? (
+                    <img src={logoUrl} alt={storeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <Store size={18} strokeWidth={2.4} />
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: '#FFFFFF', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
@@ -145,10 +161,15 @@ export const StoreLayout: React.FC = () => {
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: '#FFFFFF',
+                  overflow: 'hidden',
                   boxShadow: '0 4px 12px rgba(22, 163, 74, 0.35)',
                 }}
               >
-                <Store size={18} strokeWidth={2.4} />
+                {logoUrl ? (
+                  <img src={logoUrl} alt={storeName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <Store size={18} strokeWidth={2.4} />
+                )}
               </div>
             )}
 
@@ -590,7 +611,11 @@ export const StoreLayout: React.FC = () => {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', paddingBottom: 'var(--space-3)', borderBottom: '1px solid var(--sidebar-border-subtle)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Store size={18} color="#34D399" />
+                  {logoUrl ? (
+                    <img src={logoUrl} alt={storeName} style={{ width: '22px', height: '22px', borderRadius: '4px', objectFit: 'cover' }} />
+                  ) : (
+                    <Store size={18} color="#34D399" />
+                  )}
                   <strong style={{ fontSize: 'var(--font-size-sm)', color: '#FFFFFF' }}>{storeName}</strong>
                 </div>
                 <button
