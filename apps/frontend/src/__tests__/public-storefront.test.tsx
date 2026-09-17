@@ -600,5 +600,82 @@ describe('Public Customer Storefront Integration Tests', () => {
 
     unmount();
   });
+
+  it('renders mobile menu hamburger toggle and toggles mobile navigation drawer with full-bleed hero', async () => {
+    vi.mocked(storesApi.getPublicStore).mockResolvedValueOnce({
+      store: {
+        id: 'str_mobile',
+        userId: 'usr_agent_2',
+        storeName: 'SwiftNet Ghana',
+        slug: 'swiftnet',
+        tagline: 'Reliable Telecom Bundles 24/7',
+        description: 'Instant data deliveries across networks.',
+        primaryColor: '#10B981',
+        contactPhone: '0240000000',
+        contactWhatsapp: '+233240000000',
+        paymentStatus: 'PAID',
+        approvalStatus: 'APPROVED',
+        storeStatus: 'ACTIVE',
+        activationFeePesewas: 50000,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      products: [
+        {
+          id: 'sp_swift_1',
+          catalogProductId: 'cp_1',
+          sku: 'MTN-5GB',
+          name: 'MTN 5GB Standard',
+          network: NetworkProvider.MTN,
+          dataAmountMb: 5120,
+          validityDays: 30,
+          validityDesc: 'Non-Expiry',
+          basePricePesewas: 2400,
+          markupPesewas: 200,
+          retailPricePesewas: 2600,
+          popular: true,
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/store/swiftnet']}>
+        <PlatformStatusProvider>
+          <ToastProvider>
+            <Routes>
+              <Route path="/store/:slug" element={<PublicStorefrontPage />} />
+            </Routes>
+          </ToastProvider>
+        </PlatformStatusProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('SwiftNet Ghana')).toBeInTheDocument();
+
+    // Verify hero section is styled with .storefront-hero-section
+    const heroHeading = screen.getByRole('heading', { name: /buy data bundles/i });
+    expect(heroHeading).toBeInTheDocument();
+    const heroSection = heroHeading.closest('section');
+    expect(heroSection).not.toBeNull();
+    expect(heroSection).toHaveClass('storefront-hero-section');
+
+    // Verify mobile toggle button is present in DOM
+    const mobileToggle = document.querySelector('.storefront-mobile-toggle') as HTMLButtonElement;
+    expect(mobileToggle).not.toBeNull();
+    expect(mobileToggle.getAttribute('aria-label')).toBe('Open navigation menu');
+
+    // Open mobile menu
+    fireEvent.click(mobileToggle);
+
+    // Verify drawer sheet appears with navigation options and WhatsApp support
+    expect(mobileToggle.getAttribute('aria-label')).toBe('Close navigation menu');
+    expect(screen.getByText('WhatsApp Support')).toBeInTheDocument();
+
+    // Close mobile menu by clicking close
+    fireEvent.click(mobileToggle);
+    expect(mobileToggle.getAttribute('aria-label')).toBe('Open navigation menu');
+    expect(screen.queryByText('WhatsApp Support')).not.toBeInTheDocument();
+  });
 });
+
 

@@ -13,6 +13,7 @@ import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
 import { ApiSolutionsPortalPage } from './ApiSolutionsPortalPage.js';
 import {
   Store,
+  Menu,
   ShieldCheck,
   CheckCircle2,
   Lock,
@@ -149,6 +150,7 @@ export const PublicStorefrontPage: React.FC = () => {
   }, [page, location.pathname, searchParams]);
 
   const [activeNav, setActiveNav] = useState<StorefrontNavPage>(determineActivePage);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     setActiveNav(determineActivePage());
@@ -156,6 +158,7 @@ export const PublicStorefrontPage: React.FC = () => {
 
   // Navigate helper that updates URL cleanly
   const handleNavClick = (target: StorefrontNavPage) => {
+    setMobileMenuOpen(false);
     setActiveNav(target);
     const isSubdomain = STOREFRONT_CONFIG.isStorefrontHost();
     const basePath = isSubdomain ? '' : `/store/${storeSlug}`;
@@ -909,6 +912,247 @@ export const PublicStorefrontPage: React.FC = () => {
     >
       <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
 
+      {/* SCOPED RESPONSIVE & MOBILE-FIRST STYLES */}
+      <style>{`
+        @keyframes storefrontDrawerSlideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes storefrontFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        /* Desktop Nav visible, Mobile toggle hidden by default */
+        .storefront-desktop-nav {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .storefront-mobile-toggle {
+          display: none !important;
+        }
+
+        /* Hero Section Default (Desktop) */
+        .storefront-hero-section {
+          position: relative;
+          overflow: hidden;
+          background: linear-gradient(145deg, #052e16 0%, #064e3b 50%, #047857 100%);
+          color: #FFFFFF;
+          border: 1px solid rgba(163, 230, 53, 0.25);
+          border-radius: 20px;
+          padding: 2.75rem 2.25rem;
+          box-shadow: 0 16px 36px rgba(5, 46, 22, 0.35);
+        }
+        .storefront-hero-btn-group {
+          display: flex;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        }
+
+        /* Grids Default */
+        .storefront-network-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 1rem;
+        }
+        .storefront-product-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 1.25rem;
+        }
+        .storefront-trust-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+          gap: 1rem;
+        }
+
+        /* Filter Tabs */
+        .storefront-filter-tabs {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 0.5rem;
+          margin-bottom: 2rem;
+          flex-wrap: wrap;
+        }
+
+        /* Forms */
+        .storefront-inline-search-form {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          max-width: 600px;
+        }
+        .storefront-track-page-form {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+        }
+
+        /* Modals */
+        .storefront-modal-card {
+          position: relative;
+          max-width: 460px;
+          width: 100%;
+          border-radius: 20px;
+          padding: 1.75rem;
+          z-index: 110;
+        }
+
+        /* Footer */
+        .storefront-footer-container {
+          max-width: 1100px;
+          margin: 0 auto;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 1.5rem;
+        }
+        .storefront-footer-actions {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+
+        /* ========================================================= */
+        /* MOBILE BREAKPOINT (< 768px)                               */
+        /* ========================================================= */
+        @media (max-width: 767px) {
+          /* Header: hide desktop nav, show mobile menu icon */
+          .storefront-desktop-nav {
+            display: none !important;
+          }
+          .storefront-mobile-toggle {
+            display: flex !important;
+          }
+
+          /* Hero Section: NOT inside container, edge-to-edge full bleed with green background */
+          .storefront-hero-section {
+            margin-left: -1.25rem !important;
+            margin-right: -1.25rem !important;
+            margin-top: -1.5rem !important;
+            border-radius: 0 !important;
+            width: calc(100% + 2.5rem) !important;
+            border-left: none !important;
+            border-right: none !important;
+            border-top: none !important;
+            border-bottom: 1px solid rgba(163, 230, 53, 0.25) !important;
+            padding: 2.25rem 1.25rem 2.5rem 1.25rem !important;
+            background: linear-gradient(160deg, #022c22 0%, #064e3b 45%, #047857 100%) !important;
+            box-shadow: 0 12px 28px rgba(2, 44, 34, 0.5) !important;
+          }
+
+          .storefront-hero-btn-group {
+            flex-direction: column !important;
+            width: 100% !important;
+            gap: 0.75rem !important;
+          }
+          .storefront-hero-btn-group button {
+            width: 100% !important;
+            min-height: 48px !important;
+            font-size: 14px !important;
+          }
+
+          /* Choose Network: 1 column, touch-friendly */
+          .storefront-network-grid {
+            grid-template-columns: 1fr !important;
+            gap: 0.85rem !important;
+          }
+
+          /* Product Cards: 1 column so cards are spacious and never squished */
+          .storefront-product-grid {
+            grid-template-columns: 1fr !important;
+            gap: 1rem !important;
+          }
+
+          /* Filter Tabs: horizontal scroll with smooth touch */
+          .storefront-filter-tabs {
+            justify-content: flex-start !important;
+            overflow-x: auto !important;
+            flex-wrap: nowrap !important;
+            padding-bottom: 0.6rem !important;
+            scrollbar-width: none !important;
+            -webkit-overflow-scrolling: touch !important;
+            margin-left: -1.25rem !important;
+            margin-right: -1.25rem !important;
+            padding-left: 1.25rem !important;
+            padding-right: 1.25rem !important;
+          }
+          .storefront-filter-tabs::-webkit-scrollbar {
+            display: none !important;
+          }
+          .storefront-filter-tabs button {
+            flex-shrink: 0 !important;
+            min-height: 42px !important;
+            padding: 0.55rem 1.25rem !important;
+            font-size: 12px !important;
+          }
+
+          /* Search Forms */
+          .storefront-inline-search-form {
+            flex-direction: column !important;
+            align-items: stretch !important;
+          }
+          .storefront-inline-search-form button {
+            width: 100% !important;
+            min-height: 46px !important;
+          }
+
+          .storefront-track-page-form {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            padding: 0.65rem !important;
+          }
+          .storefront-track-page-form input {
+            padding: 0.75rem !important;
+            font-size: 15px !important;
+          }
+          .storefront-track-page-form button {
+            width: 100% !important;
+            min-height: 48px !important;
+          }
+
+          /* Modals */
+          .storefront-modal-card {
+            width: calc(100% - 1.25rem) !important;
+            padding: 1.35rem 1.15rem !important;
+            max-height: 90vh !important;
+            overflow-y: auto !important;
+            border-radius: 16px !important;
+          }
+
+          /* Footer */
+          .storefront-footer-container {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 1.5rem !important;
+          }
+          .storefront-footer-actions {
+            width: 100% !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 0.75rem !important;
+          }
+          .storefront-footer-actions a {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-height: 44px !important;
+          }
+        }
+      `}</style>
+
+
       {/* ==================================================================== */}
       {/* 1. TOP HEADER & NAVBAR (Exact visual match from images) */}
       {/* ==================================================================== */}
@@ -1004,170 +1248,416 @@ export const PublicStorefrontPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Navigation Links & Right Utility Badges */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              flexWrap: 'wrap',
-            }}
-          >
-            {/* Nav Group Pills */}
-            <nav
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-              }}
-            >
-              {/* Home Link */}
-              <button
-                type="button"
-                onClick={() => handleNavClick('home')}
+          {/* Right Navigation & Mobile Hamburger */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {/* Desktop Navigation Row (hidden on < 768px via CSS) */}
+            <div className="storefront-desktop-nav">
+              <nav
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.45rem 1rem',
+                  gap: '0.35rem',
+                }}
+              >
+                {/* Home Link */}
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('home')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '100px',
+                    border: 'none',
+                    backgroundColor: activeNav === 'home' ? t.navActiveBg : 'transparent',
+                    color: activeNav === 'home' ? t.navActiveColor : t.navInactiveColor,
+                    fontSize: '12px',
+                    fontWeight: activeNav === 'home' ? 800 : 600,
+                    cursor: 'pointer',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <Home size={14} color={activeNav === 'home' ? '#000000' : 'currentColor'} />
+                  <span>Home</span>
+                </button>
+
+                {/* Buy Data Link */}
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('buy')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '100px',
+                    border: 'none',
+                    backgroundColor: activeNav === 'buy' ? t.navActiveBg : 'transparent',
+                    color: activeNav === 'buy' ? t.navActiveColor : t.navInactiveColor,
+                    fontSize: '12px',
+                    fontWeight: activeNav === 'buy' ? 800 : 600,
+                    cursor: 'pointer',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <ShoppingCart size={14} color={activeNav === 'buy' ? '#000000' : 'currentColor'} />
+                  <span>Buy Data</span>
+                </button>
+
+                {/* Track Order Link */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTrackModal(true);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '100px',
+                    border: 'none',
+                    backgroundColor: activeNav === 'track' ? t.navActiveBg : 'transparent',
+                    color: activeNav === 'track' ? t.navActiveColor : t.navInactiveColor,
+                    fontSize: '12px',
+                    fontWeight: activeNav === 'track' ? 800 : 600,
+                    cursor: 'pointer',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <FileText size={14} color={activeNav === 'track' ? '#000000' : 'currentColor'} />
+                  <span>Track Order</span>
+                </button>
+
+                {/* Info Link */}
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('info')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '100px',
+                    border: 'none',
+                    backgroundColor: activeNav === 'info' ? t.navActiveBg : 'transparent',
+                    color: activeNav === 'info' ? t.navActiveColor : t.navInactiveColor,
+                    fontSize: '12px',
+                    fontWeight: activeNav === 'info' ? 800 : 600,
+                    cursor: 'pointer',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <Info size={14} color={activeNav === 'info' ? '#000000' : 'currentColor'} />
+                  <span>Info</span>
+                </button>
+              </nav>
+
+              {/* Instant Delivery Badge */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  backgroundColor: t.utilityPillBg,
+                  border: `1px solid ${t.utilityPillBorder}`,
                   borderRadius: '100px',
-                  border: 'none',
-                  backgroundColor: activeNav === 'home' ? t.navActiveBg : 'transparent',
-                  color: activeNav === 'home' ? t.navActiveColor : t.navInactiveColor,
-                  fontSize: '12px',
-                  fontWeight: activeNav === 'home' ? 800 : 600,
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: t.utilityPillColor,
+                }}
+              >
+                <Zap size={12} color="#A3E635" fill="#A3E635" />
+                <span>Instant Delivery</span>
+              </div>
+
+              {/* Theme Toggle Button */}
+              <button
+                type="button"
+                onClick={toggleTheme}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  backgroundColor: t.utilityPillBg,
+                  border: `1px solid ${t.utilityPillBorder}`,
+                  borderRadius: '100px',
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: t.utilityPillColor,
                   cursor: 'pointer',
                   transition: 'all 120ms ease',
                 }}
               >
-                <Home size={14} color={activeNav === 'home' ? '#000000' : 'currentColor'} />
-                <span>Home</span>
+                {isDark ? (
+                  <>
+                    <Sun size={13} color="#FACC15" />
+                    <span>Light</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon size={13} color="#38BDF8" />
+                    <span>Dark</span>
+                  </>
+                )}
               </button>
-
-              {/* Buy Data Link */}
-              <button
-                type="button"
-                onClick={() => handleNavClick('buy')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.45rem 1rem',
-                  borderRadius: '100px',
-                  border: 'none',
-                  backgroundColor: activeNav === 'buy' ? t.navActiveBg : 'transparent',
-                  color: activeNav === 'buy' ? t.navActiveColor : t.navInactiveColor,
-                  fontSize: '12px',
-                  fontWeight: activeNav === 'buy' ? 800 : 600,
-                  cursor: 'pointer',
-                  transition: 'all 120ms ease',
-                }}
-              >
-                <ShoppingCart size={14} color={activeNav === 'buy' ? '#000000' : 'currentColor'} />
-                <span>Buy Data</span>
-              </button>
-
-              {/* Track Order Link */}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowTrackModal(true);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.45rem 1rem',
-                  borderRadius: '100px',
-                  border: 'none',
-                  backgroundColor: activeNav === 'track' ? t.navActiveBg : 'transparent',
-                  color: activeNav === 'track' ? t.navActiveColor : t.navInactiveColor,
-                  fontSize: '12px',
-                  fontWeight: activeNav === 'track' ? 800 : 600,
-                  cursor: 'pointer',
-                  transition: 'all 120ms ease',
-                }}
-              >
-                <FileText size={14} color={activeNav === 'track' ? '#000000' : 'currentColor'} />
-                <span>Track Order</span>
-              </button>
-
-              {/* Info Link */}
-              <button
-                type="button"
-                onClick={() => handleNavClick('info')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  padding: '0.45rem 1rem',
-                  borderRadius: '100px',
-                  border: 'none',
-                  backgroundColor: activeNav === 'info' ? t.navActiveBg : 'transparent',
-                  color: activeNav === 'info' ? t.navActiveColor : t.navInactiveColor,
-                  fontSize: '12px',
-                  fontWeight: activeNav === 'info' ? 800 : 600,
-                  cursor: 'pointer',
-                  transition: 'all 120ms ease',
-                }}
-              >
-                <Info size={14} color={activeNav === 'info' ? '#000000' : 'currentColor'} />
-                <span>Info</span>
-              </button>
-            </nav>
-
-            {/* Instant Delivery Badge */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                backgroundColor: t.utilityPillBg,
-                border: `1px solid ${t.utilityPillBorder}`,
-                borderRadius: '100px',
-                padding: '0.4rem 0.8rem',
-                fontSize: '11px',
-                fontWeight: 700,
-                color: t.utilityPillColor,
-              }}
-            >
-              <Zap size={12} color="#A3E635" fill="#A3E635" />
-              <span>Instant Delivery</span>
             </div>
 
-            {/* Theme Toggle Button */}
+            {/* Mobile Hamburger Menu Icon Button */}
             <button
               type="button"
-              onClick={toggleTheme}
+              aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              className="storefront-mobile-toggle"
               style={{
-                display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.35rem',
+                justifyContent: 'center',
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
                 backgroundColor: t.utilityPillBg,
                 border: `1px solid ${t.utilityPillBorder}`,
-                borderRadius: '100px',
-                padding: '0.4rem 0.8rem',
-                fontSize: '11px',
-                fontWeight: 700,
-                color: t.utilityPillColor,
+                color: t.heading,
                 cursor: 'pointer',
-                transition: 'all 120ms ease',
+                transition: 'all 150ms ease',
               }}
             >
-              {isDark ? (
-                <>
-                  <Sun size={13} color="#FACC15" />
-                  <span>Light</span>
-                </>
-              ) : (
-                <>
-                  <Moon size={13} color="#38BDF8" />
-                  <span>Dark</span>
-                </>
-              )}
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+              <span className="sr-only">{mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}</span>
             </button>
           </div>
         </div>
+
+        {/* Mobile Slide-Down Drawer Sheet */}
+        {mobileMenuOpen && (
+          <>
+            <div
+              className="storefront-mobile-backdrop"
+              onClick={() => setMobileMenuOpen(false)}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                top: '60px',
+                backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                backdropFilter: 'blur(6px)',
+                zIndex: 45,
+              }}
+            />
+            <div
+              className="storefront-mobile-drawer"
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                backgroundColor: t.bgHeader,
+                borderBottom: `1px solid ${t.borderHeader}`,
+                boxShadow: '0 20px 30px rgba(0, 0, 0, 0.4)',
+                zIndex: 50,
+                padding: '1.25rem 1.25rem 1.5rem 1.25rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem',
+                animation: 'storefrontDrawerSlideDown 200ms ease-out forwards',
+              }}
+            >
+              <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('home')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '12px',
+                    border: 'none',
+                    backgroundColor: activeNav === 'home' ? t.navActiveBg : 'transparent',
+                    color: activeNav === 'home' ? t.navActiveColor : t.heading,
+                    fontSize: '14px',
+                    fontWeight: activeNav === 'home' ? 900 : 700,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    width: '100%',
+                    minHeight: '48px',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <Home size={18} color={activeNav === 'home' ? '#000000' : 'currentColor'} />
+                  <span>Home</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('buy')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '12px',
+                    border: 'none',
+                    backgroundColor: activeNav === 'buy' ? t.navActiveBg : 'transparent',
+                    color: activeNav === 'buy' ? t.navActiveColor : t.heading,
+                    fontSize: '14px',
+                    fontWeight: activeNav === 'buy' ? 900 : 700,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    width: '100%',
+                    minHeight: '48px',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <ShoppingCart size={18} color={activeNav === 'buy' ? '#000000' : 'currentColor'} />
+                  <span>Buy Data</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    setShowTrackModal(true);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '12px',
+                    border: 'none',
+                    backgroundColor: activeNav === 'track' ? t.navActiveBg : 'transparent',
+                    color: activeNav === 'track' ? t.navActiveColor : t.heading,
+                    fontSize: '14px',
+                    fontWeight: activeNav === 'track' ? 900 : 700,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    width: '100%',
+                    minHeight: '48px',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <FileText size={18} color={activeNav === 'track' ? '#000000' : 'currentColor'} />
+                  <span>Track Order</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('info')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '12px',
+                    border: 'none',
+                    backgroundColor: activeNav === 'info' ? t.navActiveBg : 'transparent',
+                    color: activeNav === 'info' ? t.navActiveColor : t.heading,
+                    fontSize: '14px',
+                    fontWeight: activeNav === 'info' ? 900 : 700,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    width: '100%',
+                    minHeight: '48px',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <Info size={18} color={activeNav === 'info' ? '#000000' : 'currentColor'} />
+                  <span>Store Info</span>
+                </button>
+              </nav>
+
+              <div
+                style={{
+                  borderTop: `1px solid ${t.borderHeader}`,
+                  paddingTop: '0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    backgroundColor: t.utilityPillBg,
+                    border: `1px solid ${t.utilityPillBorder}`,
+                    borderRadius: '100px',
+                    padding: '0.5rem 0.85rem',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: t.utilityPillColor,
+                    minHeight: '40px',
+                  }}
+                >
+                  <Zap size={13} color="#A3E635" fill="#A3E635" />
+                  <span>Instant Delivery</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    backgroundColor: t.utilityPillBg,
+                    border: `1px solid ${t.utilityPillBorder}`,
+                    borderRadius: '100px',
+                    padding: '0.5rem 0.85rem',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: t.utilityPillColor,
+                    cursor: 'pointer',
+                    minHeight: '40px',
+                  }}
+                >
+                  {isDark ? (
+                    <>
+                      <Sun size={13} color="#FACC15" />
+                      <span>Light</span>
+                    </>
+                  ) : (
+                    <>
+                      <Moon size={13} color="#38BDF8" />
+                      <span>Dark</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {whatsappNumber && (
+                <a
+                  href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    backgroundColor: '#10B981',
+                    color: '#000000',
+                    textDecoration: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '12px',
+                    fontWeight: 900,
+                    fontSize: '13px',
+                    minHeight: '48px',
+                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+                  }}
+                >
+                  <MessageSquare size={16} color="#000000" />
+                  <span>WhatsApp Support</span>
+                </a>
+              )}
+            </div>
+          </>
+        )}
       </header>
 
       {/* ==================================================================== */}
@@ -1185,43 +1675,63 @@ export const PublicStorefrontPage: React.FC = () => {
         {/* VIEW 1: HOME PAGE (Matches media_1789552950052.png) */}
         {activeNav === 'home' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            {/* Section 1: Hero Card */}
-            <section
-              style={{
-                backgroundColor: t.cardBg,
-                border: `1px solid ${t.cardBorder}`,
-                borderRadius: '20px',
-                padding: '2.5rem 2rem',
-                boxShadow: t.cardShadow,
-              }}
-            >
-              <div style={{ maxWidth: '640px' }}>
+            {/* Section 1: Hero Card (Full-bleed Green Background on Mobile) */}
+            <section className="storefront-hero-section">
+              {/* Subtle ambient decorative lighting */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '-40px',
+                  right: '-40px',
+                  width: '240px',
+                  height: '240px',
+                  borderRadius: '50%',
+                  background: 'radial-gradient(circle, rgba(163, 230, 53, 0.2) 0%, transparent 70%)',
+                  pointerEvents: 'none',
+                  zIndex: 0,
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '-50px',
+                  left: '-30px',
+                  width: '200px',
+                  height: '200px',
+                  borderRadius: '50%',
+                  background: 'radial-gradient(circle, rgba(16, 185, 129, 0.18) 0%, transparent 70%)',
+                  pointerEvents: 'none',
+                  zIndex: 0,
+                }}
+              />
+
+              <div style={{ maxWidth: '640px', position: 'relative', zIndex: 1 }}>
                 <div
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '0.35rem',
-                    backgroundColor: isDark ? 'rgba(163, 230, 53, 0.12)' : '#ECFDF5',
-                    border: '1px solid rgba(163, 230, 53, 0.3)',
-                    color: isDark ? '#A3E635' : '#15803D',
+                    gap: '0.4rem',
+                    backgroundColor: 'rgba(163, 230, 53, 0.16)',
+                    border: '1px solid rgba(163, 230, 53, 0.4)',
+                    color: '#A3E635',
                     fontSize: '11px',
                     fontWeight: 800,
-                    padding: '3px 10px',
+                    padding: '4px 12px',
                     borderRadius: '100px',
                     marginBottom: '1rem',
                   }}
                 >
-                  <Zap size={12} fill="currentColor" />
+                  <Zap size={13} fill="currentColor" />
                   <span>Instant Delivery</span>
                 </div>
 
                 <h1
                   style={{
-                    fontSize: 'clamp(2rem, 4.5vw, 2.75rem)',
+                    fontSize: 'clamp(1.85rem, 4.5vw, 2.75rem)',
                     fontWeight: 900,
-                    color: t.heading,
+                    color: '#FFFFFF',
                     lineHeight: 1.15,
-                    margin: '0 0 0.5rem 0',
+                    margin: '0 0 0.65rem 0',
                     letterSpacing: '-0.02em',
                   }}
                 >
@@ -1232,15 +1742,16 @@ export const PublicStorefrontPage: React.FC = () => {
                 <p
                   style={{
                     fontSize: '14px',
-                    color: t.bodyText,
-                    lineHeight: 1.5,
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    lineHeight: 1.55,
                     margin: '0 0 1.75rem 0',
+                    maxWidth: '560px',
                   }}
                 >
                   MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
                 </p>
 
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div className="storefront-hero-btn-group">
                   <button
                     type="button"
                     onClick={() => handleNavClick('buy')}
@@ -1248,20 +1759,22 @@ export const PublicStorefrontPage: React.FC = () => {
                       backgroundColor: '#A3E635',
                       color: '#000000',
                       border: 'none',
-                      padding: '0.65rem 1.35rem',
-                      borderRadius: '10px',
-                      fontSize: '13px',
+                      padding: '0.75rem 1.5rem',
+                      borderRadius: '12px',
+                      fontSize: '14px',
                       fontWeight: 900,
                       cursor: 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '0.45rem',
+                      justifyContent: 'center',
+                      gap: '0.5rem',
+                      boxShadow: '0 4px 16px rgba(163, 230, 53, 0.35)',
                       transition: 'transform 100ms ease',
                     }}
                   >
-                    <ShoppingCart size={15} color="#000000" />
+                    <ShoppingCart size={16} color="#000000" />
                     <span>Buy Data Now</span>
-                    <ArrowRight size={15} strokeWidth={2.5} />
+                    <ArrowRight size={16} strokeWidth={2.5} />
                   </button>
 
                   <button
@@ -1271,20 +1784,22 @@ export const PublicStorefrontPage: React.FC = () => {
                       handleNavClick('track');
                     }}
                     style={{
-                      backgroundColor: isDark ? '#1C212D' : '#F1F5F9',
-                      color: t.heading,
-                      border: `1px solid ${t.cardBorder}`,
-                      padding: '0.65rem 1.35rem',
-                      borderRadius: '10px',
-                      fontSize: '13px',
-                      fontWeight: 700,
+                      backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                      color: '#FFFFFF',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      padding: '0.75rem 1.5rem',
+                      borderRadius: '12px',
+                      fontSize: '14px',
+                      fontWeight: 800,
                       cursor: 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '0.45rem',
+                      justifyContent: 'center',
+                      gap: '0.5rem',
+                      backdropFilter: 'blur(8px)',
                     }}
                   >
-                    <FileText size={15} />
+                    <FileText size={16} color="#FFFFFF" />
                     <span>Order Tracking</span>
                   </button>
                 </div>
@@ -1413,12 +1928,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 </span>
                 <form
                   onSubmit={handleHomeManualTrack}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    maxWidth: '600px',
-                  }}
+                  className="storefront-inline-search-form"
                 >
                   <div style={{ flex: 1 }}>
                     <Input
@@ -1494,13 +2004,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 Select a network provider to explore available data bundles
               </p>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                  gap: '1rem',
-                }}
-              >
+              <div className="storefront-network-grid">
                 {/* MTN Ghana Card */}
                 <button
                   type="button"
@@ -1716,13 +2220,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 </button>
               </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                  gap: '1rem',
-                }}
-              >
+              <div className="storefront-product-grid">
                 {popularProducts.map((prod) => {
                   const theme = NETWORK_THEMES[prod.network] || NETWORK_THEMES[NetworkProvider.TELECEL];
                   const priceGhs = (prod.retailPricePesewas / 100).toFixed(2);
@@ -1893,16 +2391,7 @@ export const PublicStorefrontPage: React.FC = () => {
         {activeNav === 'buy' && (
           <div>
             {/* Top Network Filter Tabs */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                gap: '0.5rem',
-                marginBottom: '2.5rem',
-                flexWrap: 'wrap',
-              }}
-            >
+            <div className="storefront-filter-tabs">
               {[
                 { id: 'ALL', label: 'ALL NETWORKS' },
                 { id: NetworkProvider.MTN, label: 'MTN' },
@@ -1955,13 +2444,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                  gap: '1.25rem',
-                }}
-              >
+              <div className="storefront-product-grid">
                 {displayProducts.map((prod) => {
                   const theme = NETWORK_THEMES[prod.network] || NETWORK_THEMES[NetworkProvider.TELECEL];
                   const priceGhs = (prod.retailPricePesewas / 100).toFixed(2);
@@ -2103,14 +2586,11 @@ export const PublicStorefrontPage: React.FC = () => {
                   Order Reference ID *
                 </label>
                 <div
+                  className="storefront-track-page-form"
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
                     backgroundColor: t.inputBg,
                     border: `1px solid ${t.inputBorder}`,
                     borderRadius: '12px',
-                    padding: '4px',
                   }}
                 >
                   <input
@@ -2367,17 +2847,7 @@ export const PublicStorefrontPage: React.FC = () => {
           color: t.footerText,
         }}
       >
-        <div
-          style={{
-            maxWidth: '1100px',
-            margin: '0 auto',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '1.5rem',
-          }}
-        >
+        <div className="storefront-footer-container">
           {/* Left: Brand Identity & Copyright */}
           <div>
             <strong style={{ fontSize: '14px', color: t.heading, display: 'block', marginBottom: '0.25rem' }}>
@@ -2392,7 +2862,7 @@ export const PublicStorefrontPage: React.FC = () => {
           </div>
 
           {/* Right: WhatsApp Us button, Track Order, Store Info */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <div className="storefront-footer-actions">
             {whatsappNumber && (
               <a
                 href={STOREFRONT_CONFIG.getWhatsAppUrl(whatsappNumber, storeName)}
@@ -2475,16 +2945,11 @@ export const PublicStorefrontPage: React.FC = () => {
           />
 
           <div
+            className="storefront-modal-card"
             style={{
-              position: 'relative',
-              maxWidth: '460px',
-              width: '100%',
               backgroundColor: t.modalBg,
               border: `1px solid ${t.modalBorder}`,
-              borderRadius: '20px',
-              padding: '1.75rem',
               boxShadow: t.cardShadow,
-              zIndex: 110,
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -2679,16 +3144,11 @@ export const PublicStorefrontPage: React.FC = () => {
           <div style={{ position: 'fixed', inset: 0, backgroundColor: t.modalOverlay, backdropFilter: 'blur(6px)' }} />
 
           <div
+            className="storefront-modal-card"
             style={{
-              position: 'relative',
-              maxWidth: '460px',
-              width: '100%',
               backgroundColor: t.modalBg,
               border: '1px solid rgba(34, 197, 94, 0.4)',
-              borderRadius: '20px',
-              padding: '1.75rem',
               textAlign: 'center',
-              zIndex: 110,
               boxShadow: t.cardShadow,
             }}
           >
@@ -2788,15 +3248,10 @@ export const PublicStorefrontPage: React.FC = () => {
           />
 
           <div
+            className="storefront-modal-card"
             style={{
-              position: 'relative',
-              maxWidth: '480px',
-              width: '100%',
               backgroundColor: t.modalBg,
               border: `1px solid ${t.modalBorder}`,
-              borderRadius: '20px',
-              padding: '1.75rem',
-              zIndex: 110,
               boxShadow: t.cardShadow,
             }}
           >
