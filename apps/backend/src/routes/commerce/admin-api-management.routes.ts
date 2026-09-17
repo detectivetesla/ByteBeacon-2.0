@@ -72,8 +72,8 @@ export async function adminApiManagementRoutes(
           COUNT(CASE WHEN status = 'EXPIRED' OR (expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP) THEN 1 END) as "expiredKeys",
           COUNT(CASE WHEN environment = 'LIVE' THEN 1 END) as "productionKeys",
           COUNT(CASE WHEN environment = 'TEST' THEN 1 END) as "testKeys",
-          COUNT(CASE WHEN u.role = 'agent' OR u.role = 'superagent' THEN 1 END) as "agentKeys",
-          COUNT(CASE WHEN u.role = 'admin' OR u.role = 'super_admin' THEN 1 END) as "internalCredentials"
+          COUNT(CASE WHEN u.role::text = 'agent' OR u.role::text = 'superagent' THEN 1 END) as "agentKeys",
+          COUNT(CASE WHEN u.role::text = 'admin' OR u.role::text = 'super_admin' THEN 1 END) as "internalCredentials"
         FROM api_keys ak
         LEFT JOIN users u ON ak.agent_id = u.id OR ak.owner_user_id = u.id
       `).catch(() => ({
@@ -231,7 +231,7 @@ export async function adminApiManagementRoutes(
       }
 
       if (ownerRole && ownerRole !== 'ALL') {
-        conditions.push(`u.role = $${idx++}`);
+        conditions.push(`u.role::text = $${idx++}`);
         params.push(ownerRole);
       }
 
@@ -269,7 +269,7 @@ export async function adminApiManagementRoutes(
            COALESCE(ak.owner_user_id, ak.agent_id) as "ownerId",
            COALESCE(u.full_name, u.email, 'System') as "ownerName",
            COALESCE(u.email, '') as "ownerEmail",
-           COALESCE(u.role, 'agent') as "ownerRole",
+           COALESCE(u.role::text, 'agent') as "ownerRole",
            ak.environment,
            ak.status,
            ak.scopes,
@@ -347,7 +347,7 @@ export async function adminApiManagementRoutes(
            COALESCE(ak.owner_user_id, ak.agent_id) as "ownerId",
            COALESCE(u.full_name, u.email, 'System') as "ownerName",
            COALESCE(u.email, '') as "ownerEmail",
-           COALESCE(u.role, 'agent') as "ownerRole",
+           COALESCE(u.role::text, 'agent') as "ownerRole",
            ak.environment,
            ak.status,
            ak.scopes,

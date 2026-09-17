@@ -54,8 +54,8 @@ export async function adminFinanceRoutes(
       // 1. Customer & Agent Wallet Balances
       const userBalancesRes = await db.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN role = 'customer' THEN COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) ELSE 0 END), 0) as "customerBalancePesewas",
-          COALESCE(SUM(CASE WHEN role IN ('agent', 'superagent') THEN COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) ELSE 0 END), 0) as "agentBalancePesewas",
+          COALESCE(SUM(CASE WHEN role::text = 'customer' THEN COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) ELSE 0 END), 0) as "customerBalancePesewas",
+          COALESCE(SUM(CASE WHEN role::text IN ('agent', 'superagent') THEN COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) ELSE 0 END), 0) as "agentBalancePesewas",
           COALESCE(SUM(COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100))), 0) as "totalFloatPesewas"
         FROM users
       `);
@@ -255,7 +255,7 @@ export async function adminFinanceRoutes(
       }
 
       if (role && role !== 'ALL') {
-        whereClauses.push(`u.role = $${paramIndex}`);
+        whereClauses.push(`u.role::text = $${paramIndex}`);
         queryParams.push(role);
         paramIndex++;
       }
@@ -320,7 +320,7 @@ export async function adminFinanceRoutes(
           COALESCE(u.full_name, 'Unknown User') as "userName",
           COALESCE(u.email, '') as "userEmail",
           COALESCE(u.phone, '') as "userPhone",
-          COALESCE(u.role, 'customer') as "userRole",
+          COALESCE(u.role::text, 'customer') as "userRole",
           p.order_id as "orderId",
           p.id as "paymentId",
           p.provider_reference as "providerReference",

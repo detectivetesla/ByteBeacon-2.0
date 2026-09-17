@@ -233,9 +233,9 @@ export async function adminApprovalsRoutes(
 
       if (source && source !== 'ALL') {
         if (source === 'CUSTOMER') {
-          whereConditions.push(`(u.role = 'customer' OR b.provider_response_metadata->>'detectedFrom' ILIKE '%customer%')`);
+          whereConditions.push(`(u.role::text = 'customer' OR b.provider_response_metadata->>'detectedFrom' ILIKE '%customer%')`);
         } else if (source === 'AGENT') {
-          whereConditions.push(`(u.role = 'agent' OR b.provider_response_metadata->>'detectedFrom' ILIKE '%agent%')`);
+          whereConditions.push(`(u.role::text = 'agent' OR b.provider_response_metadata->>'detectedFrom' ILIKE '%agent%')`);
         } else if (source === 'ORDERS') {
           whereConditions.push(`b.source_type = 'order'`);
         } else if (source === 'EXCEL') {

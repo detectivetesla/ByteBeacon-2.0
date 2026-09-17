@@ -265,7 +265,7 @@ export async function adminAuditSecurityRoutes(
     }
     const resolvedRole = actorRole && actorRole !== 'ALL' ? actorRole : role && role !== 'ALL' ? role : null;
     if (resolvedRole) {
-      conditions.push(`(LOWER(COALESCE(u.role, '')) = $${idx} OR LOWER(COALESCE(l.actor_type, '')) = $${idx} OR LOWER(COALESCE(l.actor_role, '')) = $${idx})`);
+      conditions.push(`(LOWER(COALESCE(u.role::text, '')) = $${idx} OR LOWER(COALESCE(l.actor_type, '')) = $${idx} OR LOWER(COALESCE(l.actor_role, '')) = $${idx})`);
       params.push(resolvedRole.toLowerCase());
       idx++;
     }
@@ -327,7 +327,7 @@ export async function adminAuditSecurityRoutes(
            l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
            COALESCE(l.actor_name, u.full_name, u.email, l.actor_type) as "actorName",
            COALESCE(l.actor_email, u.email) as "actorEmail",
-           COALESCE(l.actor_role, u.role, l.actor_type) as "actorRole",
+           COALESCE(l.actor_role, u.role::text, l.actor_type) as "actorRole",
            l.actor_type as "actorType",
            l.action, l.category, l.resource_type as "resourceType",
            l.resource_id as "resourceId", l.result, l.severity,
@@ -352,7 +352,7 @@ export async function adminAuditSecurityRoutes(
            l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
            COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
            u.email as "actorEmail",
-           COALESCE(u.role, l.actor_type) as "actorRole",
+           COALESCE(u.role::text, l.actor_type) as "actorRole",
            l.actor_type as "actorType",
            l.action,
            'ADMIN_ACTION' as category,
@@ -485,7 +485,7 @@ export async function adminAuditSecurityRoutes(
          l.id, l.correlation_id as "correlationId", l.actor_id as "actorId",
          COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
          u.email as "actorEmail",
-         COALESCE(l.actor_role, u.role, l.actor_type) as "actorRole",
+         COALESCE(l.actor_role, u.role::text, l.actor_type) as "actorRole",
          l.actor_type as "actorType",
          l.action, l.category, l.resource_type as "resourceType",
          l.resource_id as "resourceId", l.result, l.severity,
@@ -498,7 +498,7 @@ export async function adminAuditSecurityRoutes(
          l.description,
          l.created_at as "timestamp"
        FROM audit_logs l
-       LEFT JOIN users u ON l.actor_id = u.id
+       LEFT JOIN users u ON l.actor_id::text = u.id::text
        WHERE l.id = $1`,
       [id],
     );
@@ -750,7 +750,7 @@ export async function adminAuditSecurityRoutes(
         params.push(action);
       }
       if (actorRole && actorRole !== 'ALL') {
-        conditions.push(`u.role = $${idx++}`);
+        conditions.push(`u.role::text = $${idx++}`);
         params.push(actorRole.toLowerCase());
       }
       if (startDate) {
@@ -771,12 +771,12 @@ export async function adminAuditSecurityRoutes(
       const res = await db.query(
         `SELECT l.created_at as "timestamp", l.correlation_id as "correlationId",
                 COALESCE(u.full_name, u.email, l.actor_type) as "actorName",
-                COALESCE(u.role, l.actor_type) as "actorRole",
+                COALESCE(u.role::text, l.actor_type) as "actorRole",
                 l.action, l.category, l.resource_type as "resourceType",
                 l.resource_id as "resourceId", l.severity, l.result,
                 l.ip_address as "ipAddress", l.event_hash as "eventHash"
          FROM audit_logs l
-         LEFT JOIN users u ON l.actor_id = u.id
+         LEFT JOIN users u ON l.actor_id::text = u.id::text
          WHERE ${conditions.join(' AND ')}
          ORDER BY l.created_at DESC
          LIMIT 1000`,
