@@ -142,7 +142,7 @@ export function createApp(options: AppOptions = {}) {
     genReqId(req) {
       return (req.headers['x-request-id'] as string) || randomUUID();
     },
-    bodyLimit: 1048576, // 1MB conservative default payload limit
+    bodyLimit: 10485760, // 10MB payload limit to accommodate merchant logos, avatars, and assets
     disableRequestLogging: false,
   });
 

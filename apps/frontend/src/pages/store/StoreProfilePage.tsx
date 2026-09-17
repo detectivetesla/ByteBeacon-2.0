@@ -1,3 +1,4 @@
+import { optimizeImageFile } from '../../utils/imageOptimizer.js';
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
@@ -44,23 +45,22 @@ export const StoreProfilePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      toastError('File Too Large', 'Please select an image file under 2MB.');
+    if (file.size > 10 * 1024 * 1024) {
+      toastError('File Too Large', 'Please select an image file under 10MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setLogoUrl(reader.result);
-        toastSuccess('Logo Loaded', 'Preview updated. Click Save Store Profile to apply changes.');
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const optimizedUri = await optimizeImageFile(file, { maxWidth: 400, maxHeight: 400, quality: 0.88 });
+      setLogoUrl(optimizedUri);
+      toastSuccess('Logo Ready', 'Logo optimized and preview updated. Click Save Store Profile to apply changes.');
+    } catch {
+      toastError('Image Error', 'Failed to process selected image file.');
+    }
   };
 
   const fetchStoreProfile = async () => {

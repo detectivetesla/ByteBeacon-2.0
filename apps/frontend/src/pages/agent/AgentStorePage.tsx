@@ -1,3 +1,4 @@
+import { optimizeImageFile } from '../../utils/imageOptimizer.js';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';

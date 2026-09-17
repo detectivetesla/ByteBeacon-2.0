@@ -54,6 +54,19 @@ export async function storeRoutes(
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const maintenanceHook = createMaintenanceHook(featureFlagService);
 
+  // Self-heal: ensure stores branding and copy columns are TEXT without VARCHAR limits
+  db.query(`
+    DO $
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stores') THEN
+        ALTER TABLE stores ALTER COLUMN logo_url TYPE TEXT;
+        ALTER TABLE stores ALTER COLUMN banner_url TYPE TEXT;
+        ALTER TABLE stores ALTER COLUMN description TYPE TEXT;
+        ALTER TABLE stores ALTER COLUMN tagline TYPE TEXT;
+      END IF;
+    END $;
+  `).catch(() => {});
+
   // Helper: Require user's store and ensure owner
   async function getAgentStore(userId: string) {
     const res = await db.query(
@@ -66,7 +79,7 @@ export async function storeRoutes(
               activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
               admin_notes as "adminNotes", created_at as "createdAt", updated_at as "updatedAt"
        FROM stores
-       WHERE user_id = $1 OR agent_id = $1
+       WHERE user_id = $1 OR agent_id = $1 OR agent_id IN (SELECT id FROM agents WHERE user_id = $1)
        ORDER BY created_at DESC
        LIMIT 1`,
       [userId],
@@ -174,7 +187,7 @@ export async function storeRoutes(
     };
   }>(
     '/stores/setup',
-    { preHandler: [authHooks.authenticateCustomer, maintenanceHook] },
+    { bodyLimit: 10485760, preHandler: [authHooks.authenticateCustomer, maintenanceHook] },
     async (req, reply) => {
       const {
         storeName,
@@ -199,15 +212,20 @@ export async function storeRoutes(
       const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
       let agentId = agentRes.rows[0]?.id || null;
       if (!agentId) {
-        const agentSlug = `agent-${cleanSlug}-${req.user!.sub.slice(0, 6)}`;
-        const insertAgent = await db.query(
-          `INSERT INTO agents (user_id, business_name, slug, status)
-           VALUES ($1, $2, $3, 'ACTIVE')
-           ON CONFLICT (user_id) DO UPDATE SET business_name = EXCLUDED.business_name, updated_at = CURRENT_TIMESTAMP
-           RETURNING id`,
-          [req.user!.sub, storeName.trim(), agentSlug],
-        );
-        agentId = insertAgent.rows[0]?.id || null;
+        const agentSlug = `agent-${cleanSlug}-${crypto.randomUUID().slice(0, 8)}`;
+        try {
+          const insertAgent = await db.query(
+            `INSERT INTO agents (user_id, business_name, slug, status)
+             VALUES ($1, $2, $3, 'ACTIVE')
+             ON CONFLICT (user_id) DO UPDATE SET business_name = EXCLUDED.business_name, updated_at = CURRENT_TIMESTAMP
+             RETURNING id`,
+            [req.user!.sub, storeName.trim(), agentSlug],
+          );
+          agentId = insertAgent.rows[0]?.id || null;
+        } catch {
+          const fallbackRes = await db.query('SELECT id FROM agents WHERE user_id = $1 LIMIT 1', [req.user!.sub]);
+          agentId = fallbackRes.rows[0]?.id || null;
+        }
       }
 
       const existingStore = await getAgentStore(req.user!.sub);
@@ -413,7 +431,7 @@ export async function storeRoutes(
 
     const storeRow = updateRes.rows[0];
 
-    if (auditService) {
+    if (auditService && storeRow?.id) {
       await auditService.log({
         correlationId: req.id,
         actorId: req.user!.sub,
@@ -422,6 +440,8 @@ export async function storeRoutes(
         resourceType: 'stores',
         resourceId: storeRow.id,
         metadata: { storeName: storeRow.storeName, slug: storeRow.slug },
+      }).catch((err: any) => {
+        req.log.warn({ err }, 'Non-blocking audit log failure during store update');
       });
     }
 
@@ -432,8 +452,8 @@ export async function storeRoutes(
     });
   };
 
-  app.put('/stores/my-store', { preHandler: [authHooks.authenticateCustomer, maintenanceHook] }, updateStoreProfileHandler);
-  app.patch('/stores/my-store', { preHandler: [authHooks.authenticateCustomer, maintenanceHook] }, updateStoreProfileHandler);
+  app.put('/stores/my-store', { bodyLimit: 10485760, preHandler: [authHooks.authenticateCustomer, maintenanceHook] }, updateStoreProfileHandler);
+  app.patch('/stores/my-store', { bodyLimit: 10485760, preHandler: [authHooks.authenticateCustomer, maintenanceHook] }, updateStoreProfileHandler);
 
   // 3. INITIALIZE STORE ACTIVATION PAYMENT (/stores/payment/initialize)
   app.post<{
