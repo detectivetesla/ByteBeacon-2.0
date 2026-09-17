@@ -182,6 +182,10 @@ export class BeneficiaryService {
     record?: boolean;
     userId?: string;
     bypassCache?: boolean;
+    source?: string;
+    storeSlug?: string;
+    storeName?: string;
+    detectedFrom?: string;
   }): Promise<{
     network: NetworkProvider | string;
     enforced?: boolean;
@@ -604,38 +608,68 @@ export class BeneficiaryService {
     if (params.record && unknownList.length > 0) {
       recorded = true;
       try {
-        const effectiveAgentId = params.userId;
+        let effectiveAgentId = params.userId;
+
+        // Auto-resolve store agent if storeSlug is provided
+        if (!effectiveAgentId && params.storeSlug) {
+          try {
+            const storeLookup = await this.db.query(
+              `SELECT user_id as "userId", agent_id as "agentId" FROM stores WHERE LOWER(slug) = LOWER($1) LIMIT 1`,
+              [params.storeSlug],
+            );
+            if (storeLookup.rows.length > 0) {
+              effectiveAgentId = storeLookup.rows[0].userId || storeLookup.rows[0].agentId;
+            }
+          } catch {
+            // non-fatal
+          }
+        }
+
+        const sourceName = params.source || (params.storeSlug ? 'storefront' : 'precheck');
+        const detectedFrom = params.detectedFrom || (sourceName === 'storefront' ? 'Storefront Precheck' : 'Precheck');
+
+        const metadata = JSON.stringify({
+          agentId: effectiveAgentId || null,
+          source: sourceName,
+          channel: sourceName,
+          detectedFrom,
+          storeSlug: params.storeSlug || null,
+          storeName: params.storeName || null,
+          recordedVia: sourceName === 'storefront' ? 'storefront_precheck' : 'precheck',
+          recordedAt: new Date().toISOString(),
+        });
 
         if (effectiveAgentId) {
           await this.db.query(
             `INSERT INTO pending_beneficiary_approvals (
               phone_number, network, agent_id, status, attempt_count,
+              detected_from, metadata,
               first_detected_at, last_detected_at, created_at, updated_at
             )
-            SELECT unk, 'MTN', $2, 'PENDING', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            SELECT unk, 'MTN', $2, 'PENDING', 1, $3, $4::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             FROM unnest($1::text[]) AS unk
             ON CONFLICT (agent_id, phone_number, network) DO UPDATE
             SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+                detected_from = COALESCE(EXCLUDED.detected_from, pending_beneficiary_approvals.detected_from),
+                metadata = EXCLUDED.metadata,
                 last_detected_at = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP`,
-            [unknownList, effectiveAgentId],
+            [unknownList, effectiveAgentId, detectedFrom, metadata],
           ).catch(() => {});
         }
 
-        const metadata = JSON.stringify({
-          agentId: params.userId || null,
-          recordedVia: 'precheck',
-          recordedAt: new Date().toISOString(),
-        });
         await this.db.query(
-          `INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, created_at, updated_at)
-           SELECT unk, 'MTN', 'PENDING', $2::jsonb, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          `INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, user_id, created_at, updated_at)
+           SELECT unk, 'MTN', 'PENDING', $2::jsonb, $3, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
            FROM unnest($1::text[]) AS unk
            ON CONFLICT (phone_number, network) DO UPDATE
            SET validation_status = 'PENDING',
+               provider_response_metadata = EXCLUDED.provider_response_metadata,
+               agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
+               user_id = COALESCE(EXCLUDED.user_id, beneficiary_validation.user_id),
                updated_at = CURRENT_TIMESTAMP
            WHERE beneficiary_validation.validation_status != 'APPROVED'`,
-          [unknownList, metadata, params.userId || null],
+          [unknownList, metadata, effectiveAgentId || null],
         ).catch(() => {});
       } catch {
         // Non-fatal recording failure

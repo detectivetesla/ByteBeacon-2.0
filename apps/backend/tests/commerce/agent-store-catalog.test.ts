@@ -410,5 +410,48 @@ describe('Agent Store & Custom Catalog Suite', () => {
       expect(json.data.paymentStatus).toBe('PAID');
       expect(json.data.status).toBe('READY_TO_PROCESS');
     });
+
+    it('GET /stores/public/:slug/og-image should return SVG social banner for crawler link previews', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/stores/public/fastdata/og-image',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('image/svg+xml');
+      expect(res.headers['cache-control']).toContain('public');
+      expect(res.body).toContain('FastData Reseller');
+      expect(res.body).toContain('MTN');
+      expect(res.body).toContain('TELECEL');
+      expect(res.body).toContain('AT');
+      expect(res.body).toContain('apisolutions.store');
+    });
+
+    it('GET /stores/public/:slug/logo should return dynamic initial vector badge when no custom logo is uploaded', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/stores/public/fastdata/logo',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('image/svg+xml');
+      expect(res.body).toContain('>F<');
+    });
+
+    it('GET /stores/public/:slug/meta should return structured SEO & Open Graph tags for social scrapers', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/stores/public/fastdata/meta',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.title).toContain('FastData Reseller');
+      expect(json.data.openGraph.siteName).toBe('FastData Reseller');
+      expect(json.data.openGraph.title).toContain('FastData Reseller');
+      expect(json.data.openGraph.image).toContain('/api/og?slug=fastdata');
+      expect(json.data.twitter.card).toBe('summary_large_image');
+    });
   });
 });

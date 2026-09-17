@@ -119,8 +119,14 @@ export interface StoreDashboardDto {
     todayProfitGhs?: number;
     totalProfitGhs?: number;
     ordersCount: number;
+    ordersTodayCount?: number;
+    totalOrdersCount?: number;
     customersCount: number;
     storeVisits: number;
+    completedOrders?: number;
+    processingOrders?: number;
+    pendingOrders?: number;
+    failedOrders?: number;
   };
   orderHealth: {
     completed: number;
@@ -128,7 +134,7 @@ export interface StoreDashboardDto {
     pending: number;
     failed: number;
   };
-  revenueTrend?: Array<{ date: string; revenueGhs: number }>;
+  revenueTrend?: Array<{ date: string; revenueGhs: number; orderCount?: number }>;
 }
 
 export interface StoreOrderRecordDto {
@@ -137,7 +143,14 @@ export interface StoreOrderRecordDto {
   recipientPhone: string;
   network: string;
   dataAmountMb: number;
+  dataLabel?: string;
   amountPesewas: number;
+  amountGhs?: number;
+  profitPesewas?: number;
+  profitGhs?: number;
+  basePricePesewas?: number;
+  basePriceGhs?: number;
+  productName?: string;
   orderStatus: string;
   paymentStatus: string;
   createdAt: string;
@@ -196,7 +209,7 @@ export interface StoreAnalyticsDto {
     orderCount: number;
     percentage?: number;
   }>;
-  revenueTrend: Array<{ date: string; revenueGhs: number }>;
+  revenueTrend: Array<{ date: string; revenueGhs: number; orderCount?: number }>;
   dailyTrend?: Array<{ date: string; revenueGhs?: number; revenuePesewas?: number }>;
 }
 
@@ -353,6 +366,14 @@ export const storesApi = {
     });
   },
 
+  cancelPublicOrder: async (orderIdOrRef: string): Promise<{ success: boolean; message: string }> => {
+    return apiClient.post<{ success: boolean; message: string }>(
+      '/stores/public/orders/cancel',
+      { orderId: orderIdOrRef, reference: orderIdOrRef },
+      { skipAuth: true },
+    );
+  },
+
   saveStoreConfig: async (payload: Partial<StoreProfileDto>): Promise<StoreProfileDto> => {
     try {
       return await apiClient.put<StoreProfileDto>('/stores/my-store', payload);
@@ -393,6 +414,12 @@ export const storesApi = {
     return apiClient.put<StoreProductDto>(`/stores/my-store/products/${productId}`, payload);
   },
 
+  bulkUpdateStoreProducts: async (
+    items: Array<{ id: string; markupPesewas?: number; isAvailable?: boolean; isVisible?: boolean }>,
+  ): Promise<{ success: boolean; count: number }> => {
+    return apiClient.put<{ success: boolean; count: number }>('/stores/my-store/products/bulk', { items });
+  },
+
   /** @deprecated Use updateStoreProduct instead */
   updateProductMarkup: async (
     _storeId: string,
@@ -414,6 +441,7 @@ export const storesApi = {
 
   getStoreOrders: async (params?: {
     status?: string;
+    paymentStatus?: string;
     network?: string;
     search?: string;
     page?: number;
@@ -421,6 +449,7 @@ export const storesApi = {
   }): Promise<StoreOrdersResponseDto> => {
     const query = new URLSearchParams();
     if (params?.status && params.status !== 'ALL') query.set('status', params.status);
+    if (params?.paymentStatus && params.paymentStatus !== 'ALL') query.set('payment_status', params.paymentStatus);
     if (params?.network && params.network !== 'ALL') query.set('network', params.network);
     if (params?.search?.trim()) query.set('search', params.search.trim());
     if (params?.page) query.set('page', String(params.page));
@@ -447,7 +476,7 @@ export const storesApi = {
   // ─── Agent Commerce: Analytics ───────────────────────────────────
 
   getStoreAnalytics: async (params?: {
-    period?: '7d' | '30d' | 'month';
+    period?: '7d' | '30d' | 'all' | 'month';
   }): Promise<StoreAnalyticsDto> => {
     const query = new URLSearchParams();
     if (params?.period) query.set('period', params.period);
@@ -495,8 +524,28 @@ export const storesApi = {
     return apiClient.get<StoreSettingsDto>('/stores/my-store/settings');
   },
 
-  saveStoreSettings: async (payload: Partial<StoreSettingsDto>): Promise<StoreSettingsDto> => {
-    return apiClient.put<StoreSettingsDto>('/stores/my-store/settings', payload);
+  // ─── Public Storefront: Beneficiary Precheck ──────────────────────
+
+  precheckStoreBeneficiary: async (params: {
+    slug: string;
+    phoneNumber: string;
+    network?: NetworkProvider | string;
+    record?: boolean;
+  }): Promise<{
+    network: string;
+    valid: boolean;
+    known: boolean;
+    orderable: boolean;
+    status: string;
+    message: string;
+    accountName?: string;
+    recorded?: boolean;
+  }> => {
+    return apiClient.post(`/stores/public/${encodeURIComponent(params.slug)}/precheck`, {
+      phoneNumber: params.phoneNumber,
+      network: params.network || 'MTN',
+      record: params.record !== false,
+    });
   },
 };
 

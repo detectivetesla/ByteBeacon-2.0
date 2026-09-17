@@ -354,6 +354,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
       const labels: Record<string, string> = {
         CUSTOMER: 'Source: Customer Portal',
         AGENT: 'Source: Agent System',
+        STOREFRONT: 'Source: Storefront',
         ORDERS: 'Source: Pending Orders',
         EXCEL: 'Source: Excel Uploads',
       };
@@ -681,7 +682,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
             </div>
 
             {/* Source */}
-            <div style={{ width: '175px' }}>
+            <div style={{ width: '190px' }}>
               <Select
                 value={sourceFilter}
                 onChange={(e) => {
@@ -692,6 +693,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   { label: 'All Sources & Users', value: 'ALL' },
                   { label: 'Customer Portal', value: 'CUSTOMER' },
                   { label: 'Agent System', value: 'AGENT' },
+                  { label: 'Storefront (Prechecks & Orders)', value: 'STOREFRONT' },
                   { label: 'Pending Orders Only', value: 'ORDERS' },
                   { label: 'Excel Uploads Only', value: 'EXCEL' },
                 ]}
@@ -854,7 +856,9 @@ export const AdminPendingApprovalsPage: React.FC = () => {
               {/* Source System */}
               <td style={{ padding: '0.85rem 1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', maxWidth: '220px' }}>
-                  {item.sourceRole === 'agent' ? (
+                  {item.sourceRole === 'storefront' ? (
+                    <Badge variant="success" size="xs">Storefront</Badge>
+                  ) : item.sourceRole === 'agent' ? (
                     <Badge variant="warning" size="xs">Agent</Badge>
                   ) : item.sourceRole === 'admin' ? (
                     <Badge variant="brand" size="xs">Admin</Badge>

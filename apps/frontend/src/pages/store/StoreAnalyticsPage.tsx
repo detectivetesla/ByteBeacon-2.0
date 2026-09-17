@@ -37,15 +37,16 @@ const NETWORK_LABELS: Record<string, string> = {
 
 export const StoreAnalyticsPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
+  const [period, setPeriod] = useState<'7d' | '30d' | 'all'>('30d');
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async (isPolling = false) => {
     try {
-      setLoading(true);
+      if (!isPolling) setLoading(true);
       setError(null);
-      const res = await storesApi.getStoreAnalytics({ period: '30d' });
+      const res = await storesApi.getStoreAnalytics({ period });
       if (res) {
         const monthlyRevenueGhs = res.monthlyRevenueGhs !== undefined
           ? res.monthlyRevenueGhs
@@ -62,6 +63,7 @@ export const StoreAnalyticsPage: React.FC = () => {
         const revenueTrend = (res.revenueTrend || (res as any).dailyTrend || []).map((rt: any) => ({
           date: rt.date,
           revenueGhs: rt.revenueGhs !== undefined ? rt.revenueGhs : Number((rt.revenuePesewas || 0) / 100),
+          orderCount: (rt as any).orderCount || 0,
         }));
 
         setData({
@@ -73,20 +75,44 @@ export const StoreAnalyticsPage: React.FC = () => {
           networkBreakdown,
           revenueTrend,
         });
-      } else {
+      } else if (!isPolling) {
         setError('Failed to load analytics.');
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred while fetching analytics.');
-      toastError('Error', 'Failed to load store analytics');
+      if (!isPolling) {
+        setError(err.message || 'An error occurred while fetching analytics.');
+        toastError('Error', 'Failed to load store analytics');
+      }
     } finally {
-      setLoading(false);
+      if (!isPolling) setLoading(false);
     }
-  };
+  }, [period, toastError]);
 
   useEffect(() => {
     fetchAnalytics();
-  }, []);
+    const interval = setInterval(() => {
+      fetchAnalytics(true);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [fetchAnalytics]);
+
+  const handleExportReport = () => {
+    if (!data) return;
+    const header = 'Date,Revenue (GHS)\n';
+    const trendRows = data.revenueTrend.map((r) => `${r.date},${r.revenueGhs.toFixed(2)}`).join('\n');
+    const carrierHeader = '\n\nNetwork Carrier,Orders,Revenue (GHS),Share (%)\n';
+    const carrierRows = data.networkBreakdown.map((n) => `${n.network},${n.orderCount},${n.revenueGhs.toFixed(2)},${n.percentage.toFixed(1)}%`).join('\n');
+    
+    const blob = new Blob([header + trendRows + carrierHeader + carrierRows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `store_analytics_${period}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toastSuccess('Report Exported', `Analytics report for ${period} downloaded.`);
+  };
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -104,15 +130,45 @@ export const StoreAnalyticsPage: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => toastSuccess('Exported', 'Store performance report exported.')}
-          leftIcon={<Download size={13} />}
-          disabled={loading || !data}
-        >
-          Export Report
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {/* Period Selector Tabs */}
+          <div style={{ display: 'flex', backgroundColor: 'var(--color-bg-surface-elevated)', padding: '3px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+            {[
+              { id: '7d', label: '7 Days' },
+              { id: '30d', label: '30 Days' },
+              { id: 'all', label: 'All Time' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setPeriod(tab.id as any)}
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: period === tab.id ? 800 : 600,
+                  color: period === tab.id ? '#FFFFFF' : 'var(--color-text-secondary)',
+                  backgroundColor: period === tab.id ? '#A855F7' : 'transparent',
+                  border: 'none',
+                  borderRadius: 'var(--radius-md)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportReport}
+            leftIcon={<Download size={13} />}
+            disabled={loading || !data}
+          >
+            Export Report
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -160,6 +216,80 @@ export const StoreAnalyticsPage: React.FC = () => {
               </div>
             </Card>
           </div>
+
+          {/* Revenue Velocity Trend Chart */}
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Storefront Revenue Trajectory
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+                  Daily sales velocity across {period === '7d' ? 'the past 7 days' : period === '30d' ? 'the past 30 days' : 'all-time record'}.
+                </p>
+              </div>
+              <Badge variant="brand" size="sm">
+                {period === '7d' ? '7 Days' : period === '30d' ? '30 Days' : 'All Time'}
+              </Badge>
+            </div>
+
+            <div style={{ width: '100%', height: '200px', position: 'relative', marginTop: 'var(--space-4)' }}>
+              {data.revenueTrend && data.revenueTrend.length > 0 ? (() => {
+                const maxRev = Math.max(...data.revenueTrend.map(r => r.revenueGhs), 1);
+                const len = data.revenueTrend.length;
+                const getX = (i: number) => 25 + (i * 450 / Math.max(len - 1, 1));
+                const getY = (val: number) => 145 - ((val / maxRev) * 120);
+
+                const points = data.revenueTrend.map((r, i) => [getX(i), getY(r.revenueGhs)]);
+                const pathD = `M ${points.map(p => p.join(' ')).join(' L ')}`;
+                const areaD = `${pathD} L ${getX(len - 1)} 165 L 25 165 Z`;
+
+                return (
+                  <svg viewBox="0 0 500 180" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+                    <defs>
+                      <linearGradient id="analyticsRevenueGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#A855F7" stopOpacity="0.4" />
+                        <stop offset="100%" stopColor="#A855F7" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+
+                    {/* Grid lines */}
+                    <line x1="20" y1="30" x2="480" y2="30" stroke="var(--color-border-subtle)" strokeDasharray="3 3" />
+                    <line x1="20" y1="85" x2="480" y2="85" stroke="var(--color-border-subtle)" strokeDasharray="3 3" />
+                    <line x1="20" y1="145" x2="480" y2="145" stroke="var(--color-border-subtle)" strokeDasharray="3 3" />
+
+                    {/* Area fill */}
+                    <path d={areaD} fill="url(#analyticsRevenueGrad)" />
+
+                    {/* Line stroke */}
+                    <path d={pathD} fill="none" stroke="#A855F7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+
+                    {/* Data Points */}
+                    {points.map(([x, y], i) => (
+                      <circle key={i} cx={x} cy={y} r="4" fill="#FFFFFF" stroke="#A855F7" strokeWidth="2.5" />
+                    ))}
+                  </svg>
+                );
+              })() : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
+                  No revenue trend data recorded for this period.
+                </div>
+              )}
+
+              {/* X-axis date labels */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                {data.revenueTrend && data.revenueTrend.length > 0 ? (
+                  <>
+                    <span>{data.revenueTrend[0].date}</span>
+                    {data.revenueTrend.length > 2 && (
+                      <span>{data.revenueTrend[Math.floor(data.revenueTrend.length / 2)].date}</span>
+                    )}
+                    <span>{data.revenueTrend[data.revenueTrend.length - 1].date}</span>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </Card>
 
           {/* Network Share Breakdown */}
           <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>

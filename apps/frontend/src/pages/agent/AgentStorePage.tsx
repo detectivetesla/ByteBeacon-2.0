@@ -29,6 +29,7 @@ import {
   Image as ImageIcon,
   Save,
   Sparkles,
+  Share2,
 } from 'lucide-react';
 
 export type StoreSetupState =
@@ -61,6 +62,7 @@ export const AgentStorePage: React.FC = () => {
   const [isSavingChanges, setIsSavingChanges] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedMsg, setCopiedMsg] = useState(false);
 
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [activationFeeGhs, setActivationFeeGhs] = useState<number>(90.00);
@@ -1131,6 +1133,143 @@ export const AgentStorePage: React.FC = () => {
                         Letters, numbers, and hyphens
                       </span>
                     )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Social Sharing Card Preview (WhatsApp, Facebook, Twitter, iMessage) */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.65)',
+                border: '1px solid rgba(51, 65, 85, 0.6)',
+                borderRadius: '16px',
+                padding: '1.25rem',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Share2 size={16} color="#38BDF8" />
+                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                      Social Link Share Preview (WhatsApp, Twitter, Facebook &amp; iMessage)
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      leftIcon={copiedLink ? <Check size={13} color="#10B981" /> : <Copy size={13} />}
+                      onClick={() => {
+                        const targetSlug = cleanSlugVal || slug || 'your-store';
+                        const fullUrl = `https://apisolutions.store/${targetSlug}`;
+                        if (navigator.clipboard) {
+                          navigator.clipboard.writeText(fullUrl);
+                        }
+                        setCopiedLink(true);
+                        toastSuccess('Storefront link copied to clipboard!');
+                        setTimeout(() => setCopiedLink(false), 2500);
+                      }}
+                    >
+                      {copiedLink ? 'Link Copied!' : 'Copy Link'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      leftIcon={copiedMsg ? <Check size={13} color="#10B981" /> : <Copy size={13} />}
+                      onClick={() => {
+                        const targetSlug = cleanSlugVal || slug || 'your-store';
+                        const fullUrl = `https://apisolutions.store/${targetSlug}`;
+                        const promo = `⚡ Buy cheap & instant MTN, Telecel & AT mobile data bundles from ${storeName || 'my store'}:\n👉 ${fullUrl}`;
+                        if (navigator.clipboard) {
+                          navigator.clipboard.writeText(promo);
+                        }
+                        setCopiedMsg(true);
+                        toastSuccess('WhatsApp promotional message copied!');
+                        setTimeout(() => setCopiedMsg(false), 2500);
+                      }}
+                    >
+                      {copiedMsg ? 'Copied Message!' : 'Copy WhatsApp Text'}
+                    </Button>
+                    <a
+                      href={`https://apisolutions.store/${cleanSlugVal || slug || ''}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ textDecoration: 'none' }}
+                    >
+                      <Button type="button" size="xs" variant="ghost" leftIcon={<ExternalLink size={13} />}>
+                        Open Link
+                      </Button>
+                    </a>
+                  </div>
+                </div>
+
+                {/* Simulated Open Graph unfurl card */}
+                <div style={{
+                  background: '#0B0F17',
+                  border: '1px solid #1E293B',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
+                }}>
+                  <div style={{
+                    height: '140px',
+                    background: `linear-gradient(135deg, ${primaryColor}33 0%, #0F172A 100%)`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    position: 'relative',
+                    borderBottom: '1px solid #1E293B',
+                  }}>
+                    {logoUrl && !logoLoadError ? (
+                      <img
+                        src={logoUrl}
+                        alt="Logo"
+                        style={{ maxHeight: '80px', maxWidth: '160px', objectFit: 'contain', borderRadius: '12px' }}
+                      />
+                    ) : (
+                      <div style={{
+                        width: '68px',
+                        height: '68px',
+                        borderRadius: '18px',
+                        backgroundColor: primaryColor,
+                        color: '#FFF',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 900,
+                        fontSize: '32px',
+                        boxShadow: '0 8px 24px -4px rgba(0,0,0,0.6)',
+                      }}>
+                        {(storeName || 'D').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '12px',
+                      background: 'rgba(0, 0, 0, 0.7)',
+                      backdropFilter: 'blur(4px)',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: '#10B981',
+                    }}>
+                      ✓ Verified Store
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>
+                    <div style={{ fontSize: '11px', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '3px' }}>
+                      apisolutions.store
+                    </div>
+                    <div style={{ fontSize: '14px', fontWeight: 800, color: '#F8FAFC', marginBottom: '4px' }}>
+                      {storeName || 'Your Store Business Name'} - Buy Affordable Data Bundles
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94A3B8', lineHeight: 1.4 }}>
+                      {tagline || description || 'Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana.'}
+                    </div>
                   </div>
                 </div>
               </div>

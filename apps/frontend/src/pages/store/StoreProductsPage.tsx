@@ -93,20 +93,53 @@ export const StoreProductsPage: React.FC = () => {
     setIsSaving(true);
     try {
       const modifiedProds = products.filter(p => modifiedProducts.has(p.id));
-      for (const prod of modifiedProds) {
-        await storesApi.updateStoreProduct(prod.id, {
-          markupPesewas: Math.round(prod.markupGhs * 100),
-          isAvailable: prod.isAvailable,
-          isVisible: prod.isVisible,
-        }).catch(() => null);
+      if (modifiedProds.length === 0) {
+        toastSuccess('No Changes', 'All bundle markups are already up to date.');
+        setIsSaving(false);
+        return;
       }
+
+      const items = modifiedProds.map((prod) => ({
+        id: prod.id,
+        markupPesewas: Math.round(prod.markupGhs * 100),
+        isAvailable: prod.isAvailable,
+        isVisible: prod.isVisible,
+      }));
+
+      await storesApi.bulkUpdateStoreProducts(items);
       setModifiedProducts(new Set());
-      toastSuccess('Catalog Published', 'Your storefront bundle markups and visibility have been updated.');
+      toastSuccess('Catalog Published', `Updated ${items.length} bundle pricing & availability settings.`);
     } catch (err: any) {
       toastError('Save Failed', err.message || 'Unable to update store products.');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const applyMarkupPreset = (markupGhs: number) => {
+    const targetIds = new Set(filteredProducts.map((p) => p.id));
+    setProducts((prev) =>
+      prev.map((p) => (targetIds.has(p.id) ? { ...p, markupGhs } : p)),
+    );
+    setModifiedProducts((prev) => {
+      const next = new Set(prev);
+      targetIds.forEach((id) => next.add(id));
+      return next;
+    });
+    toastSuccess('Margin Preset Applied', `Set markup to +GH₵ ${markupGhs.toFixed(2)} on ${targetIds.size} bundles. Click "Publish Changes" to save.`);
+  };
+
+  const bulkSetVisibility = (visible: boolean) => {
+    const targetIds = new Set(filteredProducts.map((p) => p.id));
+    setProducts((prev) =>
+      prev.map((p) => (targetIds.has(p.id) ? { ...p, isVisible: visible } : p)),
+    );
+    setModifiedProducts((prev) => {
+      const next = new Set(prev);
+      targetIds.forEach((id) => next.add(id));
+      return next;
+    });
+    toastSuccess('Visibility Updated', `Set visibility to ${visible ? 'VISIBLE' : 'HIDDEN'} on ${targetIds.size} bundles.`);
   };
 
   const filteredProducts = products.filter(
@@ -129,10 +162,65 @@ export const StoreProductsPage: React.FC = () => {
           </p>
         </div>
 
-        <Button variant="primary" size="md" onClick={handleSaveAll} isLoading={isSaving} leftIcon={<Save size={14} />}>
-          Publish Changes
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {modifiedProducts.size > 0 && (
+            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-warning)', fontWeight: 700 }}>
+              {modifiedProducts.size} unsaved change{modifiedProducts.size > 1 ? 's' : ''}
+            </span>
+          )}
+          <Button
+            variant="primary"
+            size="md"
+            onClick={handleSaveAll}
+            isLoading={isSaving}
+            leftIcon={<Save size={14} />}
+            style={{ backgroundColor: '#10B981', color: '#000000', fontWeight: 800 }}
+          >
+            Publish Changes
+          </Button>
+        </div>
       </div>
+
+      {/* Margin Presets & Bulk Controls */}
+      <Card style={{ padding: '0.85rem 1.25rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
+              Quick Markup Presets:
+            </span>
+            {[1, 2, 3, 5, 10].map((ghs) => (
+              <Button
+                key={ghs}
+                variant="outline"
+                size="xs"
+                onClick={() => applyMarkupPreset(ghs)}
+                style={{ fontWeight: 700 }}
+              >
+                +GH₵ {ghs}.00
+              </Button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => bulkSetVisibility(true)}
+              leftIcon={<Eye size={12} />}
+            >
+              Show All
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => bulkSetVisibility(false)}
+              leftIcon={<EyeOff size={12} />}
+            >
+              Hide All
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       {/* Network Tabs Bar */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>

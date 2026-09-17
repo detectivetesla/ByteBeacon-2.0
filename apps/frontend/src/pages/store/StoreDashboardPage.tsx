@@ -25,20 +25,28 @@ export const StoreDashboardPage: React.FC = () => {
 
   useEffect(() => {
     let mounted = true;
-    storesApi.getStoreDashboard().then((res) => {
-      if (!mounted) return;
-      if (res && res.kpis) {
-        setData(res);
-      } else {
-        setError('Failed to load dashboard data');
-      }
-      setLoading(false);
-    }).catch((err) => {
-      if (!mounted) return;
-      setError(err.message || 'Error loading data');
-      setLoading(false);
-    });
-    return () => { mounted = false; };
+    const fetchDashboard = () => {
+      storesApi.getStoreDashboard().then((res) => {
+        if (!mounted) return;
+        if (res && res.kpis) {
+          setData(res);
+        } else {
+          if (!data) setError('Failed to load dashboard data');
+        }
+        setLoading(false);
+      }).catch((err) => {
+        if (!mounted) return;
+        if (!data) setError(err.message || 'Error loading data');
+        setLoading(false);
+      });
+    };
+
+    fetchDashboard();
+    const interval = setInterval(fetchDashboard, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   if (loading) {
@@ -174,7 +182,7 @@ export const StoreDashboardPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Orders */}
+        {/* Orders Today */}
         <Card
           style={{
             padding: 'var(--space-5)',
@@ -196,10 +204,10 @@ export const StoreDashboardPage: React.FC = () => {
             </div>
           </div>
           <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-            {kpis.ordersCount}
+            {kpis.ordersTodayCount !== undefined ? kpis.ordersTodayCount : kpis.ordersCount}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', minHeight: '18px' }}>
-            <span>Avg GHS {kpis.ordersCount > 0 ? (kpis.todaySalesGhs / kpis.ordersCount).toFixed(2) : '0.00'} / order</span>
+            <span>Total: {kpis.totalOrdersCount !== undefined ? kpis.totalOrdersCount : kpis.ordersCount} orders</span>
           </div>
         </Card>
 
@@ -228,6 +236,7 @@ export const StoreDashboardPage: React.FC = () => {
             {kpis.customersCount}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', minHeight: '18px' }}>
+            <span>Unique buyers</span>
           </div>
         </Card>
 
@@ -253,10 +262,10 @@ export const StoreDashboardPage: React.FC = () => {
             </div>
           </div>
           <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-            {kpis.storeVisits}
+            {kpis.storeVisits || 0}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700, minHeight: '18px' }}>
-            <span>{kpis.storeVisits > 0 ? ((kpis.ordersCount / kpis.storeVisits) * 100).toFixed(1) : '0.0'}% conversion rate</span>
+            <span>{(kpis.storeVisits || 0) > 0 ? ((((kpis.totalOrdersCount !== undefined ? kpis.totalOrdersCount : kpis.ordersCount)) / kpis.storeVisits) * 100).toFixed(1) : '0.0'}% conversion rate</span>
           </div>
         </Card>
       </div>

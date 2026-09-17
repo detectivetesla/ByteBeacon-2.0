@@ -11,10 +11,12 @@ const StoreProductsPage = withLazy(() => import('../pages/store/StoreProductsPag
 const StoreCustomersPage = withLazy(() => import('../pages/store/StoreCustomersPage.js'), 'StoreCustomersPage');
 const StoreAnalyticsPage = withLazy(() => import('../pages/store/StoreAnalyticsPage.js'), 'StoreAnalyticsPage');
 const StoreProfilePage = withLazy(() => import('../pages/store/StoreProfilePage.js'), 'StoreProfilePage');
+const StoreLinkPage = withLazy(() => import('../pages/store/StoreLinkPage.js'), 'StoreLinkPage');
 const StoreAppearancePage = withLazy(() => import('../pages/store/StoreAppearancePage.js'), 'StoreAppearancePage');
 const StoreFinancePage = withLazy(() => import('../pages/store/StoreFinancePage.js'), 'StoreFinancePage');
 const StoreTransactionsPage = withLazy(() => import('../pages/store/StoreTransactionsPage.js'), 'StoreTransactionsPage');
 const StoreSettingsPage = withLazy(() => import('../pages/store/StoreSettingsPage.js'), 'StoreSettingsPage');
+const StorePendingApprovalsPage = withLazy(() => import('../pages/store/StorePendingApprovalsPage.js'), 'StorePendingApprovalsPage');
 const NotificationsPage = withLazy(() => import('../pages/shared/NotificationsPage.js'), 'NotificationsPage');
 
 export const storeRoutes: RouteObject[] = [
@@ -47,6 +49,14 @@ export const storeRoutes: RouteObject[] = [
         element: <StoreOrdersPage />,
       },
       {
+        path: 'pending-approvals',
+        element: <StorePendingApprovalsPage />,
+      },
+      {
+        path: 'mtn-approvals',
+        element: <Navigate to="/store-console/pending-approvals" replace />,
+      },
+      {
         path: 'products',
         element: <StoreProductsPage />,
       },
@@ -68,7 +78,7 @@ export const storeRoutes: RouteObject[] = [
       },
       {
         path: 'link',
-        element: <StoreProfilePage />,
+        element: <StoreLinkPage />,
       },
       {
         path: 'finance',

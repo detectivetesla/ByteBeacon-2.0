@@ -28,9 +28,9 @@ export const StoreCustomersPage: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const fetchCustomers = useCallback(async () => {
+  const fetchCustomers = useCallback(async (isPolling = false) => {
     try {
-      setLoading(true);
+      if (!isPolling) setLoading(true);
       setError(null);
       const res = await storesApi.getStoreCustomers({ search: debouncedSearch.trim() || undefined, page, limit: 10 });
       if (res) {
@@ -41,19 +41,25 @@ export const StoreCustomersPage: React.FC = () => {
         setCustomers(customerList as any);
         setTotalPages(totalPages);
         setTotal(totalCount);
-      } else {
+      } else if (!isPolling) {
         setError('Failed to load customers.');
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred while fetching customers.');
-      toastError('Error', 'Failed to load customers');
+      if (!isPolling) {
+        setError(err.message || 'An error occurred while fetching customers.');
+        toastError('Error', 'Failed to load customers');
+      }
     } finally {
-      setLoading(false);
+      if (!isPolling) setLoading(false);
     }
   }, [debouncedSearch, page, toastError]);
 
   useEffect(() => {
     fetchCustomers();
+    const interval = setInterval(() => {
+      fetchCustomers(true);
+    }, 10000);
+    return () => clearInterval(interval);
   }, [fetchCustomers]);
 
   useEffect(() => {
@@ -70,6 +76,29 @@ export const StoreCustomersPage: React.FC = () => {
     if (diffDays === 1) return 'Yesterday';
     return `${diffDays} days ago`;
   };
+
+  const handleExportCsv = () => {
+    if (!customers.length) return;
+    const header = 'Phone,Total Orders,Total Spent (GHS),Last Purchase,First Purchase,Status\n';
+    const rows = customers
+      .map(
+        (c) =>
+          `${c.phone},${c.totalOrders},${c.totalSpentGhs.toFixed(2)},"${c.lastPurchase || ''}","${c.firstPurchase || ''}",${c.status}`,
+      )
+      .join('\n');
+    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `storefront_customers_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toastSuccess('Export Complete', `Exported ${customers.length} customer records.`);
+  };
+
+  const totalSpentAcrossVisible = customers.reduce((sum, c) => sum + (c.totalSpentGhs || 0), 0);
+  const repeatBuyersCount = customers.filter((c) => c.totalOrders > 1).length;
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -89,12 +118,45 @@ export const StoreCustomersPage: React.FC = () => {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => toastSuccess('Exported', `Customer directory exported (${total} records).`)}
+          onClick={handleExportCsv}
           leftIcon={<Download size={13} />}
           disabled={loading || customers.length === 0}
         >
-          Export Customers
+          Export Customers CSV
         </Button>
+      </div>
+
+      {/* Summary KPI Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
+        <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
+          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+            Total Customers
+          </span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+            {total}
+          </div>
+          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Unique phone recipients</span>
+        </Card>
+
+        <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
+          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+            Page Sales Volume
+          </span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+            GH₵ {totalSpentAcrossVisible.toFixed(2)}
+          </div>
+          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Spent by listed customers</span>
+        </Card>
+
+        <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
+          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+            Repeat Buyers
+          </span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 900, color: '#06B6D4', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+            {repeatBuyersCount}
+          </div>
+          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Customers with 2+ orders</span>
+        </Card>
       </div>
 
       {/* Filter */}

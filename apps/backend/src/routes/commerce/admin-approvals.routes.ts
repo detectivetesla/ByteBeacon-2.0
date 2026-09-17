@@ -66,8 +66,9 @@ export async function adminApprovalsRoutes(
             o.created_at,
             jsonb_build_object(
               'orderId', o.id,
-              'channel', COALESCE(o.channel, 'Direct Order'),
-              'detectedFrom', CASE WHEN o.agent_id IS NOT NULL THEN 'Agent Order' ELSE 'Customer Order' END,
+              'channel', COALESCE(o.channel, CASE WHEN o.store_id IS NOT NULL THEN 'storefront' ELSE 'Direct Order' END),
+              'detectedFrom', CASE WHEN o.store_id IS NOT NULL THEN 'Storefront Order' WHEN o.agent_id IS NOT NULL THEN 'Agent Order' ELSE 'Customer Order' END,
+              'source', CASE WHEN o.store_id IS NOT NULL THEN 'storefront' ELSE 'order' END,
               'isOrder', true
             ) as "provider_response_metadata"
           FROM orders o
@@ -122,7 +123,8 @@ export async function adminApprovalsRoutes(
           COUNT(CASE WHEN validation_status = 'PROCESSING' THEN 1 END) as "processing",
           COUNT(CASE WHEN validation_status = 'SYNC_FAILED' THEN 1 END) as "syncFailed",
           COUNT(*) as "totalRegistered",
-          COUNT(CASE WHEN (provider_response_metadata->>'channel' ILIKE '%excel%' OR provider_response_metadata->>'detectedFrom' ILIKE '%excel%' OR provider_response_metadata->>'recordedVia' ILIKE '%excel%') THEN 1 END) as "excelPrechecks"
+          COUNT(CASE WHEN (provider_response_metadata->>'channel' ILIKE '%excel%' OR provider_response_metadata->>'detectedFrom' ILIKE '%excel%' OR provider_response_metadata->>'recordedVia' ILIKE '%excel%') THEN 1 END) as "excelPrechecks",
+          COUNT(CASE WHEN (provider_response_metadata->>'channel' ILIKE '%storefront%' OR provider_response_metadata->>'detectedFrom' ILIKE '%storefront%' OR provider_response_metadata->>'recordedVia' ILIKE '%storefront%' OR provider_response_metadata->>'source' ILIKE '%storefront%') THEN 1 END) as "storefrontPrechecks"
         FROM unified_stats
       `;
 
@@ -137,10 +139,11 @@ export async function adminApprovalsRoutes(
             COUNT(CASE WHEN validation_status = 'PROCESSING' THEN 1 END) as "processing",
             COUNT(CASE WHEN validation_status = 'SYNC_FAILED' THEN 1 END) as "syncFailed",
             COUNT(*) as "totalRegistered",
-            COUNT(CASE WHEN (provider_response_metadata->>'channel' ILIKE '%excel%' OR provider_response_metadata->>'detectedFrom' ILIKE '%excel%' OR provider_response_metadata->>'recordedVia' ILIKE '%excel%') THEN 1 END) as "excelPrechecks"
+            COUNT(CASE WHEN (provider_response_metadata->>'channel' ILIKE '%excel%' OR provider_response_metadata->>'detectedFrom' ILIKE '%excel%' OR provider_response_metadata->>'recordedVia' ILIKE '%excel%') THEN 1 END) as "excelPrechecks",
+            COUNT(CASE WHEN (provider_response_metadata->>'channel' ILIKE '%storefront%' OR provider_response_metadata->>'detectedFrom' ILIKE '%storefront%' OR provider_response_metadata->>'recordedVia' ILIKE '%storefront%' OR provider_response_metadata->>'source' ILIKE '%storefront%') THEN 1 END) as "storefrontPrechecks"
           FROM beneficiary_validation
         `).catch(() => ({
-          rows: [{ awaitingApproval: 0, approvedValid: 0, approvedToday: 0, rejected: 0, processing: 0, syncFailed: 0, totalRegistered: 0, excelPrechecks: 0 }],
+          rows: [{ awaitingApproval: 0, approvedValid: 0, approvedToday: 0, rejected: 0, processing: 0, syncFailed: 0, totalRegistered: 0, excelPrechecks: 0, storefrontPrechecks: 0 }],
         }));
       });
 
@@ -240,6 +243,14 @@ export async function adminApprovalsRoutes(
           whereConditions.push(`b.source_type = 'order'`);
         } else if (source === 'EXCEL') {
           whereConditions.push(`(b.provider_response_metadata->>'channel' ILIKE '%excel%' OR b.provider_response_metadata->>'detectedFrom' ILIKE '%excel%' OR b.provider_response_metadata->>'recordedVia' ILIKE '%excel%')`);
+        } else if (source === 'STOREFRONT') {
+          whereConditions.push(`(
+            b.provider_response_metadata->>'channel' ILIKE '%storefront%' OR
+            b.provider_response_metadata->>'detectedFrom' ILIKE '%storefront%' OR
+            b.provider_response_metadata->>'recordedVia' ILIKE '%storefront%' OR
+            b.provider_response_metadata->>'source' ILIKE '%storefront%' OR
+            COALESCE(b.provider_response_metadata->>'storeSlug', '') != ''
+          )`);
         }
       }
 
@@ -269,8 +280,9 @@ export async function adminApprovalsRoutes(
               'amountPesewas', o.amount_pesewas,
               'orderStatus', o.order_status,
               'paymentStatus', o.payment_status,
-              'channel', COALESCE(o.channel, 'Direct Order'),
-              'detectedFrom', CASE WHEN o.agent_id IS NOT NULL THEN 'Agent Order' ELSE 'Customer Order' END,
+              'channel', COALESCE(o.channel, CASE WHEN o.store_id IS NOT NULL THEN 'storefront' ELSE 'Direct Order' END),
+              'detectedFrom', CASE WHEN o.store_id IS NOT NULL THEN 'Storefront Order' WHEN o.agent_id IS NOT NULL THEN 'Agent Order' ELSE 'Customer Order' END,
+              'source', CASE WHEN o.store_id IS NOT NULL THEN 'storefront' ELSE 'order' END,
               'isOrder', true
             ) as "provider_response_metadata",
             COALESCE(o.agent_id, o.user_id) as "agent_id",
@@ -413,9 +425,21 @@ export async function adminApprovalsRoutes(
           dataSize = '5 GB';
         }
 
-        const sourceRole = r.agentRole || (meta.userRole) || (r.agentId ? 'agent' : 'customer');
-        const detectedFrom = meta.detectedFrom || meta.channel || (r.sourceType === 'order' ? (sourceRole === 'agent' ? 'Agent Order' : 'Customer Order') : (r.agentId ? 'Excel Upload' : 'Excel Precheck'));
-        const sourceLabel = r.agentName ? `${r.agentName} (${sourceRole})` : r.agentEmail ? `${r.agentEmail} (${sourceRole})` : (sourceRole === 'agent' ? 'Agent System' : 'Customer Portal');
+        const isStorefront =
+          meta.source === 'storefront' ||
+          meta.channel === 'storefront' ||
+          (typeof meta.detectedFrom === 'string' && meta.detectedFrom.toLowerCase().includes('storefront')) ||
+          Boolean(meta.storeSlug);
+
+        const sourceRole = isStorefront
+          ? 'storefront'
+          : r.agentRole || meta.userRole || (r.agentId ? 'agent' : 'customer');
+
+        const detectedFrom = meta.detectedFrom || meta.channel || (isStorefront ? 'Storefront Precheck' : (r.sourceType === 'order' ? (sourceRole === 'agent' ? 'Agent Order' : 'Customer Order') : (r.agentId ? 'Excel Upload' : 'Excel Precheck')));
+
+        const sourceLabel = isStorefront
+          ? (meta.storeName ? `Storefront (${meta.storeName})` : meta.storeSlug ? `Storefront (/${meta.storeSlug})` : 'Storefront')
+          : r.agentName ? `${r.agentName} (${sourceRole})` : r.agentEmail ? `${r.agentEmail} (${sourceRole})` : (sourceRole === 'agent' ? 'Agent System' : 'Customer Portal');
 
         return {
           id: r.id,

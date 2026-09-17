@@ -44,9 +44,9 @@ export const StoreTransactionsPage: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
 
-  const fetchTransactions = useCallback(async () => {
+  const fetchTransactions = useCallback(async (isPolling = false) => {
     try {
-      setLoading(true);
+      if (!isPolling) setLoading(true);
       const res = await storesApi.getStoreTransactions({
         search: debouncedSearch.trim() || undefined,
         type: typeFilter !== 'ALL' ? typeFilter : undefined,
@@ -63,19 +63,25 @@ export const StoreTransactionsPage: React.FC = () => {
           setTotalPages(res.pagination.totalPages || 1);
           setTotalCount(res.pagination.total || 0);
         }
-      } else {
+      } else if (!isPolling) {
         setTransactions([]);
       }
     } catch (err: any) {
-      toastError('Error', err.message || 'Failed to load store transactions.');
-      setTransactions([]);
+      if (!isPolling) {
+        toastError('Error', err.message || 'Failed to load store transactions.');
+        setTransactions([]);
+      }
     } finally {
-      setLoading(false);
+      if (!isPolling) setLoading(false);
     }
   }, [debouncedSearch, typeFilter, statusFilter, dateRange, page, pageSize, toastError]);
 
   useEffect(() => {
     fetchTransactions();
+    const interval = setInterval(() => {
+      fetchTransactions(true);
+    }, 10000);
+    return () => clearInterval(interval);
   }, [fetchTransactions]);
 
   useEffect(() => {

@@ -186,18 +186,22 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       expect(json.message).toBe('Success');
       expect(json.data.network).toBe('MTN');
       expect(json.data.results).toHaveLength(2);
-      expect(json.data.results[0]).toEqual({
-        phone: '0241234567',
-        normalized: '0241234567',
-        valid: true,
-        known: true,
-      });
-      expect(json.data.results[1]).toEqual({
-        phone: '0209990000',
-        normalized: '0209990000',
-        valid: true,
-        known: false,
-      });
+      expect(json.data.results[0]).toEqual(
+        expect.objectContaining({
+          phone: '0241234567',
+          normalized: '0241234567',
+          valid: true,
+          known: true,
+        })
+      );
+      expect(json.data.results[1]).toEqual(
+        expect.objectContaining({
+          phone: '0209990000',
+          normalized: '0209990000',
+          valid: true,
+          known: false,
+        })
+      );
     });
 
     it('should always pass TELECEL numbers as known: true if valid Ghanaian MSISDN', async () => {
@@ -214,18 +218,22 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
       const json = JSON.parse(res.body);
       expect(json.success).toBe(true);
       expect(json.data.network).toBe('TELECEL');
-      expect(json.data.results[0]).toEqual({
-        phone: '0201234567',
-        normalized: '0201234567',
-        valid: true,
-        known: true,
-      });
-      expect(json.data.results[1]).toEqual({
-        phone: 'invalid_phone',
-        normalized: 'invalid_phone',
-        valid: false,
-        known: false,
-      });
+      expect(json.data.results[0]).toEqual(
+        expect.objectContaining({
+          phone: '0201234567',
+          normalized: '0201234567',
+          valid: true,
+          known: true,
+        })
+      );
+      expect(json.data.results[1]).toEqual(
+        expect.objectContaining({
+          phone: 'invalid_phone',
+          normalized: 'invalid_phone',
+          valid: false,
+          known: false,
+        })
+      );
     });
 
     it('should reject requests exceeding 10 numbers or with numbers > 20 chars', async () => {

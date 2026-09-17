@@ -119,11 +119,15 @@ export async function beneficiaryRoutes(
         network: NetworkProvider | string;
         phoneNumbers: string[];
         record?: boolean;
+        storeSlug?: string;
+        agentId?: string;
+        source?: string;
+        detectedFrom?: string;
       };
     }>,
     reply: FastifyReply,
   ) => {
-    const { network, phoneNumbers, record = true } = req.body || {};
+    const { network, phoneNumbers, record = true, storeSlug, agentId, source, detectedFrom } = req.body || {};
 
     if (!network) {
       throw new BadRequestError('network is required (e.g. MTN, TELECEL)');
@@ -142,11 +146,16 @@ export async function beneficiaryRoutes(
 
     const { userId: authenticatedUserId } = await resolveAuthenticatedCaller(req);
 
+    const effectiveUserId = agentId || authenticatedUserId;
+
     const result = await beneficiaryService.precheckPublicBeneficiaries({
       network: network as NetworkProvider,
       phoneNumbers,
       record: record !== false,
-      userId: authenticatedUserId,
+      userId: effectiveUserId,
+      storeSlug,
+      source: source || (storeSlug ? 'storefront' : undefined),
+      detectedFrom: detectedFrom || (storeSlug ? 'Storefront Precheck' : undefined),
     });
 
     const isEnforced = result.enforced !== false;
@@ -158,6 +167,7 @@ export async function beneficiaryRoutes(
       data: {
         network: result.network,
         enforced: isEnforced,
+        recorded: result.recorded,
         portedCandidates: result.portedCandidates || [],
         summary: result.summary,
         results: result.results.map((r) => ({
@@ -165,6 +175,10 @@ export async function beneficiaryRoutes(
           normalized: r.normalized,
           valid: r.valid,
           known: r.known,
+          orderable: r.orderable,
+          status: r.status,
+          message: r.message,
+          accountName: r.accountName,
         })),
       },
     });

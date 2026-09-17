@@ -683,6 +683,7 @@ export function createApp(options: AppOptions = {}) {
         auditService,
         paymentProvider,
         featureFlagService,
+        beneficiaryService,
       });
       await adminOperationsRoutes(commerceSubApp, {
         db: dbPool!,

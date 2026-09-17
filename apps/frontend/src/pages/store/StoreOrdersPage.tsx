@@ -2,15 +2,24 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Select, SearchInput } from '../../components/ui/index.js';
+import { Select, SearchInput, Modal } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
-import { storesApi, StoreOrdersResponseDto } from '../../api/stores.api.js';
+import { storesApi, StoreOrdersResponseDto, StoreOrderRecordDto } from '../../api/stores.api.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
 import {
   ShoppingBag,
   Download,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  XCircle,
+  Phone,
+  Radio,
+  CreditCard,
+  DollarSign,
 } from 'lucide-react';
 
 // Format relative date
@@ -29,7 +38,7 @@ const formatRelativeDate = (dateString: string) => {
 
 // Format bundle size
 const formatBundleSize = (mb: number) => {
-  return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb + ' MB';
+  return mb >= 1024 ? (mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1) + ' GB' : mb + ' MB';
 };
 
 export const StoreOrdersPage: React.FC = () => {
@@ -37,20 +46,23 @@ export const StoreOrdersPage: React.FC = () => {
   
   const [data, setData] = useState<StoreOrdersResponseDto | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState<StoreOrderRecordDto | null>(null);
 
   // Filters & Pagination
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [paymentFilter, setPaymentFilter] = useState<string>('ALL');
   const [networkFilter, setNetworkFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const debouncedSearch = useDebounce(searchQuery, 300);
   const [page, setPage] = useState<number>(1);
   const limit = 10;
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
+  const fetchOrders = useCallback(async (isPolling = false) => {
+    if (!isPolling) setLoading(true);
     try {
       const res = await storesApi.getStoreOrders({
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        paymentStatus: paymentFilter !== 'ALL' ? paymentFilter : undefined,
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
         search: debouncedSearch.trim() || undefined,
         page,
@@ -58,36 +70,42 @@ export const StoreOrdersPage: React.FC = () => {
       });
       if (res && res.orders) {
         setData(res);
-      } else {
+      } else if (!isPolling) {
         toastError('Failed to fetch', 'Could not load store orders.');
       }
     } catch (err: any) {
-      toastError('Error', err.message || 'An error occurred while loading orders.');
+      if (!isPolling) {
+        toastError('Error', err.message || 'An error occurred while loading orders.');
+      }
     } finally {
-      setLoading(false);
+      if (!isPolling) setLoading(false);
     }
-  }, [statusFilter, networkFilter, debouncedSearch, page, limit, toastError]);
+  }, [statusFilter, paymentFilter, networkFilter, debouncedSearch, page, limit, toastError]);
 
   useEffect(() => {
     fetchOrders();
+    const interval = setInterval(() => {
+      fetchOrders(true);
+    }, 10000);
+    return () => clearInterval(interval);
   }, [fetchOrders]);
 
   // Reset page to 1 when filters change
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, networkFilter, searchQuery]);
+  }, [statusFilter, paymentFilter, networkFilter, searchQuery]);
 
   const orders = data?.orders || [];
   const pagination = data?.pagination || { page: 1, limit, total: 0, totalPages: 1 };
 
   const handleExportCsv = () => {
     if (!orders.length) return;
-    const header = 'Order ID,Recipient Phone,Network,Bundle,Amount (GHS),Payment,Status,Date\n';
+    const header = 'Order ID,Recipient Phone,Network,Bundle,Amount (GHS),Reseller Profit (GHS),Payment Status,Fulfillment Status,Date\n';
     const rows = orders
-      .map(
-        (o) =>
-          `${o.publicId},${o.recipientPhone},${o.network},${formatBundleSize(o.dataAmountMb)},${(o.amountPesewas / 100).toFixed(2)},${o.paymentStatus},${o.orderStatus},"${new Date(o.createdAt).toLocaleString()}"`,
-      )
+      .map((o) => {
+        const profit = o.profitGhs !== undefined ? o.profitGhs : (o.profitPesewas ? o.profitPesewas / 100 : 0);
+        return `${o.publicId},${o.recipientPhone},${o.network},${formatBundleSize(o.dataAmountMb)},${(o.amountPesewas / 100).toFixed(2)},${profit.toFixed(2)},${o.paymentStatus},${o.orderStatus},"${new Date(o.createdAt).toLocaleString()}"`;
+      })
       .join('\n');
     const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -113,6 +131,21 @@ export const StoreOrdersPage: React.FC = () => {
     }
   };
 
+  const getPaymentBadge = (status: string) => {
+    switch (status) {
+      case 'PAID':
+        return <Badge variant="success" size="xs">PAID</Badge>;
+      case 'PENDING':
+        return <Badge variant="warning" size="xs">PENDING</Badge>;
+      case 'CANCELLED':
+        return <Badge variant="danger" size="xs">CANCELLED</Badge>;
+      case 'FAILED':
+        return <Badge variant="danger" size="xs">FAILED</Badge>;
+      default:
+        return <Badge variant="neutral" size="xs">{status}</Badge>;
+    }
+  };
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
@@ -125,7 +158,7 @@ export const StoreOrdersPage: React.FC = () => {
             Storefront Orders
           </h1>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
-            Track and manage bundle orders placed directly by customers on your public store.
+            Real-time track and manage customer bundle orders placed on your storefront.
           </p>
         </div>
 
@@ -145,10 +178,27 @@ export const StoreOrdersPage: React.FC = () => {
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               options={[
-                { label: 'All Statuses', value: 'ALL' },
+                { label: 'All Fulfillment', value: 'ALL' },
                 { label: 'Completed', value: 'COMPLETED' },
                 { label: 'Processing', value: 'PROCESSING' },
+                { label: 'Ready to Process', value: 'READY_FOR_FULFILLMENT' },
+                { label: 'Created', value: 'CREATED' },
+                { label: 'Failed', value: 'FAILED' },
+                { label: 'Cancelled', value: 'CANCELLED' },
+              ]}
+            />
+          </div>
+
+          {/* Payment Status Filter */}
+          <div style={{ minWidth: '130px' }}>
+            <Select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+              options={[
+                { label: 'All Payments', value: 'ALL' },
+                { label: 'Paid Only', value: 'PAID' },
                 { label: 'Pending', value: 'PENDING' },
+                { label: 'Cancelled', value: 'CANCELLED' },
                 { label: 'Failed', value: 'FAILED' },
               ]}
             />
@@ -171,7 +221,7 @@ export const StoreOrdersPage: React.FC = () => {
           {/* Search Query */}
           <div style={{ minWidth: '180px', flex: '1 1 180px' }}>
             <SearchInput
-              placeholder="Search phone, ID..."
+              placeholder="Search phone, order ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -192,7 +242,7 @@ export const StoreOrdersPage: React.FC = () => {
               No store orders found
             </h3>
             <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', marginTop: '0.2rem' }}>
-              Your storefront orders will appear here once customers make a purchase matching the filters.
+              Your storefront orders will appear here in real-time once customers make a purchase.
             </p>
           </div>
         ) : (
@@ -205,38 +255,62 @@ export const StoreOrdersPage: React.FC = () => {
                   <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Network</th>
                   <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Bundle</th>
                   <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Amount</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Your Profit</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Payment</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Fulfillment</th>
                   <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Date</th>
+                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o) => (
-                  <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                      {o.publicId}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
-                      {o.recipientPhone}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      {getNetworkBadge(o.network)}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                      {formatBundleSize(o.dataAmountMb)}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                      GH₵ {(o.amountPesewas / 100).toFixed(2)}
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                      <Badge variant={o.orderStatus === 'COMPLETED' ? 'success' : o.orderStatus === 'PROCESSING' ? 'info' : 'warning'} size="sm" dot>
-                        {o.orderStatus}
-                      </Badge>
-                    </td>
-                    <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
-                      {formatRelativeDate(o.createdAt)}
-                    </td>
-                  </tr>
-                ))}
+                {orders.map((o) => {
+                  const profitGhs = o.profitGhs !== undefined ? o.profitGhs : (o.profitPesewas ? o.profitPesewas / 100 : 0);
+                  const isPaid = o.paymentStatus === 'PAID';
+
+                  return (
+                    <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        {o.publicId}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
+                        {o.recipientPhone}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        {getNetworkBadge(o.network)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                        {formatBundleSize(o.dataAmountMb)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                        GH₵ {(o.amountPesewas / 100).toFixed(2)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 900, color: isPaid ? '#10B981' : 'var(--color-text-muted)' }}>
+                        {isPaid ? `+GH₵ ${profitGhs.toFixed(2)}` : 'GH₵ 0.00'}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        {getPaymentBadge(o.paymentStatus)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <Badge variant={o.orderStatus === 'COMPLETED' || o.orderStatus === 'DELIVERED' ? 'success' : o.orderStatus === 'PROCESSING' ? 'info' : o.orderStatus === 'CANCELLED' ? 'danger' : 'warning'} size="xs" dot>
+                          {o.orderStatus}
+                        </Badge>
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
+                        {formatRelativeDate(o.createdAt)}
+                      </td>
+                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => setSelectedOrder(o)}
+                          leftIcon={<Eye size={12} />}
+                        >
+                          View
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             
@@ -271,6 +345,82 @@ export const StoreOrdersPage: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* Order Details Modal */}
+      {selectedOrder && (
+        <Modal
+          isOpen={Boolean(selectedOrder)}
+          onClose={() => setSelectedOrder(null)}
+          title={`Order Details #${selectedOrder.publicId}`}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-lg)' }}>
+              <div>
+                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>Payment Status</span>
+                <div style={{ marginTop: '0.2rem' }}>{getPaymentBadge(selectedOrder.paymentStatus)}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>Fulfillment Status</span>
+                <div style={{ marginTop: '0.2rem' }}>
+                  <Badge variant={selectedOrder.orderStatus === 'COMPLETED' ? 'success' : 'info'} size="sm">
+                    {selectedOrder.orderStatus}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
+              <div>
+                <span style={{ color: 'var(--color-text-muted)' }}>Recipient SIM:</span>
+                <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{selectedOrder.recipientPhone}</div>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-muted)' }}>Network Carrier:</span>
+                <div style={{ marginTop: '0.15rem' }}>{getNetworkBadge(selectedOrder.network)}</div>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-muted)' }}>Bundle Package:</span>
+                <div style={{ fontWeight: 700 }}>{formatBundleSize(selectedOrder.dataAmountMb)} Data</div>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-muted)' }}>Date Placed:</span>
+                <div>{new Date(selectedOrder.createdAt).toLocaleString()}</div>
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-3)' }}>
+              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.4rem' }}>
+                Financial Breakdown
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: 'var(--font-size-xs)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>Customer Retail Price:</span>
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-data)' }}>GH₵ {(selectedOrder.amountPesewas / 100).toFixed(2)}</span>
+                </div>
+                {selectedOrder.basePricePesewas !== undefined && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--color-text-muted)' }}>Wholesale Cost:</span>
+                    <span style={{ fontFamily: 'var(--font-data)' }}>GH₵ {(selectedOrder.basePricePesewas / 100).toFixed(2)}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--color-border-subtle)', paddingTop: '0.4rem' }}>
+                  <strong style={{ color: '#10B981' }}>Your Reseller Profit Markup:</strong>
+                  <strong style={{ color: '#10B981', fontFamily: 'var(--font-data)' }}>
+                    +GH₵ {((selectedOrder.profitGhs !== undefined ? selectedOrder.profitGhs : (selectedOrder.profitPesewas ? selectedOrder.profitPesewas / 100 : 0))).toFixed(2)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--space-2)' }}>
+              <Button variant="outline" size="sm" onClick={() => setSelectedOrder(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
+

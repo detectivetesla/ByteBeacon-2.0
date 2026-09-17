@@ -27,28 +27,53 @@
           var isStorefrontDomain = host === 'apisolutions.store' || host.endsWith('.apisolutions.store') || host.includes('apisolutions');
 
           if (isStorefrontDomain) {
-            document.title = 'API Solutions — Independent Mobile Telecom Data Storefront Network';
+            var path = (window.location && window.location.pathname ? window.location.pathname : '').replace(/^\/+/, '');
+            var segments = path.split('/');
+            var firstSeg = segments[0] ? segments[0].toLowerCase() : '';
+            var storeSlug = '';
+            var reserved = ['app','agent','admin','store-console','signin','signup','forgot-password','reset-password','verify-email','mfa','buy','track','info','docs','developer','portal','api','assets','unauthorized','buy-data','bundles'];
+
+            if (firstSeg === 'store' && segments[1]) {
+              storeSlug = segments[1];
+            } else if (firstSeg && reserved.indexOf(firstSeg) === -1) {
+              storeSlug = firstSeg;
+            }
+
+            if (!storeSlug && host.indexOf('.') !== -1) {
+              var parts = host.split('.');
+              if (parts.length > 2 && parts[0] !== 'www' && parts[0] !== 'apisolutions') {
+                storeSlug = parts[0];
+              }
+            }
+
+            var cleanName = storeSlug ? storeSlug.split('-').map(function(w) { return w ? w.charAt(0).toUpperCase() + w.slice(1) : ''; }).join(' ').trim() : '';
+            var storeTitle = storeSlug && cleanName
+              ? (cleanName + ' · Instant Mobile Data')
+              : 'API Solutions — Independent Mobile Telecom Data Storefront Network';
+            var ogImgUrl = storeSlug ? ('/api/og?slug=' + encodeURIComponent(storeSlug)) : '/storefront-icon.svg';
+
+            document.title = storeTitle;
             var metaDesc = document.querySelector('meta[name="description"]');
-            if (metaDesc) metaDesc.setAttribute('content', 'API Solutions Network - Instant automated mobile telecom data delivery across Ghana.');
+            if (metaDesc) metaDesc.setAttribute('content', storeSlug ? ('Buy affordable mobile data from ' + cleanName + ' across MTN, Telecel, and AT in Ghana.') : 'API Solutions Network - Instant automated mobile telecom data delivery across Ghana.');
             var iconLink = document.querySelector('link[rel~="icon"]');
             if (iconLink) {
               iconLink.type = 'image/svg+xml';
-              iconLink.href = '/storefront-icon.svg';
+              iconLink.href = ogImgUrl;
             }
             var manifestLink = document.querySelector('link[rel="manifest"]');
             if (manifestLink) manifestLink.setAttribute('href', '/manifest.json');
             var ogTitle = document.querySelector('meta[property="og:title"]');
-            if (ogTitle) ogTitle.setAttribute('content', 'API Solutions — Independent Mobile Telecom Data Storefront Network');
+            if (ogTitle) ogTitle.setAttribute('content', storeTitle);
             var ogDesc = document.querySelector('meta[property="og:description"]');
-            if (ogDesc) ogDesc.setAttribute('content', 'Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana.');
+            if (ogDesc) ogDesc.setAttribute('content', storeSlug ? ('Instant automated mobile data delivery from ' + cleanName + '.') : 'Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana.');
             var ogImg = document.querySelector('meta[property="og:image"]');
-            if (ogImg) ogImg.setAttribute('content', '/storefront-icon.svg');
+            if (ogImg) ogImg.setAttribute('content', ogImgUrl);
             var twTitle = document.querySelector('meta[name="twitter:title"]');
-            if (twTitle) twTitle.setAttribute('content', 'API Solutions — Independent Mobile Telecom Data Storefront Network');
+            if (twTitle) twTitle.setAttribute('content', storeTitle);
             var twDesc = document.querySelector('meta[name="twitter:description"]');
-            if (twDesc) twDesc.setAttribute('content', 'Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana.');
+            if (twDesc) twDesc.setAttribute('content', storeSlug ? ('Instant automated mobile data delivery from ' + cleanName + '.') : 'Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana.');
             var twImg = document.querySelector('meta[name="twitter:image"]');
-            if (twImg) twImg.setAttribute('content', '/storefront-icon.svg');
+            if (twImg) twImg.setAttribute('content', ogImgUrl);
           }
         } catch (e) {}
       })();

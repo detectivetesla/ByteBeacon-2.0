@@ -6,6 +6,36 @@
   "outputDirectory": "apps/frontend/dist",
   "rewrites": [
     {
+      "source": "/api/og/:slug",
+      "destination": "/api/og?slug=:slug"
+    },
+    {
+      "source": "/api/storefront-og/:slug",
+      "destination": "/api/og?slug=:slug"
+    },
+    {
+      "source": "/store/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|whatsapp|twitterbot|telegrambot|slackbot|discordbot|applebot|linkedinbot|pinterest|googlebot|bingbot).*"
+        }
+      ],
+      "destination": "/api/storefront?slug=:slug"
+    },
+    {
+      "source": "/:slug((?!api|assets|favicon|logo|manifest|site|storefront-icon|app|agent|admin|signin|signup|forgot-password|reset-password|verify-email|mfa|buy|track|info|docs|developer|portal|store|unauthorized|buy-data|bundles).*)",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|whatsapp|twitterbot|telegrambot|slackbot|discordbot|applebot|linkedinbot|pinterest|googlebot|bingbot).*"
+        }
+      ],
+      "destination": "/api/storefront?slug=:slug"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

@@ -6,6 +6,7 @@ import { STORE_NAVIGATION_GROUPS } from '../components/navigation/navigation.con
 import { MaintenanceBanner } from '../components/navigation/MaintenanceBanner.js';
 import { usePlatformStatus } from '../context/PlatformStatusContext.js';
 import { storesApi } from '../api/stores.api.js';
+import { usePendingApprovals } from '../context/PendingApprovalsContext.js';
 import { STOREFRONT_CONFIG } from '../config/storefront.config.js';
 import {
   Store,
@@ -20,12 +21,14 @@ import {
   ShieldCheck,
   ChevronDown,
   ArrowUpRight,
+  Bell,
 } from 'lucide-react';
 
 export const StoreLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const { pendingCount } = usePendingApprovals();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -215,11 +218,13 @@ export const StoreLayout: React.FC = () => {
 
                 {group.items.map((item) => {
                   const isActive = location.pathname === item.path || (item.path !== '/store-console/overview' && location.pathname.startsWith(item.path));
+                  const isPendingMtnItem = item.path.includes('pending-approvals');
+                  const liveBadge = isPendingMtnItem && pendingCount > 0 ? (pendingCount > 99 ? '99+' : String(pendingCount)) : item.badge;
                   return (
                     <Link
                       key={item.path}
                       to={item.path}
-                      title={isCollapsed ? item.label : undefined}
+                      title={isCollapsed ? `${item.label}${liveBadge ? ` (${liveBadge})` : ''}` : undefined}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -251,7 +256,23 @@ export const StoreLayout: React.FC = () => {
                         {item.icon}
                       </div>
                       {!isCollapsed && <span>{item.label}</span>}
-                      {isActive && !isCollapsed && (
+                      {liveBadge && !isCollapsed && (
+                        <span
+                          style={{
+                            marginLeft: 'auto',
+                            padding: '0.1rem 0.45rem',
+                            borderRadius: 'var(--radius-full)',
+                            backgroundColor: isPendingMtnItem ? '#EF4444' : 'var(--color-brand-primary)',
+                            color: '#FFFFFF',
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {liveBadge}
+                        </span>
+                      )}
+                      {isActive && !isCollapsed && !liveBadge && (
                         <span
                           style={{
                             marginLeft: 'auto',
@@ -261,6 +282,20 @@ export const StoreLayout: React.FC = () => {
                             backgroundColor: 'var(--sidebar-indicator-dot)',
                             boxShadow: '0 0 8px rgba(34, 197, 94, 0.9)',
                             flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      {liveBadge && isCollapsed && (
+                        <span
+                          style={{
+                            position: 'absolute',
+                            top: '4px',
+                            right: '6px',
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: '#EF4444',
+                            boxShadow: '0 0 6px #EF4444',
                           }}
                         />
                       )}
@@ -415,6 +450,38 @@ export const StoreLayout: React.FC = () => {
             >
               {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
             </button>
+
+            {/* Notifications Bell */}
+            <Link
+              to="/store-console/notifications"
+              style={{
+                background: 'none',
+                border: '1px solid var(--color-border-default)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '6px',
+                cursor: 'pointer',
+                color: 'var(--color-text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                textDecoration: 'none',
+                position: 'relative',
+              }}
+              title="Store Alerts & Notifications"
+            >
+              <Bell size={15} />
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '4px',
+                  right: '4px',
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  backgroundColor: '#10B981',
+                }}
+              />
+            </Link>
 
             {/* Public Store Link CTA */}
             <a
@@ -635,10 +702,13 @@ export const StoreLayout: React.FC = () => {
                     </span>
                     {group.items.map((item) => {
                       const isActive = location.pathname === item.path;
+                      const isPendingMtnItem = item.path.includes('pending-approvals');
+                      const liveBadge = isPendingMtnItem && pendingCount > 0 ? (pendingCount > 99 ? '99+' : String(pendingCount)) : item.badge;
                       return (
                         <Link
                           key={item.path}
                           to={item.path}
+                          onClick={() => setIsMobileOpen(false)}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -658,7 +728,23 @@ export const StoreLayout: React.FC = () => {
                             {item.icon}
                           </span>
                           <span>{item.label}</span>
-                          {isActive && (
+                          {liveBadge && (
+                            <span
+                              style={{
+                                marginLeft: 'auto',
+                                padding: '0.1rem 0.45rem',
+                                borderRadius: 'var(--radius-full)',
+                                backgroundColor: isPendingMtnItem ? '#EF4444' : 'var(--color-brand-primary)',
+                                color: '#FFFFFF',
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              {liveBadge}
+                            </span>
+                          )}
+                          {isActive && !liveBadge && (
                             <span
                               style={{
                                 marginLeft: 'auto',

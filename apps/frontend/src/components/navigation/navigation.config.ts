@@ -323,6 +323,13 @@ export const STORE_NAVIGATION_GROUPS: NavGroupConfig[] = [
         color: '#8B5CF6',
       },
       {
+        label: 'Pending MTN Approvals',
+        path: '/store-console/pending-approvals',
+        icon: React.createElement(Clock, { size: 18, strokeWidth: 2.4, color: '#FFCC00' }),
+        permission: 'agent_store.manage',
+        color: '#FFCC00',
+      },
+      {
         label: 'Products',
         path: '/store-console/products',
         icon: React.createElement(Package, { size: 18, strokeWidth: 2.4, color: '#10B981' }),

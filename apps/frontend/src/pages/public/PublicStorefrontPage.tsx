@@ -33,6 +33,8 @@ import {
   ShoppingCart,
   FileText,
   Info,
+  GraduationCap,
+  Loader2,
 } from 'lucide-react';
 import { NetworkProvider, CustomerOrderDto } from '@bytebeacon/shared';
 
@@ -264,6 +266,8 @@ export const PublicStorefrontPage: React.FC = () => {
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [unapprovedModalOpen, setUnapprovedModalOpen] = useState(false);
   const [unapprovedPhone, setUnapprovedPhone] = useState('');
+  const [precheckStatus, setPrecheckStatus] = useState<'idle' | 'checking' | 'approved' | 'unapproved'>('idle');
+  const [precheckMessage, setPrecheckMessage] = useState('');
 
   // Order Complete & Live Track state
   const [confirmedOrder, setConfirmedOrder] = useState<CustomerOrderDto | null>(null);
@@ -313,9 +317,14 @@ export const PublicStorefrontPage: React.FC = () => {
         link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
       }
 
-      // Dynamic White-Labeled Meta Tags
-      const metaDescriptionText = store?.tagline || store?.description || `${storeName} - Fast, reliable mobile telecom data delivery.`;
-      const metaImage = store?.logoUrl || store?.bannerUrl || '';
+      // Dynamic White-Labeled Meta Tags (Matching WhatsApp / Twitter / FB unfurling specs)
+      const metaDescriptionText = store?.tagline || store?.description || `${storeName} - Fast, reliable mobile telecom data delivery across Ghana.`;
+      const currentOrigin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://apisolutions.store';
+      const effectiveSlug = store?.slug || storeSlug;
+      const ogImageUrl = store?.logoUrl && (store.logoUrl.startsWith('http://') || store.logoUrl.startsWith('https://'))
+        ? store.logoUrl
+        : `${currentOrigin}/api/og?slug=${encodeURIComponent(effectiveSlug)}`;
+      const storeCanonicalUrl = `${currentOrigin}/${effectiveSlug}`;
 
       const updatedMetas: { el: HTMLMetaElement; originalContent: string | null; isNew: boolean }[] = [];
 
@@ -334,16 +343,22 @@ export const PublicStorefrontPage: React.FC = () => {
       };
 
       setOrCreateMeta('name', 'description', metaDescriptionText);
+      setOrCreateMeta('property', 'og:site_name', storeName);
       setOrCreateMeta('property', 'og:title', storeName);
       setOrCreateMeta('property', 'og:description', metaDescriptionText);
+      setOrCreateMeta('property', 'og:url', storeCanonicalUrl);
       setOrCreateMeta('property', 'og:type', 'website');
-      if (metaImage) {
-        setOrCreateMeta('property', 'og:image', metaImage);
-        setOrCreateMeta('name', 'twitter:image', metaImage);
-      }
+      setOrCreateMeta('property', 'og:locale', 'en_GH');
+      setOrCreateMeta('property', 'og:image', ogImageUrl);
+      setOrCreateMeta('property', 'og:image:secure_url', ogImageUrl);
+      setOrCreateMeta('property', 'og:image:width', '1200');
+      setOrCreateMeta('property', 'og:image:height', '630');
+      setOrCreateMeta('property', 'og:image:alt', `${storeName} Store Logo`);
       setOrCreateMeta('name', 'twitter:card', 'summary_large_image');
       setOrCreateMeta('name', 'twitter:title', storeName);
       setOrCreateMeta('name', 'twitter:description', metaDescriptionText);
+      setOrCreateMeta('name', 'twitter:image', ogImageUrl);
+      setOrCreateMeta('name', 'twitter:image:alt', `${storeName} Store Logo`);
 
       return () => {
         const isStorefront = STOREFRONT_CONFIG.isStorefrontHost();
@@ -401,10 +416,49 @@ export const PublicStorefrontPage: React.FC = () => {
     loadStore();
   }, [loadStore]);
 
+// Paystack inline script loader
+let paystackLoadedPromise: Promise<boolean> | null = null;
+function loadPaystackInlineScript(): Promise<boolean> {
+  if (paystackLoadedPromise) return paystackLoadedPromise;
+  paystackLoadedPromise = new Promise<boolean>((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(false);
+      return;
+    }
+    if ((window as any).PaystackPop) {
+      resolve(true);
+      return;
+    }
+    const existing = document.getElementById('paystack-inline-js');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(true));
+      existing.addEventListener('error', () => resolve(false));
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = 'paystack-inline-js';
+    script.src = 'https://js.paystack.co/v1/inline.js';
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+  return paystackLoadedPromise;
+}
+
   // Paystack verification callback handler
   useEffect(() => {
     const ref = searchParams.get('ref') || searchParams.get('reference') || searchParams.get('trxref');
+    const isCancelled = searchParams.get('cancelled') === 'true' || searchParams.get('status') === 'cancelled';
     if (ref) {
+      if (isCancelled) {
+        storesApi.cancelPublicOrder(ref).catch(() => {});
+        toastInfo('Payment Cancelled', 'You cancelled the payment. No order was placed.');
+        if (typeof window !== 'undefined') {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+        return;
+      }
       setIsCheckingOut(true);
       toastInfo('Verifying Payment', 'Confirming your transaction with Paystack...');
       storesApi
@@ -416,7 +470,8 @@ export const PublicStorefrontPage: React.FC = () => {
           toastSuccess('Payment Verified', 'Your data bundle has been queued for immediate telecom delivery!');
         })
         .catch((err) => {
-          toastError('Payment Verification Failed', err?.message || 'Unable to confirm payment. Please check tracking.');
+          storesApi.cancelPublicOrder(ref).catch(() => {});
+          toastError('Payment Verification Failed', err?.message || 'Unable to confirm payment. No order was placed.');
         })
         .finally(() => {
           setIsCheckingOut(false);
@@ -526,6 +581,84 @@ export const PublicStorefrontPage: React.FC = () => {
     return list.length > 0 ? list : products.slice(0, 3);
   }, [products, telecelProducts, mtnProducts, airteltigoProducts, activeNetworkFilter]);
 
+  // Real-time debounced MTN Precheck & Whitelist Detection
+  useEffect(() => {
+    if (!selectedProduct) {
+      setPrecheckStatus('idle');
+      setPrecheckMessage('');
+      return;
+    }
+
+    const cleanRecipient = recipientPhone.trim().replace(/\s+/g, '');
+    if (cleanRecipient.length < 10) {
+      setPrecheckStatus('idle');
+      setPrecheckMessage('');
+      return;
+    }
+
+    const isMtn =
+      selectedProduct.network === 'MTN' ||
+      (selectedProduct.network as any) === NetworkProvider.MTN ||
+      detectGhanaianNetwork(cleanRecipient) === 'MTN';
+
+    if (!isMtn) {
+      setPrecheckStatus('approved');
+      setPrecheckMessage('Direct Carrier Delivery');
+      return;
+    }
+
+    setPrecheckStatus('checking');
+    setPrecheckMessage('Checking MTN whitelist status...');
+
+    let isMounted = true;
+    const timer = setTimeout(async () => {
+      try {
+        let res: any;
+        try {
+          res = await storesApi.precheckStoreBeneficiary({
+            slug: store?.slug || storeSlug,
+            phoneNumber: cleanRecipient,
+            network: NetworkProvider.MTN,
+            record: true,
+          });
+        } catch {
+          res = await beneficiaryApi.precheckPublic({
+            network: NetworkProvider.MTN,
+            phoneNumbers: [cleanRecipient],
+          });
+        }
+
+        if (!isMounted) return;
+
+        const resultItem = res?.results?.[0] || res;
+        const isOrderable =
+          resultItem?.orderable !== undefined
+            ? resultItem.orderable
+            : res?.enforced === false
+            ? resultItem?.valid !== false
+            : Boolean(resultItem?.known && resultItem?.valid);
+
+        if (isOrderable && resultItem?.valid && resultItem?.known && resultItem?.status !== 'UNAPPROVED' && resultItem?.status !== 'REJECTED') {
+          setPrecheckStatus('approved');
+          setPrecheckMessage(resultItem?.accountName ? `✓ MTN Approved: ${resultItem.accountName}` : '✓ MTN Verified & Whitelisted — Ready for instant activation');
+        } else {
+          setPrecheckStatus('unapproved');
+          setPrecheckMessage('⚠ Unapproved MTN Beneficiary — Number not on whitelist');
+          setUnapprovedPhone(cleanRecipient);
+        }
+      } catch {
+        if (!isMounted) return;
+        setPrecheckStatus('idle');
+        setPrecheckMessage('');
+      }
+    }, 350);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [recipientPhone, selectedProduct, store?.slug, storeSlug]);
+
   // Handle Checkout submission
   const handleProcessCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -549,12 +682,30 @@ export const PublicStorefrontPage: React.FC = () => {
         detectGhanaianNetwork(cleanRecipient) === 'MTN';
 
       if (isMtn) {
+        if (precheckStatus === 'unapproved') {
+          setUnapprovedPhone(cleanRecipient);
+          setUnapprovedModalOpen(true);
+          setIsCheckingOut(false);
+          return;
+        }
+
         try {
-          const precheckRes = await beneficiaryApi.precheckPublic({
-            network: NetworkProvider.MTN,
-            phoneNumbers: [cleanRecipient],
-          });
-          const result = precheckRes?.results?.[0];
+          let precheckRes: any;
+          try {
+            precheckRes = await storesApi.precheckStoreBeneficiary({
+              slug: store?.slug || storeSlug,
+              phoneNumber: cleanRecipient,
+              network: NetworkProvider.MTN,
+              record: true,
+            });
+          } catch {
+            precheckRes = await beneficiaryApi.precheckPublic({
+              network: NetworkProvider.MTN,
+              phoneNumbers: [cleanRecipient],
+            });
+          }
+
+          const result = precheckRes?.results?.[0] || precheckRes;
           const isOrderable =
             result?.orderable !== undefined
               ? result.orderable
@@ -562,7 +713,7 @@ export const PublicStorefrontPage: React.FC = () => {
               ? result?.valid !== false
               : Boolean(result?.known && result?.valid);
 
-          if (result && (!isOrderable || !result.known || result.status === 'UNAPPROVED' || result.status === 'PENDING')) {
+          if (result && (!isOrderable || !result.known || result.status === 'UNAPPROVED' || result.status === 'REJECTED' || result.status === 'PENDING')) {
             setUnapprovedPhone(cleanRecipient);
             setUnapprovedModalOpen(true);
             setIsCheckingOut(false);
@@ -590,44 +741,66 @@ export const PublicStorefrontPage: React.FC = () => {
         callbackUrl,
       });
 
+      // 1. Try PaystackPop Inline Popup
+      const paystackKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PAYSTACK_PUBLIC_KEY) || '';
+      const scriptReady = await loadPaystackInlineScript();
+
+      if (scriptReady && (window as any).PaystackPop && paystackKey && !paystackKey.includes('placeholder')) {
+        const handler = (window as any).PaystackPop.setup({
+          key: paystackKey,
+          email: customerEmail.trim() || store?.contactEmail || 'customer@apisolutions.store',
+          amount: checkoutRes.order.amountPesewas,
+          currency: 'GHS',
+          ref: checkoutRes.payment.reference,
+          metadata: {
+            custom_fields: [
+              { display_name: 'Recipient SIM', variable_name: 'recipient_phone', value: cleanRecipient },
+              { display_name: 'Store', variable_name: 'store', value: store?.storeName || storeSlug },
+              { display_name: 'Order ID', variable_name: 'order_id', value: checkoutRes.order.orderId },
+            ],
+          },
+          callback: async function (response: { reference: string }) {
+            try {
+              toastInfo('Verifying Payment', 'Confirming payment with telecom network...');
+              const verified = await storesApi.verifyPublicPayment(
+                response.reference || checkoutRes.payment.reference,
+                checkoutRes.order.orderId,
+              );
+              setConfirmedOrder(verified);
+              setActiveCustomerOrder(verified);
+              saveRecentOrder(verified);
+              setSelectedProduct(null);
+              toastSuccess('Order Placed Successfully', 'Payment verified and data bundle is being dispatched!');
+            } catch (err: any) {
+              await storesApi.cancelPublicOrder(checkoutRes.order.orderId).catch(() => {});
+              toastError('Payment Verification Failed', err?.message || 'Verification could not be confirmed. No order was placed.');
+            } finally {
+              setIsCheckingOut(false);
+            }
+          },
+          onClose: async function () {
+            setIsCheckingOut(false);
+            try {
+              await storesApi.cancelPublicOrder(checkoutRes.order.orderId || checkoutRes.payment.reference);
+            } catch {}
+            toastInfo('Payment Cancelled', 'You cancelled the payment. No order was placed.');
+          },
+        });
+        handler.openIframe();
+        return;
+      }
+
+      // 2. Fallback to Paystack redirect URL if available
       if (checkoutRes?.payment?.authorizationUrl) {
         toastInfo('Redirecting to Paystack', 'Redirecting to secure payment...');
         window.location.href = checkoutRes.payment.authorizationUrl;
         return;
       }
 
-      if (checkoutRes?.payment?.reference) {
-        const verified = await storesApi.verifyPublicPayment(checkoutRes.payment.reference, checkoutRes.order.orderId);
-        setConfirmedOrder(verified);
-        setActiveCustomerOrder(verified);
-        saveRecentOrder(verified);
-        setSelectedProduct(null);
-        toastSuccess('Order Placed Successfully', 'Payment verified and data bundle is being dispatched!');
-      } else {
-        const fallbackOrder: CustomerOrderDto = {
-          orderId: checkoutRes.order.orderId,
-          status: 'READY_TO_PROCESS',
-          statusLabel: 'Order Confirmed',
-          paymentStatus: 'PAID',
-          product: {
-            name: `${checkoutRes.order.network} ${checkoutRes.order.dataLabel} Data Bundle`,
-            network: checkoutRes.order.network,
-            volumeDisplay: checkoutRes.order.dataLabel,
-            validityDisplay: 'Non-Expiry',
-          },
-          recipientPhone: checkoutRes.order.recipientPhone,
-          amountPesewas: checkoutRes.order.amountPesewas,
-          amountDisplay: `GH₵ ${(checkoutRes.order.amountPesewas / 100).toFixed(2)}`,
-          currency: 'GHS' as any,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setConfirmedOrder(fallbackOrder);
-        setActiveCustomerOrder(fallbackOrder);
-        saveRecentOrder(fallbackOrder);
-        setSelectedProduct(null);
-        toastSuccess('Order Placed', 'Payment processed and bundle is being dispatched!');
-      }
+      // 3. No Paystack channel could be initiated -> abort cleanly
+      await storesApi.cancelPublicOrder(checkoutRes.order.orderId).catch(() => {});
+      setIsCheckingOut(false);
+      toastError('Payment Gateway Unavailable', 'Unable to initiate Paystack gateway. Please try again in a few moments.');
     } catch (err: any) {
       const isBeneficiaryUnapproved =
         err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
@@ -939,6 +1112,19 @@ export const PublicStorefrontPage: React.FC = () => {
           to { opacity: 1; }
         }
 
+        /* Accessibility: Screen reader only */
+        .sr-only {
+          position: absolute !important;
+          width: 1px !important;
+          height: 1px !important;
+          padding: 0 !important;
+          margin: -1px !important;
+          overflow: hidden !important;
+          clip: rect(0, 0, 0, 0) !important;
+          white-space: nowrap !important;
+          border: 0 !important;
+        }
+
         /* Desktop Nav visible, Mobile toggle hidden by default */
         .storefront-desktop-nav {
           display: flex;
@@ -950,21 +1136,22 @@ export const PublicStorefrontPage: React.FC = () => {
           display: none !important;
         }
 
-        /* Hero Section Default (Desktop) */
+        /* Hero Section Default (Desktop & Full Screen) */
         .storefront-hero-section {
           position: relative;
           overflow: hidden;
-          background: linear-gradient(145deg, #052e16 0%, #064e3b 50%, #047857 100%);
+          width: 100%;
+          background: linear-gradient(135deg, #1d6fe9 0%, #1e62d0 45%, #1557c0 100%);
           color: #FFFFFF;
-          border: 1px solid rgba(163, 230, 53, 0.25);
-          border-radius: 20px;
-          padding: 2.75rem 2.25rem;
-          box-shadow: 0 16px 36px rgba(5, 46, 22, 0.35);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+          padding: 3.75rem 1.5rem;
+          box-shadow: 0 16px 36px rgba(21, 87, 192, 0.25);
         }
         .storefront-hero-btn-group {
           display: flex;
-          gap: 0.75rem;
+          gap: 0.85rem;
           flex-wrap: wrap;
+          align-items: center;
         }
 
         /* Grids Default */
@@ -1043,23 +1230,22 @@ export const PublicStorefrontPage: React.FC = () => {
             display: none !important;
           }
           .storefront-mobile-toggle {
-            display: flex !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
           }
 
-          /* Hero Section: NOT inside container, edge-to-edge full bleed with green background */
+          /* Hero Section: Full bleed edge-to-edge on mobile */
           .storefront-hero-section {
-            margin-left: -1.25rem !important;
-            margin-right: -1.25rem !important;
-            margin-top: -1.5rem !important;
+            padding: 2.5rem 1.25rem 2.25rem 1.25rem !important;
             border-radius: 0 !important;
-            width: calc(100% + 2.5rem) !important;
+            margin: 0 !important;
+            width: 100% !important;
             border-left: none !important;
             border-right: none !important;
             border-top: none !important;
-            border-bottom: 1px solid rgba(163, 230, 53, 0.25) !important;
-            padding: 2.25rem 1.25rem 2.5rem 1.25rem !important;
-            background: linear-gradient(160deg, #022c22 0%, #064e3b 45%, #047857 100%) !important;
-            box-shadow: 0 12px 28px rgba(2, 44, 34, 0.5) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+            box-shadow: 0 10px 25px rgba(21, 87, 192, 0.35) !important;
           }
 
           .storefront-hero-btn-group {
@@ -1172,8 +1358,8 @@ export const PublicStorefrontPage: React.FC = () => {
           backgroundColor: t.bgHeader,
           position: 'sticky',
           top: 0,
-          zIndex: 40,
-          padding: '0.85rem 1.25rem',
+          zIndex: 60,
+          padding: '0.75rem 1.25rem',
           transition: 'background-color 200ms ease, border-color 200ms ease',
         }}
       >
@@ -1184,8 +1370,11 @@ export const PublicStorefrontPage: React.FC = () => {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '1rem',
-            flexWrap: 'wrap',
+            gap: '0.75rem',
+            flexWrap: 'nowrap',
+            width: '100%',
+            position: 'relative',
+            zIndex: 65,
           }}
         >
           {/* Store Brand / Logo Squircle */}
@@ -1197,6 +1386,8 @@ export const PublicStorefrontPage: React.FC = () => {
               gap: '0.75rem',
               cursor: 'pointer',
               userSelect: 'none',
+              minWidth: 0,
+              flex: '1 1 auto',
             }}
           >
             <div
@@ -1228,7 +1419,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 <Store size={20} />
               )}
             </div>
-            <div>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <span
                   style={{
@@ -1237,6 +1428,9 @@ export const PublicStorefrontPage: React.FC = () => {
                     color: t.storeNameColor,
                     letterSpacing: '-0.01em',
                     lineHeight: 1.2,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                   }}
                 >
                   {storeName}
@@ -1248,9 +1442,9 @@ export const PublicStorefrontPage: React.FC = () => {
                   fontSize: '11px',
                   color: t.storeSubColor,
                   fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}
               >
                 <span>{storeTagline}</span>
@@ -1259,7 +1453,7 @@ export const PublicStorefrontPage: React.FC = () => {
           </div>
 
           {/* Right Navigation & Mobile Hamburger */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
             {/* Desktop Navigation Row (hidden on < 768px via CSS) */}
             <div className="storefront-desktop-nav">
               <nav
@@ -1313,6 +1507,31 @@ export const PublicStorefrontPage: React.FC = () => {
                 >
                   <ShoppingCart size={14} color={activeNav === 'buy' ? '#000000' : 'currentColor'} />
                   <span>Buy Data</span>
+                </button>
+
+                {/* Checkers Link */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    toastInfo('Result Checkers (WAEC, BECE & CSSPS) are being stocked for this store.');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '100px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: t.navInactiveColor,
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <GraduationCap size={14} color="currentColor" />
+                  <span>Checkers</span>
                 </button>
 
                 {/* Track Order Link */}
@@ -1433,6 +1652,7 @@ export const PublicStorefrontPage: React.FC = () => {
                 color: t.heading,
                 cursor: 'pointer',
                 transition: 'all 150ms ease',
+                flexShrink: 0,
               }}
             >
               {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
@@ -1450,10 +1670,10 @@ export const PublicStorefrontPage: React.FC = () => {
               style={{
                 position: 'fixed',
                 inset: 0,
-                top: '60px',
                 backgroundColor: 'rgba(0, 0, 0, 0.65)',
-                backdropFilter: 'blur(6px)',
-                zIndex: 45,
+                backdropFilter: 'blur(4px)',
+                WebkitBackdropFilter: 'blur(4px)',
+                zIndex: 55,
               }}
             />
             <div
@@ -1463,10 +1683,11 @@ export const PublicStorefrontPage: React.FC = () => {
                 top: '100%',
                 left: 0,
                 right: 0,
+                width: '100%',
                 backgroundColor: t.bgHeader,
                 borderBottom: `1px solid ${t.borderHeader}`,
                 boxShadow: '0 20px 30px rgba(0, 0, 0, 0.4)',
-                zIndex: 50,
+                zIndex: 60,
                 padding: '1.25rem 1.25rem 1.5rem 1.25rem',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1523,6 +1744,34 @@ export const PublicStorefrontPage: React.FC = () => {
                 >
                   <ShoppingCart size={18} color={activeNav === 'buy' ? '#000000' : 'currentColor'} />
                   <span>Buy Data</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    toastInfo('Result Checkers (WAEC, BECE & CSSPS) are being stocked for this store.');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '12px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: t.heading,
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    width: '100%',
+                    minHeight: '48px',
+                    transition: 'all 120ms ease',
+                  }}
+                >
+                  <GraduationCap size={18} color="currentColor" />
+                  <span>Result Checkers</span>
                 </button>
 
                 <button
@@ -1671,150 +1920,299 @@ export const PublicStorefrontPage: React.FC = () => {
       </header>
 
       {/* ==================================================================== */}
-      {/* 2. PAGE CONTENT ROUTER / RENDERER */}
+      {/* 2. FULL-BLEED HERO SECTION (Home tab only - Spans 100% of Screen) */}
+      {/* ==================================================================== */}
+      {activeNav === 'home' && (
+        <section className="storefront-hero-section">
+          {/* Subtle ambient lighting */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '-60px',
+              right: '5%',
+              width: '320px',
+              height: '320px',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(255, 255, 255, 0.14) 0%, transparent 70%)',
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '-60px',
+              left: '5%',
+              width: '280px',
+              height: '280px',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(56, 189, 248, 0.18) 0%, transparent 70%)',
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+
+          <div
+            style={{
+              maxWidth: '1100px',
+              margin: '0 auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '2.5rem',
+              position: 'relative',
+              zIndex: 1,
+              flexWrap: 'wrap',
+            }}
+          >
+            {/* Left Column: Store Branding & Call-to-Action */}
+            <div style={{ maxWidth: '580px', flex: '1 1 320px' }}>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  color: '#FFFFFF',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  padding: '4px 14px',
+                  borderRadius: '100px',
+                  marginBottom: '1.25rem',
+                  backdropFilter: 'blur(8px)',
+                }}
+              >
+                <Zap size={13} fill="#A3E635" color="#A3E635" />
+                <span>Instant Automated Delivery</span>
+              </div>
+
+              <h1
+                style={{
+                  fontSize: 'clamp(2rem, 5vw, 3.4rem)',
+                  fontWeight: 900,
+                  color: '#FFFFFF',
+                  lineHeight: 1.1,
+                  margin: '0 0 0.85rem 0',
+                  letterSpacing: '-0.02em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Buy Data Bundles
+                <span
+                  style={{
+                    display: 'block',
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    fontSize: 'clamp(1.15rem, 2.5vw, 1.75rem)',
+                    fontWeight: 700,
+                    textTransform: 'none',
+                    marginTop: '0.35rem',
+                  }}
+                >
+                  Fast, Reliable & Instant Activation
+                </span>
+              </h1>
+
+              <p
+                style={{
+                  fontSize: 'clamp(14px, 2.2vw, 17px)',
+                  color: 'rgba(255, 255, 255, 0.92)',
+                  lineHeight: 1.55,
+                  margin: '0 0 2rem 0',
+                  maxWidth: '520px',
+                  fontWeight: 500,
+                }}
+              >
+                MTN, Telecel &amp; AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
+              </p>
+
+              <div className="storefront-hero-btn-group">
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('buy')}
+                  style={{
+                    backgroundColor: '#FFFFFF',
+                    color: '#1E6DEB',
+                    border: 'none',
+                    padding: '0.8rem 1.75rem',
+                    borderRadius: '100px',
+                    fontSize: '14px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.18)',
+                    transition: 'transform 100ms ease, box-shadow 100ms ease',
+                  }}
+                >
+                  <ShoppingCart size={16} color="#1E6DEB" />
+                  <span>Buy data</span>
+                  <ArrowRight size={16} strokeWidth={2.5} color="#1E6DEB" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    toastInfo('Result Checkers (WAEC, BECE & CSSPS) are being stocked for this store.');
+                  }}
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                    color: '#FFFFFF',
+                    border: '1px solid rgba(255, 255, 255, 0.35)',
+                    padding: '0.8rem 1.75rem',
+                    borderRadius: '100px',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    backdropFilter: 'blur(8px)',
+                    transition: 'background-color 120ms ease',
+                  }}
+                >
+                  <GraduationCap size={16} color="#FFFFFF" />
+                  <span>Result checkers</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column: Graphic matching design image (central server & network nodes) */}
+            <div
+              className="storefront-hero-illustration"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flex: '0 0 auto',
+                margin: '0 auto',
+              }}
+            >
+              <svg
+                width="320"
+                height="280"
+                viewBox="0 0 320 280"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                style={{ maxWidth: '100%', height: 'auto' }}
+              >
+                {/* Concentric orbital rings */}
+                <circle cx="160" cy="140" r="105" stroke="rgba(255, 255, 255, 0.22)" strokeWidth="1.5" strokeDasharray="4 4" />
+                <circle cx="160" cy="140" r="72" stroke="rgba(255, 255, 255, 0.3)" strokeWidth="1.5" strokeDasharray="3 3" />
+
+                {/* Dotted connecting rays to provider bubbles */}
+                <line x1="160" y1="140" x2="80" y2="72" stroke="rgba(255, 255, 255, 0.45)" strokeWidth="1.5" strokeDasharray="3 3" />
+                <line x1="160" y1="140" x2="242" y2="96" stroke="rgba(255, 255, 255, 0.45)" strokeWidth="1.5" strokeDasharray="3 3" />
+                <line x1="160" y1="140" x2="140" y2="218" stroke="rgba(255, 255, 255, 0.45)" strokeWidth="1.5" strokeDasharray="3 3" />
+
+                {/* Floating particle sparkle dots */}
+                <circle cx="112" cy="118" r="2.5" fill="rgba(255, 255, 255, 0.75)" />
+                <circle cx="218" cy="132" r="2.5" fill="rgba(255, 255, 255, 0.75)" />
+                <circle cx="188" cy="62" r="2" fill="rgba(255, 255, 255, 0.6)" />
+                <circle cx="118" cy="182" r="2" fill="rgba(255, 255, 255, 0.6)" />
+                <circle cx="186" cy="206" r="2.5" fill="rgba(255, 255, 255, 0.75)" />
+
+                {/* Central Server Card / SIM Device */}
+                <g transform="translate(136, 108)">
+                  <rect width="48" height="64" rx="14" fill="#FFFFFF" />
+                  <rect x="12" y="16" width="24" height="4" rx="2" fill="#1E6DEB" />
+                  <rect x="12" y="26" width="24" height="4" rx="2" fill="#1E6DEB" />
+                  <rect x="12" y="36" width="24" height="4" rx="2" fill="#1E6DEB" />
+                  <circle cx="24" cy="49" r="3" fill="#10B981" />
+                </g>
+
+                {/* MTN Node Bubble (Yellow) */}
+                <g transform="translate(80, 72)">
+                  <circle cx="0" cy="0" r="22" fill="#EAB308" />
+                  <circle cx="0" cy="0" r="21" stroke="#FEF08A" strokeWidth="1.5" />
+                  <text x="0" y="4.5" textAnchor="middle" fill="#000000" fontSize="11" fontWeight="900" fontFamily="system-ui, sans-serif">
+                    MTN
+                  </text>
+                </g>
+
+                {/* TC Node Bubble (Red for Telecel) */}
+                <g transform="translate(242, 96)">
+                  <circle cx="0" cy="0" r="22" fill="#DC2626" />
+                  <circle cx="0" cy="0" r="21" stroke="#FECACA" strokeWidth="1.5" />
+                  <text x="0" y="4.5" textAnchor="middle" fill="#FFFFFF" fontSize="11" fontWeight="900" fontFamily="system-ui, sans-serif">
+                    TC
+                  </text>
+                </g>
+
+                {/* AT Node Bubble (Navy for AirtelTigo) */}
+                <g transform="translate(140, 218)">
+                  <circle cx="0" cy="0" r="22" fill="#1E293B" />
+                  <circle cx="0" cy="0" r="21" stroke="#38BDF8" strokeWidth="1.5" />
+                  <text x="0" y="4.5" textAnchor="middle" fill="#FFFFFF" fontSize="11" fontWeight="900" fontFamily="system-ui, sans-serif">
+                    AT
+                  </text>
+                </g>
+              </svg>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ==================================================================== */}
+      {/* 3. PAGE CONTENT ROUTER / RENDERER (Contained max-width: 1100px) */}
       {/* ==================================================================== */}
       <main
         style={{
           maxWidth: '1100px',
           margin: '0 auto',
           width: '100%',
-          padding: '1.5rem 1.25rem',
+          padding: '1.75rem 1.25rem',
           flex: 1,
         }}
       >
-        {/* VIEW 1: HOME PAGE (Matches media_1789552950052.png) */}
+        {/* VIEW 1: HOME PAGE */}
         {activeNav === 'home' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            {/* Section 1: Hero Card (Full-bleed Green Background on Mobile) */}
-            <section className="storefront-hero-section">
-              {/* Subtle ambient decorative lighting */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '-40px',
-                  right: '-40px',
-                  width: '240px',
-                  height: '240px',
-                  borderRadius: '50%',
-                  background: 'radial-gradient(circle, rgba(163, 230, 53, 0.2) 0%, transparent 70%)',
-                  pointerEvents: 'none',
-                  zIndex: 0,
-                }}
-              />
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: '-50px',
-                  left: '-30px',
-                  width: '200px',
-                  height: '200px',
-                  borderRadius: '50%',
-                  background: 'radial-gradient(circle, rgba(16, 185, 129, 0.18) 0%, transparent 70%)',
-                  pointerEvents: 'none',
-                  zIndex: 0,
-                }}
-              />
-
-              <div style={{ maxWidth: '640px', position: 'relative', zIndex: 1 }}>
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    backgroundColor: 'rgba(163, 230, 53, 0.16)',
-                    border: '1px solid rgba(163, 230, 53, 0.4)',
-                    color: '#A3E635',
-                    fontSize: '11px',
-                    fontWeight: 800,
-                    padding: '4px 12px',
-                    borderRadius: '100px',
-                    marginBottom: '1rem',
-                  }}
-                >
-                  <Zap size={13} fill="currentColor" />
-                  <span>Instant Delivery</span>
-                </div>
-
-                <h1
-                  style={{
-                    fontSize: 'clamp(1.85rem, 4.5vw, 2.75rem)',
-                    fontWeight: 900,
-                    color: '#FFFFFF',
-                    lineHeight: 1.15,
-                    margin: '0 0 0.65rem 0',
-                    letterSpacing: '-0.02em',
-                  }}
-                >
-                  Buy Data Bundles
-                  <span style={{ display: 'block', color: '#A3E635' }}>At Unbeatable Prices</span>
-                </h1>
-
-                <p
-                  style={{
-                    fontSize: '14px',
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    lineHeight: 1.55,
-                    margin: '0 0 1.75rem 0',
-                    maxWidth: '560px',
-                  }}
-                >
-                  MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
-                </p>
-
-                <div className="storefront-hero-btn-group">
-                  <button
-                    type="button"
-                    onClick={() => handleNavClick('buy')}
-                    style={{
-                      backgroundColor: '#A3E635',
-                      color: '#000000',
-                      border: 'none',
-                      padding: '0.75rem 1.5rem',
-                      borderRadius: '12px',
-                      fontSize: '14px',
-                      fontWeight: 900,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.5rem',
-                      boxShadow: '0 4px 16px rgba(163, 230, 53, 0.35)',
-                      transition: 'transform 100ms ease',
-                    }}
-                  >
-                    <ShoppingCart size={16} color="#000000" />
-                    <span>Buy Data Now</span>
-                    <ArrowRight size={16} strokeWidth={2.5} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowTrackModal(true);
-                      handleNavClick('track');
-                    }}
-                    style={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.12)',
-                      color: '#FFFFFF',
-                      border: '1px solid rgba(255, 255, 255, 0.3)',
-                      padding: '0.75rem 1.5rem',
-                      borderRadius: '12px',
-                      fontSize: '14px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.5rem',
-                      backdropFilter: 'blur(8px)',
-                    }}
-                  >
-                    <FileText size={16} color="#FFFFFF" />
-                    <span>Order Tracking</span>
-                  </button>
-                </div>
+            {/* Live Delivery Status Widget matching media_1789671969921.png */}
+            <div
+              style={{
+                backgroundColor: isDark ? 'rgba(6, 78, 59, 0.25)' : 'rgba(236, 253, 245, 0.9)',
+                border: `1px solid ${isDark ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.3)'}`,
+                borderRadius: '16px',
+                padding: '1rem 1.25rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', color: '#10B981', fontWeight: 800, fontSize: '13px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }} />
+                  Delivering in minutes
+                </span>
+                <span style={{ color: t.subText, fontSize: '13px' }}>Bundles are landing fast.</span>
               </div>
-            </section>
+
+              <div
+                style={{
+                  backgroundColor: isDark ? 'rgba(0, 0, 0, 0.35)' : '#FFFFFF',
+                  border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(16, 185, 129, 0.2)'}`,
+                  borderRadius: '12px',
+                  padding: '0.85rem 1.15rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Zap size={15} color="#10B981" fill="#10B981" />
+                  <strong style={{ fontSize: '13px', color: t.heading }}>Fast lane · 6 min</strong>
+                </div>
+                <span style={{ fontSize: '12px', color: t.subText, fontFamily: 'monospace', fontWeight: 600 }}>
+                  #375842
+                </span>
+              </div>
+            </div>
 
             {/* Section 2: Live Order Tracker */}
             <section
@@ -3034,6 +3432,48 @@ export const PublicStorefrontPage: React.FC = () => {
                 onChange={(e) => setRecipientPhone(e.target.value)}
                 required
               />
+
+              {precheckStatus !== 'idle' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    marginTop: '-0.35rem',
+                    marginBottom: '0.2rem',
+                    padding: '0.4rem 0.65rem',
+                    borderRadius: '8px',
+                    backgroundColor:
+                      precheckStatus === 'checking'
+                        ? isDark ? 'rgba(59, 130, 246, 0.12)' : '#EFF6FF'
+                        : precheckStatus === 'approved'
+                        ? isDark ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5'
+                        : isDark ? 'rgba(239, 68, 68, 0.14)' : '#FEF2F2',
+                    color:
+                      precheckStatus === 'checking'
+                        ? '#3B82F6'
+                        : precheckStatus === 'approved'
+                        ? '#10B981'
+                        : '#EF4444',
+                    border: `1px solid ${
+                      precheckStatus === 'checking'
+                        ? isDark ? 'rgba(59, 130, 246, 0.25)' : '#BFDBFE'
+                        : precheckStatus === 'approved'
+                        ? isDark ? 'rgba(16, 185, 129, 0.25)' : '#A7F3D0'
+                        : isDark ? 'rgba(239, 68, 68, 0.25)' : '#FECACA'
+                    }`,
+                  }}
+                >
+                  {precheckStatus === 'checking' && (
+                    <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                  )}
+                  {precheckStatus === 'approved' && <CheckCircle2 size={13} />}
+                  {precheckStatus === 'unapproved' && <AlertTriangle size={13} />}
+                  <span>{precheckMessage}</span>
+                </div>
+              )}
 
               <Input
                 label="Email Address (for digital receipt)"

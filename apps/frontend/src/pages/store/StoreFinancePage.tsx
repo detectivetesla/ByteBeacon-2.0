@@ -14,18 +14,54 @@ export const StoreFinancePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadFinance = async () => {
+    let mounted = true;
+    const loadFinance = async (isPolling = false) => {
       try {
+        if (!isPolling) setLoading(true);
         const result = await storesApi.getStoreFinance({ page: 1, limit: 20 });
-        setData(result);
+        if (mounted) setData(result);
       } catch (err: any) {
-        toastError('Failed to load', err.message || 'Unable to load finance data');
+        if (mounted && !isPolling) {
+          toastError('Failed to load', err.message || 'Unable to load finance data');
+        }
       } finally {
-        setLoading(false);
+        if (mounted && !isPolling) setLoading(false);
       }
     };
+
     loadFinance();
+    const interval = setInterval(() => {
+      loadFinance(true);
+    }, 10000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, [toastError]);
+
+  const handleExportStatement = () => {
+    if (!data?.transactions?.length) {
+      toastError('No Data', 'No transaction settlements to export.');
+      return;
+    }
+    const header = 'Reference,Type,Amount (GHS),Entry Type,Date\n';
+    const rows = data.transactions
+      .map(
+        (tx: any) =>
+          `"${tx.referenceId}","${tx.referenceType}",${(tx.amountPesewas / 100).toFixed(2)},${tx.entryType},"${new Date(tx.createdAt).toLocaleString()}"`,
+      )
+      .join('\n');
+    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `store_settlements_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toastSuccess('Statement Exported', 'Store settlements statement downloaded.');
+  };
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -64,8 +100,9 @@ export const StoreFinancePage: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => toastSuccess('Exported', 'Finance statement exported.')}
+            onClick={handleExportStatement}
             leftIcon={<Download size={13} />}
+            disabled={!data?.transactions?.length}
           >
             Export Statement
           </Button>

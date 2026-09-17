@@ -9,6 +9,8 @@ import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../../core/errors/app-error.js';
 import { IPaymentProvider } from '../../core/payments/payment-provider.interface.js';
+import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
+import { NetworkProvider } from '@bytebeacon/shared';
 
 export interface StoreRouteDependencies {
   db: pg.Pool;
@@ -18,6 +20,7 @@ export interface StoreRouteDependencies {
   auditService?: AuditService;
   paymentProvider?: IPaymentProvider;
   featureFlagService?: FeatureFlagService;
+  beneficiaryService?: BeneficiaryService;
 }
 
 export interface StoreDto {
@@ -41,6 +44,8 @@ export interface StoreDto {
   activationFeePesewas: number;
   paystackReference?: string;
   adminNotes?: string;
+  visitCount?: number;
+  settings?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,7 +54,7 @@ export async function storeRoutes(
   app: FastifyInstance,
   deps: StoreRouteDependencies,
 ) {
-  const { db, tokenService, apiKeyService, rbacService, auditService } = deps;
+  const { db, tokenService, apiKeyService, rbacService, auditService, beneficiaryService } = deps;
   const featureFlagService = deps.featureFlagService ?? (app as any).featureFlagService ?? new FeatureFlagService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const maintenanceHook = createMaintenanceHook(featureFlagService);
@@ -62,6 +67,9 @@ export async function storeRoutes(
       await db.query('ALTER TABLE IF EXISTS stores ALTER COLUMN banner_url TYPE TEXT');
       await db.query('ALTER TABLE IF EXISTS stores ALTER COLUMN tagline TYPE TEXT');
       await db.query('ALTER TABLE IF EXISTS stores ALTER COLUMN description TYPE TEXT');
+      await db.query('ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS visit_count BIGINT NOT NULL DEFAULT 0');
+      await db.query('ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS last_visited_at TIMESTAMPTZ');
+      await db.query(`ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS settings JSONB NOT NULL DEFAULT '{"autoFulfill":true,"smsAlerts":true,"emailAlerts":true}'::jsonb`);
       await db.query(`
         CREATE OR REPLACE VIEW agent_stores AS
         SELECT 
@@ -91,7 +99,9 @@ export async function storeRoutes(
               contact_whatsapp as "contactWhatsapp", payment_status as "paymentStatus",
               approval_status as "approvalStatus", store_status as "storeStatus",
               activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
-              admin_notes as "adminNotes", created_at as "createdAt", updated_at as "updatedAt"
+              admin_notes as "adminNotes", COALESCE(visit_count, 0) as "visitCount",
+              COALESCE(settings, '{"autoFulfill":true,"smsAlerts":true,"emailAlerts":true}'::jsonb) as "settings",
+              created_at as "createdAt", updated_at as "updatedAt"
        FROM stores
        WHERE user_id = $1 OR agent_id = $1 OR agent_id IN (SELECT id FROM agents WHERE user_id = $1)
        ORDER BY created_at DESC
@@ -774,39 +784,67 @@ export async function storeRoutes(
       }
 
       // Calculate scoped store metrics
-      const ordersRes = await db.query(
-        `SELECT COUNT(*) as total_orders,
-                COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as total_sales_pesewas,
-                COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as today_sales_pesewas,
-                COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN
-                  CASE
-                    WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != ''
-                      THEN (pricing_snapshot->>'markupPesewas')::bigint
-                    WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL
-                      THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
-                    ELSE 0
-                  END
-                ELSE 0 END), 0) as total_profit_pesewas,
-                COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN
-                  CASE
-                    WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != ''
-                      THEN (pricing_snapshot->>'markupPesewas')::bigint
-                    WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL
-                      THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
-                    ELSE 0
-                  END
-                ELSE 0 END), 0) as today_profit_pesewas,
-                COUNT(DISTINCT recipient_phone) as customers_count,
-                COUNT(CASE WHEN order_status = 'COMPLETED' OR order_status = 'DELIVERED' THEN 1 END) as completed_orders,
-                COUNT(CASE WHEN order_status = 'PROCESSING' THEN 1 END) as processing_orders,
-                COUNT(CASE WHEN order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT' THEN 1 END) as pending_orders,
-                COUNT(CASE WHEN order_status = 'FAILED' THEN 1 END) as failed_orders
-         FROM orders
-         WHERE store_id = $1`,
-        [store.id],
-      );
+      const [ordersRes, trendRes] = await Promise.all([
+        db.query(
+          `SELECT COUNT(*) as total_orders,
+                  COUNT(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' THEN 1 END) as orders_today_count,
+                  COUNT(CASE WHEN payment_status = 'PAID' THEN 1 END) as paid_orders_count,
+                  COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as total_sales_pesewas,
+                  COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as today_sales_pesewas,
+                  COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN
+                    CASE
+                      WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != ''
+                        THEN (pricing_snapshot->>'markupPesewas')::bigint
+                      WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL
+                        THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
+                      ELSE 0
+                    END
+                  ELSE 0 END), 0) as total_profit_pesewas,
+                  COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN
+                    CASE
+                      WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != ''
+                        THEN (pricing_snapshot->>'markupPesewas')::bigint
+                      WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL
+                        THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
+                      ELSE 0
+                    END
+                  ELSE 0 END), 0) as today_profit_pesewas,
+                  COUNT(DISTINCT CASE WHEN payment_status = 'PAID' THEN recipient_phone END) as customers_count,
+                  COUNT(CASE WHEN order_status = 'COMPLETED' OR order_status = 'DELIVERED' THEN 1 END) as completed_orders,
+                  COUNT(CASE WHEN order_status = 'PROCESSING' THEN 1 END) as processing_orders,
+                  COUNT(CASE WHEN order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT' THEN 1 END) as pending_orders,
+                  COUNT(CASE WHEN order_status = 'FAILED' THEN 1 END) as failed_orders
+           FROM orders
+           WHERE store_id = $1`,
+          [store.id],
+        ),
+        db.query(
+          `SELECT
+             TO_CHAR(d.day, 'YYYY-MM-DD') as "date",
+             COALESCE(SUM(o.amount_pesewas), 0) as "revenuePesewas",
+             COUNT(o.id) as "orderCount"
+           FROM (
+             SELECT generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, '1 day'::interval)::date as day
+           ) d
+           LEFT JOIN orders o ON DATE(o.created_at) = d.day
+             AND o.store_id = $1
+             AND o.payment_status = 'PAID'
+             AND COALESCE(o.refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')
+           GROUP BY d.day
+           ORDER BY d.day ASC`,
+          [store.id],
+        ),
+      ]);
 
       const stats = ordersRes.rows[0];
+      const revenueTrend = trendRes.rows.map((r: any) => ({
+        date: r.date,
+        revenueGhs: Number((parseInt(r.revenuePesewas, 10) / 100).toFixed(2)),
+        orderCount: parseInt(r.orderCount, 10) || 0,
+      }));
+
+      const ordersTodayCount = Number(stats.orders_today_count || 0);
+      const totalOrdersCount = Number(stats.paid_orders_count || 0);
 
       return reply.send({
         success: true,
@@ -823,9 +861,11 @@ export async function storeRoutes(
             totalSalesGhs: Number(stats.total_sales_pesewas || 0) / 100,
             todayProfitGhs: Number(stats.today_profit_pesewas || 0) / 100,
             totalProfitGhs: Number(stats.total_profit_pesewas || 0) / 100,
-            ordersCount: Number(stats.total_orders || 0),
+            ordersCount: ordersTodayCount,
+            ordersTodayCount,
+            totalOrdersCount,
             customersCount: Number(stats.customers_count || 0),
-            storeVisits: Number(stats.customers_count || 0),
+            storeVisits: Math.max(Number(store.visitCount || 0), Number(stats.customers_count || 0)),
           },
           orderHealth: {
             completed: Number(stats.completed_orders || 0),
@@ -833,6 +873,7 @@ export async function storeRoutes(
             pending: Number(stats.pending_orders || 0),
             failed: Number(stats.failed_orders || 0),
           },
+          revenueTrend,
         },
       });
     },
@@ -860,35 +901,48 @@ export async function storeRoutes(
       const offset = (Math.max(1, Number(page)) - 1) * Number(limit);
 
       const params: any[] = [store.id];
-      let whereClause = 'WHERE store_id = $1';
+      let whereClause = 'WHERE o.store_id = $1';
 
       if (status && status !== 'ALL') {
         params.push(status);
-        whereClause += ` AND order_status = $${params.length}`;
+        if (['PAID', 'PENDING', 'CANCELLED', 'FAILED'].includes(status.toUpperCase())) {
+          whereClause += ` AND (o.payment_status = $${params.length} OR o.order_status = $${params.length})`;
+        } else {
+          whereClause += ` AND o.order_status = $${params.length}`;
+        }
       }
 
       if (network && network !== 'ALL') {
         params.push(network);
-        whereClause += ` AND network = $${params.length}`;
+        whereClause += ` AND o.network = $${params.length}`;
       }
 
       if (search && search.trim()) {
         params.push(`%${search.trim()}%`);
-        whereClause += ` AND (public_id ILIKE $${params.length} OR recipient_phone ILIKE $${params.length})`;
+        whereClause += ` AND (o.public_id ILIKE $${params.length} OR o.recipient_phone ILIKE $${params.length})`;
       }
 
-      const countRes = await db.query(`SELECT COUNT(*) FROM orders ${whereClause}`, params);
+      const countRes = await db.query(`SELECT COUNT(*) FROM orders o ${whereClause}`, params);
       const totalCount = Number(countRes.rows[0]?.count || 0);
 
       params.push(Number(limit), offset);
       const ordersRes = await db.query(
-        `SELECT id, public_id as "publicId", recipient_phone as "recipientPhone", network,
-                data_amount_mb as "dataAmountMb", amount_pesewas as "amountPesewas",
-                order_status as "orderStatus", payment_status as "paymentStatus",
-                created_at as "createdAt"
-         FROM orders
+        `SELECT o.id, o.public_id as "publicId", o.recipient_phone as "recipientPhone", o.network,
+                o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
+                o.order_status as "orderStatus", o.payment_status as "paymentStatus",
+                CASE
+                  WHEN (o.pricing_snapshot->>'markupPesewas') IS NOT NULL AND (o.pricing_snapshot->>'markupPesewas') != ''
+                    THEN (o.pricing_snapshot->>'markupPesewas')::bigint
+                  WHEN (o.pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (o.pricing_snapshot->>'basePricePesewas') IS NOT NULL
+                    THEN GREATEST(0, (o.pricing_snapshot->>'unitPricePesewas')::bigint - (o.pricing_snapshot->>'basePricePesewas')::bigint)
+                  ELSE 0
+                END as "profitPesewas",
+                COALESCE(o.pricing_snapshot->>'productName', o.pricing_snapshot->>'name', CONCAT(o.network, ' Data Bundle')) as "productName",
+                COALESCE((o.pricing_snapshot->>'basePricePesewas')::bigint, 0) as "basePricePesewas",
+                o.created_at as "createdAt"
+         FROM orders o
          ${whereClause}
-         ORDER BY created_at DESC
+         ORDER BY o.created_at DESC
          LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params,
       );
@@ -896,7 +950,12 @@ export async function storeRoutes(
       return reply.send({
         success: true,
         data: {
-          orders: ordersRes.rows,
+          orders: ordersRes.rows.map((row: any) => ({
+            ...row,
+            amountPesewas: parseInt(row.amountPesewas, 10),
+            profitPesewas: parseInt(row.profitPesewas, 10),
+            profitGhs: Number(((parseInt(row.profitPesewas, 10) || 0) / 100).toFixed(2)),
+          })),
           pagination: {
             page: Number(page),
             limit: Number(limit),
@@ -917,6 +976,16 @@ export async function storeRoutes(
       if (!store) {
         throw new ForbiddenError('Store authorization required');
       }
+
+      // Auto-seed active catalog products if missing for this store
+      await db.query(
+        `INSERT INTO store_products (store_id, catalog_product_id, markup_pesewas, is_available, is_visible)
+         SELECT $1, id, 200, TRUE, TRUE
+         FROM catalog_products
+         WHERE is_active = TRUE
+         ON CONFLICT (store_id, catalog_product_id) DO NOTHING`,
+        [store.id],
+      ).catch(() => {});
 
       const productsRes = await db.query(
         `SELECT sp.id, sp.store_id as "storeId", sp.catalog_product_id as "catalogProductId",
@@ -991,6 +1060,37 @@ export async function storeRoutes(
     },
   );
 
+  // 8b. BULK UPDATE STORE PRODUCTS (/stores/my-store/products/bulk)
+  app.put<{
+    Body: { items: Array<{ id: string; markupPesewas?: number; isAvailable?: boolean; isVisible?: boolean }> };
+  }>(
+    '/stores/my-store/products/bulk',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      const store = await getAgentStore(req.user!.sub);
+      if (!store) throw new ForbiddenError('Store authorization required');
+
+      const { items = [] } = req.body || {};
+      for (const item of items) {
+        if (!item.id) continue;
+        await db.query(
+          `UPDATE store_products
+           SET markup_pesewas = COALESCE($1, markup_pesewas),
+               is_available = COALESCE($2, is_available),
+               is_visible = COALESCE($3, is_visible),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $4 AND store_id = $5`,
+          [item.markupPesewas, item.isAvailable, item.isVisible, item.id, store.id],
+        );
+      }
+
+      return reply.send({
+        success: true,
+        message: 'All product configurations updated successfully',
+      });
+    },
+  );
+
   // 9. PUBLIC STOREFRONT DATA (/stores/public/:slug)
   app.get<{ Params: { slug: string } }>(
     '/stores/public/:slug',
@@ -1043,6 +1143,315 @@ export async function storeRoutes(
       });
     },
   );
+
+  // Helper for safe XML / SVG escaping
+  function escapeXml(str?: string | null): string {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  // Generates high-res 1200x630 SVG social preview card matching WhatsApp / Twitter / FB requirements
+  function generateStorefrontSocialBanner(storeName: string, primaryColor: string, tagline?: string, logoUrl?: string | null): string {
+    const safeName = escapeXml(storeName || 'Mobile Data Store');
+    const safeColor = /^#[0-9A-Fa-f]{6}$/.test(primaryColor) ? primaryColor : '#0066FF';
+    const initial = escapeXml((storeName || 'D').trim().charAt(0).toUpperCase() || 'D');
+    const safeTagline = escapeXml(tagline || 'Fast, reliable and instant mobile data activation');
+    const hasLogo = logoUrl && typeof logoUrl === 'string' && logoUrl.trim().length > 0;
+
+    let logoMarkup = '';
+    if (hasLogo) {
+      const cleanLogo = escapeXml(logoUrl.trim());
+      logoMarkup = `
+        <clipPath id="logoClip">
+          <rect x="120" y="110" width="110" height="110" rx="28" />
+        </clipPath>
+        <rect x="120" y="110" width="110" height="110" rx="28" fill="${safeColor}" />
+        <image href="${cleanLogo}" x="120" y="110" width="110" height="110" preserveAspectRatio="xMidYMid slice" clip-path="url(#logoClip)" />
+      `;
+    } else {
+      logoMarkup = `
+        <rect x="120" y="110" width="110" height="110" rx="28" fill="${safeColor}" />
+        <text x="175" y="182" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="64" font-weight="900" fill="#FFFFFF" text-anchor="middle">${initial}</text>
+      `;
+    }
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+      <defs>
+        <radialGradient id="glow" cx="0.5" cy="0.3" r="0.8">
+          <stop offset="0%" stop-color="${safeColor}" stop-opacity="0.3" />
+          <stop offset="100%" stop-color="#0A0C10" stop-opacity="1" />
+        </radialGradient>
+        <linearGradient id="cardGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#191E28" />
+          <stop offset="100%" stop-color="#0D1117" />
+        </linearGradient>
+      </defs>
+      <rect width="1200" height="630" fill="#0A0C10" />
+      <rect width="1200" height="630" fill="url(#glow)" />
+      
+      <!-- Outer Card Frame -->
+      <rect x="60" y="50" width="1080" height="530" rx="32" fill="url(#cardGrad)" stroke="${safeColor}" stroke-width="2" stroke-opacity="0.5" />
+      
+      <!-- Logo or Initial Avatar Badge -->
+      ${logoMarkup}
+      
+      <!-- Verified Badge -->
+      <rect x="256" y="146" width="220" height="42" rx="21" fill="#10B981" fill-opacity="0.15" stroke="#10B981" stroke-width="1.5" />
+      <text x="366" y="173" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" fill="#10B981" text-anchor="middle">✓ VERIFIED AGENT STORE</text>
+      
+      <!-- Storefront Name -->
+      <text x="120" y="285" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="54" font-weight="800" fill="#FFFFFF">${safeName}</text>
+      
+      <!-- Tagline -->
+      <text x="120" y="340" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="500" fill="#94A3B8">${safeTagline}</text>
+      
+      <!-- Network Pills -->
+      <g transform="translate(120, 390)">
+        <!-- MTN -->
+        <rect x="0" y="0" width="150" height="54" rx="14" fill="#EAB308" />
+        <text x="75" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#0F172A" text-anchor="middle">MTN</text>
+        
+        <!-- Telecel -->
+        <rect x="175" y="0" width="175" height="54" rx="14" fill="#DC2626" />
+        <text x="262" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF" text-anchor="middle">TELECEL</text>
+        
+        <!-- AirtelTigo -->
+        <rect x="375" y="0" width="150" height="54" rx="14" fill="#2563EB" />
+        <text x="450" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF" text-anchor="middle">AT</text>
+      </g>
+      
+      <!-- Footer Divider & Text -->
+      <line x1="120" y1="485" x2="1080" y2="485" stroke="#334155" stroke-width="1" />
+      <text x="120" y="530" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="600" fill="#64748B">Instant Activation · Safe Mobile Money Checkout · Non-Expiry Bundles</text>
+      <text x="1080" y="530" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="700" fill="#94A3B8" text-anchor="end">apisolutions.store</text>
+    </svg>`;
+  }
+
+  // 9b. PUBLIC STOREFRONT SOCIAL IMAGE / LOGO (/stores/public/:slug/og-image and /stores/public/:slug/logo)
+  app.get<{ Params: { slug: string }; Querystrings: { type?: string } }>(
+    '/stores/public/:slug/og-image',
+    async (req, reply) => {
+      const { slug } = req.params;
+      const cleanSlug = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+      const storeRes = await db.query(
+        `SELECT id, store_name as "storeName", slug, tagline, description,
+                logo_url as "logoUrl", banner_url as "bannerUrl",
+                primary_color as "primaryColor", accent_color as "accentColor"
+         FROM stores
+         WHERE (LOWER(slug) = $1 OR slug = $1) AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
+        [cleanSlug],
+      );
+
+      const store = storeRes.rows[0];
+      const storeName = store?.storeName || 'Mobile Data Store';
+      const primaryColor = store?.primaryColor || '#0066FF';
+      const tagline = store?.tagline || store?.description || 'Fast, reliable and instant mobile data activation across MTN, Telecel, and AT';
+      const logoUrl = store?.logoUrl || null;
+
+      const svg = generateStorefrontSocialBanner(storeName, primaryColor, tagline, logoUrl);
+
+      return reply
+        .header('Content-Type', 'image/svg+xml; charset=utf-8')
+        .header('Cache-Control', 'public, max-age=86400, s-maxage=86400')
+        .send(svg);
+    },
+  );
+
+  app.get<{ Params: { slug: string } }>(
+    '/stores/public/:slug/logo',
+    async (req, reply) => {
+      const { slug } = req.params;
+      const cleanSlug = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+      const storeRes = await db.query(
+        `SELECT id, store_name as "storeName", slug, logo_url as "logoUrl", primary_color as "primaryColor"
+         FROM stores
+         WHERE (LOWER(slug) = $1 OR slug = $1) AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
+        [cleanSlug],
+      );
+
+      const store = storeRes.rows[0];
+      const logoUrl = store?.logoUrl;
+
+      if (logoUrl && typeof logoUrl === 'string' && logoUrl.trim()) {
+        const trimmed = logoUrl.trim();
+        // Check for Data URI
+        const match = trimmed.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+        if (match) {
+          const mimeType = match[1];
+          const base64Data = match[2];
+          const buffer = Buffer.from(base64Data, 'base64');
+          return reply
+            .header('Content-Type', mimeType)
+            .header('Cache-Control', 'public, max-age=86400, s-maxage=86400')
+            .send(buffer);
+        }
+        // If HTTP/HTTPS URL, redirect directly
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          return reply.status(302).redirect(trimmed);
+        }
+      }
+
+      // If no custom logo, return dynamic vector initial badge
+      const storeName = store?.storeName || 'Mobile Data Store';
+      const initial = escapeXml((storeName || 'D').trim().charAt(0).toUpperCase() || 'D');
+      const brandColor = store?.primaryColor || '#0066FF';
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+        <rect width="120" height="120" rx="30" fill="${brandColor}"/>
+        <text x="60" y="78" font-size="60" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="900" fill="#FFFFFF" text-anchor="middle">${initial}</text>
+      </svg>`;
+
+      return reply
+        .header('Content-Type', 'image/svg+xml; charset=utf-8')
+        .header('Cache-Control', 'public, max-age=86400, s-maxage=86400')
+        .send(svg);
+    },
+  );
+
+  // 9c. PUBLIC STOREFRONT METADATA FOR PRERENDERERS (/stores/public/:slug/meta)
+  app.get<{ Params: { slug: string } }>(
+    '/stores/public/:slug/meta',
+    async (req, reply) => {
+      const { slug } = req.params;
+      const cleanSlug = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+      const storeRes = await db.query(
+        `SELECT id, store_name as "storeName", slug, tagline, description,
+                logo_url as "logoUrl", banner_url as "bannerUrl",
+                primary_color as "primaryColor", accent_color as "accentColor",
+                contact_phone as "contactPhone", contact_email as "contactEmail"
+         FROM stores
+         WHERE (LOWER(slug) = $1 OR slug = $1) AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
+        [cleanSlug],
+      );
+
+      if (storeRes.rows.length === 0) {
+        throw new NotFoundError('Storefront not found');
+      }
+
+      const store = storeRes.rows[0];
+      const storeName = store.storeName;
+      const desc = store.tagline || store.description || `Buy fast, cheap & reliable mobile data bundles for MTN, Telecel, and AT Ghana from ${storeName}. Instant activation.`;
+      const storeUrl = `https://apisolutions.store/${store.slug}`;
+      const ogImageUrl = `https://apisolutions.store/api/og?slug=${store.slug}`;
+
+      return reply.send({
+        success: true,
+        data: {
+          title: `${storeName} · Buy Affordable Mobile Data`,
+          description: desc,
+          canonicalUrl: storeUrl,
+          openGraph: {
+            title: `${storeName} - Buy Affordable Data Bundles`,
+            description: desc,
+            url: storeUrl,
+            siteName: storeName,
+            type: 'website',
+            locale: 'en_GH',
+            image: ogImageUrl,
+            imageWidth: 1200,
+            imageHeight: 630,
+            imageAlt: `${storeName} Store Logo`,
+          },
+          twitter: {
+            card: 'summary_large_image',
+            title: `${storeName} - Buy Affordable Data Bundles`,
+            description: desc,
+            image: ogImageUrl,
+          },
+          store: {
+            name: storeName,
+            slug: store.slug,
+            primaryColor: store.primaryColor,
+            hasLogo: Boolean(store.logoUrl),
+          },
+        },
+      });
+    },
+  );
+
+  // 9d. PUBLIC STOREFRONT BENEFICIARY PRECHECK (/stores/public/:slug/precheck & /stores/public/beneficiaries/precheck)
+  const handleStoreBeneficiaryPrecheck = async (req: FastifyRequest<any>, reply: FastifyReply) => {
+    const body = (req.body || {}) as {
+      slug?: string;
+      phoneNumber?: string;
+      phoneNumbers?: string[];
+      network?: NetworkProvider | string;
+      record?: boolean;
+    };
+    const storeSlug = (((req.params as any)?.slug || body.slug || '') as string).trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const { phoneNumber, phoneNumbers, network = NetworkProvider.MTN, record = true } = body;
+
+    const phones = phoneNumbers && Array.isArray(phoneNumbers) && phoneNumbers.length > 0
+      ? phoneNumbers
+      : phoneNumber ? [phoneNumber] : [];
+
+    if (phones.length === 0) {
+      throw new BadRequestError('Recipient phone number is required');
+    }
+
+    // Resolve store owner
+    let storeAgentId: string | undefined;
+    if (storeSlug) {
+      const storeRes = await db.query(
+        `SELECT user_id as "userId", agent_id as "agentId" FROM stores WHERE (LOWER(slug) = $1 OR slug = $1) LIMIT 1`,
+        [storeSlug],
+      );
+      if (storeRes.rows.length > 0) {
+        storeAgentId = storeRes.rows[0].userId || storeRes.rows[0].agentId;
+      }
+    }
+
+    if (beneficiaryService) {
+      const result = await beneficiaryService.precheckPublicBeneficiaries({
+        network: (network || NetworkProvider.MTN) as NetworkProvider,
+        phoneNumbers: phones,
+        record: record !== false,
+        userId: storeAgentId,
+        storeSlug,
+        source: 'storefront',
+        detectedFrom: 'Storefront Precheck',
+      });
+
+      const firstResult = result.results[0];
+      return reply.send({
+        success: true,
+        data: {
+          network: result.network,
+          enforced: result.enforced,
+          recorded: result.recorded,
+          valid: firstResult?.valid,
+          known: firstResult?.known,
+          orderable: firstResult?.orderable,
+          status: firstResult?.status,
+          message: firstResult?.message,
+          accountName: firstResult?.accountName,
+          results: result.results,
+        },
+      });
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        network,
+        valid: true,
+        known: true,
+        orderable: true,
+        status: 'APPROVED',
+        message: 'Valid beneficiary',
+      },
+    });
+  };
+
+  app.post('/stores/public/:slug/precheck', handleStoreBeneficiaryPrecheck);
+  app.post('/stores/public/beneficiaries/precheck', handleStoreBeneficiaryPrecheck);
 
   // 10. PUBLIC STOREFRONT GUEST CHECKOUT (/stores/public/orders/checkout & /stores/public/:slug/checkout)
   const handlePublicCheckout = async (req: FastifyRequest<any>, reply: FastifyReply) => {
@@ -1131,6 +1540,58 @@ export async function storeRoutes(
       currency: 'GHS',
       snapshotTimestamp: new Date().toISOString(),
     };
+
+    // 2b. Gating & Precheck: Verify MTN numbers before initiating checkout
+    const isMtnOrder =
+      product.network === 'MTN' ||
+      product.network === NetworkProvider.MTN ||
+      cleanPhone.startsWith('024') ||
+      cleanPhone.startsWith('054') ||
+      cleanPhone.startsWith('055') ||
+      cleanPhone.startsWith('059') ||
+      cleanPhone.startsWith('025') ||
+      cleanPhone.startsWith('053');
+
+    if (isMtnOrder && beneficiaryService) {
+      try {
+        const precheckRes = await beneficiaryService.precheckPublicBeneficiaries({
+          network: NetworkProvider.MTN,
+          phoneNumbers: [cleanPhone],
+          record: true,
+          userId: store.userId,
+          storeSlug: store.slug,
+          source: 'storefront',
+          detectedFrom: 'Storefront Order',
+        });
+
+        const r = precheckRes.results[0];
+        const isEnforced = precheckRes.enforced !== false;
+        const isOrderable = r?.orderable !== undefined
+          ? r.orderable
+          : isEnforced
+          ? Boolean(r?.valid && r?.known)
+          : Boolean(r?.valid);
+
+        if (!isOrderable || r?.status === 'UNAPPROVED' || r?.status === 'REJECTED') {
+          return reply.status(422).send({
+            success: false,
+            code: 'BENEFICIARY_NOT_VALIDATED',
+            message: 'First-time MTN number not yet validated — recorded for MTN approval; precheck first.',
+            error: 'BENEFICIARY_NOT_VALIDATED',
+            data: {
+              phone: cleanPhone,
+              status: r?.status || 'UNAPPROVED',
+              recorded: true,
+              source: 'storefront',
+            },
+          });
+        }
+      } catch (err: any) {
+        if (err?.code === 'BENEFICIARY_NOT_VALIDATED') {
+          throw err;
+        }
+      }
+    }
 
     const client = await db.connect();
     try {
@@ -1325,6 +1786,27 @@ export async function storeRoutes(
       const row = payRes.rows[0];
 
       if (row.paymentStatus !== 'PAID') {
+        if (deps.paymentProvider) {
+          try {
+            const verifyRes = await deps.paymentProvider.verifyPayment(reference);
+            if (verifyRes.status !== 'SUCCESS') {
+              await client.query(
+                `UPDATE payments SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                [row.id],
+              );
+              await client.query(
+                `UPDATE orders SET payment_status = 'FAILED', order_status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                [row.orderId],
+              );
+              await client.query('COMMIT');
+              throw new BadRequestError(`Payment verification failed: Status is ${verifyRes.status}. Payment was not completed.`);
+            }
+          } catch (err: any) {
+            await client.query('ROLLBACK');
+            throw err;
+          }
+        }
+
         // Transition Payment to PAID
         await client.query(
           `UPDATE payments
@@ -1430,6 +1912,46 @@ export async function storeRoutes(
   app.post('/stores/public/orders/verify', handlePublicPaymentVerification);
   app.post('/stores/public/:slug/verify-payment', handlePublicPaymentVerification);
 
+  // 11b. PUBLIC STOREFRONT CANCEL CHECKOUT (/stores/public/orders/cancel & /stores/public/orders/:id/cancel)
+  const handlePublicOrderCancel = async (req: FastifyRequest<any>, reply: FastifyReply) => {
+    const { orderId, reference } = (req.body || {}) as { orderId?: string; reference?: string };
+    const paramId = (req.params as any)?.id;
+    const target = paramId || orderId || reference;
+
+    if (!target) {
+      throw new BadRequestError('Order ID or reference is required for cancellation');
+    }
+
+    const res = await db.query(
+      `UPDATE orders
+       SET payment_status = 'CANCELLED',
+           order_status = 'CANCELLED',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE (public_id = $1 OR id::text = $1 OR idempotency_key = $1)
+         AND payment_status = 'PENDING'
+       RETURNING id, public_id as "publicId"`,
+      [target],
+    );
+
+    if (res.rows.length > 0) {
+      const oid = res.rows[0].id;
+      await db.query(
+        `UPDATE payments SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1 AND status = 'PENDING'`,
+        [oid],
+      ).catch(() => {});
+      await db.query(
+        `INSERT INTO order_events (order_id, event_type, correlation_id, actor_type, source, new_state)
+         VALUES ($1, 'ORDER_CANCELLED', $2, 'CUSTOMER', 'STOREFRONT', $3)`,
+        [oid, req.id, JSON.stringify({ reason: 'CUSTOMER_CLOSED_PAYMENT_MODAL' })],
+      ).catch(() => {});
+    }
+
+    return reply.send({ success: true, message: 'Checkout intent cancelled successfully' });
+  };
+
+  app.post('/stores/public/orders/cancel', { preHandler: [maintenanceHook] }, handlePublicOrderCancel);
+  app.post('/stores/public/orders/:id/cancel', { preHandler: [maintenanceHook] }, handlePublicOrderCancel);
+
   // 10. GET STORE CUSTOMERS (/stores/my-store/customers)
   app.get<{ Querystring: { search?: string; page?: string; limit?: string } }>(
     '/stores/my-store/customers',
@@ -1456,17 +1978,17 @@ export async function storeRoutes(
         let countQuery = `
           SELECT COUNT(DISTINCT recipient_phone) as total
           FROM orders
-          WHERE store_id = $1
+          WHERE store_id = $1 AND payment_status = 'PAID'
         `;
         let dataQuery = `
           SELECT 
             recipient_phone as "phone",
-            COUNT(*) as "totalOrders",
+            COUNT(CASE WHEN payment_status = 'PAID' THEN 1 END) as "totalOrders",
             COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as "totalSpentPesewas",
             MAX(created_at) as "lastPurchase",
             MIN(created_at) as "firstPurchase"
           FROM orders
-          WHERE store_id = $1
+          WHERE store_id = $1 AND payment_status = 'PAID'
         `;
         const params: any[] = [store.id];
 
@@ -1557,13 +2079,17 @@ export async function storeRoutes(
         }
 
         const period = req.query.period || '30d';
-        let dateFilter = '';
+        let dateFilter = `AND created_at >= CURRENT_DATE - INTERVAL '29 days'`;
+        let trendDaysInterval = `'29 days'`;
         if (period === '7d') {
-          dateFilter = `AND created_at >= NOW() - INTERVAL '7 days'`;
-        } else if (period === '30d') {
-          dateFilter = `AND created_at >= NOW() - INTERVAL '30 days'`;
+          dateFilter = `AND created_at >= CURRENT_DATE - INTERVAL '6 days'`;
+          trendDaysInterval = `'6 days'`;
+        } else if (period === 'all') {
+          dateFilter = ``;
+          trendDaysInterval = `'89 days'`;
         } else if (period === 'month') {
           dateFilter = `AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())`;
+          trendDaysInterval = `'29 days'`;
         }
 
         const aggregateQuery = `
@@ -1577,22 +2103,29 @@ export async function storeRoutes(
 
         const networkQuery = `
           SELECT
-            network,
+            COALESCE(network, 'OTHER') as "network",
             COUNT(*) as "orderCount",
             COALESCE(SUM(amount_pesewas), 0) as "revenuePesewas"
           FROM orders
           WHERE store_id = $1 AND payment_status = 'PAID' AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED', 'REFUNDED') ${dateFilter}
           GROUP BY network
+          ORDER BY "revenuePesewas" DESC
         `;
 
         const trendQuery = `
           SELECT
-            DATE(created_at) as "date",
-            COALESCE(SUM(amount_pesewas), 0) as "revenuePesewas"
-          FROM orders
-          WHERE store_id = $1 AND payment_status = 'PAID' AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED', 'REFUNDED') AND created_at >= NOW() - INTERVAL '7 days'
-          GROUP BY DATE(created_at)
-          ORDER BY DATE(created_at) ASC
+            TO_CHAR(d.day, 'YYYY-MM-DD') as "date",
+            COALESCE(SUM(o.amount_pesewas), 0) as "revenuePesewas",
+            COUNT(o.id) as "orderCount"
+          FROM (
+            SELECT generate_series(CURRENT_DATE - INTERVAL ${trendDaysInterval}, CURRENT_DATE, '1 day'::interval)::date as day
+          ) d
+          LEFT JOIN orders o ON DATE(o.created_at) = d.day
+            AND o.store_id = $1
+            AND o.payment_status = 'PAID'
+            AND COALESCE(o.refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')
+          GROUP BY d.day
+          ORDER BY d.day ASC
         `;
 
         const [aggRes, netRes, trendRes] = await Promise.all([
@@ -1632,9 +2165,10 @@ export async function storeRoutes(
         const revenueTrend = (trendRes.rows || []).map((r: any) => {
           const revPesewas = parseInt(r.revenuePesewas, 10) || 0;
           return {
-            date: typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0],
+            date: r.date,
             revenuePesewas: revPesewas,
             revenueGhs: Number((revPesewas / 100).toFixed(2)),
+            orderCount: parseInt(r.orderCount, 10) || 0,
           };
         });
 
@@ -1709,33 +2243,50 @@ export async function storeRoutes(
       `;
 
       const ledgerQuery = `
-        SELECT
-          id, entry_type as "entryType", amount_pesewas as "amountPesewas",
-          reference_type as "referenceType", reference_id as "referenceId",
-          description, created_at as "createdAt"
-        FROM financial_ledger
-        WHERE account_type = 'AGENT_WALLET' AND account_id IN (
-          SELECT agent_id FROM stores WHERE user_id = $1 OR id = $2
-        )
-        ORDER BY created_at DESC
-        LIMIT $3 OFFSET $4
+        SELECT * FROM (
+          SELECT
+            o.id::text as "id",
+            'CREDIT' as "entryType",
+            o.amount_pesewas as "amountPesewas",
+            'STORE_SALE' as "referenceType",
+            COALESCE(o.public_id, o.id::text) as "referenceId",
+            CONCAT(COALESCE(o.network, 'Data'), ' (', o.recipient_phone, ')') as "description",
+            o.created_at as "createdAt"
+          FROM orders o
+          WHERE o.store_id = $1 AND o.payment_status = 'PAID'
+
+          UNION ALL
+
+          SELECT
+            p.id::text as "id",
+            'DEBIT' as "entryType",
+            p.amount_pesewas as "amountPesewas",
+            'PAYOUT' as "referenceType",
+            COALESCE(p.reference, p.id::text) as "referenceId",
+            CONCAT('Payout to ', p.destination_account, ' (', p.destination_provider, ')') as "description",
+            p.created_at as "createdAt"
+          FROM store_payouts p
+          WHERE p.store_id = $1 OR p.agent_id = (SELECT agent_id FROM stores WHERE id = $1 LIMIT 1)
+        ) combined
+        ORDER BY "createdAt" DESC
+        LIMIT $2 OFFSET $3
       `;
 
       const [aggRes, ledgerRes] = await Promise.all([
         db.query(financeAggQuery, [store.id]),
-        db.query(ledgerQuery, [req.user!.sub, store.id, limit, offset]),
+        db.query(ledgerQuery, [store.id, limit, offset]),
       ]);
 
-      const agg = aggRes.rows[0];
+      const agg = aggRes.rows[0] || {};
       const grossSalesPesewas = parseInt(agg.grossSalesPesewas || '0', 10);
       const costPesewas = parseInt(agg.costPesewas || '0', 10);
       const profitPesewas = parseInt(agg.profitPesewas || (grossSalesPesewas - costPesewas).toString(), 10);
       const totalFulfilledOrders = parseInt(agg.totalFulfilledOrders || '0', 10);
 
-      const recentTransactions = ledgerRes.rows.map((r: any) => ({
+      const recentTransactions = (ledgerRes.rows || []).map((r: any) => ({
         id: r.id,
         entryType: r.entryType,
-        amountPesewas: parseInt(r.amountPesewas, 10),
+        amountPesewas: parseInt(r.amountPesewas, 10) || 0,
         referenceType: r.referenceType,
         referenceId: r.referenceId,
         description: r.description,
