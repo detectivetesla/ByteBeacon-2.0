@@ -17,12 +17,25 @@ vi.mock('../api/stores.api.js', () => ({
     publicCheckout: vi.fn(),
     verifyPublicPayment: vi.fn(),
     getStore: vi.fn(),
+    precheckStoreBeneficiary: vi.fn().mockResolvedValue({
+      enforced: false,
+      results: [{ phone: '0244123456', valid: true, known: true, orderable: true, status: 'APPROVED' }],
+    }),
   },
   STOREFRONT_CONFIG: {
     PUBLIC_STOREFRONT_BASE_URL: 'https://apisolutions.store/store',
     getStoreUrl: (slug: string) => `https://apisolutions.store/store/${slug}`,
     getRelativeStorePath: (slug: string) => `/store/${slug}`,
     getWhatsAppUrl: (phone: string, _storeName?: string) => `https://wa.me/233${phone}`,
+  },
+}));
+
+vi.mock('../api/beneficiary.api.js', () => ({
+  beneficiaryApi: {
+    precheckPublic: vi.fn().mockResolvedValue({
+      enforced: false,
+      results: [{ phone: '0244123456', valid: true, known: true, orderable: true, status: 'APPROVED' }],
+    }),
   },
 }));
 
@@ -282,6 +295,9 @@ describe('Public Customer Storefront Integration Tests', () => {
     // Enter phone number
     const phoneInput = screen.getByPlaceholderText('0244123456');
     fireEvent.change(phoneInput, { target: { value: '0244123456' } });
+
+    // Wait for MTN precheck to approve
+    expect(await screen.findByText(/MTN Verified & Whitelisted/i)).toBeInTheDocument();
 
     // Submit Paystack payment
     const payBtn = screen.getByRole('button', { name: /Pay GH₵ 48.00 via Paystack/i });
