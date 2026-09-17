@@ -164,27 +164,40 @@ export interface StoreCustomerRecordDto {
 
 export interface StoreCustomersResponseDto {
   customers: StoreCustomerRecordDto[];
+  items?: StoreCustomerRecordDto[];
   pagination: {
     page: number;
     limit: number;
     total: number;
+    totalItems?: number;
     totalPages: number;
   };
 }
 
 export interface StoreAnalyticsDto {
   monthlyRevenueGhs: number;
+  monthlyRevenuePesewas?: number;
   completedOrders: number;
   totalOrders: number;
   successRate: number;
   averageOrderValueGhs: number;
+  averageOrderValuePesewas?: number;
   networkBreakdown: Array<{
     network: string;
     revenueGhs: number;
+    revenuePesewas?: number;
     orderCount: number;
     percentage: number;
   }>;
+  networks?: Array<{
+    network: string;
+    revenueGhs?: number;
+    revenuePesewas?: number;
+    orderCount: number;
+    percentage?: number;
+  }>;
   revenueTrend: Array<{ date: string; revenueGhs: number }>;
+  dailyTrend?: Array<{ date: string; revenueGhs?: number; revenuePesewas?: number }>;
 }
 
 export interface StoreFinanceLedgerEntryDto {

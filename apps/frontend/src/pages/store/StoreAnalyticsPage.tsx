@@ -46,8 +46,33 @@ export const StoreAnalyticsPage: React.FC = () => {
       setLoading(true);
       setError(null);
       const res = await storesApi.getStoreAnalytics({ period: '30d' });
-      if (res && res.monthlyRevenueGhs !== undefined) {
-        setData(res);
+      if (res) {
+        const monthlyRevenueGhs = res.monthlyRevenueGhs !== undefined
+          ? res.monthlyRevenueGhs
+          : Number(((res as any).monthlyRevenuePesewas || 0) / 100);
+        const averageOrderValueGhs = res.averageOrderValueGhs !== undefined
+          ? res.averageOrderValueGhs
+          : Number(((res as any).averageOrderValuePesewas || 0) / 100);
+        const networkBreakdown = (res.networkBreakdown || (res as any).networks || []).map((nb: any) => ({
+          network: nb.network,
+          revenueGhs: nb.revenueGhs !== undefined ? nb.revenueGhs : Number((nb.revenuePesewas || 0) / 100),
+          orderCount: nb.orderCount || 0,
+          percentage: nb.percentage || 0,
+        }));
+        const revenueTrend = (res.revenueTrend || (res as any).dailyTrend || []).map((rt: any) => ({
+          date: rt.date,
+          revenueGhs: rt.revenueGhs !== undefined ? rt.revenueGhs : Number((rt.revenuePesewas || 0) / 100),
+        }));
+
+        setData({
+          monthlyRevenueGhs,
+          completedOrders: res.completedOrders || 0,
+          totalOrders: res.totalOrders || 0,
+          successRate: res.successRate || 0,
+          averageOrderValueGhs,
+          networkBreakdown,
+          revenueTrend,
+        });
       } else {
         setError('Failed to load analytics.');
       }

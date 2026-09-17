@@ -33,10 +33,14 @@ export const StoreCustomersPage: React.FC = () => {
       setLoading(true);
       setError(null);
       const res = await storesApi.getStoreCustomers({ search: debouncedSearch.trim() || undefined, page, limit: 10 });
-      if (res && res.customers) {
-        setCustomers(res.customers as any);
-        setTotalPages(res.pagination?.totalPages || 1);
-        setTotal(res.pagination?.total || 0);
+      if (res) {
+        const customerList = res.customers || (res as any).items || [];
+        const totalPages = res.pagination?.totalPages || 1;
+        const totalCount = res.pagination?.total ?? (res.pagination as any)?.totalItems ?? customerList.length;
+
+        setCustomers(customerList as any);
+        setTotalPages(totalPages);
+        setTotal(totalCount);
       } else {
         setError('Failed to load customers.');
       }
@@ -120,7 +124,7 @@ export const StoreCustomersPage: React.FC = () => {
           </div>
         ) : customers.length === 0 ? (
           <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-            <p>No customers found matching your search.</p>
+            <p>{search ? 'No customers found matching your search.' : 'No storefront customers recorded yet. Customers who place orders through your storefront will appear here automatically.'}</p>
           </div>
         ) : (
           <>

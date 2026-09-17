@@ -66,7 +66,9 @@ export async function storeRoutes(
               activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
               admin_notes as "adminNotes", created_at as "createdAt", updated_at as "updatedAt"
        FROM stores
-       WHERE user_id = $1`,
+       WHERE user_id = $1 OR agent_id = $1 OR agent_id = (SELECT id FROM agents WHERE user_id = $1 LIMIT 1)
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [userId],
     );
     return res.rows[0] as StoreDto | undefined;
@@ -1228,7 +1230,16 @@ export async function storeRoutes(
     { preHandler: [authHooks.authenticateCustomer] },
     async (req, reply) => {
       const store = await getAgentStore(req.user!.sub);
-      if (!store) throw new ForbiddenError('Store authorization required');
+      if (!store) {
+        return reply.send({
+          success: true,
+          data: {
+            items: [],
+            customers: [],
+            pagination: { page: 1, limit: 10, total: 0, totalItems: 0, totalPages: 1 },
+          },
+        });
+      }
 
       const search = req.query.search?.trim();
       const page = Math.max(1, parseInt(req.query.page || '1', 10));
@@ -1244,7 +1255,7 @@ export async function storeRoutes(
         SELECT 
           recipient_phone as "phone",
           COUNT(*) as "totalOrders",
-          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') THEN amount_pesewas ELSE 0 END), 0) as "totalSpentPesewas",
+          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as "totalSpentPesewas",
           MAX(created_at) as "lastPurchase",
           MIN(created_at) as "firstPurchase"
         FROM orders
@@ -1261,7 +1272,7 @@ export async function storeRoutes(
       dataQuery += `
         GROUP BY recipient_phone
         ORDER BY MAX(created_at) DESC
-        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        LIMIT ${params.length + 1} OFFSET ${params.length + 2}
       `;
 
       const [countRes, dataRes] = await Promise.all([
@@ -1269,13 +1280,13 @@ export async function storeRoutes(
         db.query(dataQuery, [...params, limit, offset]),
       ]);
 
-      const totalItems = parseInt(countRes.rows[0].total, 10);
-      const totalPages = Math.ceil(totalItems / limit);
+      const totalItems = parseInt(countRes.rows[0]?.total || '0', 10);
+      const totalPages = Math.ceil(totalItems / limit) || 1;
 
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const customers = dataRes.rows.map((row: any) => ({
+      const customers = (dataRes.rows || []).map((row: any) => ({
         phone: row.phone,
         totalOrders: parseInt(row.totalOrders, 10),
         totalSpentGhs: Number((parseInt(row.totalSpentPesewas, 10) / 100).toFixed(2)),
@@ -1288,7 +1299,14 @@ export async function storeRoutes(
         success: true,
         data: {
           items: customers,
-          pagination: { page, limit, totalItems, totalPages },
+          customers,
+          pagination: { 
+            page, 
+            limit, 
+            total: totalItems, 
+            totalItems, 
+            totalPages 
+          },
         },
       });
     }
@@ -1300,7 +1318,24 @@ export async function storeRoutes(
     { preHandler: [authHooks.authenticateCustomer] },
     async (req, reply) => {
       const store = await getAgentStore(req.user!.sub);
-      if (!store) throw new ForbiddenError('Store authorization required');
+      if (!store) {
+        return reply.send({
+          success: true,
+          data: {
+            monthlyRevenueGhs: 0,
+            monthlyRevenuePesewas: 0,
+            completedOrders: 0,
+            totalOrders: 0,
+            successRate: 0,
+            averageOrderValueGhs: 0,
+            averageOrderValuePesewas: 0,
+            networkBreakdown: [],
+            networks: [],
+            revenueTrend: [],
+            dailyTrend: [],
+          },
+        });
+      }
 
       const period = req.query.period || '30d';
       let dateFilter = '';
@@ -1315,8 +1350,8 @@ export async function storeRoutes(
       const aggregateQuery = `
         SELECT
           COUNT(*) as "totalOrders",
-          COUNT(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED') THEN 1 END) as "completedOrders",
-          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED') THEN amount_pesewas ELSE 0 END), 0) as "monthlyRevenuePesewas"
+          COUNT(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN 1 END) as "completedOrders",
+          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as "monthlyRevenuePesewas"
         FROM orders
         WHERE store_id = $1 ${dateFilter}
       `;
@@ -1327,7 +1362,7 @@ export async function storeRoutes(
           COUNT(*) as "orderCount",
           COALESCE(SUM(amount_pesewas), 0) as "revenuePesewas"
         FROM orders
-        WHERE store_id = $1 AND payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED') ${dateFilter}
+        WHERE store_id = $1 AND payment_status = 'PAID' AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED', 'REFUNDED') ${dateFilter}
         GROUP BY network
       `;
 
@@ -1336,7 +1371,7 @@ export async function storeRoutes(
           DATE(created_at) as "date",
           COALESCE(SUM(amount_pesewas), 0) as "revenuePesewas"
         FROM orders
-        WHERE store_id = $1 AND payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED') AND created_at >= NOW() - INTERVAL '7 days'
+        WHERE store_id = $1 AND payment_status = 'PAID' AND COALESCE(refund_status,'NONE') NOT IN ('COMPLETED', 'REFUNDED') AND created_at >= NOW() - INTERVAL '7 days'
         GROUP BY DATE(created_at)
         ORDER BY DATE(created_at) ASC
       `;
@@ -1347,35 +1382,57 @@ export async function storeRoutes(
         db.query(trendQuery, [store.id]),
       ]);
 
-      const agg = aggRes.rows[0];
+      const agg = aggRes.rows[0] || {};
       const completedOrders = parseInt(agg.completedOrders, 10) || 0;
       const totalOrders = parseInt(agg.totalOrders, 10) || 0;
       const monthlyRevenuePesewas = parseInt(agg.monthlyRevenuePesewas, 10) || 0;
+      const monthlyRevenueGhs = Number((monthlyRevenuePesewas / 100).toFixed(2));
 
-      const successRate = totalOrders > 0 ? (completedOrders / totalOrders) * 100 : 0;
+      const successRate = totalOrders > 0 ? Number(((completedOrders / totalOrders) * 100).toFixed(1)) : 0;
       const averageOrderValuePesewas = completedOrders > 0 ? Math.floor(monthlyRevenuePesewas / completedOrders) : 0;
+      const averageOrderValueGhs = Number((averageOrderValuePesewas / 100).toFixed(2));
 
-      const networks = netRes.rows.map((r: any) => ({
-        network: r.network,
-        orderCount: parseInt(r.orderCount, 10),
-        revenuePesewas: parseInt(r.revenuePesewas, 10),
-      }));
+      const totalCarrierRevenuePesewas = netRes.rows.reduce(
+        (sum: number, r: any) => sum + (parseInt(r.revenuePesewas, 10) || 0),
+        0,
+      );
 
-      const dailyTrend = trendRes.rows.map((r: any) => ({
-        date: r.date,
-        revenuePesewas: parseInt(r.revenuePesewas, 10),
-      }));
+      const networkBreakdown = (netRes.rows || []).map((r: any) => {
+        const revPesewas = parseInt(r.revenuePesewas, 10) || 0;
+        const count = parseInt(r.orderCount, 10) || 0;
+        const percentage = totalCarrierRevenuePesewas > 0 ? Number(((revPesewas / totalCarrierRevenuePesewas) * 100).toFixed(1)) : 0;
+        return {
+          network: r.network,
+          orderCount: count,
+          revenuePesewas: revPesewas,
+          revenueGhs: Number((revPesewas / 100).toFixed(2)),
+          percentage,
+        };
+      });
+
+      const revenueTrend = (trendRes.rows || []).map((r: any) => {
+        const revPesewas = parseInt(r.revenuePesewas, 10) || 0;
+        return {
+          date: typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0],
+          revenuePesewas: revPesewas,
+          revenueGhs: Number((revPesewas / 100).toFixed(2)),
+        };
+      });
 
       return reply.send({
         success: true,
         data: {
+          monthlyRevenueGhs,
           monthlyRevenuePesewas,
           completedOrders,
           totalOrders,
           successRate,
+          averageOrderValueGhs,
           averageOrderValuePesewas,
-          networks,
-          dailyTrend,
+          networkBreakdown,
+          networks: networkBreakdown,
+          revenueTrend,
+          dailyTrend: revenueTrend,
         },
       });
     }
