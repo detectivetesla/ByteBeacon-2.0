@@ -9,6 +9,7 @@ import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { walletApi } from '../../api/wallet.api.js';
 import {
+  Calendar,
   ArrowDownToLine,
   Wallet,
   DollarSign,
@@ -46,7 +47,7 @@ export const GHANA_BANKS = [
   'Bank of Africa Ghana',
 ];
 
-export type PayoutStatus = 'COMPLETED' | 'PROCESSING' | 'PENDING' | 'FAILED' | 'REVERSED';
+export type PayoutStatus = 'COMPLETED' | 'PROCESSING' | 'PENDING' | 'FAILED' | 'REVERSED' | 'PAID' | 'REJECTED';
 export type LedgerEntryType = 'Profit Earned' | 'Profit Adjustment' | 'Withdrawal' | 'Refund Adjustment' | 'Reversal';
 
 export interface PayoutRecord {
@@ -74,16 +75,18 @@ export interface ProfitLedgerRecord {
   isCredit: boolean;
 }
 
-export const PayoutStatusBadge: React.FC<{ status: PayoutStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
+export const PayoutStatusBadge: React.FC<{ status: PayoutStatus | string; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
     case 'COMPLETED':
-      return <Badge variant="success" size={size} dot>Completed</Badge>;
+    case 'PAID':
+      return <Badge variant="success" size={size} dot>Paid / Settled</Badge>;
     case 'PROCESSING':
-      return <Badge variant="info" size={size} dot>Processing</Badge>;
+      return <Badge variant="info" size={size} dot>Processing Disbursement</Badge>;
     case 'PENDING':
-      return <Badge variant="warning" size={size} dot>Pending</Badge>;
+      return <Badge variant="warning" size={size} dot>Pending Admin Review</Badge>;
     case 'FAILED':
-      return <Badge variant="danger" size={size} dot>Failed</Badge>;
+    case 'REJECTED':
+      return <Badge variant="danger" size={size} dot>Rejected (Refunded)</Badge>;
     case 'REVERSED':
       return <Badge variant="neutral" size={size}>Reversed</Badge>;
     default:
@@ -387,6 +390,42 @@ export const AgentWithdrawalsPage: React.FC = () => {
         </div>
       </div>
 
+            {/* Weekly Settlement Notification Banner */}
+      <div
+        style={{
+          padding: 'var(--space-4) var(--space-5)',
+          borderRadius: 'var(--radius-xl)',
+          backgroundColor: 'rgba(16, 185, 129, 0.08)',
+          border: '1px solid rgba(16, 185, 129, 0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.85rem',
+        }}
+      >
+        <div
+          style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            backgroundColor: 'rgba(16, 185, 129, 0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <Calendar size={18} color="var(--color-primary)" />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <strong style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+            Weekly Saturday Settlement Cycle
+          </strong>
+          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)' }}>
+            All customer storefront sales funds flow directly to ByteBeacon. Your earned profit accumulates in real-time above. You can request withdrawals anytime—payouts are reviewed and settled every Saturday by ByteBeacon admin via MoMo or Bank.
+          </span>
+        </div>
+      </div>
+
       {/* 2. Top Summary Cards (Authoritative Reseller Financial Split) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-5)' }}>
         {/* Card 1: Available Profit (Green Tactile Financial Surface) */}
@@ -581,6 +620,26 @@ export const AgentWithdrawalsPage: React.FC = () => {
           ) : (
             /* Active Withdrawal Form */
             <form onSubmit={handleConfirmWithdrawal} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                            {/* Saturday Settlement Cycle Callout */}
+              <div
+                style={{
+                  padding: '0.6rem 0.85rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                  border: '1px solid rgba(59, 130, 246, 0.2)',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                <Calendar size={15} color="#3B82F6" style={{ marginTop: '2px', flexShrink: 0 }} />
+                <span>
+                  Withdrawal requests enter the <strong>Pending Admin Review</strong> queue. Admin reviews and disburses funds to your provided destination on the weekly Saturday settlement run (or prior).
+                </span>
+              </div>
+
               {/* Available Profit Status Callout */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: 'var(--font-size-xs)' }}>
                 <span style={{ color: 'var(--color-text-primary)', fontWeight: 700 }}>Available Profit:</span>

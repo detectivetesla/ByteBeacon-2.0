@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2, ArrowDownToLine, Calendar, DollarSign } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
 
 export const StoreFinancePage: React.FC = () => {
+  const navigate = useNavigate();
   const { toastSuccess, toastError } = useToast();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -41,14 +43,25 @@ export const StoreFinancePage: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => toastSuccess('Exported', 'Finance statement exported.')}
-          leftIcon={<Download size={13} />}
-        >
-          Export Statement
-        </Button>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => navigate('/agent/withdrawals')}
+            leftIcon={<ArrowDownToLine size={13} />}
+            style={{ backgroundColor: '#10B981', color: '#000000', fontWeight: 800 }}
+          >
+            Withdraw Profit
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => toastSuccess('Exported', 'Finance statement exported.')}
+            leftIcon={<Download size={13} />}
+          >
+            Export Statement
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -57,6 +70,38 @@ export const StoreFinancePage: React.FC = () => {
         </div>
       ) : (
         <>
+          {/* Saturday Payout Schedule Notice */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '0.85rem 1.25rem',
+              borderRadius: 'var(--radius-xl)',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981', flexShrink: 0 }}>
+              <Calendar size={16} />
+            </div>
+            <div style={{ flex: 1, minWidth: '240px' }}>
+              <strong style={{ color: '#10B981' }}>Weekly Settlement Cycle (Every Saturday):</strong>{' '}
+              <span>Customer storefront payments settle into ByteBeacon Paystack. Your markup profit accumulates here in real-time. You can opt to request a payout anytime, reviewed and disbursed every Saturday.</span>
+            </div>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => navigate('/agent/withdrawals')}
+              style={{ borderColor: 'rgba(16, 185, 129, 0.4)', color: '#10B981', fontWeight: 800 }}
+            >
+              Request Payout
+            </Button>
+          </div>
+
           {/* 3 Summary Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
             <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
@@ -64,19 +109,22 @@ export const StoreFinancePage: React.FC = () => {
                 Gross Store Sales
               </span>
               <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
-                GH₵ {(data?.grossSalesGhs || 0).toFixed(2)}
+                GH₵ {((data?.grossSalesGhs !== undefined ? data.grossSalesGhs : (data?.grossSalesPesewas || 0) / 100)).toFixed(2)}
               </div>
               <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Customer payments processed</span>
             </Card>
 
             <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
-              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-                Reseller Profit Markup
-              </span>
-              <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
-                GH₵ {(data?.profitGhs || 0).toFixed(2)}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  Reseller Profit Markup
+                </span>
+                <Badge variant="success" size="xs">Withdrawable</Badge>
               </div>
-              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700 }}>Settled automatically into wallet</span>
+              <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+                GH₵ {((data?.profitGhs !== undefined ? data.profitGhs : (data?.profitPesewas || 0) / 100)).toFixed(2)}
+              </div>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700 }}>Eligible for Saturday payout</span>
             </Card>
 
             <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>

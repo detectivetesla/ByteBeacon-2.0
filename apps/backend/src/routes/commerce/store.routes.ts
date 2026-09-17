@@ -551,10 +551,28 @@ export async function storeRoutes(
       // Calculate scoped store metrics
       const ordersRes = await db.query(
         `SELECT COUNT(*) as total_orders,
-                COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as total_sales_pesewas,
-                COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as today_sales_pesewas,
+                COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as total_sales_pesewas,
+                COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as today_sales_pesewas,
+                COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN
+                  CASE
+                    WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != ''
+                      THEN (pricing_snapshot->>'markupPesewas')::bigint
+                    WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL
+                      THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
+                    ELSE 0
+                  END
+                ELSE 0 END), 0) as total_profit_pesewas,
+                COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN
+                  CASE
+                    WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != ''
+                      THEN (pricing_snapshot->>'markupPesewas')::bigint
+                    WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL
+                      THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
+                    ELSE 0
+                  END
+                ELSE 0 END), 0) as today_profit_pesewas,
                 COUNT(DISTINCT recipient_phone) as customers_count,
-                COUNT(CASE WHEN order_status = 'COMPLETED' THEN 1 END) as completed_orders,
+                COUNT(CASE WHEN order_status = 'COMPLETED' OR order_status = 'DELIVERED' THEN 1 END) as completed_orders,
                 COUNT(CASE WHEN order_status = 'PROCESSING' THEN 1 END) as processing_orders,
                 COUNT(CASE WHEN order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT' THEN 1 END) as pending_orders,
                 COUNT(CASE WHEN order_status = 'FAILED' THEN 1 END) as failed_orders
@@ -578,6 +596,8 @@ export async function storeRoutes(
           kpis: {
             todaySalesGhs: Number(stats.today_sales_pesewas || 0) / 100,
             totalSalesGhs: Number(stats.total_sales_pesewas || 0) / 100,
+            todayProfitGhs: Number(stats.today_profit_pesewas || 0) / 100,
+            totalProfitGhs: Number(stats.total_profit_pesewas || 0) / 100,
             ordersCount: Number(stats.total_orders || 0),
             customersCount: Number(stats.customers_count || 0),
             storeVisits: Number(stats.customers_count || 0),
@@ -1375,9 +1395,20 @@ export async function storeRoutes(
 
       const financeAggQuery = `
         SELECT
-          COUNT(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') THEN 1 END) as "totalFulfilledOrders",
-          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') THEN amount_pesewas ELSE 0 END), 0) as "grossSalesPesewas",
-          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND order_status IN ('COMPLETED','DELIVERED') THEN (pricing_snapshot->>'basePricePesewas')::numeric ELSE 0 END), 0) as "costPesewas"
+          COUNT(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN 1 END) as "totalFulfilledOrders",
+          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as "grossSalesPesewas",
+          COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN (pricing_snapshot->>'basePricePesewas')::numeric ELSE 0 END), 0) as "costPesewas",
+          COALESCE(SUM(CASE 
+            WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN 
+              CASE
+                WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != '' 
+                  THEN (pricing_snapshot->>'markupPesewas')::bigint
+                WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL 
+                  THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
+                ELSE 0
+              END
+            ELSE 0
+          END), 0) as "profitPesewas"
         FROM orders
         WHERE store_id = $1
       `;
@@ -1403,7 +1434,7 @@ export async function storeRoutes(
       const agg = aggRes.rows[0];
       const grossSalesPesewas = parseInt(agg.grossSalesPesewas || '0', 10);
       const costPesewas = parseInt(agg.costPesewas || '0', 10);
-      const profitPesewas = grossSalesPesewas - costPesewas;
+      const profitPesewas = parseInt(agg.profitPesewas || (grossSalesPesewas - costPesewas).toString(), 10);
       const totalFulfilledOrders = parseInt(agg.totalFulfilledOrders || '0', 10);
 
       const recentTransactions = ledgerRes.rows.map((r: any) => ({
@@ -1420,10 +1451,14 @@ export async function storeRoutes(
         success: true,
         data: {
           grossSalesPesewas,
+          grossSalesGhs: grossSalesPesewas / 100,
           costPesewas,
+          costGhs: costPesewas / 100,
           profitPesewas,
+          profitGhs: profitPesewas / 100,
           totalFulfilledOrders,
           recentTransactions,
+          transactions: recentTransactions,
           pagination: { page, limit },
         },
       });

@@ -107,8 +107,8 @@ export const StoreDashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Top-Level 4 KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
+      {/* 2. Top-Level KPI Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
         {/* Today's Sales */}
         <Card
           style={{
@@ -126,14 +126,51 @@ export const StoreDashboardPage: React.FC = () => {
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Today's Sales
             </span>
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(16, 185, 129, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <DollarSign size={15} color="#10B981" />
+            <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(59, 130, 246, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <DollarSign size={15} color="#3B82F6" />
             </div>
           </div>
           <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
             GH₵ {kpis.todaySalesGhs.toFixed(2)}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700, minHeight: '18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', minHeight: '18px' }}>
+            <span>Total: GH₵ {(kpis.totalSalesGhs || 0).toFixed(2)}</span>
+          </div>
+        </Card>
+
+        {/* Reseller Profit Markup */}
+        <Card
+          style={{
+            padding: 'var(--space-5)',
+            borderRadius: 'var(--radius-xl)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid rgba(16, 185, 129, 0.35)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            boxShadow: '6px 6px 16px rgba(16, 24, 40, 0.04), -4px -4px 12px rgba(255, 255, 255, 0.6)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Reseller Profit
+            </span>
+            <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <DollarSign size={15} color="#10B981" />
+            </div>
+          </div>
+          <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+            GH₵ {((kpis.totalProfitGhs !== undefined ? kpis.totalProfitGhs : (kpis.todayProfitGhs || 0))).toFixed(2)}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)' }}>
+            <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>Saturday payout</span>
+            <button
+              type="button"
+              onClick={() => navigate('/agent/withdrawals')}
+              style={{ background: 'none', border: 'none', color: '#10B981', fontWeight: 800, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+            >
+              Withdraw &rarr;
+            </button>
           </div>
         </Card>
 

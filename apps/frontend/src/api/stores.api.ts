@@ -116,6 +116,8 @@ export interface StoreDashboardDto {
   kpis: {
     todaySalesGhs: number;
     totalSalesGhs: number;
+    todayProfitGhs?: number;
+    totalProfitGhs?: number;
     ordersCount: number;
     customersCount: number;
     storeVisits: number;

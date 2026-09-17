@@ -2376,7 +2376,7 @@ export async function agentRoutes(
       const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
       const ordersRes = await db.query(
-        `SELECT o.id, o.network, o.data_amount_mb, o.amount_pesewas, o.order_status, o.payment_status, o.refund_status, o.created_at
+        `SELECT o.id, o.network, o.data_amount_mb, o.amount_pesewas, o.order_status, o.payment_status, o.refund_status, o.pricing_snapshot, o.created_at
          FROM orders o
          ${whereClause}`,
         params,
@@ -2390,9 +2390,29 @@ export async function agentRoutes(
       const refundsPesewas = refundedOrders.reduce((sum, o) => sum + (parseInt(o.amount_pesewas, 10) || 0), 0);
       const netSalesPesewas = Math.max(0, grossSalesPesewas - refundsPesewas);
 
-      // Estimated wholesale base cost (82% of sales price on average)
-      const totalCostPesewas = Math.round(netSalesPesewas * 0.82);
-      const grossProfitPesewas = netSalesPesewas - totalCostPesewas;
+      // Compute exact profit & wholesale base cost from pricing snapshot when available
+      let totalCostPesewas = 0;
+      let grossProfitPesewas = 0;
+
+      completedOrders.forEach((o) => {
+        const snap = typeof o.pricing_snapshot === 'string' ? JSON.parse(o.pricing_snapshot) : o.pricing_snapshot;
+        const amount = parseInt(o.amount_pesewas, 10) || 0;
+        let profit = 0;
+        let cost = 0;
+        if (snap?.markupPesewas !== undefined && snap?.markupPesewas !== '') {
+          profit = parseInt(snap.markupPesewas, 10) || 0;
+          cost = Math.max(0, amount - profit);
+        } else if (snap?.basePricePesewas !== undefined) {
+          cost = parseInt(snap.basePricePesewas, 10) || 0;
+          profit = Math.max(0, amount - cost);
+        } else {
+          cost = Math.round(amount * 0.82);
+          profit = Math.max(0, amount - cost);
+        }
+        totalCostPesewas += cost;
+        grossProfitPesewas += profit;
+      });
+
       const marginPercent = netSalesPesewas > 0 ? Math.round((grossProfitPesewas / netSalesPesewas) * 1000) / 10 : 0;
       const totalOrders = completedOrders.length;
       const avgOrderValueGhs = totalOrders > 0 ? (netSalesPesewas / totalOrders / 100) : 0;
@@ -2402,8 +2422,29 @@ export async function agentRoutes(
       const networkBreakdown = networks.map((net) => {
         const netOrders = completedOrders.filter((o) => o.network === net);
         const netSales = netOrders.reduce((sum, o) => sum + (parseInt(o.amount_pesewas, 10) || 0), 0) / 100;
-        const netCost = netSales * 0.82;
-        const netProfit = netSales - netCost;
+        let netProfitPesewas = 0;
+        let netCostPesewas = 0;
+
+        netOrders.forEach((o) => {
+          const snap = typeof o.pricing_snapshot === 'string' ? JSON.parse(o.pricing_snapshot) : o.pricing_snapshot;
+          const amount = parseInt(o.amount_pesewas, 10) || 0;
+          if (snap?.markupPesewas !== undefined && snap?.markupPesewas !== '') {
+            const p = parseInt(snap.markupPesewas, 10) || 0;
+            netProfitPesewas += p;
+            netCostPesewas += Math.max(0, amount - p);
+          } else if (snap?.basePricePesewas !== undefined) {
+            const c = parseInt(snap.basePricePesewas, 10) || 0;
+            netCostPesewas += c;
+            netProfitPesewas += Math.max(0, amount - c);
+          } else {
+            const c = Math.round(amount * 0.82);
+            netCostPesewas += c;
+            netProfitPesewas += Math.max(0, amount - c);
+          }
+        });
+
+        const netCost = netCostPesewas / 100;
+        const netProfit = netProfitPesewas / 100;
         const netMargin = netSales > 0 ? Math.round((netProfit / netSales) * 1000) / 10 : 0;
         const share = grossSalesPesewas > 0 ? Math.round((netSales * 100 / (grossSalesPesewas / 100)) * 10) / 10 : 0;
 
@@ -2421,29 +2462,44 @@ export async function agentRoutes(
       });
 
       // Bundle Breakdown
-      const bundleGroups = new Map<string, { name: string; network: string; orders: number; salesPesewas: number }>();
+      const bundleGroups = new Map<string, { name: string; network: string; orders: number; salesPesewas: number; costPesewas: number; profitPesewas: number }>();
       completedOrders.forEach((o) => {
         const sizeGb = (o.data_amount_mb || 0) / 1024;
         const name = `${sizeGb >= 1 ? `${sizeGb} GB` : `${o.data_amount_mb} MB`} ${o.network}`;
         const key = `${o.network}_${o.data_amount_mb}`;
-        const curr = bundleGroups.get(key) || { name, network: o.network, orders: 0, salesPesewas: 0 };
+        const curr = bundleGroups.get(key) || { name, network: o.network, orders: 0, salesPesewas: 0, costPesewas: 0, profitPesewas: 0 };
         curr.orders += 1;
-        curr.salesPesewas += parseInt(o.amount_pesewas, 10) || 0;
+        const amount = parseInt(o.amount_pesewas, 10) || 0;
+        curr.salesPesewas += amount;
+
+        const snap = typeof o.pricing_snapshot === 'string' ? JSON.parse(o.pricing_snapshot) : o.pricing_snapshot;
+        if (snap?.markupPesewas !== undefined && snap?.markupPesewas !== '') {
+          const p = parseInt(snap.markupPesewas, 10) || 0;
+          curr.profitPesewas += p;
+          curr.costPesewas += Math.max(0, amount - p);
+        } else if (snap?.basePricePesewas !== undefined) {
+          const c = parseInt(snap.basePricePesewas, 10) || 0;
+          curr.costPesewas += c;
+          curr.profitPesewas += Math.max(0, amount - c);
+        } else {
+          const c = Math.round(amount * 0.82);
+          curr.costPesewas += c;
+          curr.profitPesewas += Math.max(0, amount - c);
+        }
+
         bundleGroups.set(key, curr);
       });
 
       const bundleBreakdown = Array.from(bundleGroups.entries()).map(([id, b]) => {
-        const costPesewas = Math.round(b.salesPesewas * 0.82);
-        const profitPesewas = b.salesPesewas - costPesewas;
-        const marginPct = b.salesPesewas > 0 ? Math.round((profitPesewas / b.salesPesewas) * 1000) / 10 : 0;
+        const marginPct = b.salesPesewas > 0 ? Math.round((b.profitPesewas / b.salesPesewas) * 1000) / 10 : 0;
         return {
           id,
           name: b.name,
           network: b.network,
           orders: b.orders,
           salesPesewas: b.salesPesewas,
-          costPesewas,
-          profitPesewas,
+          costPesewas: b.costPesewas,
+          profitPesewas: b.profitPesewas,
           marginPercent: marginPct,
         };
       });
