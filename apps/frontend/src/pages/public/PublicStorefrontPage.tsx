@@ -346,12 +346,22 @@ export const PublicStorefrontPage: React.FC = () => {
       setOrCreateMeta('name', 'twitter:description', metaDescriptionText);
 
       return () => {
-        document.title = originalTitle && !originalTitle.includes('ByteBeacon')
-          ? originalTitle
-          : 'API Solutions — Independent Mobile Telecom Data Storefront Network';
-        link.href = originalHref && !originalHref.includes('favicon.png')
-          ? originalHref
-          : '/storefront-icon.svg';
+        const isStorefront = STOREFRONT_CONFIG.isStorefrontHost();
+        if (isStorefront) {
+          document.title = originalTitle && !originalTitle.includes('ByteBeacon')
+            ? originalTitle
+            : 'API Solutions — Independent Mobile Telecom Data Storefront Network';
+          link.type = 'image/svg+xml';
+          link.href = originalHref && !originalHref.includes('favicon.png')
+            ? originalHref
+            : '/storefront-icon.svg';
+        } else {
+          document.title = originalTitle || 'ByteBeacon — Mobile Data, Simplified';
+          link.type = 'image/png';
+          link.href = originalHref && !originalHref.includes('storefront-icon.svg')
+            ? originalHref
+            : '/favicon.png';
+        }
         updatedMetas.forEach(({ el, originalContent, isNew }) => {
           if (isNew) {
             el.remove();

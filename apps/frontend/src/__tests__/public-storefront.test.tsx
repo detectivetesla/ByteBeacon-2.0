@@ -676,6 +676,50 @@ describe('Public Customer Storefront Integration Tests', () => {
     expect(mobileToggle.getAttribute('aria-label')).toBe('Open navigation menu');
     expect(screen.queryByText('WhatsApp Support')).not.toBeInTheDocument();
   });
+
+  it('restores ByteBeacon logo favicon and title when leaving storefront on platform domain', async () => {
+    vi.mocked(storesApi.getPublicStore).mockResolvedValueOnce({
+      store: {
+        id: 'str_bb',
+        userId: 'usr_agent_bb',
+        storeName: 'QuickBundle',
+        slug: 'quickbundle',
+        tagline: 'Fast Bundles',
+        description: 'Instant data.',
+        primaryColor: '#10B981',
+        paymentStatus: 'PAID',
+        approvalStatus: 'APPROVED',
+        storeStatus: 'ACTIVE',
+        activationFeePesewas: 50000,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      products: [],
+    });
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/store/quickbundle']}>
+        <PlatformStatusProvider>
+          <ToastProvider>
+            <Routes>
+              <Route path="/store/:slug" element={<PublicStorefrontPage />} />
+            </Routes>
+          </ToastProvider>
+        </PlatformStatusProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('QuickBundle')).toBeInTheDocument();
+
+    // Unmount and verify it restores ByteBeacon title and /favicon.png
+    unmount();
+
+    expect(document.title).toBe('ByteBeacon — Mobile Data, Simplified');
+    const iconLink = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    expect(iconLink).not.toBeNull();
+    expect(iconLink.href).toContain('/favicon.png');
+    expect(iconLink.href).not.toContain('storefront-icon.svg');
+  });
 });
 
 

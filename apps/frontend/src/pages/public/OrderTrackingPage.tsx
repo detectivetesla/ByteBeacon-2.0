@@ -30,6 +30,11 @@ export const OrderTrackingPage: React.FC = () => {
         }
       } else {
         document.title = 'Track Your Order · ByteBeacon';
+        const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+        if (link) {
+          link.type = 'image/png';
+          link.href = '/favicon.png';
+        }
       }
       return () => {
         document.title = originalTitle;
