@@ -10,6 +10,7 @@ import { ordersApi } from '../../api/orders.api.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { BeneficiaryNotApprovedModal } from '../../components/commerce/BeneficiaryNotApprovedModal.js';
 import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
+import { ApiSolutionsPortalPage } from './ApiSolutionsPortalPage.js';
 import {
   Store,
   ShieldCheck,
@@ -118,7 +119,7 @@ export const PublicStorefrontPage: React.FC = () => {
   // Extract slug from path, host, or query
   const subdomainSlug = STOREFRONT_CONFIG.extractSlugFromSubdomain();
   const querySlug = searchParams.get('store') || searchParams.get('slug');
-  const storeSlug = (slug || subdomainSlug || querySlug || 'default')
+  const storeSlug = (slug || subdomainSlug || querySlug || '')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, '-');
@@ -312,6 +313,10 @@ export const PublicStorefrontPage: React.FC = () => {
 
   // Load real store data (Zero mock data)
   const loadStore = useCallback(async () => {
+    if (!storeSlug || storeSlug === 'default' || storeSlug === 'store' || storeSlug === 'apisolutions') {
+      setIsLoadingStore(false);
+      return;
+    }
     setIsLoadingStore(true);
     setStoreNotFound(false);
     try {
@@ -701,6 +706,11 @@ export const PublicStorefrontPage: React.FC = () => {
       setIsModalTracking(false);
     }
   };
+
+  // 0. Fallback to API Solutions customer portal if no specific merchant slug is provided
+  if (!storeSlug || storeSlug === 'default' || storeSlug === 'store' || storeSlug === 'apisolutions') {
+    return <ApiSolutionsPortalPage />;
+  }
 
   // 1. Loading Skeleton
   if (isLoadingStore) {

@@ -32,7 +32,7 @@ export const StoreAccessGuard: React.FC<StoreAccessGuardProps> = ({ children }) 
   const { isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
 
-  const [entitlementState, setEntitlementState] = useState<StoreEntitlementState>('ACTIVE');
+  const [entitlementState, setEntitlementState] = useState<StoreEntitlementState>('NOT_STARTED');
   const [checkingEntitlement, setCheckingEntitlement] = useState(true);
 
   useEffect(() => {
@@ -44,7 +44,7 @@ export const StoreAccessGuard: React.FC<StoreAccessGuardProps> = ({ children }) 
     storesApi
       .getStore()
       .then((store) => {
-        if (!store) {
+        if (!store || !store.id) {
           setEntitlementState('NOT_STARTED');
         } else if (store.storeStatus === 'ACTIVE' && store.approvalStatus === 'APPROVED') {
           setEntitlementState('ACTIVE');
@@ -63,8 +63,7 @@ export const StoreAccessGuard: React.FC<StoreAccessGuardProps> = ({ children }) 
         }
       })
       .catch(() => {
-        // In case of network error, preserve access if previously authenticated
-        setEntitlementState('ACTIVE');
+        setEntitlementState('NOT_STARTED');
       })
       .finally(() => {
         setCheckingEntitlement(false);

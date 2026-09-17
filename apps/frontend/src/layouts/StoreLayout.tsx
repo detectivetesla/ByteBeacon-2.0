@@ -32,13 +32,13 @@ export const StoreLayout: React.FC = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [storeSlug, setStoreSlug] = useState('my-store');
+  const [storeSlug, setStoreSlug] = useState('');
   const [storeName, setStoreName] = useState('Agent Store');
 
   // Load active store profile
   useEffect(() => {
     storesApi.getStore().then((st) => {
-      if (st) {
+      if (st && st.id) {
         if (st.slug) setStoreSlug(st.slug);
         if (st.storeName) setStoreName(st.storeName);
       }
@@ -50,7 +50,7 @@ export const StoreLayout: React.FC = () => {
     setIsMobileOpen(false);
   }, [location.pathname]);
 
-  const publicStoreUrl = STOREFRONT_CONFIG.getStoreUrl(storeSlug);
+  const publicStoreUrl = storeSlug ? STOREFRONT_CONFIG.getStoreUrl(storeSlug) : '#';
 
   return (
     <div

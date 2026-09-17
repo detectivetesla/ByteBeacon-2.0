@@ -66,7 +66,7 @@ export async function storeRoutes(
               activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
               admin_notes as "adminNotes", created_at as "createdAt", updated_at as "updatedAt"
        FROM stores
-       WHERE user_id = $1 OR agent_id = $1 OR agent_id = (SELECT id FROM agents WHERE user_id = $1 LIMIT 1)
+       WHERE user_id = $1 OR agent_id = $1
        ORDER BY created_at DESC
        LIMIT 1`,
       [userId],
@@ -183,12 +183,13 @@ export async function storeRoutes(
       const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
       let agentId = agentRes.rows[0]?.id || null;
       if (!agentId) {
+        const agentSlug = `agent-${cleanSlug}-${req.user!.sub.slice(0, 6)}`;
         const insertAgent = await db.query(
-          `INSERT INTO agents (user_id, business_name, status)
-           VALUES ($1, $2, 'ACTIVE')
-           ON CONFLICT DO NOTHING
+          `INSERT INTO agents (user_id, business_name, slug, status)
+           VALUES ($1, $2, $3, 'ACTIVE')
+           ON CONFLICT (user_id) DO UPDATE SET business_name = EXCLUDED.business_name, updated_at = CURRENT_TIMESTAMP
            RETURNING id`,
-          [req.user!.sub, storeName.trim()],
+          [req.user!.sub, storeName.trim(), agentSlug],
         );
         agentId = insertAgent.rows[0]?.id || null;
       }
@@ -454,12 +455,13 @@ export async function storeRoutes(
         const agentRes = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
         let agentId = agentRes.rows[0]?.id || null;
         if (!agentId) {
+          const agentSlug = `agent-${cleanSlug}-${req.user!.sub.slice(0, 6)}`;
           const insertAgent = await db.query(
-            `INSERT INTO agents (user_id, business_name, status)
-             VALUES ($1, $2, 'ACTIVE')
-             ON CONFLICT DO NOTHING
+            `INSERT INTO agents (user_id, business_name, slug, status)
+             VALUES ($1, $2, $3, 'ACTIVE')
+             ON CONFLICT (user_id) DO UPDATE SET business_name = EXCLUDED.business_name, updated_at = CURRENT_TIMESTAMP
              RETURNING id`,
-            [req.user!.sub, rawName],
+            [req.user!.sub, rawName, agentSlug],
           );
           agentId = insertAgent.rows[0]?.id || null;
         }
@@ -706,8 +708,8 @@ export async function storeRoutes(
                 COUNT(CASE WHEN order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT' THEN 1 END) as pending_orders,
                 COUNT(CASE WHEN order_status = 'FAILED' THEN 1 END) as failed_orders
          FROM orders
-         WHERE store_id = $1 OR agent_id = $2`,
-        [store.id, req.user!.sub],
+         WHERE store_id = $1`,
+        [store.id],
       );
 
       const stats = ordersRes.rows[0];
@@ -914,23 +916,6 @@ export async function storeRoutes(
          WHERE (LOWER(slug) = $1 OR slug = $1) AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
         [cleanSlug],
       );
-
-      // Fallback: If 'default', 'store', or 'apisolutions' slug requested and not found, find first active store
-      if (storeRes.rows.length === 0 && (cleanSlug === 'default' || cleanSlug === 'store' || cleanSlug === 'apisolutions')) {
-        storeRes = await db.query(
-          `SELECT id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
-                  slug, tagline, description,
-                  logo_url as "logoUrl", banner_url as "bannerUrl",
-                  primary_color as "primaryColor", accent_color as "accentColor",
-                  contact_phone as "contactPhone", contact_email as "contactEmail",
-                  contact_whatsapp as "contactWhatsapp",
-                  store_status as "storeStatus", approval_status as "approvalStatus"
-           FROM stores
-           WHERE store_status = 'ACTIVE' AND approval_status = 'APPROVED'
-           ORDER BY created_at ASC
-           LIMIT 1`,
-        );
-      }
 
       if (storeRes.rows.length === 0) {
         throw new NotFoundError('Storefront not found or temporarily unavailable');

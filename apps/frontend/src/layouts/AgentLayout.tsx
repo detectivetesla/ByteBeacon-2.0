@@ -23,18 +23,20 @@ export const AgentLayout: React.FC = () => {
     storesApi
       .getStore()
       .then((store) => {
-        if (store) {
+        if (store && store.id) {
           if (store.slug) {
             setStoreSlug(store.slug);
           }
-          // Only show My Store in the header after the store setup has been APPROVED
-          setIsStoreApproved(store.approvalStatus === 'APPROVED');
+          // Only show My Store in the header after the store setup has been APPROVED and ACTIVE
+          setIsStoreApproved(store.approvalStatus === 'APPROVED' && store.storeStatus === 'ACTIVE');
         } else {
           setIsStoreApproved(false);
+          setStoreSlug(undefined);
         }
       })
       .catch(() => {
         setIsStoreApproved(false);
+        setStoreSlug(undefined);
       });
   }, []);
 

@@ -397,14 +397,15 @@ export async function customerAuthRoutes(
         .replace(/^-|-$/g, '') || `agent-${String(user.id).slice(0, 8)}`;
 
       // Create agents record
-      let agentId = `agt_${Date.now()}`;
+      let agentId: string | null = null;
+      const agentSlug = `${cleanSlug}-${String(user.id).slice(0, 6)}`;
       try {
         const agentInsert = await db.query(
           `INSERT INTO agents (user_id, business_name, slug, agent_tier, status, is_active)
            VALUES ($1, $2, $3, 'STANDARD', 'ACTIVE', TRUE)
            ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
            RETURNING id`,
-          [user.id, resolvedBusinessName || 'Individual Reseller', cleanSlug],
+          [user.id, resolvedBusinessName || 'Individual Reseller', agentSlug],
         );
         if (agentInsert?.rows?.[0]?.id) {
           agentId = agentInsert.rows[0].id;
@@ -413,16 +414,19 @@ export async function customerAuthRoutes(
         logger.warn({ err, userId: user.id }, 'Failed to insert agents row on agent registration');
       }
 
-      // Create default stores record if storefront name provided
-      try {
-        await db.query(
-          `INSERT INTO stores (agent_id, user_id, store_name, slug, contact_email, contact_phone, payment_status, approval_status, store_status)
-           VALUES ($1, $2, $3, $4, $5, $6, 'PAID', 'APPROVED', 'ACTIVE')
-           ON CONFLICT (slug) DO NOTHING`,
-          [agentId, user.id, resolvedBusinessName, cleanSlug, user.email, user.phone],
-        );
-      } catch (err) {
-        logger.warn({ err, userId: user.id }, 'Failed to create initial store row on agent registration');
+      // Create initial stores record in INACTIVE/NOT_STARTED status if storefront name provided
+      if (resolvedBusinessName) {
+        try {
+          const storeSlug = `${cleanSlug}-${String(user.id).slice(0, 6)}`;
+          await db.query(
+            `INSERT INTO stores (agent_id, user_id, store_name, slug, contact_email, contact_phone, payment_status, approval_status, store_status)
+             VALUES ($1, $2, $3, $4, $5, $6, 'NOT_STARTED', 'NOT_SUBMITTED', 'INACTIVE')
+             ON CONFLICT (slug) DO NOTHING`,
+            [agentId, user.id, resolvedBusinessName, storeSlug, user.email, user.phone],
+          );
+        } catch (err) {
+          logger.warn({ err, userId: user.id }, 'Failed to create initial store row on agent registration');
+        }
       }
 
       if (process.env.NODE_ENV !== 'production') {

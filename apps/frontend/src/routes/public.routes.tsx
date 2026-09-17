@@ -85,11 +85,11 @@ export const publicRoutes: RouteObject[] = [
       },
       {
         path: '/buy',
-        element: <PublicStorefrontPage />,
+        element: <StorefrontGateway />,
       },
       {
         path: '/info',
-        element: <PublicStorefrontPage />,
+        element: <StorefrontGateway />,
       },
       {
         path: '/track',
