@@ -73,23 +73,17 @@ export const AgentStorePage: React.FC = () => {
   const userPhone = user?.phone;
   const userEmail = user?.email;
 
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      toastError('File Too Large', 'Please select an image file under 2MB.');
-      return;
+    try {
+      const optimizedUri = await optimizeImageFile(file, { maxWidth: 400, maxHeight: 400, quality: 0.88 });
+      setLogoUrl(optimizedUri);
+      toastSuccess('Logo Optimized & Loaded', 'Preview updated. Click Save Storefront Changes to apply.');
+    } catch (err: any) {
+      toastError('Image Error', err?.message || 'Unable to process image file.');
     }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setLogoUrl(reader.result);
-        toastSuccess('Logo Loaded', 'Preview updated. Click Save Storefront Changes to apply.');
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleCopyLink = (url: string, key: string) => {

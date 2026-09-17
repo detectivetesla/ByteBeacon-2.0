@@ -54,31 +54,27 @@ export async function storeRoutes(
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const maintenanceHook = createMaintenanceHook(featureFlagService);
 
-    // Helper to ensure stores branding columns are TEXT even if preexisting database had VARCHAR(255)
+  // Helper to ensure stores branding columns are TEXT even if preexisting database had VARCHAR(255)
   async function ensureStoresBrandingColumnsText() {
     try {
+      await db.query('DROP VIEW IF EXISTS agent_stores CASCADE');
+      await db.query('ALTER TABLE IF EXISTS stores ALTER COLUMN logo_url TYPE TEXT');
+      await db.query('ALTER TABLE IF EXISTS stores ALTER COLUMN banner_url TYPE TEXT');
+      await db.query('ALTER TABLE IF EXISTS stores ALTER COLUMN tagline TYPE TEXT');
+      await db.query('ALTER TABLE IF EXISTS stores ALTER COLUMN description TYPE TEXT');
       await db.query(`
-        DO $$
-        BEGIN
-          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stores') THEN
-            DROP VIEW IF EXISTS agent_stores CASCADE;
-            ALTER TABLE stores ALTER COLUMN logo_url TYPE TEXT;
-            ALTER TABLE stores ALTER COLUMN banner_url TYPE TEXT;
-            ALTER TABLE stores ALTER COLUMN tagline TYPE TEXT;
-            ALTER TABLE stores ALTER COLUMN description TYPE TEXT;
-            CREATE OR REPLACE VIEW agent_stores AS
-            SELECT 
-                id, agent_id, user_id, store_name, slug, tagline, description,
-                logo_url, banner_url, primary_color, accent_color, contact_email,
-                contact_phone, contact_whatsapp, payment_status, approval_status,
-                store_status as status, activation_fee_pesewas, paystack_reference,
-                admin_notes, approved_by, approved_at, created_at, updated_at
-            FROM stores;
-          END IF;
-        END $$;
+        CREATE OR REPLACE VIEW agent_stores AS
+        SELECT 
+            id, agent_id, user_id, store_name, slug, tagline, description,
+            logo_url, banner_url, primary_color, accent_color, contact_email,
+            contact_phone, contact_whatsapp, payment_status, approval_status,
+            store_status as status, activation_fee_pesewas, paystack_reference,
+            admin_notes, approved_by, approved_at, created_at, updated_at
+        FROM stores;
       `);
-    } catch {
-      // Ignored
+      app.log.info('Successfully verified and ensured store branding text columns');
+    } catch (err: any) {
+      app.log.error({ err: err?.message }, 'Failed ensuring stores branding columns are TEXT');
     }
   }
 
@@ -270,8 +266,7 @@ export async function storeRoutes(
       let storeRow: StoreDto;
       if (existingStore) {
         // Update existing store configuration
-        const updateRes = await db.query(
-          `UPDATE stores
+        const updateSetupQuery = `UPDATE stores
            SET store_name = $1, slug = $2, tagline = $3, description = $4,
                contact_phone = $5, contact_email = $6, contact_whatsapp = $7,
                logo_url = CASE WHEN $8 IS NOT NULL THEN (CASE WHEN $8 = '' THEN NULL ELSE $8 END) ELSE logo_url END,
@@ -288,27 +283,34 @@ export async function storeRoutes(
                      contact_whatsapp as "contactWhatsapp", payment_status as "paymentStatus",
                      approval_status as "approvalStatus", store_status as "storeStatus",
                      activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
-                     created_at as "createdAt", updated_at as "updatedAt"`,
-          [
-            storeName.trim(),
-            cleanSlug,
-            tagline || '',
-            description || '',
-            contactPhone || '',
-            contactEmail || '',
-            contactWhatsapp || '',
-            logoUrl !== undefined ? logoUrl : null,
-            bannerUrl !== undefined ? bannerUrl : null,
-            primaryColor && primaryColor.trim() ? primaryColor.trim() : null,
-            accentColor && accentColor.trim() ? accentColor.trim() : null,
-            existingStore.id,
-          ],
-        );
-        storeRow = updateRes.rows[0];
+                     created_at as "createdAt", updated_at as "updatedAt"`;
+        const updateSetupParams = [
+          storeName.trim(),
+          cleanSlug,
+          tagline || '',
+          description || '',
+          contactPhone || '',
+          contactEmail || '',
+          contactWhatsapp || '',
+          logoUrl !== undefined ? logoUrl : null,
+          bannerUrl !== undefined ? bannerUrl : null,
+          primaryColor && primaryColor.trim() ? primaryColor.trim() : null,
+          accentColor && accentColor.trim() ? accentColor.trim() : null,
+          existingStore.id,
+        ];
+
+        try {
+          const updateRes = await db.query(updateSetupQuery, updateSetupParams);
+          storeRow = updateRes.rows[0];
+        } catch (err: any) {
+          req.log.warn({ err: err?.message }, 'Store setup update failed, self-healing branding column types');
+          await ensureStoresBrandingColumnsText();
+          const updateRes = await db.query(updateSetupQuery, updateSetupParams);
+          storeRow = updateRes.rows[0];
+        }
       } else {
         // Insert new store record
-        const insertRes = await db.query(
-          `INSERT INTO stores (
+        const insertSetupQuery = `INSERT INTO stores (
               agent_id, user_id, store_name, slug, tagline, description,
               contact_phone, contact_email, contact_whatsapp, logo_url, banner_url,
               primary_color, accent_color, payment_status, approval_status, store_status
@@ -321,24 +323,32 @@ export async function storeRoutes(
                      contact_whatsapp as "contactWhatsapp", payment_status as "paymentStatus",
                      approval_status as "approvalStatus", store_status as "storeStatus",
                      activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
-                     created_at as "createdAt", updated_at as "updatedAt"`,
-          [
-            agentId,
-            req.user!.sub,
-            storeName.trim(),
-            cleanSlug,
-            tagline || '',
-            description || '',
-            contactPhone || '',
-            contactEmail || '',
-            contactWhatsapp || '',
-            logoUrl && logoUrl.trim() ? logoUrl.trim() : null,
-            bannerUrl && bannerUrl.trim() ? bannerUrl.trim() : null,
-            primaryColor && primaryColor.trim() ? primaryColor.trim() : null,
-            accentColor && accentColor.trim() ? accentColor.trim() : null,
-          ],
-        );
-        storeRow = insertRes.rows[0];
+                     created_at as "createdAt", updated_at as "updatedAt"`;
+        const insertSetupParams = [
+          agentId,
+          req.user!.sub,
+          storeName.trim(),
+          cleanSlug,
+          tagline || '',
+          description || '',
+          contactPhone || '',
+          contactEmail || '',
+          contactWhatsapp || '',
+          logoUrl && logoUrl.trim() ? logoUrl.trim() : null,
+          bannerUrl && bannerUrl.trim() ? bannerUrl.trim() : null,
+          primaryColor && primaryColor.trim() ? primaryColor.trim() : null,
+          accentColor && accentColor.trim() ? accentColor.trim() : null,
+        ];
+
+        try {
+          const insertRes = await db.query(insertSetupQuery, insertSetupParams);
+          storeRow = insertRes.rows[0];
+        } catch (err: any) {
+          req.log.warn({ err: err?.message }, 'Store setup insert failed, self-healing branding column types');
+          await ensureStoresBrandingColumnsText();
+          const insertRes = await db.query(insertSetupQuery, insertSetupParams);
+          storeRow = insertRes.rows[0];
+        }
       }
 
       // Populate default store products from catalog if not present
@@ -449,9 +459,14 @@ export async function storeRoutes(
     try {
       updateRes = await db.query(updateQueryStr, updateParams);
     } catch (err: any) {
-      req.log.warn({ err }, 'Store update query failed, self-healing branding column types and retrying');
+      req.log.warn({ err: err?.message, code: err?.code }, 'Store update query initial attempt failed, executing self-healing');
       await ensureStoresBrandingColumnsText();
-      updateRes = await db.query(updateQueryStr, updateParams);
+      try {
+        updateRes = await db.query(updateQueryStr, updateParams);
+      } catch (retryErr: any) {
+        req.log.error({ err: retryErr?.message, code: retryErr?.code, stack: retryErr?.stack }, 'Store update query retry failed');
+        throw new BadRequestError(`Unable to save storefront settings: ${retryErr?.message || 'Database error'}`);
+      }
     }
 
     const storeRow = updateRes.rows[0];

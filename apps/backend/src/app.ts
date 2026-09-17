@@ -256,7 +256,7 @@ export function createApp(options: AppOptions = {}) {
   app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024 } });
 
   // 3b. Graceful JSON Content-Type Parser (tolerates empty bodies on POST/DELETE/PUT/PATCH)
-  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+  app.addContentTypeParser('application/json', { parseAs: 'string', bodyLimit: 10485760 }, (req, body, done) => {
     (req as any).rawBody = body;
     if (!body || (typeof body === 'string' && body.trim() === '')) {
       done(null, {});
