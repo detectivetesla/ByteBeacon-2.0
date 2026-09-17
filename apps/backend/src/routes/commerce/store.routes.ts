@@ -267,15 +267,15 @@ export async function storeRoutes(
       if (existingStore) {
         // Update existing store configuration
         const updateSetupQuery = `UPDATE stores
-           SET store_name = $1, slug = $2, tagline = $3, description = $4,
-               contact_phone = $5, contact_email = $6, contact_whatsapp = $7,
-               logo_url = CASE WHEN $8 IS NOT NULL THEN (CASE WHEN $8 = '' THEN NULL ELSE $8 END) ELSE logo_url END,
-               banner_url = CASE WHEN $9 IS NOT NULL THEN (CASE WHEN $9 = '' THEN NULL ELSE $9 END) ELSE banner_url END,
-               primary_color = COALESCE($10, primary_color),
-               accent_color = COALESCE($11, accent_color),
+           SET store_name = $1::VARCHAR, slug = $2::VARCHAR, tagline = $3::TEXT, description = $4::TEXT,
+               contact_phone = $5::VARCHAR, contact_email = $6::VARCHAR, contact_whatsapp = $7::VARCHAR,
+               logo_url = CASE WHEN $8::TEXT IS NOT NULL THEN (CASE WHEN $8::TEXT = '' THEN NULL ELSE $8::TEXT END) ELSE logo_url END,
+               banner_url = CASE WHEN $9::TEXT IS NOT NULL THEN (CASE WHEN $9::TEXT = '' THEN NULL ELSE $9::TEXT END) ELSE banner_url END,
+               primary_color = COALESCE($10::VARCHAR, primary_color),
+               accent_color = COALESCE($11::VARCHAR, accent_color),
                payment_status = CASE WHEN payment_status = 'NOT_STARTED' THEN 'PAYMENT_REQUIRED' ELSE payment_status END,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $12
+           WHERE id = $12::UUID
            RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                      slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
                      primary_color as "primaryColor", accent_color as "accentColor",
@@ -315,7 +315,7 @@ export async function storeRoutes(
               contact_phone, contact_email, contact_whatsapp, logo_url, banner_url,
               primary_color, accent_color, payment_status, approval_status, store_status
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, '#0066FF'), COALESCE($13, '#10B981'), 'PAYMENT_REQUIRED', 'NOT_SUBMITTED', 'INACTIVE')
+           VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::TEXT, $6::TEXT, $7::VARCHAR, $8::VARCHAR, $9::VARCHAR, $10::TEXT, $11::TEXT, COALESCE($12::VARCHAR, '#0066FF'), COALESCE($13::VARCHAR, '#10B981'), 'PAYMENT_REQUIRED', 'NOT_SUBMITTED', 'INACTIVE')
            RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                      slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
                      primary_color as "primaryColor", accent_color as "accentColor",
@@ -419,19 +419,19 @@ export async function storeRoutes(
     }
 
     const updateQueryStr = `UPDATE stores
-       SET store_name = COALESCE($1, store_name),
-           slug = $2,
-           tagline = COALESCE($3, tagline),
-           description = COALESCE($4, description),
-           contact_phone = COALESCE($5, contact_phone),
-           contact_email = COALESCE($6, contact_email),
-           contact_whatsapp = COALESCE($7, contact_whatsapp),
-           primary_color = COALESCE($8, primary_color),
-           accent_color = COALESCE($9, accent_color),
-           logo_url = CASE WHEN $10 IS NOT NULL THEN (CASE WHEN $10 = '' THEN NULL ELSE $10 END) ELSE logo_url END,
-           banner_url = CASE WHEN $11 IS NOT NULL THEN (CASE WHEN $11 = '' THEN NULL ELSE $11 END) ELSE banner_url END,
+       SET store_name = COALESCE($1::VARCHAR, store_name),
+           slug = $2::VARCHAR,
+           tagline = COALESCE($3::TEXT, tagline),
+           description = COALESCE($4::TEXT, description),
+           contact_phone = COALESCE($5::VARCHAR, contact_phone),
+           contact_email = COALESCE($6::VARCHAR, contact_email),
+           contact_whatsapp = COALESCE($7::VARCHAR, contact_whatsapp),
+           primary_color = COALESCE($8::VARCHAR, primary_color),
+           accent_color = COALESCE($9::VARCHAR, accent_color),
+           logo_url = CASE WHEN $10::TEXT IS NOT NULL THEN (CASE WHEN $10::TEXT = '' THEN NULL ELSE $10::TEXT END) ELSE logo_url END,
+           banner_url = CASE WHEN $11::TEXT IS NOT NULL THEN (CASE WHEN $11::TEXT = '' THEN NULL ELSE $11::TEXT END) ELSE banner_url END,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $12
+       WHERE id = $12::UUID
        RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                  slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
                  primary_color as "primaryColor", accent_color as "accentColor",
