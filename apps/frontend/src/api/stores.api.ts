@@ -354,7 +354,19 @@ export const storesApi = {
   },
 
   saveStoreConfig: async (payload: Partial<StoreProfileDto>): Promise<StoreProfileDto> => {
-    return apiClient.post<StoreProfileDto>('/stores/setup', payload);
+    try {
+      return await apiClient.put<StoreProfileDto>('/stores/my-store', payload);
+    } catch (err: any) {
+      // If store is not yet created, fallback to /stores/setup
+      if (err?.status === 404 || err?.statusCode === 404) {
+        return apiClient.post<StoreProfileDto>('/stores/setup', payload);
+      }
+      throw err;
+    }
+  },
+
+  updateStoreProfile: async (payload: Partial<StoreProfileDto>): Promise<StoreProfileDto> => {
+    return apiClient.put<StoreProfileDto>('/stores/my-store', payload);
   },
 
   initializeActivation: async (payload: {

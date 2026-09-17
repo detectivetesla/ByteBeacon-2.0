@@ -116,6 +116,15 @@ export const STOREFRONT_CONFIG = {
   extractSlugFromSubdomain: extractStoreSlugFromHost,
 
   /**
+   * Generates the clean root public URL for an agent's store.
+   * e.g., https://apisolutions.store/fastdata
+   */
+  getDirectStoreUrl: (slug: string): string => {
+    const cleanSlug = (slug || '').toLowerCase().trim().replace(/[^a-z0-9-]/g, '-');
+    return cleanSlug ? `https://apisolutions.store/${cleanSlug}` : 'https://apisolutions.store';
+  },
+
+  /**
    * Generates the canonical full public URL for an agent's store.
    * e.g., https://apisolutions.store/store/fastdata
    */
@@ -123,6 +132,15 @@ export const STOREFRONT_CONFIG = {
     const cleanSlug = (slug || '').toLowerCase().trim().replace(/[^a-z0-9-]/g, '-');
     const base = getBaseUrl();
     return cleanSlug ? `${base}/${cleanSlug}` : `${base}`;
+  },
+
+  /**
+   * Generates the merchant subdomain URL.
+   * e.g., https://fastdata.apisolutions.store
+   */
+  getSubdomainStoreUrl: (slug: string): string => {
+    const cleanSlug = (slug || '').toLowerCase().trim().replace(/[^a-z0-9-]/g, '-');
+    return cleanSlug ? `https://${cleanSlug}.apisolutions.store` : 'https://apisolutions.store';
   },
 
   /**

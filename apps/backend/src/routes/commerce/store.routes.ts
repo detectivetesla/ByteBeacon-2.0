@@ -193,13 +193,26 @@ export async function storeRoutes(
         agentId = insertAgent.rows[0]?.id || null;
       }
 
-      // Check slug collision
-      const slugCheck = await db.query('SELECT id FROM stores WHERE slug = $1 AND user_id != $2', [cleanSlug, req.user!.sub]);
-      if (slugCheck.rows.length > 0) {
-        throw new ConflictError('Store URL slug is already registered by another merchant.');
-      }
-
       const existingStore = await getAgentStore(req.user!.sub);
+
+      // Check slug collision excluding this specific store
+      if (existingStore) {
+        const slugCheck = await db.query(
+          'SELECT id FROM stores WHERE LOWER(slug) = $1 AND id != $2',
+          [cleanSlug, existingStore.id],
+        );
+        if (slugCheck.rows.length > 0) {
+          throw new ConflictError('Store URL slug is already registered by another merchant.');
+        }
+      } else {
+        const slugCheck = await db.query(
+          'SELECT id FROM stores WHERE LOWER(slug) = $1',
+          [cleanSlug],
+        );
+        if (slugCheck.rows.length > 0) {
+          throw new ConflictError('Store URL slug is already registered by another merchant.');
+        }
+      }
 
       let storeRow: StoreDto;
       if (existingStore) {
@@ -272,6 +285,120 @@ export async function storeRoutes(
       });
     },
   );
+
+  // 2b. UPDATE STORE PROFILE & CUSTOM SLUG (/stores/my-store)
+  const updateStoreProfileHandler = async (req: FastifyRequest<{
+    Body: {
+      storeName?: string;
+      slug?: string;
+      tagline?: string;
+      description?: string;
+      contactPhone?: string;
+      contactEmail?: string;
+      contactWhatsapp?: string;
+      primaryColor?: string;
+      accentColor?: string;
+      logoUrl?: string;
+      bannerUrl?: string;
+    };
+  }>, reply: FastifyReply) => {
+    const existingStore = await getAgentStore(req.user!.sub);
+    if (!existingStore) {
+      throw new NotFoundError('Store profile not found. Please initialize your store first.');
+    }
+
+    const {
+      storeName,
+      slug,
+      tagline,
+      description,
+      contactPhone,
+      contactEmail,
+      contactWhatsapp,
+      primaryColor,
+      accentColor,
+      logoUrl,
+      bannerUrl,
+    } = req.body || {};
+
+    let targetSlug = existingStore.slug;
+    if (slug && slug.trim()) {
+      const cleanSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      if (cleanSlug) {
+        // Check collision excluding THIS store's id
+        const slugCheck = await db.query(
+          'SELECT id FROM stores WHERE LOWER(slug) = $1 AND id != $2',
+          [cleanSlug, existingStore.id],
+        );
+        if (slugCheck.rows.length > 0) {
+          throw new ConflictError('Store URL slug is already registered by another merchant. Please choose a different slug.');
+        }
+        targetSlug = cleanSlug;
+      }
+    }
+
+    const updateRes = await db.query(
+      `UPDATE stores
+       SET store_name = COALESCE($1, store_name),
+           slug = $2,
+           tagline = COALESCE($3, tagline),
+           description = COALESCE($4, description),
+           contact_phone = COALESCE($5, contact_phone),
+           contact_email = COALESCE($6, contact_email),
+           contact_whatsapp = COALESCE($7, contact_whatsapp),
+           primary_color = COALESCE($8, primary_color),
+           accent_color = COALESCE($9, accent_color),
+           logo_url = COALESCE($10, logo_url),
+           banner_url = COALESCE($11, banner_url),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $12
+       RETURNING id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
+                 slug, tagline, description, logo_url as "logoUrl", banner_url as "bannerUrl",
+                 primary_color as "primaryColor", accent_color as "accentColor",
+                 contact_email as "contactEmail", contact_phone as "contactPhone",
+                 contact_whatsapp as "contactWhatsapp", payment_status as "paymentStatus",
+                 approval_status as "approvalStatus", store_status as "storeStatus",
+                 activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
+                 created_at as "createdAt", updated_at as "updatedAt"`,
+      [
+        storeName !== undefined && storeName.trim() ? storeName.trim() : null,
+        targetSlug,
+        tagline !== undefined ? tagline : null,
+        description !== undefined ? description : null,
+        contactPhone !== undefined ? contactPhone : null,
+        contactEmail !== undefined ? contactEmail : null,
+        contactWhatsapp !== undefined ? contactWhatsapp : null,
+        primaryColor !== undefined && primaryColor.trim() ? primaryColor.trim() : null,
+        accentColor !== undefined && accentColor.trim() ? accentColor.trim() : null,
+        logoUrl !== undefined ? logoUrl : null,
+        bannerUrl !== undefined ? bannerUrl : null,
+        existingStore.id,
+      ],
+    );
+
+    const storeRow = updateRes.rows[0];
+
+    if (auditService) {
+      await auditService.log({
+        correlationId: req.id,
+        actorId: req.user!.sub,
+        actorType: 'AGENT',
+        action: 'STORE_CONFIG_UPDATED',
+        resourceType: 'stores',
+        resourceId: storeRow.id,
+        metadata: { storeName: storeRow.storeName, slug: storeRow.slug },
+      });
+    }
+
+    return reply.status(200).send({
+      success: true,
+      data: storeRow,
+      message: 'Store profile and custom URL slug updated successfully.',
+    });
+  };
+
+  app.put('/stores/my-store', { preHandler: [authHooks.authenticateCustomer, maintenanceHook] }, updateStoreProfileHandler);
+  app.patch('/stores/my-store', { preHandler: [authHooks.authenticateCustomer, maintenanceHook] }, updateStoreProfileHandler);
 
   // 3. INITIALIZE STORE ACTIVATION PAYMENT (/stores/payment/initialize)
   app.post<{
@@ -784,12 +911,12 @@ export async function storeRoutes(
                 contact_whatsapp as "contactWhatsapp",
                 store_status as "storeStatus", approval_status as "approvalStatus"
          FROM stores
-         WHERE slug = $1 AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
+         WHERE (LOWER(slug) = $1 OR slug = $1) AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
         [cleanSlug],
       );
 
-      // Fallback: If 'default' slug requested, find first active store
-      if (storeRes.rows.length === 0 && (cleanSlug === 'default' || cleanSlug === 'store')) {
+      // Fallback: If 'default', 'store', or 'apisolutions' slug requested and not found, find first active store
+      if (storeRes.rows.length === 0 && (cleanSlug === 'default' || cleanSlug === 'store' || cleanSlug === 'apisolutions')) {
         storeRes = await db.query(
           `SELECT id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                   slug, tagline, description,
