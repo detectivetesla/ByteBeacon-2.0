@@ -85,7 +85,7 @@ describe('Agent Store & Custom Catalog Suite', () => {
             rows: [{ id: 'usr_agent_1', uuid: 'usr_agent_1', status: 'ACTIVE', role: 'agent' }],
           });
         }
-        if (sql.includes('FROM agents WHERE user_id = $1')) {
+        if (sql.includes('FROM agents WHERE user_id = $1') && !sql.includes('FROM stores')) {
           return Promise.resolve({
             rows: [{ id: 'agt_uuid_1' }],
           });
