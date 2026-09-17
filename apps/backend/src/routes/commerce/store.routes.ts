@@ -54,18 +54,36 @@ export async function storeRoutes(
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const maintenanceHook = createMaintenanceHook(featureFlagService);
 
-  // Self-heal: ensure stores branding and copy columns are TEXT without VARCHAR limits
-  db.query(`
-    DO $
-    BEGIN
-      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stores') THEN
-        ALTER TABLE stores ALTER COLUMN logo_url TYPE TEXT;
-        ALTER TABLE stores ALTER COLUMN banner_url TYPE TEXT;
-        ALTER TABLE stores ALTER COLUMN description TYPE TEXT;
-        ALTER TABLE stores ALTER COLUMN tagline TYPE TEXT;
-      END IF;
-    END $;
-  `).catch(() => {});
+    // Helper to ensure stores branding columns are TEXT even if preexisting database had VARCHAR(255)
+  async function ensureStoresBrandingColumnsText() {
+    try {
+      await db.query(`
+        DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stores') THEN
+            DROP VIEW IF EXISTS agent_stores CASCADE;
+            ALTER TABLE stores ALTER COLUMN logo_url TYPE TEXT;
+            ALTER TABLE stores ALTER COLUMN banner_url TYPE TEXT;
+            ALTER TABLE stores ALTER COLUMN tagline TYPE TEXT;
+            ALTER TABLE stores ALTER COLUMN description TYPE TEXT;
+            CREATE OR REPLACE VIEW agent_stores AS
+            SELECT 
+                id, agent_id, user_id, store_name, slug, tagline, description,
+                logo_url, banner_url, primary_color, accent_color, contact_email,
+                contact_phone, contact_whatsapp, payment_status, approval_status,
+                store_status as status, activation_fee_pesewas, paystack_reference,
+                admin_notes, approved_by, approved_at, created_at, updated_at
+            FROM stores;
+          END IF;
+        END $$;
+      `);
+    } catch {
+      // Ignored
+    }
+  }
+
+  // Initial self-heal on boot
+  ensureStoresBrandingColumnsText().catch(() => {});
 
   // Helper: Require user's store and ensure owner
   async function getAgentStore(userId: string) {
@@ -390,8 +408,7 @@ export async function storeRoutes(
       }
     }
 
-    const updateRes = await db.query(
-      `UPDATE stores
+    const updateQueryStr = `UPDATE stores
        SET store_name = COALESCE($1, store_name),
            slug = $2,
            tagline = COALESCE($3, tagline),
@@ -412,22 +429,30 @@ export async function storeRoutes(
                  contact_whatsapp as "contactWhatsapp", payment_status as "paymentStatus",
                  approval_status as "approvalStatus", store_status as "storeStatus",
                  activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
-                 created_at as "createdAt", updated_at as "updatedAt"`,
-      [
-        storeName !== undefined && storeName.trim() ? storeName.trim() : null,
-        targetSlug,
-        tagline !== undefined ? tagline : null,
-        description !== undefined ? description : null,
-        contactPhone !== undefined ? contactPhone : null,
-        contactEmail !== undefined ? contactEmail : null,
-        contactWhatsapp !== undefined ? contactWhatsapp : null,
-        primaryColor !== undefined && primaryColor.trim() ? primaryColor.trim() : null,
-        accentColor !== undefined && accentColor.trim() ? accentColor.trim() : null,
-        logoUrl !== undefined ? logoUrl : null,
-        bannerUrl !== undefined ? bannerUrl : null,
-        existingStore.id,
-      ],
-    );
+                 created_at as "createdAt", updated_at as "updatedAt"`;
+    const updateParams = [
+      storeName !== undefined && storeName.trim() ? storeName.trim() : null,
+      targetSlug,
+      tagline !== undefined ? tagline : null,
+      description !== undefined ? description : null,
+      contactPhone !== undefined ? contactPhone : null,
+      contactEmail !== undefined ? contactEmail : null,
+      contactWhatsapp !== undefined ? contactWhatsapp : null,
+      primaryColor !== undefined && primaryColor.trim() ? primaryColor.trim() : null,
+      accentColor !== undefined && accentColor.trim() ? accentColor.trim() : null,
+      logoUrl !== undefined ? logoUrl : null,
+      bannerUrl !== undefined ? bannerUrl : null,
+      existingStore.id,
+    ];
+
+    let updateRes: any;
+    try {
+      updateRes = await db.query(updateQueryStr, updateParams);
+    } catch (err: any) {
+      req.log.warn({ err }, 'Store update query failed, self-healing branding column types and retrying');
+      await ensureStoresBrandingColumnsText();
+      updateRes = await db.query(updateQueryStr, updateParams);
+    }
 
     const storeRow = updateRes.rows[0];
 
