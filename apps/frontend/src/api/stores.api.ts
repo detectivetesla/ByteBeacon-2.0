@@ -224,6 +224,37 @@ export interface StoreFinanceDto {
   };
 }
 
+export interface StoreTransactionRecordDto {
+  id: string;
+  reference: string;
+  type: 'SALE' | 'WITHDRAWAL' | string;
+  typeLabel: string;
+  details: string;
+  recipient: string;
+  grossAmountPesewas: number;
+  grossAmountGhs: number;
+  profitPesewas: number;
+  profitGhs: number;
+  status: string;
+  channel: string;
+  createdAt: string;
+}
+
+export interface StoreTransactionsResponseDto {
+  transactions: StoreTransactionRecordDto[];
+  summary: {
+    totalCount: number;
+    totalGrossGhs: number;
+    totalProfitGhs: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 export interface StoreSettingsDto {
   autoFulfill: boolean;
   smsAlerts: boolean;
@@ -423,6 +454,27 @@ export const storesApi = {
     if (params?.limit) query.set('limit', String(params.limit));
     const qs = query.toString();
     return apiClient.get<StoreFinanceDto>(`/stores/my-store/finance${qs ? `?${qs}` : ''}`);
+  },
+
+  // ─── Agent Commerce: Transactions Ledger ─────────────────────────
+
+  getStoreTransactions: async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    type?: string;
+    status?: string;
+    dateRange?: string;
+  }): Promise<StoreTransactionsResponseDto> => {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.type && params.type !== 'ALL') query.set('type', params.type);
+    if (params?.status && params.status !== 'ALL') query.set('status', params.status);
+    if (params?.dateRange && params.dateRange !== 'ALL') query.set('dateRange', params.dateRange);
+    const qs = query.toString();
+    return apiClient.get<StoreTransactionsResponseDto>(`/stores/my-store/transactions${qs ? `?${qs}` : ''}`);
   },
 
   // ─── Agent Commerce: Settings ────────────────────────────────────

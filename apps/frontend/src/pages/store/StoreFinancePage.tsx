@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Download, Loader2, ArrowDownToLine, Calendar, DollarSign } from 'lucide-react';
+import { Download, Loader2, ArrowDownToLine, Calendar, DollarSign, History } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
 
@@ -44,6 +44,14 @@ export const StoreFinancePage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/store-console/transactions')}
+            leftIcon={<History size={13} />}
+          >
+            Transactions Ledger
+          </Button>
           <Button
             variant="primary"
             size="sm"
@@ -102,8 +110,8 @@ export const StoreFinancePage: React.FC = () => {
             </Button>
           </div>
 
-          {/* 3 Summary Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
+          {/* 4 Summary Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
             <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
                 Gross Store Sales
@@ -112,6 +120,16 @@ export const StoreFinancePage: React.FC = () => {
                 GH₵ {((data?.grossSalesGhs !== undefined ? data.grossSalesGhs : (data?.grossSalesPesewas || 0) / 100)).toFixed(2)}
               </div>
               <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Customer payments processed</span>
+            </Card>
+
+            <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
+              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                Wholesale Fulfillment Cost
+              </span>
+              <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+                GH₵ {((data?.costGhs !== undefined ? data.costGhs : (data?.costPesewas || 0) / 100)).toFixed(2)}
+              </div>
+              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Base network cost</span>
             </Card>
 
             <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
@@ -140,10 +158,18 @@ export const StoreFinancePage: React.FC = () => {
 
           {/* Settlements Table */}
           <Card style={{ padding: 0, backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-2xl)', overflow: 'hidden' }}>
-            <div style={{ padding: 'var(--space-4) var(--space-6)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+            <div style={{ padding: 'var(--space-4) var(--space-6)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
                 Recent Storefront Settlements
               </h3>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => navigate('/store-console/transactions')}
+                style={{ color: '#10B981', fontWeight: 700 }}
+              >
+                View Full Ledger →
+              </Button>
             </div>
 
             <div style={{ overflowX: 'auto' }}>

@@ -1554,6 +1554,202 @@ export async function storeRoutes(
     }
   );
 
+  // 12b. GET STORE TRANSACTIONS (/stores/my-store/transactions)
+  app.get<{ Querystring: { page?: string; limit?: string; search?: string; type?: string; status?: string; dateRange?: string } }>(
+    '/stores/my-store/transactions',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req, reply) => {
+      try {
+        const store = await getAgentStore(req.user!.sub);
+        if (!store) {
+          return reply.send({
+            success: true,
+            data: {
+              transactions: [],
+              summary: { totalCount: 0, totalGrossGhs: 0, totalProfitGhs: 0 },
+              pagination: { page: 1, limit: 10, total: 0, totalPages: 1 },
+            },
+          });
+        }
+
+        const page = Math.max(1, parseInt(req.query.page || '1', 10));
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '10', 10)));
+        const offset = (page - 1) * limit;
+        const search = req.query.search?.trim();
+        const typeFilter = req.query.type;
+        const statusFilter = req.query.status;
+        const dateRange = req.query.dateRange;
+
+        let dateCondition = '';
+        if (dateRange === 'today') {
+          dateCondition = `AND created_at >= CURRENT_DATE`;
+        } else if (dateRange === '7d') {
+          dateCondition = `AND created_at >= NOW() - INTERVAL '7 days'`;
+        } else if (dateRange === '30d') {
+          dateCondition = `AND created_at >= NOW() - INTERVAL '30 days'`;
+        } else if (dateRange === '90d') {
+          dateCondition = `AND created_at >= NOW() - INTERVAL '90 days'`;
+        }
+
+        const ordersQuery = `
+          SELECT 
+            id, 
+            public_id as "reference", 
+            'CUSTOMER_ORDER' as "type", 
+            recipient_phone as "recipient",
+            network,
+            data_amount_mb as "dataAmountMb",
+            amount_pesewas as "grossAmountPesewas",
+            CASE
+              WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != '' 
+                THEN (pricing_snapshot->>'markupPesewas')::bigint
+              WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL 
+                THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
+              ELSE 0
+            END as "profitPesewas",
+            payment_status as "paymentStatus",
+            order_status as "orderStatus",
+            COALESCE(refund_status, 'NONE') as "refundStatus",
+            created_at as "createdAt"
+          FROM orders
+          WHERE store_id = $1 ${dateCondition}
+        `;
+
+        const payoutsQuery = `
+          SELECT
+            id,
+            reference,
+            'PAYOUT' as "type",
+            destination_account as "recipient",
+            destination_provider as "network",
+            0 as "dataAmountMb",
+            amount_pesewas as "grossAmountPesewas",
+            amount_pesewas as "profitPesewas",
+            status as "paymentStatus",
+            status as "orderStatus",
+            'NONE' as "refundStatus",
+            created_at as "createdAt"
+          FROM store_payouts
+          WHERE (store_id = $1 OR agent_id = (SELECT agent_id FROM stores WHERE id = $1 LIMIT 1)) ${dateCondition}
+        `;
+
+        const [ordersRes, payoutsRes] = await Promise.all([
+          db.query(ordersQuery, [store.id]),
+          db.query(payoutsQuery, [store.id]),
+        ]);
+
+        let allTx = [];
+
+        for (const o of ordersRes.rows) {
+          const isRefunded = o.refundStatus === 'COMPLETED' || o.refundStatus === 'REFUNDED';
+          let status = o.paymentStatus === 'PAID' ? 'PAID' : o.paymentStatus;
+          if (isRefunded) status = 'REFUNDED';
+
+          const dataLabel = o.dataAmountMb >= 1024 
+            ? ((o.dataAmountMb / 1024).toFixed(1) + ' GB') 
+            : ((o.dataAmountMb || 0) + ' MB');
+
+          allTx.push({
+            id: o.id,
+            reference: o.reference || o.id.slice(0, 10),
+            type: 'SALE',
+            typeLabel: 'Storefront Customer Purchase',
+            details: `${o.network || 'Data'} ${dataLabel} Bundle`,
+            recipient: o.recipient || '—',
+            grossAmountPesewas: parseInt(o.grossAmountPesewas, 10) || 0,
+            grossAmountGhs: (parseInt(o.grossAmountPesewas, 10) || 0) / 100,
+            profitPesewas: parseInt(o.profitPesewas, 10) || 0,
+            profitGhs: (parseInt(o.profitPesewas, 10) || 0) / 100,
+            status,
+            channel: 'Paystack (Customer Checkout)',
+            createdAt: o.createdAt,
+            rawDate: o.createdAt ? new Date(o.createdAt).getTime() : 0,
+          });
+        }
+
+        for (const p of payoutsRes.rows) {
+          allTx.push({
+            id: p.id,
+            reference: p.reference || p.id.slice(0, 10),
+            type: 'WITHDRAWAL',
+            typeLabel: 'Storefront Profit Withdrawal',
+            details: `Disbursement via ${p.network || 'MOMO'}`,
+            recipient: p.recipient || '—',
+            grossAmountPesewas: parseInt(p.grossAmountPesewas, 10) || 0,
+            grossAmountGhs: (parseInt(p.grossAmountPesewas, 10) || 0) / 100,
+            profitPesewas: parseInt(p.profitPesewas, 10) || 0,
+            profitGhs: (parseInt(p.profitPesewas, 10) || 0) / 100,
+            status: p.paymentStatus,
+            channel: `${p.network || 'MOMO'} Transfer`,
+            createdAt: p.createdAt,
+            rawDate: p.createdAt ? new Date(p.createdAt).getTime() : 0,
+          });
+        }
+
+        let filtered = allTx;
+
+        if (typeFilter && typeFilter !== 'ALL') {
+          filtered = filtered.filter(t => t.type === typeFilter);
+        }
+
+        if (statusFilter && statusFilter !== 'ALL') {
+          filtered = filtered.filter(t => t.status === statusFilter);
+        }
+
+        if (search) {
+          const s = search.toLowerCase();
+          filtered = filtered.filter(t => 
+            t.reference.toLowerCase().includes(s) ||
+            t.recipient.toLowerCase().includes(s) ||
+            t.details.toLowerCase().includes(s) ||
+            t.channel.toLowerCase().includes(s)
+          );
+        }
+
+        filtered.sort((a, b) => b.rawDate - a.rawDate);
+
+        const totalCount = filtered.length;
+        const totalGrossGhs = filtered
+          .filter(t => t.type === 'SALE' && t.status === 'PAID')
+          .reduce((sum, t) => sum + t.grossAmountGhs, 0);
+        const totalProfitGhs = filtered
+          .filter(t => t.type === 'SALE' && t.status === 'PAID')
+          .reduce((sum, t) => sum + t.profitGhs, 0);
+
+        const paginated = filtered.slice(offset, offset + limit);
+        const totalPages = Math.ceil(totalCount / limit) || 1;
+
+        return reply.send({
+          success: true,
+          data: {
+            transactions: paginated,
+            summary: {
+              totalCount,
+              totalGrossGhs: Number(totalGrossGhs.toFixed(2)),
+              totalProfitGhs: Number(totalProfitGhs.toFixed(2)),
+            },
+            pagination: {
+              page,
+              limit,
+              total: totalCount,
+              totalPages,
+            },
+          },
+        });
+      } catch (err) {
+        req.log.error(err);
+        return reply.send({
+          success: true,
+          data: {
+            transactions: [],
+            summary: { totalCount: 0, totalGrossGhs: 0, totalProfitGhs: 0 },
+            pagination: { page: 1, limit: 10, total: 0, totalPages: 1 },
+          },
+        });
+      }
+    }
+  );
+
   // 13. GET STORE SETTINGS (/stores/my-store/settings)
   app.get(
     '/stores/my-store/settings',

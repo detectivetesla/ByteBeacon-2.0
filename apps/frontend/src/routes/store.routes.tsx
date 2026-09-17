@@ -13,6 +13,7 @@ const StoreAnalyticsPage = withLazy(() => import('../pages/store/StoreAnalyticsP
 const StoreProfilePage = withLazy(() => import('../pages/store/StoreProfilePage.js'), 'StoreProfilePage');
 const StoreAppearancePage = withLazy(() => import('../pages/store/StoreAppearancePage.js'), 'StoreAppearancePage');
 const StoreFinancePage = withLazy(() => import('../pages/store/StoreFinancePage.js'), 'StoreFinancePage');
+const StoreTransactionsPage = withLazy(() => import('../pages/store/StoreTransactionsPage.js'), 'StoreTransactionsPage');
 const StoreSettingsPage = withLazy(() => import('../pages/store/StoreSettingsPage.js'), 'StoreSettingsPage');
 const NotificationsPage = withLazy(() => import('../pages/shared/NotificationsPage.js'), 'NotificationsPage');
 
@@ -74,8 +75,12 @@ export const storeRoutes: RouteObject[] = [
         element: <StoreFinancePage />,
       },
       {
+        path: 'revenue',
+        element: <Navigate to="/store-console/finance" replace />,
+      },
+      {
         path: 'transactions',
-        element: <StoreFinancePage />,
+        element: <StoreTransactionsPage />,
       },
       {
         path: 'notifications',
