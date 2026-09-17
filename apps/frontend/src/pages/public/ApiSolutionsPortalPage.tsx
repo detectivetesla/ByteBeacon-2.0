@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Store,
@@ -22,6 +22,68 @@ export const ApiSolutionsPortalPage: React.FC = () => {
 
   const [isDark, setIsDark] = useState(true);
   const [storeSlugInput, setStoreSlugInput] = useState('');
+
+  // Dynamic Head Metadata, Favicon, and Manifest (Zero ByteBeacon leaks)
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const originalTitle = document.title;
+      document.title = 'API Solutions — Independent Mobile Telecom Data Storefront Network';
+
+      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      const originalHref = link.href;
+      link.type = 'image/svg+xml';
+      link.href = '/storefront-icon.svg';
+
+      let manifestLink = document.querySelector("link[rel='manifest']") as HTMLLinkElement;
+      if (!manifestLink) {
+        manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        document.head.appendChild(manifestLink);
+      }
+      manifestLink.href = '/manifest.json';
+
+      const updatedMetas: { el: HTMLMetaElement; originalContent: string | null; isNew: boolean }[] = [];
+      const setOrCreateMeta = (attrName: string, attrVal: string, contentVal: string) => {
+        let el = document.querySelector(`meta[${attrName}="${attrVal}"]`) as HTMLMetaElement;
+        if (el) {
+          updatedMetas.push({ el, originalContent: el.getAttribute('content'), isNew: false });
+          el.setAttribute('content', contentVal);
+        } else {
+          el = document.createElement('meta');
+          el.setAttribute(attrName, attrVal);
+          el.setAttribute('content', contentVal);
+          document.head.appendChild(el);
+          updatedMetas.push({ el, originalContent: null, isNew: true });
+        }
+      };
+
+      setOrCreateMeta('name', 'description', 'API Solutions Network - Instant automated mobile telecom data delivery across Ghana.');
+      setOrCreateMeta('property', 'og:title', 'API Solutions — Independent Mobile Telecom Data Storefront Network');
+      setOrCreateMeta('property', 'og:description', 'Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana.');
+      setOrCreateMeta('property', 'og:site_name', 'API Solutions Network');
+      setOrCreateMeta('property', 'og:image', '/storefront-icon.svg');
+      setOrCreateMeta('name', 'twitter:title', 'API Solutions — Independent Mobile Telecom Data Storefront Network');
+      setOrCreateMeta('name', 'twitter:description', 'Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana.');
+      setOrCreateMeta('name', 'twitter:image', '/storefront-icon.svg');
+
+      return () => {
+        document.title = originalTitle;
+        link.href = originalHref;
+        updatedMetas.forEach(({ el, originalContent, isNew }) => {
+          if (isNew) {
+            el.remove();
+          } else if (originalContent !== null) {
+            el.setAttribute('content', originalContent);
+          }
+        });
+      };
+    }
+  }, []);
 
   // Order Tracking State
   const [trackOrderId, setTrackOrderId] = useState('');

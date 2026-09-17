@@ -2,10 +2,56 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="ByteBeacon - Fast, simple and reliable mobile data delivery across MTN, Telecel, and AirtelTigo in Ghana." />
-    <title>ByteBeacon — Mobile Data, Simplified</title>
+    <!-- Dynamic Synchronous Brand & Domain Shield (Runs before DOM render) -->
+    <script>
+      (function() {
+        try {
+          var host = (window.location && window.location.hostname ? window.location.hostname : '').toLowerCase().trim();
+          var isByteBeaconDomain = host === 'bytebeacon.online' || host.endsWith('.bytebeacon.online') || host.includes('bytebeacon');
+
+          if (isByteBeaconDomain) {
+            document.title = 'ByteBeacon — Mobile Data, Simplified';
+            var metaDesc = document.querySelector('meta[name="description"]');
+            if (metaDesc) metaDesc.setAttribute('content', 'ByteBeacon - Fast, simple and reliable mobile data delivery across MTN, Telecel, and AirtelTigo in Ghana.');
+            var iconLink = document.querySelector('link[rel~="icon"]');
+            if (iconLink) {
+              iconLink.type = 'image/png';
+              iconLink.href = '/favicon.png';
+            }
+            var manifestLink = document.querySelector('link[rel="manifest"]');
+            if (manifestLink) manifestLink.setAttribute('href', '/manifest-bytebeacon.json');
+          } else {
+            // Default to API Solutions White-Labeled Storefront Network
+            document.title = 'API Solutions — Independent Mobile Telecom Data Storefront Network';
+            var metaDesc = document.querySelector('meta[name="description"]');
+            if (metaDesc) metaDesc.setAttribute('content', 'API Solutions Network - Instant automated mobile telecom data delivery across Ghana.');
+            var iconLink = document.querySelector('link[rel~="icon"]');
+            if (iconLink) {
+              iconLink.type = 'image/svg+xml';
+              iconLink.href = '/storefront-icon.svg';
+            }
+            var manifestLink = document.querySelector('link[rel="manifest"]');
+            if (manifestLink) manifestLink.setAttribute('href', '/manifest.json');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/storefront-icon.svg" />
+    <link rel="alternate icon" type="image/png" href="/favicon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="description" content="API Solutions Network - Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana." />
+    <title>API Solutions — Independent Mobile Telecom Data Storefront Network</title>
+    <!-- Open Graph & Social Card Metadata (Zero platform leaks) -->
+    <meta property="og:title" content="API Solutions — Independent Mobile Telecom Data Storefront Network" />
+    <meta property="og:description" content="Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/storefront-icon.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="API Solutions — Independent Mobile Telecom Data Storefront Network" />
+    <meta name="twitter:description" content="Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana." />
+    <meta name="twitter:image" content="/storefront-icon.svg" />
+    <meta name="theme-color" content="#0A0C10" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   </head>

@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button/Button.js';
 import { EmptyState } from '../../components/ui/EmptyState/EmptyState.js';
 import { Search } from 'lucide-react';
 import { ordersApi } from '../../api/orders.api.js';
+import { isStorefrontHostname } from '../../config/storefront.config.js';
 
 export const OrderTrackingPage: React.FC = () => {
   const { orderId: paramOrderId } = useParams<{ orderId?: string }>();
@@ -16,6 +17,25 @@ export const OrderTrackingPage: React.FC = () => {
   const [activeOrder, setActiveOrder] = useState<CustomerOrderDetails | null>(null);
   const [searched, setSearched] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const originalTitle = document.title;
+      if (isStorefrontHostname()) {
+        document.title = 'Track Data Order · API Solutions Network';
+        const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+        if (link) {
+          link.type = 'image/svg+xml';
+          link.href = '/storefront-icon.svg';
+        }
+      } else {
+        document.title = 'Track Your Order · ByteBeacon';
+      }
+      return () => {
+        document.title = originalTitle;
+      };
+    }
+  }, []);
 
   const performSearch = useCallback(async (key: string) => {
     const trimmed = key.trim();

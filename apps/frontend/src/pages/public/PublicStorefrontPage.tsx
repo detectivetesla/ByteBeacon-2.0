@@ -343,8 +343,12 @@ export const PublicStorefrontPage: React.FC = () => {
       setOrCreateMeta('name', 'twitter:description', metaDescriptionText);
 
       return () => {
-        document.title = originalTitle;
-        link.href = originalHref;
+        document.title = originalTitle && !originalTitle.includes('ByteBeacon')
+          ? originalTitle
+          : 'API Solutions — Independent Mobile Telecom Data Storefront Network';
+        link.href = originalHref && !originalHref.includes('favicon.png')
+          ? originalHref
+          : '/storefront-icon.svg';
         updatedMetas.forEach(({ el, originalContent, isNew }) => {
           if (isNew) {
             el.remove();

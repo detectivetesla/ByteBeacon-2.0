@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { PublicStorefrontPage } from '../pages/public/PublicStorefrontPage.js';
+import { ApiSolutionsPortalPage } from '../pages/public/ApiSolutionsPortalPage.js';
 import { ToastProvider } from '../context/ToastContext.js';
 import { PlatformStatusProvider } from '../context/PlatformStatusContext.js';
 import { storesApi } from '../api/stores.api.js';
@@ -561,6 +562,43 @@ describe('Public Customer Storefront Integration Tests', () => {
     expect(decodeURIComponent(iconLink.href)).toContain('#F59E0B');
     expect(decodeURIComponent(iconLink.href)).toContain('>A<');
     expect(decodeURIComponent(iconLink.href)).not.toContain('ByteBeacon');
+  });
+
+  it('sets white-labeled document title, vector icon, manifest, and metadata on ApiSolutionsPortalPage', async () => {
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/']}>
+        <PlatformStatusProvider>
+          <ToastProvider>
+            <ApiSolutionsPortalPage />
+          </ToastProvider>
+        </PlatformStatusProvider>
+      </MemoryRouter>
+    );
+
+    // Verify title is white-labeled without ByteBeacon
+    expect(document.title).toBe('API Solutions — Independent Mobile Telecom Data Storefront Network');
+    expect(document.title).not.toContain('ByteBeacon');
+
+    // Verify favicon points to storefront-icon.svg
+    const iconLink = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    expect(iconLink).not.toBeNull();
+    expect(iconLink.href).toContain('/storefront-icon.svg');
+    expect(iconLink.href).not.toContain('favicon.png');
+
+    // Verify manifest points to white-labeled manifest.json
+    const manifestLink = document.querySelector("link[rel='manifest']") as HTMLLinkElement;
+    expect(manifestLink).not.toBeNull();
+    expect(manifestLink.getAttribute('href')).toBe('/manifest.json');
+
+    // Verify meta tags do not leak ByteBeacon
+    const descMeta = document.querySelector('meta[name="description"]');
+    expect(descMeta?.getAttribute('content')).toContain('API Solutions Network');
+    expect(descMeta?.getAttribute('content')).not.toContain('ByteBeacon');
+
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    expect(ogTitle?.getAttribute('content')).toBe('API Solutions — Independent Mobile Telecom Data Storefront Network');
+
+    unmount();
   });
 });
 
