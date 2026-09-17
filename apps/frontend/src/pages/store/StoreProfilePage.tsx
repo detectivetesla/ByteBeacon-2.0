@@ -40,6 +40,8 @@ export const StoreProfilePage: React.FC = () => {
   const [primaryColor, setPrimaryColor] = useState('#0066FF');
   const [accentColor, setAccentColor] = useState('#10B981');
   const [logoUrl, setLogoUrl] = useState('');
+  const [logoLoadError, setLogoLoadError] = useState(false);
+  const [isOptimizingLogo, setIsOptimizingLogo] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,12 +56,19 @@ export const StoreProfilePage: React.FC = () => {
       return;
     }
 
+    setIsOptimizingLogo(true);
+    setLogoLoadError(false);
     try {
       const optimizedUri = await optimizeImageFile(file, { maxWidth: 400, maxHeight: 400, quality: 0.88 });
       setLogoUrl(optimizedUri);
-      toastSuccess('Logo Ready', 'Logo optimized and preview updated. Click Save Store Profile to apply changes.');
+      toastSuccess('Logo Ready', 'Logo optimized and preview updated! Click Save Store Profile to apply.');
     } catch {
       toastError('Image Error', 'Failed to process selected image file.');
+    } finally {
+      setIsOptimizingLogo(false);
+      if (e.target) {
+        e.target.value = '';
+      }
     }
   };
 
@@ -405,11 +414,13 @@ export const StoreProfilePage: React.FC = () => {
                   boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
                 }}
               >
-                {logoUrl ? (
+                {logoUrl && !logoLoadError ? (
                   <img
                     src={logoUrl}
                     alt="Store Logo"
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    onLoad={() => setLogoLoadError(false)}
+                    onError={() => setLogoLoadError(true)}
                   />
                 ) : (
                   <span style={{ fontSize: '24px', fontWeight: 900, color: '#000000' }}>
@@ -432,16 +443,17 @@ export const StoreProfilePage: React.FC = () => {
                       color: '#000000',
                       fontSize: 'var(--font-size-xs)',
                       fontWeight: 800,
-                      cursor: 'pointer',
+                      cursor: isOptimizingLogo ? 'wait' : 'pointer',
                       boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
                     }}
                   >
                     <Upload size={14} />
-                    <span>Upload Logo File</span>
+                    <span>{isOptimizingLogo ? 'Optimizing Picture...' : 'Upload Picture from Local'}</span>
                     <input
                       type="file"
                       accept="image/png,image/jpeg,image/webp,image/svg+xml"
                       onChange={handleLogoFileUpload}
+                      disabled={isOptimizingLogo}
                       style={{ display: 'none' }}
                     />
                   </label>
@@ -451,7 +463,10 @@ export const StoreProfilePage: React.FC = () => {
                       variant="outline"
                       size="sm"
                       type="button"
-                      onClick={() => setLogoUrl('')}
+                      onClick={() => {
+                        setLogoUrl('');
+                        setLogoLoadError(false);
+                      }}
                       leftIcon={<Trash2 size={13} color="#EF4444" />}
                       style={{ color: '#EF4444', fontWeight: 700 }}
                     >
@@ -460,16 +475,46 @@ export const StoreProfilePage: React.FC = () => {
                   )}
 
                   <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                    PNG, JPG, SVG, WebP up to 2MB
+                    PNG, JPG, SVG, WebP up to 10MB
                   </span>
                 </div>
 
-                <Input
-                  placeholder="Or paste direct image URL (e.g. https://.../logo.png)"
-                  value={logoUrl}
-                  onChange={(e) => setLogoUrl(e.target.value)}
-                  style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
-                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <Input
+                    placeholder="Or paste direct image URL (e.g. https://.../logo.png)"
+                    value={logoUrl}
+                    onChange={(e) => {
+                      setLogoUrl(e.target.value);
+                      setLogoLoadError(false);
+                    }}
+                    style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-mono)' }}
+                  />
+
+                  {/* Live Image Validation Status */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.4rem' }}>
+                    {logoLoadError && logoUrl && (
+                      <span style={{ fontSize: '11px', color: '#EF4444', fontWeight: 600 }}>
+                        ⚠️ Unable to load image from this URL. Please verify link points to an image (.png, .jpg, .svg, .webp).
+                      </span>
+                    )}
+                    {!logoLoadError && logoUrl && (
+                      <span style={{ fontSize: '11px', color: '#10B981', fontWeight: 600 }}>
+                        ✓ Image active and ready to save
+                      </span>
+                    )}
+                    {logoUrl && (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) && (
+                      <a
+                        href={logoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: '11px', color: '#3B82F6', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 600 }}
+                      >
+                        <span>Test link in new tab</span>
+                        <ExternalLink size={10} />
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

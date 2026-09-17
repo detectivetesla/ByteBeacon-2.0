@@ -962,6 +962,9 @@ export const PublicStorefrontPage: React.FC = () => {
                   src={store.logoUrl}
                   alt={storeName}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
                 />
               ) : (
                 <Store size={20} />

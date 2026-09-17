@@ -68,11 +68,18 @@ export async function optimizeImageFile(
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, 0, 0, width, height);
 
-      // Check if image has transparency (PNG)
-      const hasAlpha = file.type === 'image/png' || file.type === 'image/webp';
-      const outputType = hasAlpha ? 'image/png' : 'image/jpeg';
-
-      const compressedDataUri = canvas.toDataURL(outputType, quality);
+      // Prefer modern WebP format for optimal compression, falling back to PNG/JPEG
+      let compressedDataUri = '';
+      try {
+        compressedDataUri = canvas.toDataURL('image/webp', quality);
+      } catch {
+        compressedDataUri = '';
+      }
+      if (!compressedDataUri || !compressedDataUri.startsWith('data:image/webp')) {
+        const hasAlpha = file.type === 'image/png' || file.type === 'image/webp' || file.type === 'image/gif';
+        const outputType = hasAlpha ? 'image/png' : 'image/jpeg';
+        compressedDataUri = canvas.toDataURL(outputType, quality);
+      }
       resolve(compressedDataUri);
     };
 
