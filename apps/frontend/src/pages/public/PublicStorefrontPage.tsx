@@ -162,8 +162,11 @@ export const PublicStorefrontPage: React.FC = () => {
   const handleNavClick = (target: StorefrontNavPage) => {
     setMobileMenuOpen(false);
     setActiveNav(target);
-    const isSubdomain = STOREFRONT_CONFIG.isStorefrontHost();
-    const basePath = isSubdomain ? '' : `/store/${storeSlug}`;
+    // Only omit slug from URL when on a real subdomain store (e.g. fastdata.apisolutions.store)
+    // On apex apisolutions.store (no subdomain slug), we must keep the slug in the path
+    const subdomainSlugVal = STOREFRONT_CONFIG.extractSlugFromSubdomain();
+    const isSubdomainStore = !!subdomainSlugVal;
+    const basePath = isSubdomainStore ? '' : `/store/${storeSlug}`;
     const targetPath = target === 'home' ? (basePath || '/') : `${basePath}/${target}`;
 
     if (typeof window !== 'undefined' && window.history?.pushState) {

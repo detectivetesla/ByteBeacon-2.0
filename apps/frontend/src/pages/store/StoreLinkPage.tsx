@@ -16,6 +16,8 @@ import {
   Loader2,
 } from 'lucide-react';
 
+import { STOREFRONT_CONFIG } from '../../config/storefront.config.js';
+
 export const StoreLinkPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
   const [store, setStore] = useState<StoreProfileDto | null>(null);
@@ -43,9 +45,8 @@ export const StoreLinkPage: React.FC = () => {
     load();
   }, [toastError]);
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://apisolutions.store';
   const storeSlug = store?.slug || 'my-store';
-  const storeUrl = `${origin}/store/${storeSlug}`;
+  const storeUrl = STOREFRONT_CONFIG.getStoreUrl(storeSlug);
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=15&data=${encodeURIComponent(storeUrl)}`;
 
   const handleCopyLink = () => {
