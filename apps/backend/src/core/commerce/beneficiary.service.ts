@@ -481,13 +481,17 @@ export class BeneficiaryService {
           ),
         );
 
-        // Check local approved records: local DB cache provides fallback when live provider is not queried
+        // Check local approved records: local DB cache provides authoritative approvals
         const approvedRes = await this.db.query(
-          `SELECT phone_number as "phoneNumber", 'VALIDATION' as "source"
+          `SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
            FROM beneficiary_validation
            WHERE phone_number = ANY($1)
              AND network = 'MTN'
-             AND validation_status IN ('VALID', 'APPROVED')
+             AND (
+               validation_status IN ('VALID', 'APPROVED')
+               OR provider_reference = 'ADMIN_APPROVED'
+               OR (validated_at IS NOT NULL AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP))
+             )
              AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
            UNION
            SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
@@ -496,40 +500,61 @@ export class BeneficiaryService {
              AND network = 'MTN'
              AND status = 'APPROVED'`,
           [queryPhones],
-        );
+        ).catch(() => ({ rows: [] }));
 
-        approvedRes.rows.forEach((r: any) => {
+        const approvedRows: any[] = [...(approvedRes.rows || [])];
+
+        // Check audit logs for historical admin approvals as resilient fallback
+        try {
+          const auditRes = await this.db.query(
+            `SELECT metadata->>'phoneNumber' as "phoneNumber", 'ADMIN_APPROVAL' as "source"
+             FROM audit_logs
+             WHERE action = 'BENEFICIARY_APPROVE'
+               AND (metadata->>'phoneNumber' = ANY($1) OR metadata->>'phone' = ANY($1))
+             LIMIT 10`,
+            [queryPhones],
+          );
+          if (auditRes.rows.length > 0) {
+            approvedRows.push(...auditRes.rows.filter((r: any) => Boolean(r.phoneNumber)));
+          }
+        } catch {
+          // Non-fatal if audit_logs table or index is unavailable
+        }
+
+        approvedRows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            const isExplicitlyLiveUnapproved = Boolean(
-              (norm && liveUnapprovedSet.has(norm)) || liveUnapprovedSet.has(r.phoneNumber)
-            );
-
-            // Admin approvals in pending_beneficiary_approvals are strictly authoritative
-            if (r.source === 'ADMIN_APPROVAL') {
-              if (norm) {
-                liveUnapprovedSet.delete(norm);
-                liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
-                liveUnapprovedSet.delete(`233${norm.slice(1)}`);
-                knownPhonesSet.add(norm);
-                knownPhonesSet.add(`+233${norm.slice(1)}`);
-                knownPhonesSet.add(`233${norm.slice(1)}`);
-                upstreamOrderableMap.set(norm, true);
-              }
-              liveUnapprovedSet.delete(r.phoneNumber);
-              knownPhonesSet.add(r.phoneNumber);
-            } else if (!isExplicitlyLiveUnapproved) {
-              // Stale validation cache is valid fallback only if live provider didn't explicitly return unapproved
-              if (norm) {
-                knownPhonesSet.add(norm);
-                knownPhonesSet.add(`+233${norm.slice(1)}`);
-                knownPhonesSet.add(`233${norm.slice(1)}`);
-                upstreamOrderableMap.set(norm, true);
-              }
-              knownPhonesSet.add(r.phoneNumber);
+            // Admin & validated DB records are strictly authoritative over upstream telecom precheck
+            if (norm) {
+              liveUnapprovedSet.delete(norm);
+              liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
+              liveUnapprovedSet.delete(`233${norm.slice(1)}`);
+              knownPhonesSet.add(norm);
+              knownPhonesSet.add(`+233${norm.slice(1)}`);
+              knownPhonesSet.add(`233${norm.slice(1)}`);
+              upstreamOrderableMap.set(norm, true);
             }
+            liveUnapprovedSet.delete(r.phoneNumber);
+            knownPhonesSet.add(r.phoneNumber);
           }
         });
+
+        // Self-heal: ensure beneficiary_validation has VALID status for approved numbers
+        if (approvedRows.length > 0) {
+          const approvedPhones = Array.from(new Set(approvedRows.map((r: any) => r.phoneNumber).filter(Boolean)));
+          if (approvedPhones.length > 0) {
+            await this.db.query(
+              `UPDATE beneficiary_validation
+               SET validation_status = 'VALID',
+                   provider_reference = COALESCE(provider_reference, 'ADMIN_APPROVED'),
+                   validated_at = COALESCE(validated_at, CURRENT_TIMESTAMP),
+                   expires_at = COALESCE(expires_at, CURRENT_TIMESTAMP + INTERVAL '30 days'),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE phone_number = ANY($1) AND network = 'MTN' AND validation_status != 'VALID'`,
+              [approvedPhones],
+            ).catch(() => {});
+          }
+        }
 
         // Check explicit pending or rejected records in local DB
         const pendingRes = await this.db.query(
@@ -668,7 +693,8 @@ export class BeneficiaryService {
                agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
                user_id = COALESCE(EXCLUDED.user_id, beneficiary_validation.user_id),
                updated_at = CURRENT_TIMESTAMP
-           WHERE beneficiary_validation.validation_status != 'APPROVED'`,
+           WHERE beneficiary_validation.validation_status NOT IN ('APPROVED', 'VALID')
+             AND (beneficiary_validation.expires_at IS NULL OR beneficiary_validation.expires_at <= CURRENT_TIMESTAMP)`,
           [unknownList, metadata, effectiveAgentId || null],
         ).catch(() => {});
       } catch {
@@ -1157,11 +1183,15 @@ export class BeneficiaryService {
         // Run both queries in parallel for faster results
         const [approvedRes, pendingRes] = await Promise.all([
           this.db.query(
-            `SELECT phone_number as "phoneNumber", 'VALIDATION' as "source"
+            `SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
              FROM beneficiary_validation
              WHERE phone_number = ANY($1)
                AND network = 'MTN'
-               AND validation_status IN ('VALID', 'APPROVED')
+               AND (
+                 validation_status IN ('VALID', 'APPROVED')
+                 OR provider_reference = 'ADMIN_APPROVED'
+                 OR (validated_at IS NOT NULL AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP))
+               )
                AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
              UNION
              SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
@@ -1170,7 +1200,7 @@ export class BeneficiaryService {
                AND network = 'MTN'
                AND status = 'APPROVED'`,
             [queryPhones],
-          ),
+          ).catch(() => ({ rows: [] })),
           this.db.query(
             `SELECT phone_number as "phoneNumber"
              FROM pending_beneficiary_approvals
@@ -1187,36 +1217,58 @@ export class BeneficiaryService {
           ),
         ]);
 
-        approvedRes.rows.forEach((r: any) => {
+        const approvedRows: any[] = [...(approvedRes.rows || [])];
+
+        // Resilient check of audit logs for approvals
+        try {
+          const auditRes = await this.db.query(
+            `SELECT metadata->>'phoneNumber' as "phoneNumber", 'ADMIN_APPROVAL' as "source"
+             FROM audit_logs
+             WHERE action = 'BENEFICIARY_APPROVE'
+               AND (metadata->>'phoneNumber' = ANY($1) OR metadata->>'phone' = ANY($1))
+             LIMIT 10`,
+            [queryPhones],
+          );
+          if (auditRes.rows.length > 0) {
+            approvedRows.push(...auditRes.rows.filter((r: any) => Boolean(r.phoneNumber)));
+          }
+        } catch {
+          // Non-fatal
+        }
+
+        approvedRows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            const isExplicitlyLiveUnapproved = Boolean(
-              (norm && liveUnapprovedSet.has(norm)) || liveUnapprovedSet.has(r.phoneNumber)
-            );
-
-            if (r.source === 'ADMIN_APPROVAL') {
-              if (norm) {
-                liveUnapprovedSet.delete(norm);
-                liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
-                liveUnapprovedSet.delete(`233${norm.slice(1)}`);
-                knownPhonesSet.add(norm);
-                knownPhonesSet.add(`+233${norm.slice(1)}`);
-                knownPhonesSet.add(`233${norm.slice(1)}`);
-                upstreamOrderableMap.set(norm, true);
-              }
-              liveUnapprovedSet.delete(r.phoneNumber);
-              knownPhonesSet.add(r.phoneNumber);
-            } else if (!isExplicitlyLiveUnapproved) {
-              if (norm) {
-                knownPhonesSet.add(norm);
-                knownPhonesSet.add(`+233${norm.slice(1)}`);
-                knownPhonesSet.add(`233${norm.slice(1)}`);
-                upstreamOrderableMap.set(norm, true);
-              }
-              knownPhonesSet.add(r.phoneNumber);
+            if (norm) {
+              liveUnapprovedSet.delete(norm);
+              liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
+              liveUnapprovedSet.delete(`233${norm.slice(1)}`);
+              knownPhonesSet.add(norm);
+              knownPhonesSet.add(`+233${norm.slice(1)}`);
+              knownPhonesSet.add(`233${norm.slice(1)}`);
+              upstreamOrderableMap.set(norm, true);
             }
+            liveUnapprovedSet.delete(r.phoneNumber);
+            knownPhonesSet.add(r.phoneNumber);
           }
         });
+
+        // Self-heal: ensure beneficiary_validation has VALID status for approved numbers
+        if (approvedRows.length > 0) {
+          const approvedPhones = Array.from(new Set(approvedRows.map((r: any) => r.phoneNumber).filter(Boolean)));
+          if (approvedPhones.length > 0) {
+            await this.db.query(
+              `UPDATE beneficiary_validation
+               SET validation_status = 'VALID',
+                   provider_reference = COALESCE(provider_reference, 'ADMIN_APPROVED'),
+                   validated_at = COALESCE(validated_at, CURRENT_TIMESTAMP),
+                   expires_at = COALESCE(expires_at, CURRENT_TIMESTAMP + INTERVAL '30 days'),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE phone_number = ANY($1) AND network = 'MTN' AND validation_status != 'VALID'`,
+              [approvedPhones],
+            ).catch(() => {});
+          }
+        }
 
         pendingRes.rows.forEach((r: any) => {
           if (r.phoneNumber) {
@@ -1311,7 +1363,8 @@ export class BeneficiaryService {
           ON CONFLICT (phone_number, network) DO UPDATE
           SET validation_status = 'PENDING',
               updated_at = CURRENT_TIMESTAMP
-          WHERE beneficiary_validation.validation_status != 'APPROVED'
+          WHERE beneficiary_validation.validation_status NOT IN ('APPROVED', 'VALID')
+            AND (beneficiary_validation.expires_at IS NULL OR beneficiary_validation.expires_at <= CURRENT_TIMESTAMP)
         `;
         await this.db.query(insertPendingQuery, [unknownList, metadata, _userId || null]).catch(() => {});
       } catch {
@@ -1808,8 +1861,10 @@ export class BeneficiaryService {
     let res = await this.db.query(
       `UPDATE beneficiary_validation
        SET validation_status = 'VALID',
+           provider_reference = 'ADMIN_APPROVED',
            validated_at = CURRENT_TIMESTAMP,
-           expires_at = $1
+           expires_at = $1,
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
        RETURNING id, phone_number as "phoneNumber", network, validation_status as "status"`,
       [expiresAt, id],
@@ -1818,16 +1873,34 @@ export class BeneficiaryService {
     if (res.rows.length > 0) {
       const phone = res.rows[0].phoneNumber;
       const net = res.rows[0].network;
+      const norm = this.normalizeGhanaPhone(phone);
+      const allPhoneVariants = Array.from(
+        new Set([phone, norm.normalized, `+233${norm.normalized.slice(1)}`, `233${norm.normalized.slice(1)}`]),
+      );
+
       await this.db.query(
         `UPDATE pending_beneficiary_approvals
          SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-         WHERE phone_number = $1 AND network = $2`,
-        [phone, net],
+         WHERE phone_number = ANY($1) AND network = $2`,
+        [allPhoneVariants, net],
       ).catch(() => {});
+
       if (this.cacheService) {
-        this.cacheService.deleteCachedResults(String(net), [phone]).catch(() => {});
+        await this.cacheService.deleteCachedResults(String(net), allPhoneVariants).catch(() => {});
+        await this.cacheService.setCachedResults(String(net), [{
+          phoneNumber: phone,
+          normalized: norm.normalized,
+          network: String(net),
+          status: 'APPROVED' as const,
+          isValid: true,
+          isKnown: true,
+          orderable: true,
+          message: 'Admin-approved MTN recipient',
+          cachedAt: Date.now(),
+          ttlSeconds: 30 * 24 * 60 * 60, // 30 days
+        }]).catch(() => {});
       }
-      (this.telecomProvider as any)?.clearCache?.([phone]);
+      (this.telecomProvider as any)?.clearCache?.(allPhoneVariants);
       return res.rows[0];
     }
 
@@ -1843,27 +1916,46 @@ export class BeneficiaryService {
     if (pendingRes.rows.length > 0) {
       const phone = pendingRes.rows[0].phoneNumber;
       const net = pendingRes.rows[0].network;
+      const norm = this.normalizeGhanaPhone(phone);
+      const allPhoneVariants = Array.from(
+        new Set([phone, norm.normalized, `+233${norm.normalized.slice(1)}`, `233${norm.normalized.slice(1)}`]),
+      );
+
       await this.db.query(
         `INSERT INTO beneficiary_validation (
-           phone_number, network, validation_status, validated_at, expires_at, created_at, updated_at
+           phone_number, network, validation_status, provider_reference, validated_at, expires_at, created_at, updated_at
          )
-         VALUES ($1, $2, 'VALID', CURRENT_TIMESTAMP, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         VALUES ($1, $2, 'VALID', 'ADMIN_APPROVED', CURRENT_TIMESTAMP, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT (phone_number, network) DO UPDATE
          SET validation_status = 'VALID',
+             provider_reference = 'ADMIN_APPROVED',
              validated_at = CURRENT_TIMESTAMP,
              expires_at = $3,
              updated_at = CURRENT_TIMESTAMP`,
-        [phone, net, expiresAt],
+        [norm.normalized, net, expiresAt],
       ).catch(() => {});
+
       if (this.cacheService) {
-        this.cacheService.deleteCachedResults(String(net), [phone]).catch(() => {});
+        await this.cacheService.deleteCachedResults(String(net), allPhoneVariants).catch(() => {});
+        await this.cacheService.setCachedResults(String(net), [{
+          phoneNumber: phone,
+          normalized: norm.normalized,
+          network: String(net),
+          status: 'APPROVED' as const,
+          isValid: true,
+          isKnown: true,
+          orderable: true,
+          message: 'Admin-approved MTN recipient',
+          cachedAt: Date.now(),
+          ttlSeconds: 30 * 24 * 60 * 60,
+        }]).catch(() => {});
       }
-      (this.telecomProvider as any)?.clearCache?.([phone]);
+      (this.telecomProvider as any)?.clearCache?.(allPhoneVariants);
       return {
         id: pendingRes.rows[0].id,
         phoneNumber: phone,
         network: net,
-        status: 'VALID',
+        status: 'APPROVED',
       };
     }
 
@@ -1878,28 +1970,48 @@ export class BeneficiaryService {
     if (orderRes.rows.length > 0) {
       const phone = orderRes.rows[0].phoneNumber;
       const net = orderRes.rows[0].network;
+      const norm = this.normalizeGhanaPhone(phone);
+      const allPhoneVariants = Array.from(
+        new Set([phone, norm.normalized, `+233${norm.normalized.slice(1)}`, `233${norm.normalized.slice(1)}`]),
+      );
+
       await this.db.query(
         `INSERT INTO beneficiary_validation (
-           phone_number, network, validation_status, validated_at, expires_at, created_at, updated_at
+           phone_number, network, validation_status, provider_reference, validated_at, expires_at, created_at, updated_at
          )
-         VALUES ($1, $2, 'VALID', CURRENT_TIMESTAMP, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         VALUES ($1, $2, 'VALID', 'ADMIN_APPROVED', CURRENT_TIMESTAMP, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT (phone_number, network) DO UPDATE
          SET validation_status = 'VALID',
+             provider_reference = 'ADMIN_APPROVED',
              validated_at = CURRENT_TIMESTAMP,
              expires_at = $3,
              updated_at = CURRENT_TIMESTAMP`,
-        [phone, net, expiresAt],
+        [norm.normalized, net, expiresAt],
       ).catch(() => {});
+
       await this.db.query(
         `UPDATE pending_beneficiary_approvals
          SET status = 'APPROVED', resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-         WHERE phone_number = $1 AND network = $2`,
-        [phone, net],
+         WHERE phone_number = ANY($1) AND network = $2`,
+        [allPhoneVariants, net],
       ).catch(() => {});
+
       if (this.cacheService) {
-        this.cacheService.deleteCachedResults(String(net), [phone]).catch(() => {});
+        await this.cacheService.deleteCachedResults(String(net), allPhoneVariants).catch(() => {});
+        await this.cacheService.setCachedResults(String(net), [{
+          phoneNumber: phone,
+          normalized: norm.normalized,
+          network: String(net),
+          status: 'APPROVED' as const,
+          isValid: true,
+          isKnown: true,
+          orderable: true,
+          message: 'Admin-approved MTN recipient',
+          cachedAt: Date.now(),
+          ttlSeconds: 30 * 24 * 60 * 60,
+        }]).catch(() => {});
       }
-      (this.telecomProvider as any)?.clearCache?.([phone]);
+      (this.telecomProvider as any)?.clearCache?.(allPhoneVariants);
       return {
         id: orderRes.rows[0].id,
         phoneNumber: phone,
