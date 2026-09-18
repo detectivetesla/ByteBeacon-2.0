@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Download, Loader2 } from 'lucide-react';
+import { Select } from '../../components/ui/index.js';
+import { Download, Loader2, RotateCcw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
 
@@ -38,16 +39,37 @@ const NETWORK_LABELS: Record<string, string> = {
 
 export const StoreAnalyticsPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
-  const [period, setPeriod] = useState<'7d' | '30d' | 'all'>('30d');
+  const [period, setPeriod] = useState<string>('30d');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [carrierFilter, setCarrierFilter] = useState<string>('ALL');
+  const [carrierSort, setCarrierSort] = useState<string>('highest_rev');
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const activeFilterCount =
+    (period !== '30d' || startDate || endDate ? 1 : 0) +
+    (carrierFilter !== 'ALL' ? 1 : 0) +
+    (carrierSort !== 'highest_rev' ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setPeriod('30d');
+    setStartDate('');
+    setEndDate('');
+    setCarrierFilter('ALL');
+    setCarrierSort('highest_rev');
+  };
 
   const fetchAnalytics = useCallback(async (isPolling = false) => {
     try {
       if (!isPolling) setLoading(true);
       setError(null);
-      const res = await storesApi.getStoreAnalytics({ period });
+      const res = await storesApi.getStoreAnalytics({
+        period: period !== 'custom' ? period : undefined,
+        startDate: period === 'custom' && startDate ? startDate : undefined,
+        endDate: period === 'custom' && endDate ? endDate : undefined,
+      });
       if (res) {
         const monthlyRevenueGhs = res.monthlyRevenueGhs !== undefined
           ? res.monthlyRevenueGhs
@@ -87,7 +109,7 @@ export const StoreAnalyticsPage: React.FC = () => {
     } finally {
       if (!isPolling) setLoading(false);
     }
-  }, [period, toastError]);
+  }, [period, startDate, endDate, toastError]);
 
   useEffect(() => {
     fetchAnalytics();
@@ -132,33 +154,74 @@ export const StoreAnalyticsPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {/* Period Selector Tabs */}
-          <div style={{ display: 'flex', backgroundColor: 'var(--color-bg-surface-elevated)', padding: '3px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
-            {[
-              { id: '7d', label: '7 Days' },
-              { id: '30d', label: '30 Days' },
-              { id: 'all', label: 'All Time' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setPeriod(tab.id as any)}
-                style={{
-                  padding: '0.35rem 0.75rem',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: period === tab.id ? 800 : 600,
-                  color: period === tab.id ? '#FFFFFF' : 'var(--color-text-secondary)',
-                  backgroundColor: period === tab.id ? '#A855F7' : 'transparent',
-                  border: 'none',
-                  borderRadius: 'var(--radius-md)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
+          {/* Period Selector Dropdown */}
+          <div style={{ minWidth: '150px' }}>
+            <Select
+              value={period}
+              onChange={(e) => {
+                setPeriod(e.target.value);
+                if (e.target.value !== 'custom') {
+                  setStartDate('');
+                  setEndDate('');
+                }
+              }}
+              options={[
+                { label: 'Today', value: 'today' },
+                { label: 'Yesterday', value: 'yesterday' },
+                { label: 'Last 7 Days', value: '7d' },
+                { label: 'Last 14 Days', value: '14d' },
+                { label: 'Last 30 Days', value: '30d' },
+                { label: 'All Time', value: 'all' },
+                { label: 'Custom Range...', value: 'custom' },
+              ]}
+            />
           </div>
+
+          {/* Custom Date Range Inputs */}
+          {period === 'custom' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-default)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-default)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+          )}
+
+          {/* Reset Filters */}
+          {activeFilterCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetFilters}
+              leftIcon={<RotateCcw size={12} />}
+              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+            >
+              Reset ({activeFilterCount})
+            </Button>
+          )}
 
           <Button
             variant="outline"
@@ -294,39 +357,88 @@ export const StoreAnalyticsPage: React.FC = () => {
 
           {/* Network Share Breakdown */}
           <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-            <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
-              Revenue by Network Carrier
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.15rem 0 var(--space-5) 0' }}>
-              Breakdown of data bundles purchased through your storefront.
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: 'var(--space-4)' }}>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                  Revenue by Network Carrier
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+                  Breakdown of data bundles purchased through your storefront.
+                </p>
+              </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
-              {data.networkBreakdown.length > 0 ? data.networkBreakdown.map((item) => {
-                const color = NETWORK_COLORS[item.network] || '#888888';
-                const label = NETWORK_LABELS[item.network] || item.network;
-                const r = parseInt(color.slice(1, 3), 16);
-                const g = parseInt(color.slice(3, 5), 16);
-                const b = parseInt(color.slice(5, 7), 16);
-
-                return (
-                  <div key={item.network} style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)', backgroundColor: `rgba(${r}, ${g}, ${b}, 0.08)`, border: `1px solid rgba(${r}, ${g}, ${b}, 0.3)` }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-                      <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: color, color: item.network === 'MTN' ? '#000000' : '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>{label}</span>
-                      <strong style={{ fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-data)' }}>GH₵ {item.revenueGhs.toFixed(2)}</strong>
-                    </div>
-                    <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ width: `${item.percentage}%`, height: '100%', backgroundColor: color }} />
-                    </div>
-                    <span style={{ display: 'block', fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)', marginTop: '0.35rem' }}>{item.percentage.toFixed(1)}% of total volume ({item.orderCount} orders)</span>
-                  </div>
-                );
-              }) : (
-                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 'var(--space-4)', color: 'var(--color-text-secondary)' }}>
-                  No network data available for this period.
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: '130px' }}>
+                  <Select
+                    value={carrierFilter}
+                    onChange={(e) => setCarrierFilter(e.target.value)}
+                    options={[
+                      { label: 'All Networks', value: 'ALL' },
+                      { label: 'MTN', value: 'MTN' },
+                      { label: 'Telecel', value: 'TELECEL' },
+                      { label: 'AirtelTigo', value: 'AIRTELTIGO' },
+                    ]}
+                  />
                 </div>
-              )}
+                <div style={{ minWidth: '140px' }}>
+                  <Select
+                    value={carrierSort}
+                    onChange={(e) => setCarrierSort(e.target.value)}
+                    options={[
+                      { label: 'Highest Revenue', value: 'highest_rev' },
+                      { label: 'Lowest Revenue', value: 'lowest_rev' },
+                      { label: 'Most Orders', value: 'most_orders' },
+                      { label: 'Least Orders', value: 'least_orders' },
+                    ]}
+                  />
+                </div>
+              </div>
             </div>
+
+            {(() => {
+              let list = [...data.networkBreakdown];
+              if (carrierFilter !== 'ALL') {
+                list = list.filter(item => item.network.toUpperCase() === carrierFilter.toUpperCase());
+              }
+              if (carrierSort === 'lowest_rev') {
+                list.sort((a, b) => a.revenueGhs - b.revenueGhs);
+              } else if (carrierSort === 'most_orders') {
+                list.sort((a, b) => b.orderCount - a.orderCount);
+              } else if (carrierSort === 'least_orders') {
+                list.sort((a, b) => a.orderCount - b.orderCount);
+              } else {
+                list.sort((a, b) => b.revenueGhs - a.revenueGhs);
+              }
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
+                  {list.length > 0 ? list.map((item) => {
+                    const color = NETWORK_COLORS[item.network] || '#888888';
+                    const label = NETWORK_LABELS[item.network] || item.network;
+                    const r = parseInt(color.slice(1, 3), 16);
+                    const g = parseInt(color.slice(3, 5), 16);
+                    const b = parseInt(color.slice(5, 7), 16);
+
+                    return (
+                      <div key={item.network} style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)', backgroundColor: `rgba(${r}, ${g}, ${b}, 0.08)`, border: `1px solid rgba(${r}, ${g}, ${b}, 0.3)` }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                          <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: color, color: item.network === 'MTN' ? '#000000' : '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>{label}</span>
+                          <strong style={{ fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-data)' }}>GH₵ {item.revenueGhs.toFixed(2)}</strong>
+                        </div>
+                        <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{ width: `${item.percentage}%`, height: '100%', backgroundColor: color }} />
+                        </div>
+                        <span style={{ display: 'block', fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)', marginTop: '0.35rem' }}>{item.percentage.toFixed(1)}% of total volume ({item.orderCount} orders)</span>
+                      </div>
+                    );
+                  }) : (
+                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 'var(--space-4)', color: 'var(--color-text-secondary)' }}>
+                      No network data available for this selection.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </Card>
         </>
       ) : null}

@@ -15,6 +15,7 @@ import {
   DollarSign,
   ChevronLeft,
   ChevronRight,
+  RotateCcw,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi, StoreTransactionRecordDto } from '../../api/stores.api.js';
@@ -39,10 +40,30 @@ export const StoreTransactionsPage: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [dateRange, setDateRange] = useState('30d');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [sortFilter, setSortFilter] = useState('newest');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+
+  const activeFilterCount =
+    (search.trim() ? 1 : 0) +
+    (typeFilter !== 'ALL' ? 1 : 0) +
+    (statusFilter !== 'ALL' ? 1 : 0) +
+    (dateRange !== '30d' || startDate || endDate ? 1 : 0) +
+    (sortFilter !== 'newest' ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setSearch('');
+    setTypeFilter('ALL');
+    setStatusFilter('ALL');
+    setDateRange('30d');
+    setStartDate('');
+    setEndDate('');
+    setSortFilter('newest');
+  };
 
   const fetchTransactions = useCallback(async (isPolling = false) => {
     try {
@@ -51,7 +72,10 @@ export const StoreTransactionsPage: React.FC = () => {
         search: debouncedSearch.trim() || undefined,
         type: typeFilter !== 'ALL' ? typeFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
-        dateRange: dateRange !== 'ALL' ? dateRange : undefined,
+        dateRange: dateRange !== 'ALL' && dateRange !== 'custom' ? dateRange : undefined,
+        startDate: dateRange === 'custom' && startDate ? startDate : undefined,
+        endDate: dateRange === 'custom' && endDate ? endDate : undefined,
+        sort: sortFilter !== 'newest' ? sortFilter : undefined,
         page,
         limit: pageSize,
       });
@@ -74,7 +98,7 @@ export const StoreTransactionsPage: React.FC = () => {
     } finally {
       if (!isPolling) setLoading(false);
     }
-  }, [debouncedSearch, typeFilter, statusFilter, dateRange, page, pageSize, toastError]);
+  }, [debouncedSearch, typeFilter, statusFilter, dateRange, startDate, endDate, sortFilter, page, pageSize, toastError]);
 
   useEffect(() => {
     fetchTransactions();
@@ -86,7 +110,7 @@ export const StoreTransactionsPage: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, typeFilter, statusFilter, dateRange, pageSize]);
+  }, [debouncedSearch, typeFilter, statusFilter, dateRange, startDate, endDate, sortFilter, pageSize]);
 
   const handleCopy = (ref: string) => {
     if (navigator?.clipboard?.writeText) {
@@ -215,7 +239,7 @@ export const StoreTransactionsPage: React.FC = () => {
       {/* Filter Bar */}
       <Card style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-          <div style={{ flex: '1 1 240px', minWidth: '220px' }}>
+          <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
             <SearchInput
               placeholder="Search reference, recipient, bundle..."
               value={search}
@@ -223,7 +247,7 @@ export const StoreTransactionsPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ minWidth: '150px' }}>
+          <div style={{ minWidth: '140px' }}>
             <Select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
@@ -241,9 +265,11 @@ export const StoreTransactionsPage: React.FC = () => {
               onChange={(e) => setStatusFilter(e.target.value)}
               options={[
                 { label: 'All Statuses', value: 'ALL' },
-                { label: 'Paid / Settled', value: 'PAID' },
+                { label: 'Delivered / Paid', value: 'PAID' },
+                { label: 'Processing', value: 'PROCESSING' },
                 { label: 'Pending', value: 'PENDING' },
                 { label: 'Failed', value: 'FAILED' },
+                { label: 'Cancelled', value: 'CANCELLED' },
                 { label: 'Refunded', value: 'REFUNDED' },
               ]}
             />
@@ -252,16 +278,84 @@ export const StoreTransactionsPage: React.FC = () => {
           <div style={{ minWidth: '130px' }}>
             <Select
               value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
+              onChange={(e) => {
+                setDateRange(e.target.value);
+                if (e.target.value !== 'custom') {
+                  setStartDate('');
+                  setEndDate('');
+                }
+              }}
               options={[
+                { label: 'All Time', value: 'ALL' },
                 { label: 'Today', value: 'today' },
+                { label: 'Yesterday', value: 'yesterday' },
                 { label: 'Last 7 Days', value: '7d' },
+                { label: 'Last 14 Days', value: '14d' },
                 { label: 'Last 30 Days', value: '30d' },
                 { label: 'Last 90 Days', value: '90d' },
-                { label: 'All Time', value: 'ALL' },
+                { label: 'Custom Range...', value: 'custom' },
               ]}
             />
           </div>
+
+          {/* Custom Date Range Inputs */}
+          {dateRange === 'custom' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-default)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-default)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+          )}
+
+          <div style={{ minWidth: '130px' }}>
+            <Select
+              value={sortFilter}
+              onChange={(e) => setSortFilter(e.target.value)}
+              options={[
+                { label: 'Newest First', value: 'newest' },
+                { label: 'Oldest First', value: 'oldest' },
+                { label: 'Highest Amount', value: 'highest' },
+                { label: 'Lowest Amount', value: 'lowest' },
+              ]}
+            />
+          </div>
+
+          {/* Reset Filters */}
+          {activeFilterCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetFilters}
+              leftIcon={<RotateCcw size={12} />}
+              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+            >
+              Reset ({activeFilterCount})
+            </Button>
+          )}
         </div>
       </Card>
 

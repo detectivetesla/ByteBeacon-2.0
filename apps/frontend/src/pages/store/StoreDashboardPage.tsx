@@ -32,19 +32,29 @@ export const StoreDashboardPage: React.FC = () => {
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [filterSearch, setFilterSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterPayment, setFilterPayment] = useState('');
   const [filterNetwork, setFilterNetwork] = useState('');
   const [filterDatePreset, setFilterDatePreset] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterSort, setFilterSort] = useState('newest');
 
   const activeFilterCount =
     (filterStatus ? 1 : 0) +
+    (filterPayment ? 1 : 0) +
     (filterNetwork ? 1 : 0) +
-    (filterDatePreset ? 1 : 0);
+    (filterDatePreset || filterStartDate || filterEndDate ? 1 : 0) +
+    (filterSort !== 'newest' ? 1 : 0);
 
   const handleResetFilters = () => {
     setFilterSearch('');
     setFilterStatus('');
+    setFilterPayment('');
     setFilterNetwork('');
     setFilterDatePreset('');
+    setFilterStartDate('');
+    setFilterEndDate('');
+    setFilterSort('newest');
   };
 
   useEffect(() => {
@@ -81,7 +91,12 @@ export const StoreDashboardPage: React.FC = () => {
         limit: 20,
         ...(filterSearch ? { search: filterSearch } : {}),
         ...(filterStatus ? { status: filterStatus } : {}),
+        ...(filterPayment ? { paymentStatus: filterPayment } : {}),
         ...(filterNetwork ? { network: filterNetwork } : {}),
+        ...(filterDatePreset && filterDatePreset !== 'custom' ? { dateRange: filterDatePreset } : {}),
+        ...(filterDatePreset === 'custom' && filterStartDate ? { startDate: filterStartDate } : {}),
+        ...(filterDatePreset === 'custom' && filterEndDate ? { endDate: filterEndDate } : {}),
+        ...(filterSort ? { sort: filterSort } : {}),
       });
       setStoreOrders(Array.isArray(res?.orders) ? res.orders : []);
     } catch {
@@ -89,7 +104,7 @@ export const StoreDashboardPage: React.FC = () => {
     } finally {
       setOrdersLoading(false);
     }
-  }, [filterStatus, filterNetwork]);
+  }, [filterStatus, filterPayment, filterNetwork, filterDatePreset, filterStartDate, filterEndDate, filterSort]);
 
   // Re-fetch when dropdown filters change
   useEffect(() => {
@@ -546,7 +561,7 @@ export const StoreDashboardPage: React.FC = () => {
         `}</style>
         <div className="store-filter-bar">
           {/* Search */}
-          <div style={{ position: 'relative', flex: 1, minWidth: '180px', maxWidth: '280px' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '180px', maxWidth: '240px' }}>
             <Search size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', pointerEvents: 'none' }} />
             <input
               type="text"
@@ -564,13 +579,70 @@ export const StoreDashboardPage: React.FC = () => {
             onChange={(e) => setFilterStatus(e.target.value)}
           >
             <option value="">All Statuses</option>
-            <option value="COMPLETED">Delivered</option>
             <option value="PROCESSING">Processing</option>
+            <option value="COMPLETED">Delivered</option>
+            <option value="FAILED">Failed</option>
             <option value="SUBMITTED">Submitted</option>
-            <option value="READY_FOR_FULFILLMENT">Ready</option>
+            <option value="CANCELLED">Cancelled</option>
+            <option value="READY_FOR_FULFILLMENT">Ready to Process</option>
+          </select>
+
+          {/* Payment Status Filter */}
+          <select
+            className="sf-select"
+            value={filterPayment}
+            onChange={(e) => setFilterPayment(e.target.value)}
+          >
+            <option value="">All Payments</option>
+            <option value="PAID">Paid</option>
+            <option value="PENDING">Pending</option>
             <option value="FAILED">Failed</option>
             <option value="CANCELLED">Cancelled</option>
           </select>
+
+          {/* Date Filter */}
+          <select
+            className="sf-select"
+            value={filterDatePreset}
+            onChange={(e) => {
+              setFilterDatePreset(e.target.value);
+              if (e.target.value !== 'custom') {
+                setFilterStartDate('');
+                setFilterEndDate('');
+              }
+            }}
+          >
+            <option value="">All Time</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="7d">Last 7 Days</option>
+            <option value="14d">Last 14 Days</option>
+            <option value="30d">Last 30 Days</option>
+            <option value="custom">Custom Range...</option>
+          </select>
+
+          {/* Custom Date Inputs */}
+          {filterDatePreset === 'custom' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <input
+                type="date"
+                className="sf-select"
+                style={{ padding: '0.35rem 0.5rem', fontSize: 'var(--font-size-xs)' }}
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+                placeholder="Start date"
+              />
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
+              <input
+                type="date"
+                className="sf-select"
+                style={{ padding: '0.35rem 0.5rem', fontSize: 'var(--font-size-xs)' }}
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
+                placeholder="End date"
+              />
+            </div>
+          )}
 
           {/* Network Filter */}
           <select
@@ -582,6 +654,18 @@ export const StoreDashboardPage: React.FC = () => {
             <option value="MTN">MTN</option>
             <option value="TELECEL">Telecel</option>
             <option value="AIRTELTIGO">AirtelTigo</option>
+          </select>
+
+          {/* Sort Filter */}
+          <select
+            className="sf-select"
+            value={filterSort}
+            onChange={(e) => setFilterSort(e.target.value)}
+          >
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="highest">Highest Amount</option>
+            <option value="lowest">Lowest Amount</option>
           </select>
 
           {/* Reset Filters */}

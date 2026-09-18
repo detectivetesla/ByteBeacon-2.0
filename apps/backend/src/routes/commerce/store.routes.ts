@@ -883,8 +883,13 @@ export async function storeRoutes(
   app.get<{
     Querystring: {
       status?: string;
+      paymentStatus?: string;
       network?: string;
       search?: string;
+      dateRange?: string;
+      startDate?: string;
+      endDate?: string;
+      sort?: string;
       page?: string;
       limit?: string;
     };
@@ -897,7 +902,7 @@ export async function storeRoutes(
         throw new ForbiddenError('Active store authorization required');
       }
 
-      const { status, network, search, page = '1', limit = '10' } = req.query || {};
+      const { status, paymentStatus, network, search, dateRange, startDate, endDate, sort = 'newest', page = '1', limit = '10' } = req.query || {};
       const offset = (Math.max(1, Number(page)) - 1) * Number(limit);
 
       const params: any[] = [store.id];
@@ -905,11 +910,12 @@ export async function storeRoutes(
 
       if (status && status !== 'ALL') {
         params.push(status);
-        if (['PAID', 'PENDING', 'CANCELLED', 'FAILED'].includes(status.toUpperCase())) {
-          whereClause += ` AND (o.payment_status = $${params.length} OR o.order_status = $${params.length})`;
-        } else {
-          whereClause += ` AND o.order_status = $${params.length}`;
-        }
+        whereClause += ` AND o.order_status = $${params.length}`;
+      }
+
+      if (paymentStatus && paymentStatus !== 'ALL') {
+        params.push(paymentStatus);
+        whereClause += ` AND o.payment_status = $${params.length}`;
       }
 
       if (network && network !== 'ALL') {
@@ -920,6 +926,36 @@ export async function storeRoutes(
       if (search && search.trim()) {
         params.push(`%${search.trim()}%`);
         whereClause += ` AND (o.public_id ILIKE $${params.length} OR o.recipient_phone ILIKE $${params.length})`;
+      }
+
+      if (startDate) {
+        params.push(startDate);
+        whereClause += ` AND o.created_at >= $${params.length}::timestamptz`;
+      }
+      if (endDate) {
+        params.push(endDate);
+        whereClause += ` AND o.created_at <= ($${params.length}::date + INTERVAL '1 day')::timestamptz`;
+      } else if (dateRange && dateRange !== 'ALL' && dateRange !== 'all') {
+        if (dateRange === 'today' || dateRange === 'TODAY') {
+          whereClause += ` AND o.created_at >= CURRENT_DATE`;
+        } else if (dateRange === 'yesterday' || dateRange === 'YESTERDAY') {
+          whereClause += ` AND o.created_at >= CURRENT_DATE - INTERVAL '1 day' AND o.created_at < CURRENT_DATE`;
+        } else if (dateRange === '7d' || dateRange === '7D') {
+          whereClause += ` AND o.created_at >= NOW() - INTERVAL '7 days'`;
+        } else if (dateRange === '14d' || dateRange === '14D') {
+          whereClause += ` AND o.created_at >= NOW() - INTERVAL '14 days'`;
+        } else if (dateRange === '30d' || dateRange === '30D') {
+          whereClause += ` AND o.created_at >= NOW() - INTERVAL '30 days'`;
+        }
+      }
+
+      let orderByClause = 'ORDER BY o.created_at DESC';
+      if (sort === 'oldest') {
+        orderByClause = 'ORDER BY o.created_at ASC';
+      } else if (sort === 'highest') {
+        orderByClause = 'ORDER BY o.amount_pesewas DESC';
+      } else if (sort === 'lowest') {
+        orderByClause = 'ORDER BY o.amount_pesewas ASC';
       }
 
       const countRes = await db.query(`SELECT COUNT(*) FROM orders o ${whereClause}`, params);
@@ -942,7 +978,7 @@ export async function storeRoutes(
                 o.created_at as "createdAt"
          FROM orders o
          ${whereClause}
-         ORDER BY o.created_at DESC
+         ${orderByClause}
          LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params,
       );
@@ -1953,7 +1989,7 @@ export async function storeRoutes(
   app.post('/stores/public/orders/:id/cancel', { preHandler: [maintenanceHook] }, handlePublicOrderCancel);
 
   // 10. GET STORE CUSTOMERS (/stores/my-store/customers)
-  app.get<{ Querystring: { search?: string; page?: string; limit?: string } }>(
+  app.get<{ Querystring: { search?: string; status?: string; dateRange?: string; startDate?: string; endDate?: string; sort?: string; page?: string; limit?: string } }>(
     '/stores/my-store/customers',
     { preHandler: [authHooks.authenticateCustomer] },
     async (req, reply) => {
@@ -1971,16 +2007,81 @@ export async function storeRoutes(
         }
 
         const search = req.query.search?.trim();
+        const statusFilter = req.query.status;
+        const dateRange = req.query.dateRange;
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
+        const sort = req.query.sort || 'newest';
         const page = Math.max(1, parseInt(req.query.page || '1', 10));
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '10', 10)));
         const offset = (page - 1) * limit;
 
-        let countQuery = `
-          SELECT COUNT(DISTINCT recipient_phone) as total
-          FROM orders
-          WHERE store_id = $1 AND payment_status = 'PAID'
+        const params: any[] = [store.id];
+        let whereExtra = '';
+
+        if (search) {
+          params.push(`%${search}%`);
+          whereExtra += ` AND recipient_phone ILIKE $${params.length}`;
+        }
+
+        if (startDate) {
+          params.push(startDate);
+          whereExtra += ` AND created_at >= $${params.length}::timestamptz`;
+        }
+        if (endDate) {
+          params.push(endDate);
+          whereExtra += ` AND created_at <= ($${params.length}::date + INTERVAL '1 day')::timestamptz`;
+        } else if (dateRange && dateRange !== 'ALL' && dateRange !== 'all') {
+          if (dateRange === 'today' || dateRange === 'TODAY') {
+            whereExtra += ` AND created_at >= CURRENT_DATE`;
+          } else if (dateRange === 'yesterday' || dateRange === 'YESTERDAY') {
+            whereExtra += ` AND created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE`;
+          } else if (dateRange === '7d' || dateRange === '7D') {
+            whereExtra += ` AND created_at >= NOW() - INTERVAL '7 days'`;
+          } else if (dateRange === '14d' || dateRange === '14D') {
+            whereExtra += ` AND created_at >= NOW() - INTERVAL '14 days'`;
+          } else if (dateRange === '30d' || dateRange === '30D') {
+            whereExtra += ` AND created_at >= NOW() - INTERVAL '30 days'`;
+          }
+        }
+
+        let orderByClause = 'ORDER BY MAX(created_at) DESC';
+        if (sort === 'oldest') {
+          orderByClause = 'ORDER BY MAX(created_at) ASC';
+        } else if (sort === 'highest') {
+          orderByClause = 'ORDER BY "totalSpentPesewas" DESC';
+        } else if (sort === 'lowest') {
+          orderByClause = 'ORDER BY "totalSpentPesewas" ASC';
+        } else if (sort === 'most_orders') {
+          orderByClause = 'ORDER BY "totalOrders" DESC';
+        } else if (sort === 'least_orders') {
+          orderByClause = 'ORDER BY "totalOrders" ASC';
+        }
+
+        let havingClause = '';
+        if (statusFilter && statusFilter !== 'ALL') {
+          if (statusFilter === 'ACTIVE') {
+            havingClause = `HAVING MAX(created_at) >= NOW() - INTERVAL '30 days'`;
+          } else if (statusFilter === 'INACTIVE') {
+            havingClause = `HAVING MAX(created_at) < NOW() - INTERVAL '30 days'`;
+          } else if (statusFilter === 'NEW') {
+            havingClause = `HAVING COUNT(CASE WHEN payment_status = 'PAID' THEN 1 END) = 1`;
+          } else if (statusFilter === 'RETURNING') {
+            havingClause = `HAVING COUNT(CASE WHEN payment_status = 'PAID' THEN 1 END) > 1`;
+          }
+        }
+
+        const countQuery = `
+          SELECT COUNT(*) as total FROM (
+            SELECT recipient_phone
+            FROM orders
+            WHERE store_id = $1 AND payment_status = 'PAID' ${whereExtra}
+            GROUP BY recipient_phone
+            ${havingClause}
+          ) sub
         `;
-        let dataQuery = `
+
+        const dataQuery = `
           SELECT 
             recipient_phone as "phone",
             COUNT(CASE WHEN payment_status = 'PAID' THEN 1 END) as "totalOrders",
@@ -1988,19 +2089,10 @@ export async function storeRoutes(
             MAX(created_at) as "lastPurchase",
             MIN(created_at) as "firstPurchase"
           FROM orders
-          WHERE store_id = $1 AND payment_status = 'PAID'
-        `;
-        const params: any[] = [store.id];
-
-        if (search) {
-          countQuery += ` AND recipient_phone ILIKE $2`;
-          dataQuery += ` AND recipient_phone ILIKE $2`;
-          params.push(`%${search}%`);
-        }
-
-        dataQuery += `
+          WHERE store_id = $1 AND payment_status = 'PAID' ${whereExtra}
           GROUP BY recipient_phone
-          ORDER BY MAX(created_at) DESC
+          ${havingClause}
+          ${orderByClause}
           LIMIT $${params.length + 1} OFFSET $${params.length + 2}
         `;
 
@@ -2053,7 +2145,7 @@ export async function storeRoutes(
   );
 
   // 11. GET STORE ANALYTICS (/stores/my-store/analytics)
-  app.get<{ Querystring: { period?: string } }>(
+  app.get<{ Querystring: { period?: string; startDate?: string; endDate?: string; network?: string } }>(
     '/stores/my-store/analytics',
     { preHandler: [authHooks.authenticateCustomer] },
     async (req, reply) => {
@@ -2079,11 +2171,30 @@ export async function storeRoutes(
         }
 
         const period = req.query.period || '30d';
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
+
         let dateFilter = `AND created_at >= CURRENT_DATE - INTERVAL '29 days'`;
         let trendDaysInterval = `'29 days'`;
-        if (period === '7d') {
+
+        if (startDate && endDate) {
+          dateFilter = `AND created_at >= '${startDate}'::timestamptz AND created_at <= ('${endDate}'::date + INTERVAL '1 day')::timestamptz`;
+          trendDaysInterval = `'29 days'`;
+        } else if (period === 'today') {
+          dateFilter = `AND created_at >= CURRENT_DATE`;
+          trendDaysInterval = `'1 day'`;
+        } else if (period === 'yesterday') {
+          dateFilter = `AND created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE`;
+          trendDaysInterval = `'2 days'`;
+        } else if (period === '7d') {
           dateFilter = `AND created_at >= CURRENT_DATE - INTERVAL '6 days'`;
           trendDaysInterval = `'6 days'`;
+        } else if (period === '14d') {
+          dateFilter = `AND created_at >= CURRENT_DATE - INTERVAL '13 days'`;
+          trendDaysInterval = `'13 days'`;
+        } else if (period === '30d') {
+          dateFilter = `AND created_at >= CURRENT_DATE - INTERVAL '29 days'`;
+          trendDaysInterval = `'29 days'`;
         } else if (period === 'all') {
           dateFilter = ``;
           trendDaysInterval = `'89 days'`;
@@ -2312,7 +2423,7 @@ export async function storeRoutes(
   );
 
   // 12b. GET STORE TRANSACTIONS (/stores/my-store/transactions)
-  app.get<{ Querystring: { page?: string; limit?: string; search?: string; type?: string; status?: string; dateRange?: string } }>(
+  app.get<{ Querystring: { page?: string; limit?: string; search?: string; type?: string; status?: string; dateRange?: string; startDate?: string; endDate?: string; sort?: string } }>(
     '/stores/my-store/transactions',
     { preHandler: [authHooks.authenticateCustomer] },
     async (req, reply) => {
@@ -2336,15 +2447,24 @@ export async function storeRoutes(
         const typeFilter = req.query.type;
         const statusFilter = req.query.status;
         const dateRange = req.query.dateRange;
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
+        const sort = req.query.sort || 'newest';
 
         let dateCondition = '';
-        if (dateRange === 'today') {
+        if (startDate && endDate) {
+          dateCondition = `AND created_at >= '${startDate}'::timestamptz AND created_at <= ('${endDate}'::date + INTERVAL '1 day')::timestamptz`;
+        } else if (dateRange === 'today' || dateRange === 'TODAY') {
           dateCondition = `AND created_at >= CURRENT_DATE`;
-        } else if (dateRange === '7d') {
+        } else if (dateRange === 'yesterday' || dateRange === 'YESTERDAY') {
+          dateCondition = `AND created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE`;
+        } else if (dateRange === '7d' || dateRange === '7D') {
           dateCondition = `AND created_at >= NOW() - INTERVAL '7 days'`;
-        } else if (dateRange === '30d') {
+        } else if (dateRange === '14d' || dateRange === '14D') {
+          dateCondition = `AND created_at >= NOW() - INTERVAL '14 days'`;
+        } else if (dateRange === '30d' || dateRange === '30D') {
           dateCondition = `AND created_at >= NOW() - INTERVAL '30 days'`;
-        } else if (dateRange === '90d') {
+        } else if (dateRange === '90d' || dateRange === '90D') {
           dateCondition = `AND created_at >= NOW() - INTERVAL '90 days'`;
         }
 
@@ -2463,7 +2583,15 @@ export async function storeRoutes(
           );
         }
 
-        filtered.sort((a, b) => b.rawDate - a.rawDate);
+        if (sort === 'oldest') {
+          filtered.sort((a, b) => a.rawDate - b.rawDate);
+        } else if (sort === 'highest') {
+          filtered.sort((a, b) => b.grossAmountGhs - a.grossAmountGhs);
+        } else if (sort === 'lowest') {
+          filtered.sort((a, b) => a.grossAmountGhs - b.grossAmountGhs);
+        } else {
+          filtered.sort((a, b) => b.rawDate - a.rawDate);
+        }
 
         const totalCount = filtered.length;
         const totalGrossGhs = filtered

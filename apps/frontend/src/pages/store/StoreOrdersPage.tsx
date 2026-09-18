@@ -20,6 +20,7 @@ import {
   Radio,
   CreditCard,
   DollarSign,
+  RotateCcw,
 } from 'lucide-react';
 
 // Format relative date
@@ -52,10 +53,33 @@ export const StoreOrdersPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [paymentFilter, setPaymentFilter] = useState<string>('ALL');
   const [networkFilter, setNetworkFilter] = useState<string>('ALL');
+  const [dateFilter, setDateFilter] = useState<string>('ALL');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [sortFilter, setSortFilter] = useState<string>('newest');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const debouncedSearch = useDebounce(searchQuery, 300);
   const [page, setPage] = useState<number>(1);
   const limit = 10;
+
+  const activeFilterCount =
+    (statusFilter !== 'ALL' ? 1 : 0) +
+    (paymentFilter !== 'ALL' ? 1 : 0) +
+    (networkFilter !== 'ALL' ? 1 : 0) +
+    (dateFilter !== 'ALL' || startDate || endDate ? 1 : 0) +
+    (sortFilter !== 'newest' ? 1 : 0) +
+    (searchQuery.trim() ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setStatusFilter('ALL');
+    setPaymentFilter('ALL');
+    setNetworkFilter('ALL');
+    setDateFilter('ALL');
+    setStartDate('');
+    setEndDate('');
+    setSortFilter('newest');
+    setSearchQuery('');
+  };
 
   const fetchOrders = useCallback(async (isPolling = false) => {
     if (!isPolling) setLoading(true);
@@ -65,6 +89,10 @@ export const StoreOrdersPage: React.FC = () => {
         paymentStatus: paymentFilter !== 'ALL' ? paymentFilter : undefined,
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
         search: debouncedSearch.trim() || undefined,
+        dateRange: dateFilter !== 'ALL' && dateFilter !== 'custom' ? dateFilter : undefined,
+        startDate: dateFilter === 'custom' && startDate ? startDate : undefined,
+        endDate: dateFilter === 'custom' && endDate ? endDate : undefined,
+        sort: sortFilter !== 'newest' ? sortFilter : undefined,
         page,
         limit,
       });
@@ -80,7 +108,7 @@ export const StoreOrdersPage: React.FC = () => {
     } finally {
       if (!isPolling) setLoading(false);
     }
-  }, [statusFilter, paymentFilter, networkFilter, debouncedSearch, page, limit, toastError]);
+  }, [statusFilter, paymentFilter, networkFilter, debouncedSearch, dateFilter, startDate, endDate, sortFilter, page, limit, toastError]);
 
   useEffect(() => {
     fetchOrders();
@@ -93,7 +121,7 @@ export const StoreOrdersPage: React.FC = () => {
   // Reset page to 1 when filters change
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, paymentFilter, networkFilter, searchQuery]);
+  }, [statusFilter, paymentFilter, networkFilter, dateFilter, startDate, endDate, sortFilter, searchQuery]);
 
   const orders = data?.orders || [];
   const pagination = data?.pagination || { page: 1, limit, total: 0, totalPages: 1 };
@@ -179,12 +207,13 @@ export const StoreOrdersPage: React.FC = () => {
               onChange={(e) => setStatusFilter(e.target.value)}
               options={[
                 { label: 'All Fulfillment', value: 'ALL' },
-                { label: 'Completed', value: 'COMPLETED' },
                 { label: 'Processing', value: 'PROCESSING' },
+                { label: 'Delivered', value: 'COMPLETED' },
+                { label: 'Failed', value: 'FAILED' },
+                { label: 'Submitted', value: 'SUBMITTED' },
+                { label: 'Cancelled', value: 'CANCELLED' },
                 { label: 'Ready to Process', value: 'READY_FOR_FULFILLMENT' },
                 { label: 'Created', value: 'CREATED' },
-                { label: 'Failed', value: 'FAILED' },
-                { label: 'Cancelled', value: 'CANCELLED' },
               ]}
             />
           </div>
@@ -196,13 +225,69 @@ export const StoreOrdersPage: React.FC = () => {
               onChange={(e) => setPaymentFilter(e.target.value)}
               options={[
                 { label: 'All Payments', value: 'ALL' },
-                { label: 'Paid Only', value: 'PAID' },
+                { label: 'Paid', value: 'PAID' },
                 { label: 'Pending', value: 'PENDING' },
-                { label: 'Cancelled', value: 'CANCELLED' },
                 { label: 'Failed', value: 'FAILED' },
+                { label: 'Cancelled', value: 'CANCELLED' },
               ]}
             />
           </div>
+
+          {/* Date Range Filter */}
+          <div style={{ minWidth: '130px' }}>
+            <Select
+              value={dateFilter}
+              onChange={(e) => {
+                setDateFilter(e.target.value);
+                if (e.target.value !== 'custom') {
+                  setStartDate('');
+                  setEndDate('');
+                }
+              }}
+              options={[
+                { label: 'All Time', value: 'ALL' },
+                { label: 'Today', value: 'today' },
+                { label: 'Yesterday', value: 'yesterday' },
+                { label: 'Last 7 Days', value: '7d' },
+                { label: 'Last 14 Days', value: '14d' },
+                { label: 'Last 30 Days', value: '30d' },
+                { label: 'Custom Range...', value: 'custom' },
+              ]}
+            />
+          </div>
+
+          {/* Custom Date Range Inputs */}
+          {dateFilter === 'custom' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-default)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-default)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+          )}
 
           {/* Network Filter */}
           <div style={{ minWidth: '120px' }}>
@@ -218,14 +303,41 @@ export const StoreOrdersPage: React.FC = () => {
             />
           </div>
 
+          {/* Sort Filter */}
+          <div style={{ minWidth: '130px' }}>
+            <Select
+              value={sortFilter}
+              onChange={(e) => setSortFilter(e.target.value)}
+              options={[
+                { label: 'Newest First', value: 'newest' },
+                { label: 'Oldest First', value: 'oldest' },
+                { label: 'Highest Amount', value: 'highest' },
+                { label: 'Lowest Amount', value: 'lowest' },
+              ]}
+            />
+          </div>
+
           {/* Search Query */}
-          <div style={{ minWidth: '180px', flex: '1 1 180px' }}>
+          <div style={{ minWidth: '160px', flex: '1 1 160px' }}>
             <SearchInput
               placeholder="Search phone, order ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+
+          {/* Reset Filters */}
+          {activeFilterCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetFilters}
+              leftIcon={<RotateCcw size={12} />}
+              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+            >
+              Reset ({activeFilterCount})
+            </Button>
+          )}
         </div>
       </Card>
 

@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { SearchInput } from '../../components/ui/index.js';
-import { Download, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { SearchInput, Select } from '../../components/ui/index.js';
+import { Download, ChevronLeft, ChevronRight, Loader2, RotateCcw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
@@ -14,7 +14,7 @@ interface StoreCustomerRecord {
   totalSpentGhs: number;
   lastPurchase: string;
   firstPurchase: string;
-  status: 'ACTIVE' | 'RETURNING' | 'NEW';
+  status: 'ACTIVE' | 'RETURNING' | 'NEW' | 'INACTIVE';
 }
 
 export const StoreCustomersPage: React.FC = () => {
@@ -24,15 +24,44 @@ export const StoreCustomersPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [dateFilter, setDateFilter] = useState('ALL');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [sortFilter, setSortFilter] = useState('newest');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+
+  const activeFilterCount =
+    (statusFilter !== 'ALL' ? 1 : 0) +
+    (dateFilter !== 'ALL' || startDate || endDate ? 1 : 0) +
+    (sortFilter !== 'newest' ? 1 : 0) +
+    (search.trim() ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setSearch('');
+    setStatusFilter('ALL');
+    setDateFilter('ALL');
+    setStartDate('');
+    setEndDate('');
+    setSortFilter('newest');
+  };
 
   const fetchCustomers = useCallback(async (isPolling = false) => {
     try {
       if (!isPolling) setLoading(true);
       setError(null);
-      const res = await storesApi.getStoreCustomers({ search: debouncedSearch.trim() || undefined, page, limit: 10 });
+      const res = await storesApi.getStoreCustomers({
+        search: debouncedSearch.trim() || undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        dateRange: dateFilter !== 'ALL' && dateFilter !== 'custom' ? dateFilter : undefined,
+        startDate: dateFilter === 'custom' && startDate ? startDate : undefined,
+        endDate: dateFilter === 'custom' && endDate ? endDate : undefined,
+        sort: sortFilter !== 'newest' ? sortFilter : undefined,
+        page,
+        limit: 10,
+      });
       if (res) {
         const customerList = res.customers || (res as any).items || [];
         const totalPages = res.pagination?.totalPages || 1;
@@ -52,7 +81,7 @@ export const StoreCustomersPage: React.FC = () => {
     } finally {
       if (!isPolling) setLoading(false);
     }
-  }, [debouncedSearch, page, toastError]);
+  }, [debouncedSearch, statusFilter, dateFilter, startDate, endDate, sortFilter, page, toastError]);
 
   useEffect(() => {
     fetchCustomers();
@@ -64,7 +93,7 @@ export const StoreCustomersPage: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, statusFilter, dateFilter, startDate, endDate, sortFilter]);
 
   const getRelativeDate = (dateString: string) => {
     if (!dateString) return 'N/A';
@@ -159,14 +188,117 @@ export const StoreCustomersPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* Filter */}
+      {/* Filter Bar */}
       <Card style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
-        <div style={{ maxWidth: '320px' }}>
-          <SearchInput
-            placeholder="Search customer phone..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+          {/* Search */}
+          <div style={{ minWidth: '180px', flex: '1 1 200px' }}>
+            <SearchInput
+              placeholder="Search customer phone..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          {/* Customer Status Filter */}
+          <div style={{ minWidth: '130px' }}>
+            <Select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              options={[
+                { label: 'All Customers', value: 'ALL' },
+                { label: 'Active (< 30d)', value: 'ACTIVE' },
+                { label: 'Returning (2+)', value: 'RETURNING' },
+                { label: 'New Customer', value: 'NEW' },
+                { label: 'Inactive (> 30d)', value: 'INACTIVE' },
+              ]}
+            />
+          </div>
+
+          {/* Last Purchase Date Filter */}
+          <div style={{ minWidth: '130px' }}>
+            <Select
+              value={dateFilter}
+              onChange={(e) => {
+                setDateFilter(e.target.value);
+                if (e.target.value !== 'custom') {
+                  setStartDate('');
+                  setEndDate('');
+                }
+              }}
+              options={[
+                { label: 'All Time', value: 'ALL' },
+                { label: 'Today', value: 'today' },
+                { label: 'Yesterday', value: 'yesterday' },
+                { label: 'Last 7 Days', value: '7d' },
+                { label: 'Last 14 Days', value: '14d' },
+                { label: 'Last 30 Days', value: '30d' },
+                { label: 'Custom Range...', value: 'custom' },
+              ]}
+            />
+          </div>
+
+          {/* Custom Date Range Inputs */}
+          {dateFilter === 'custom' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-default)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                  padding: '0.35rem 0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border-default)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+          )}
+
+          {/* Sort Filter */}
+          <div style={{ minWidth: '130px' }}>
+            <Select
+              value={sortFilter}
+              onChange={(e) => setSortFilter(e.target.value)}
+              options={[
+                { label: 'Newest First', value: 'newest' },
+                { label: 'Oldest First', value: 'oldest' },
+                { label: 'Highest Spent', value: 'highest' },
+                { label: 'Lowest Spent', value: 'lowest' },
+                { label: 'Most Orders', value: 'most_orders' },
+                { label: 'Least Orders', value: 'least_orders' },
+              ]}
+            />
+          </div>
+
+          {/* Reset Filters */}
+          {activeFilterCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetFilters}
+              leftIcon={<RotateCcw size={12} />}
+              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+            >
+              Reset ({activeFilterCount})
+            </Button>
+          )}
         </div>
       </Card>
 

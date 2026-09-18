@@ -444,14 +444,22 @@ export const storesApi = {
     paymentStatus?: string;
     network?: string;
     search?: string;
+    dateRange?: string;
+    startDate?: string;
+    endDate?: string;
+    sort?: string;
     page?: number;
     limit?: number;
   }): Promise<StoreOrdersResponseDto> => {
     const query = new URLSearchParams();
     if (params?.status && params.status !== 'ALL') query.set('status', params.status);
-    if (params?.paymentStatus && params.paymentStatus !== 'ALL') query.set('payment_status', params.paymentStatus);
+    if (params?.paymentStatus && params.paymentStatus !== 'ALL') query.set('paymentStatus', params.paymentStatus);
     if (params?.network && params.network !== 'ALL') query.set('network', params.network);
     if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.dateRange && params.dateRange !== 'ALL') query.set('dateRange', params.dateRange);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    if (params?.sort) query.set('sort', params.sort);
     if (params?.page) query.set('page', String(params.page));
     if (params?.limit) query.set('limit', String(params.limit));
     const qs = query.toString();
@@ -462,11 +470,21 @@ export const storesApi = {
 
   getStoreCustomers: async (params?: {
     search?: string;
+    status?: string;
+    dateRange?: string;
+    startDate?: string;
+    endDate?: string;
+    sort?: string;
     page?: number;
     limit?: number;
   }): Promise<StoreCustomersResponseDto> => {
     const query = new URLSearchParams();
     if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.status && params.status !== 'ALL') query.set('status', params.status);
+    if (params?.dateRange && params.dateRange !== 'ALL') query.set('dateRange', params.dateRange);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    if (params?.sort) query.set('sort', params.sort);
     if (params?.page) query.set('page', String(params.page));
     if (params?.limit) query.set('limit', String(params.limit));
     const qs = query.toString();
@@ -476,10 +494,14 @@ export const storesApi = {
   // ─── Agent Commerce: Analytics ───────────────────────────────────
 
   getStoreAnalytics: async (params?: {
-    period?: '7d' | '30d' | 'all' | 'month';
+    period?: string;
+    startDate?: string;
+    endDate?: string;
   }): Promise<StoreAnalyticsDto> => {
     const query = new URLSearchParams();
     if (params?.period) query.set('period', params.period);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
     const qs = query.toString();
     return apiClient.get<StoreAnalyticsDto>(`/stores/my-store/analytics${qs ? `?${qs}` : ''}`);
   },
@@ -506,6 +528,9 @@ export const storesApi = {
     type?: string;
     status?: string;
     dateRange?: string;
+    startDate?: string;
+    endDate?: string;
+    sort?: string;
   }): Promise<StoreTransactionsResponseDto> => {
     const query = new URLSearchParams();
     if (params?.page) query.set('page', String(params.page));
@@ -514,6 +539,9 @@ export const storesApi = {
     if (params?.type && params.type !== 'ALL') query.set('type', params.type);
     if (params?.status && params.status !== 'ALL') query.set('status', params.status);
     if (params?.dateRange && params.dateRange !== 'ALL') query.set('dateRange', params.dateRange);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    if (params?.sort) query.set('sort', params.sort);
     const qs = query.toString();
     return apiClient.get<StoreTransactionsResponseDto>(`/stores/my-store/transactions${qs ? `?${qs}` : ''}`);
   },
