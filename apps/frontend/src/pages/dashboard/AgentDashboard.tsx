@@ -4,6 +4,7 @@ import { MetricCard, Card } from '../../components/ui/Card/Card.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
+import { Select } from '../../components/ui/Select/Select.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { Avatar } from '../../components/ui/Avatar/Avatar.js';
 import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
@@ -30,6 +31,9 @@ import {
   Zap,
   CreditCard,
   PackageX,
+  Search,
+  RotateCcw,
+  Filter,
 } from 'lucide-react';
 
 interface AgentOrderRow {
@@ -57,11 +61,54 @@ export const AgentDashboard: React.FC = () => {
   const [revenueData, setRevenueData] = useState<Record<ChartPeriod, PeriodStats> | undefined>(undefined);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Dashboard filter state
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterNetwork, setFilterNetwork] = useState('');
+  const [filterDatePreset, setFilterDatePreset] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+
+  const activeFilterCount =
+    (filterStatus ? 1 : 0) +
+    (filterNetwork ? 1 : 0) +
+    (filterDatePreset || filterStartDate ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setFilterSearch('');
+    setFilterStatus('');
+    setFilterNetwork('');
+    setFilterDatePreset('');
+    setFilterStartDate('');
+    setFilterEndDate('');
+  };
+
+  const getDateRange = useCallback((): { startDate?: string; endDate?: string } => {
+    if (filterStartDate && filterEndDate) return { startDate: filterStartDate, endDate: filterEndDate };
+    if (!filterDatePreset) return {};
+    const now = new Date();
+    const end = now.toISOString().slice(0, 10);
+    switch (filterDatePreset) {
+      case 'TODAY': return { startDate: end, endDate: end };
+      case '7D': return { startDate: new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), endDate: end };
+      case '30D': return { startDate: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10), endDate: end };
+      case '90D': return { startDate: new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10), endDate: end };
+      default: return {};
+    }
+  }, [filterDatePreset, filterStartDate, filterEndDate]);
+
   const fetchAgentDashboardData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Fetch live agent orders
-      const ordersRes = await ordersApi.listAgentOrders({ limit: 20 }).catch(() => null);
+      // Build filter params for orders
+      const dateRange = getDateRange();
+      const ordersRes = await ordersApi.listAgentOrders({
+        limit: 20,
+        ...(filterSearch ? { search: filterSearch } : {}),
+        ...(filterStatus ? { status: filterStatus as OrderStatus } : {}),
+        ...(filterNetwork ? { network: filterNetwork as NetworkProvider } : {}),
+        ...dateRange,
+      }).catch(() => null);
       if (ordersRes) {
         const orderList = Array.isArray(ordersRes.orders)
           ? ordersRes.orders
@@ -115,12 +162,20 @@ export const AgentDashboard: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [filterStatus, filterNetwork, getDateRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-fetch when dropdown/date filters change
   useEffect(() => {
     fetchAgentDashboardData();
   }, [fetchAgentDashboardData]);
 
+  // Debounced search — re-fetch 400ms after user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchAgentDashboardData();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [filterSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derived live metrics from real backend database data
   const orderCount = orders.length;
@@ -509,6 +564,173 @@ export const AgentDashboard: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => (window.location.href = '/agent/orders')}>
             View all orders →
           </Button>
+        </div>
+
+        {/* Filter Bar */}
+        <style>{`
+          .agent-filter-bar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            flex-wrap: wrap;
+            margin-bottom: var(--space-4);
+            padding: var(--space-3) var(--space-4);
+            background: var(--color-bg-base);
+            border-radius: var(--radius-xl);
+            border: 1px solid var(--color-border-subtle);
+          }
+          .agent-filter-bar .filter-search-input {
+            flex: 1;
+            min-width: 180px;
+            max-width: 280px;
+            padding: 0.45rem 0.7rem 0.45rem 2rem;
+            font-size: var(--font-size-xs);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--color-border-default);
+            background: var(--color-bg-surface);
+            color: var(--color-text-primary);
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+          }
+          .agent-filter-bar .filter-search-input:focus {
+            border-color: var(--color-agent);
+          }
+          .agent-filter-bar .filter-search-input::placeholder {
+            color: var(--color-text-muted);
+          }
+          .agent-filter-bar select.filter-select {
+            padding: 0.45rem 0.6rem;
+            font-size: var(--font-size-xs);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--color-border-default);
+            background: var(--color-bg-surface);
+            color: var(--color-text-primary);
+            font-family: inherit;
+            cursor: pointer;
+            min-width: 120px;
+            outline: none;
+          }
+          .agent-filter-bar select.filter-select:focus {
+            border-color: var(--color-agent);
+          }
+          .agent-filter-bar .filter-date-input {
+            padding: 0.4rem 0.6rem;
+            font-size: var(--font-size-xs);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--color-border-default);
+            background: var(--color-bg-surface);
+            color: var(--color-text-primary);
+            font-family: inherit;
+            outline: none;
+            max-width: 140px;
+          }
+          .agent-filter-bar .filter-date-input:focus {
+            border-color: var(--color-agent);
+          }
+          @media (max-width: 767px) {
+            .agent-filter-bar {
+              flex-direction: column;
+              align-items: stretch;
+            }
+            .agent-filter-bar .filter-search-input {
+              max-width: 100%;
+            }
+          }
+        `}</style>
+        <div className="agent-filter-bar">
+          {/* Search */}
+          <div style={{ position: 'relative', flex: 1, minWidth: '180px', maxWidth: '280px' }}>
+            <Search size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', pointerEvents: 'none' }} />
+            <input
+              type="text"
+              className="filter-search-input"
+              placeholder="Search phone, ref..."
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+            />
+          </div>
+
+          {/* Status Filter */}
+          <select
+            className="filter-select"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="">All Statuses</option>
+            <option value={OrderStatus.COMPLETED}>Delivered</option>
+            <option value={OrderStatus.PROCESSING}>Processing</option>
+            <option value={OrderStatus.SUBMITTED}>Submitted</option>
+            <option value={OrderStatus.READY_FOR_FULFILLMENT}>Ready</option>
+            <option value={OrderStatus.FAILED}>Failed</option>
+            <option value={OrderStatus.CANCELLED}>Cancelled</option>
+          </select>
+
+          {/* Network Filter */}
+          <select
+            className="filter-select"
+            value={filterNetwork}
+            onChange={(e) => setFilterNetwork(e.target.value)}
+          >
+            <option value="">All Networks</option>
+            <option value={NetworkProvider.MTN}>MTN</option>
+            <option value={NetworkProvider.TELECEL}>Telecel</option>
+            <option value={NetworkProvider.AIRTELTIGO}>AirtelTigo</option>
+          </select>
+
+          {/* Date Preset Filter */}
+          <select
+            className="filter-select"
+            value={filterDatePreset}
+            onChange={(e) => {
+              setFilterDatePreset(e.target.value);
+              if (e.target.value !== 'CUSTOM') {
+                setFilterStartDate('');
+                setFilterEndDate('');
+              }
+            }}
+          >
+            <option value="">Any Date</option>
+            <option value="TODAY">Today</option>
+            <option value="7D">Last 7 Days</option>
+            <option value="30D">Last 30 Days</option>
+            <option value="90D">Last 90 Days</option>
+            <option value="CUSTOM">Custom Range</option>
+          </select>
+
+          {/* Custom Date Range (only when CUSTOM is selected) */}
+          {filterDatePreset === 'CUSTOM' && (
+            <>
+              <input
+                type="date"
+                className="filter-date-input"
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+                placeholder="Start date"
+              />
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
+              <input
+                type="date"
+                className="filter-date-input"
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
+                placeholder="End date"
+              />
+            </>
+          )}
+
+          {/* Reset Filters */}
+          {activeFilterCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetFilters}
+              leftIcon={<RotateCcw size={12} />}
+              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+            >
+              Reset ({activeFilterCount})
+            </Button>
+          )}
         </div>
 
         {isLoading ? (
