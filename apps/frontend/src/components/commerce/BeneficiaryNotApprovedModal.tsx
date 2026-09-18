@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, X, Clock } from 'lucide-react';
 
 export interface BeneficiaryNotApprovedModalProps {
   isOpen: boolean;
@@ -212,6 +212,29 @@ export const BeneficiaryNotApprovedModal: React.FC<BeneficiaryNotApprovedModalPr
                 ))}
               </div>
 
+              {/* 3-5 Working Days Feedback Box */}
+              <div
+                style={{
+                  backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                }}
+              >
+                <Clock size={18} color="#60a5fa" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div>
+                  <div style={{ color: '#93c5fd', fontSize: '13px', fontWeight: 700 }}>
+                    Approval Timeline: 3–5 Working Days
+                  </div>
+                  <div style={{ color: '#d1d5db', fontSize: '12.5px', marginTop: '3px', lineHeight: 1.45 }}>
+                    These numbers have been recorded and submitted for network whitelisting. They will be reviewed and approved within the next <strong style={{ color: '#ffffff' }}>3–5 working days</strong>.
+                  </div>
+                </div>
+              </div>
+
               <p
                 style={{
                   margin: 0,
@@ -244,6 +267,29 @@ export const BeneficiaryNotApprovedModal: React.FC<BeneficiaryNotApprovedModalPr
                 recorded and will be added to our beneficiary list. Please try again
                 later.
               </p>
+
+              {/* 3-5 Working Days Feedback Box */}
+              <div
+                style={{
+                  backgroundColor: 'rgba(59, 130, 246, 0.12)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  borderRadius: '10px',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                }}
+              >
+                <Clock size={18} color="#60a5fa" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div>
+                  <div style={{ color: '#93c5fd', fontSize: '13px', fontWeight: 700 }}>
+                    Approval Timeline: 3–5 Working Days
+                  </div>
+                  <div style={{ color: '#d1d5db', fontSize: '12.5px', marginTop: '3px', lineHeight: 1.45 }}>
+                    Your number has been submitted for network whitelisting and will be approved within the next <strong style={{ color: '#ffffff' }}>3–5 working days</strong>. Once approved, you can return and purchase data bundles instantly.
+                  </div>
+                </div>
+              </div>
 
               <p
                 style={{

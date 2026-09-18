@@ -667,6 +667,26 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Compliance / 3-5 Days Approval Timeline Notice Banner */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          padding: '0.75rem 1rem',
+          borderRadius: 'var(--radius-lg)',
+          backgroundColor: 'rgba(59, 130, 246, 0.08)',
+          border: '1px solid rgba(59, 130, 246, 0.25)',
+          fontSize: 'var(--font-size-xs)',
+          color: 'var(--color-text-secondary)',
+        }}
+      >
+        <Clock size={16} color="#3B82F6" style={{ flexShrink: 0 }} />
+        <span>
+          <strong style={{ color: 'var(--color-text-primary)' }}>Approval Timeline:</strong> Unapproved numbers submitted to our beneficiary list are processed and typically approved within <strong style={{ color: '#3B82F6' }}>3–5 working days</strong>. Once approved, packages will dispatch instantly.
+        </span>
+      </div>
+
       {/* 2. Responsive Summary KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard

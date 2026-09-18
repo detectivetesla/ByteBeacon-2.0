@@ -650,7 +650,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
           setPrecheckMessage(resultItem?.accountName ? `✓ MTN Approved: ${resultItem.accountName}` : '✓ MTN Verified & Whitelisted — Ready for instant activation');
         } else {
           setPrecheckStatus('unapproved');
-          setPrecheckMessage('⚠ Unapproved MTN Beneficiary — Number not on whitelist');
+          setPrecheckMessage('⚠ Unapproved MTN Beneficiary — Number recorded, approved in 3–5 working days');
           setUnapprovedPhone(cleanRecipient);
         }
       } catch {
@@ -3288,13 +3288,13 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 <div
                   style={{
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
                     fontSize: '11px',
                     fontWeight: 700,
                     marginTop: '-0.35rem',
-                    marginBottom: '0.2rem',
-                    padding: '0.4rem 0.65rem',
+                    marginBottom: '0.35rem',
+                    padding: '0.5rem 0.75rem',
                     borderRadius: '8px',
                     backgroundColor:
                       precheckStatus === 'checking'
@@ -3317,12 +3317,19 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     }`,
                   }}
                 >
-                  {precheckStatus === 'checking' && (
-                    <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    {precheckStatus === 'checking' && (
+                      <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                    )}
+                    {precheckStatus === 'approved' && <CheckCircle2 size={13} />}
+                    {precheckStatus === 'unapproved' && <AlertTriangle size={13} />}
+                    <span>{precheckMessage}</span>
+                  </div>
+                  {precheckStatus === 'unapproved' && (
+                    <div style={{ fontSize: '10.5px', fontWeight: 500, color: isDark ? '#fca5a5' : '#b91c1c', paddingLeft: '1.25rem', lineHeight: 1.35 }}>
+                      This number has been queued for network whitelisting and will be approved within <strong>3–5 working days</strong>. You can use another verified number to complete your purchase today.
+                    </div>
                   )}
-                  {precheckStatus === 'approved' && <CheckCircle2 size={13} />}
-                  {precheckStatus === 'unapproved' && <AlertTriangle size={13} />}
-                  <span>{precheckMessage}</span>
                 </div>
               )}
 
