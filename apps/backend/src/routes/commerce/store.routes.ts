@@ -831,7 +831,7 @@ export async function storeRoutes(
                   COUNT(DISTINCT CASE WHEN payment_status = 'PAID' THEN recipient_phone END) as customers_count,
                   COUNT(CASE WHEN order_status = 'COMPLETED' OR order_status = 'DELIVERED' THEN 1 END) as completed_orders,
                   COUNT(CASE WHEN order_status = 'PROCESSING' THEN 1 END) as processing_orders,
-                  COUNT(CASE WHEN order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT' THEN 1 END) as pending_orders,
+                  COUNT(CASE WHEN (order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT') AND payment_status = 'PAID' THEN 1 END) as pending_orders,
                   COUNT(CASE WHEN order_status = 'FAILED' THEN 1 END) as failed_orders
            FROM orders
            WHERE store_id = $1`,
@@ -1826,6 +1826,7 @@ export async function storeRoutes(
             reference: paymentRef,
             authorizationUrl,
             accessCode,
+            publicKey: (process.env.PAYSTACK_PUBLIC_KEY || '').trim() || undefined,
             amountPesewas: retailPricePesewas,
             amountGhs: retailPriceGhs,
             currency: 'GHS',
@@ -2017,7 +2018,12 @@ export async function storeRoutes(
        SET payment_status = 'CANCELLED',
            order_status = 'CANCELLED',
            updated_at = CURRENT_TIMESTAMP
-       WHERE (public_id = $1 OR id::text = $1 OR idempotency_key = $1)
+       WHERE (
+         public_id = $1
+         OR id::text = $1
+         OR idempotency_key = $1
+         OR id IN (SELECT order_id FROM payments WHERE provider_reference = $1)
+       )
          AND payment_status = 'PENDING'
        RETURNING id, public_id as "publicId"`,
       [target],

@@ -592,71 +592,73 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               { display_name: 'Package', variable_name: 'package', value: packageDisplay },
             ],
           },
-          callback: async function (response: { reference: string }) {
-            try {
-              if (bulkItems && bulkItems.length > 0) {
-                const submission = await ordersApi.createBulkSubmission({
-                  name: customTitle || `Bulk Order (${bulkItems.length} Recipients)`,
-                  items: bulkItems.map((i) => ({
-                    recipientPhone: i.recipientPhone,
-                    productId: i.productId,
-                  })),
-                  paymentMethod: PaymentMethod.PAYSTACK,
-                  idempotencyKey: response.reference || `bulk_${Date.now()}`,
-                  confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
-                });
-                if (response.reference) {
-                  await ordersApi.verifyPayment(response.reference, submission.id).catch(() => {});
+          callback: function (response: { reference: string }) {
+            (async () => {
+              try {
+                if (bulkItems && bulkItems.length > 0) {
+                  const submission = await ordersApi.createBulkSubmission({
+                    name: customTitle || `Bulk Order (${bulkItems.length} Recipients)`,
+                    items: bulkItems.map((i) => ({
+                      recipientPhone: i.recipientPhone,
+                      productId: i.productId,
+                    })),
+                    paymentMethod: PaymentMethod.PAYSTACK,
+                    idempotencyKey: response.reference || `bulk_${Date.now()}`,
+                    confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
+                  });
+                  if (response.reference) {
+                    await ordersApi.verifyPayment(response.reference, submission.id).catch(() => {});
+                  }
+                  setCompletedOrder({ id: submission.id, count: bulkItems.length });
+                } else if (bundleId) {
+                  const created = await ordersApi.createOrder({
+                    productId: bundleId,
+                    recipientPhone: targetPhone,
+                    paymentMethod: PaymentMethod.PAYSTACK,
+                    idempotencyKey: response.reference || `ord_${Date.now()}`,
+                    confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
+                  });
+                  if (response.reference) {
+                    await ordersApi
+                      .verifyPayment(response.reference, created.id || created.publicId)
+                      .catch(() => {});
+                  }
+                  setCompletedOrder({ id: created.publicId || created.id || response.reference });
+                } else {
+                  setCompletedOrder({ id: response.reference });
                 }
-                setCompletedOrder({ id: submission.id, count: bulkItems.length });
-              } else if (bundleId) {
-                const created = await ordersApi.createOrder({
-                  productId: bundleId,
-                  recipientPhone: targetPhone,
-                  paymentMethod: PaymentMethod.PAYSTACK,
-                  idempotencyKey: response.reference || `ord_${Date.now()}`,
-                  confirmedPorted: effectiveConfirmedPorted.length > 0 ? effectiveConfirmedPorted : undefined,
-                });
-                if (response.reference) {
-                  await ordersApi
-                    .verifyPayment(response.reference, created.id || created.publicId)
-                    .catch(() => {});
+              } catch (err: any) {
+                const isBeneficiaryUnapproved =
+                  err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
+                  err?.status === 422 ||
+                  err?.message?.toLowerCase().includes('beneficiary') ||
+                  err?.message?.toLowerCase().includes('mtn number not yet validated') ||
+                  err?.message?.toLowerCase().includes('not added to our beneficiary');
+                if (isBeneficiaryUnapproved) {
+                  const unkList: string[] = Array.isArray(err?.details?.unknown)
+                    ? err.details.unknown
+                    : Array.isArray(err?.details?.unapproved)
+                    ? err.details.unapproved
+                    : [];
+                  setUnapprovedPhone(targetPhone || unkList[0] || '');
+                  setUnapprovedPhones(unkList.length > 0 ? unkList : (targetPhone ? [targetPhone] : []));
+                  setUnapprovedModalOpen(true);
+                  setIsProcessing(false);
+                  return;
                 }
-                setCompletedOrder({ id: created.publicId || created.id || response.reference });
-              } else {
                 setCompletedOrder({ id: response.reference });
               }
-            } catch (err: any) {
-              const isBeneficiaryUnapproved =
-                err?.code === 'BENEFICIARY_NOT_VALIDATED' ||
-                err?.status === 422 ||
-                err?.message?.toLowerCase().includes('beneficiary') ||
-                err?.message?.toLowerCase().includes('mtn number not yet validated') ||
-                err?.message?.toLowerCase().includes('not added to our beneficiary');
-              if (isBeneficiaryUnapproved) {
-                const unkList: string[] = Array.isArray(err?.details?.unknown)
-                  ? err.details.unknown
-                  : Array.isArray(err?.details?.unapproved)
-                  ? err.details.unapproved
-                  : [];
-                setUnapprovedPhone(targetPhone || unkList[0] || '');
-                setUnapprovedPhones(unkList.length > 0 ? unkList : (targetPhone ? [targetPhone] : []));
-                setUnapprovedModalOpen(true);
-                setIsProcessing(false);
-                return;
-              }
-              setCompletedOrder({ id: response.reference });
-            }
-            setIsProcessing(false);
-            setStep(3);
-            await refreshWalletBalance();
-            window.dispatchEvent(new CustomEvent('wallet-updated'));
-            window.dispatchEvent(new CustomEvent('orders-updated'));
-            window.dispatchEvent(new CustomEvent('order-created'));
-            toastSuccess(
-              'Payment Verified!',
-              `Paid GH₵ ${numericPrice.toFixed(2)} via Paystack. Bundle is being dispatched.`,
-            );
+              setIsProcessing(false);
+              setStep(3);
+              await refreshWalletBalance();
+              window.dispatchEvent(new CustomEvent('wallet-updated'));
+              window.dispatchEvent(new CustomEvent('orders-updated'));
+              window.dispatchEvent(new CustomEvent('order-created'));
+              toastSuccess(
+                'Payment Verified!',
+                `Paid GH₵ ${numericPrice.toFixed(2)} via Paystack. Bundle is being dispatched.`,
+              );
+            })();
           },
           onClose: function () {
             setIsProcessing(false);
