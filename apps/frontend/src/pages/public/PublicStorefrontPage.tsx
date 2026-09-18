@@ -33,7 +33,6 @@ import {
   ShoppingCart,
   FileText,
   Info,
-  GraduationCap,
   Loader2,
 } from 'lucide-react';
 import { NetworkProvider, CustomerOrderDto } from '@bytebeacon/shared';
@@ -1905,8 +1904,23 @@ function loadPaystackInlineScript(): Promise<boolean> {
       {/* 2. FULL-BLEED HERO SECTION (Home tab only - Spans 100% of Screen) */}
       {/* ==================================================================== */}
       {activeNav === 'home' && (
-        <section className="storefront-hero-section">
-          {/* Subtle ambient green glow lighting */}
+        <section
+          className="storefront-hero-section"
+          style={
+            store?.bannerUrl
+              ? {
+                  backgroundImage: `linear-gradient(rgba(5, 46, 22, 0.75), rgba(5, 46, 22, 0.9)), url(${store.bannerUrl})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }
+              : store?.primaryColor
+              ? {
+                  background: `linear-gradient(145deg, ${store.primaryColor}E6 0%, #064e3b 50%, #047857 100%)`,
+                }
+              : undefined
+          }
+        >
+          {/* Subtle ambient glow lighting */}
           <div
             style={{
               position: 'absolute',
@@ -1915,7 +1929,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               width: '320px',
               height: '320px',
               borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(163, 230, 53, 0.15) 0%, transparent 70%)',
+              background: `radial-gradient(circle, ${store?.accentColor || 'rgba(163, 230, 53, 0.15)'} 0%, transparent 70%)`,
               pointerEvents: 'none',
               zIndex: 0,
             }}
@@ -1928,7 +1942,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               width: '280px',
               height: '280px',
               borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(16, 185, 129, 0.2) 0%, transparent 70%)',
+              background: `radial-gradient(circle, ${store?.primaryColor || 'rgba(16, 185, 129, 0.2)'} 0%, transparent 70%)`,
               pointerEvents: 'none',
               zIndex: 0,
             }}
@@ -1954,9 +1968,9 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '0.35rem',
-                  backgroundColor: 'rgba(163, 230, 53, 0.16)',
-                  border: '1px solid rgba(163, 230, 53, 0.4)',
-                  color: '#A3E635',
+                  backgroundColor: store?.accentColor ? `${store.accentColor}26` : 'rgba(163, 230, 53, 0.16)',
+                  border: store?.accentColor ? `1px solid ${store.accentColor}66` : '1px solid rgba(163, 230, 53, 0.4)',
+                  color: store?.accentColor || '#A3E635',
                   fontSize: '11px',
                   fontWeight: 800,
                   padding: '4px 12px',
@@ -1980,7 +1994,9 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 }}
               >
                 Buy Data Bundles
-                <span style={{ display: 'block', color: '#A3E635' }}>At Unbeatable Prices</span>
+                <span style={{ display: 'block', color: store?.accentColor || '#A3E635' }}>
+                  At Unbeatable Prices
+                </span>
               </h1>
 
               <p
@@ -1992,7 +2008,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   maxWidth: '560px',
                 }}
               >
-                MTN, Telecel &amp; AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.
+                {store?.description || 'MTN, Telecel & AirtelTigo bundles delivered to your phone within minutes. Safe, fast, and reliable.'}
               </p>
 
               <div className="storefront-hero-btn-group" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -2000,8 +2016,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   type="button"
                   onClick={() => handleNavClick('buy')}
                   style={{
-                    backgroundColor: '#A3E635',
-                    color: '#000000',
+                    backgroundColor: store?.primaryColor || '#A3E635',
+                    color: store?.primaryColor ? '#FFFFFF' : '#000000',
                     border: 'none',
                     padding: '0.75rem 1.5rem',
                     borderRadius: '12px',
@@ -2012,11 +2028,11 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    boxShadow: '0 4px 16px rgba(163, 230, 53, 0.35)',
+                    boxShadow: store?.primaryColor ? `0 4px 16px ${store.primaryColor}55` : '0 4px 16px rgba(163, 230, 53, 0.35)',
                     transition: 'transform 100ms ease, box-shadow 100ms ease',
                   }}
                 >
-                  <ShoppingCart size={16} color="#000000" />
+                  <ShoppingCart size={16} color={store?.primaryColor ? '#FFFFFF' : '#000000'} />
                   <span>Buy Data Now</span>
                   <ArrowRight size={16} strokeWidth={2.5} />
                 </button>
