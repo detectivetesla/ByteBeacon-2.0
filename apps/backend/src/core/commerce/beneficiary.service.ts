@@ -684,11 +684,12 @@ export class BeneficiaryService {
         }
 
         await this.db.query(
-          `INSERT INTO beneficiary_validation (phone_number, network, validation_status, provider_response_metadata, agent_id, user_id, created_at, updated_at)
-           SELECT unk, 'MTN', 'PENDING', $2::jsonb, $3, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          `INSERT INTO beneficiary_validation (phone_number, network, validation_status, attempt_count, provider_response_metadata, agent_id, user_id, created_at, updated_at)
+           SELECT unk, 'MTN', 'PENDING', 1, $2::jsonb, $3, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
            FROM unnest($1::text[]) AS unk
            ON CONFLICT (phone_number, network) DO UPDATE
            SET validation_status = 'PENDING',
+               attempt_count = COALESCE(beneficiary_validation.attempt_count, 1) + 1,
                provider_response_metadata = EXCLUDED.provider_response_metadata,
                agent_id = COALESCE(EXCLUDED.agent_id, beneficiary_validation.agent_id),
                user_id = COALESCE(EXCLUDED.user_id, beneficiary_validation.user_id),
@@ -1701,7 +1702,7 @@ export class BeneficiaryService {
                expires_at as "expiresAt", created_at as "createdAt",
                last_bundle_size_gb as "lastBundleSizeGb",
                provider_response_metadata as "metadata",
-               COALESCE(attempt_count, 1) as "occurrences"
+               GREATEST(COALESCE(attempt_count, 1), (SELECT COUNT(*) FROM orders o WHERE o.recipient_phone = beneficiary_validation.phone_number)) as "occurrences"
         FROM beneficiary_validation
         ${where}
         ORDER BY created_at DESC
@@ -1806,7 +1807,7 @@ export class BeneficiaryService {
              COALESCE(p.last_bundle_size_gb, b.last_bundle_size_gb) as "lastBundleSizeGb",
              COALESCE(p.metadata, b.provider_response_metadata, '{}'::jsonb) as "metadata",
              COALESCE(p.detected_from, b.provider_response_metadata->>'detectedFrom', b.provider_response_metadata->>'channel', 'Excel Upload') as "detectedFrom",
-             COALESCE(p.attempt_count, b.attempt_count, 1) as "occurrences"
+             GREATEST(COALESCE(p.attempt_count, 1), COALESCE(b.attempt_count, 1), (SELECT COUNT(*) FROM orders o WHERE o.recipient_phone = p.phone_number)) as "occurrences"
       FROM pending_beneficiary_approvals p
       LEFT JOIN beneficiary_validation b ON p.phone_number = b.phone_number AND p.network = b.network
       ${where}

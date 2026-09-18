@@ -459,12 +459,12 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
     setIsExporting(true);
     setTimeout(() => {
       setIsExporting(false);
-      const csvHeader = 'Beneficiary Number,Network,Status,Channel,Detected Date,Expires At\n';
+      const csvHeader = 'Beneficiary Number,Network,Occurrences,Status,Channel,Detected Date,Expires At\n';
       const rows = filteredRecords
         .map((r) => {
           const cleanPhone = r.phoneNumber.replace(/\s+/g, '');
           const exp = r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : 'N/A';
-          return `${cleanPhone},${r.network},${r.status},${r.detectedFrom},${new Date(r.createdAt).toISOString()},${exp}`;
+          return `${cleanPhone},${r.network},${r.occurrences || 1},${r.status},${r.detectedFrom},${new Date(r.createdAt).toISOString()},${exp}`;
         })
         .join('\n');
 
@@ -517,6 +517,18 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
         record: true,
       });
 
+      // Record to increment database attempt_count / occurrences
+      await beneficiaryApi.recordUnapproved({
+        items: [
+          {
+            phoneNumber: clean,
+            network: newNetwork,
+            detectedFrom: 'Manual Check',
+          },
+        ],
+        userId: user?.id,
+      }).catch(() => {});
+
       const firstRes = res?.results?.[0];
       const isValid = firstRes?.isValid ?? true;
       const accountName = firstRes?.accountName || (isValid ? `Subscriber (${clean.slice(-4)})` : undefined);
@@ -530,22 +542,42 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
           : 'Carrier indicates this number may not be active on the selected network.',
       });
 
-      // Add to records list
-      const newItem: CustomerPendingApprovalItem = {
-        id: `ben-new-${Date.now()}`,
-        phoneNumber: clean,
-        network: newNetwork,
-        status: isValid ? 'APPROVED' : 'PENDING',
-        providerReference: `DH-${clean.slice(-6)}`,
-        detectedFrom: 'Manual Check',
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        validatedAt: isValid ? new Date().toISOString() : undefined,
-        occurrences: 0,
-      };
+      // Update records list: increment occurrences if existing, otherwise insert with occurrences: 1
+      setRecords((prev) => {
+        const existingIdx = prev.findIndex((r) => r.phoneNumber.replace(/\s+/g, '') === clean);
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          const curr = updated[existingIdx];
+          updated[existingIdx] = {
+            ...curr,
+            occurrences: (curr.occurrences || 1) + 1,
+            status: isValid ? 'APPROVED' : curr.status,
+            validatedAt: isValid ? new Date().toISOString() : curr.validatedAt,
+            detectedFrom: 'Manual Check',
+          };
+          return updated;
+        }
 
-      setRecords((prev) => [newItem, ...prev]);
+        const newItem: CustomerPendingApprovalItem = {
+          id: `ben-new-${Date.now()}`,
+          phoneNumber: clean,
+          network: newNetwork,
+          status: isValid ? 'APPROVED' : 'PENDING',
+          providerReference: `DH-${clean.slice(-6)}`,
+          detectedFrom: 'Manual Check',
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          validatedAt: isValid ? new Date().toISOString() : undefined,
+          occurrences: 1,
+        };
+        return [newItem, ...prev];
+      });
+
       toastSuccess('Number Validated', `${clean} is saved to your approvals list.`);
+      fetchApprovals();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
     } catch {
       // Fallback local validation
       setValidationResult({
@@ -554,20 +586,39 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
         accountName: `Verified Subscriber (${clean.slice(-4)})`,
         message: 'Format verified. Saved to your approvals list.',
       });
-      const fallbackItem: CustomerPendingApprovalItem = {
-        id: `ben-new-${Date.now()}`,
-        phoneNumber: clean,
-        network: newNetwork,
-        status: 'APPROVED',
-        providerReference: `DH-${clean.slice(-6)}`,
-        detectedFrom: 'Manual Check',
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        validatedAt: new Date().toISOString(),
-        occurrences: 0,
-      };
-      setRecords((prev) => [fallbackItem, ...prev]);
+      setRecords((prev) => {
+        const existingIdx = prev.findIndex((r) => r.phoneNumber.replace(/\s+/g, '') === clean);
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          const curr = updated[existingIdx];
+          updated[existingIdx] = {
+            ...curr,
+            occurrences: (curr.occurrences || 1) + 1,
+            status: 'APPROVED',
+            validatedAt: new Date().toISOString(),
+            detectedFrom: 'Manual Check',
+          };
+          return updated;
+        }
+
+        const fallbackItem: CustomerPendingApprovalItem = {
+          id: `ben-new-${Date.now()}`,
+          phoneNumber: clean,
+          network: newNetwork,
+          status: 'APPROVED',
+          providerReference: `DH-${clean.slice(-6)}`,
+          detectedFrom: 'Manual Check',
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          validatedAt: new Date().toISOString(),
+          occurrences: 1,
+        };
+        return [fallbackItem, ...prev];
+      });
       toastSuccess('Number Saved', `${clean} has been added to your approvals directory.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
+      }
     } finally {
       setIsPrechecking(false);
     }

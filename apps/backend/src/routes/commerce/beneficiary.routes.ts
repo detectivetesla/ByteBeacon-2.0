@@ -227,7 +227,7 @@ export async function beneficiaryRoutes(
         network: network as NetworkProvider,
         phoneNumbers,
         record: Boolean(record),
-        userId: authenticatedUserId,
+        userId: authenticatedUserId || (req.body as any)?.userId,
         bypassCache: Boolean(bypassCache),
       });
 

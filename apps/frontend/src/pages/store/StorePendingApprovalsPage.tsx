@@ -17,29 +17,21 @@ import {
   AlertOctagon,
   ChevronLeft,
   ChevronRight,
-  Phone,
   Layers,
   Globe,
   FileSpreadsheet,
   Code2,
   Send,
-  ArrowUpDown,
-  ExternalLink,
   ShieldCheck,
-  Activity,
-  ShoppingCart,
   Trash2,
   AlertTriangle,
   Store,
-  Check,
-  X,
   Eye,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { ordersApi } from '../../api/orders.api.js';
-import { storesApi } from '../../api/stores.api.js';
 
 export type ApprovalStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED';
 export type DetectedChannel = 'Storefront' | 'Web' | 'API' | 'Single Order' | 'Bulk Order' | 'Excel Upload' | 'Manual Check';
@@ -361,6 +353,18 @@ export const StorePendingApprovalsPage: React.FC = () => {
         record: true,
       });
 
+      // Explicitly record to increment database attempt_count / occurrences
+      await beneficiaryApi.recordUnapproved({
+        items: [
+          {
+            phoneNumber: clean,
+            network: testNetwork,
+            detectedFrom: 'Manual Check',
+          },
+        ],
+        userId: user?.id,
+      }).catch(() => {});
+
       const first = res.results?.[0];
       const valid = Boolean(first?.isValid && first?.isKnown);
 
@@ -371,6 +375,34 @@ export const StorePendingApprovalsPage: React.FC = () => {
         message: valid
           ? 'Number is APPROVED and whitelisted on MTN DataHouse.'
           : 'Number is NOT on MTN whitelist. It has been automatically recorded to Pending Approvals.',
+      });
+
+      setRecords((prev) => {
+        const existingIdx = prev.findIndex((r) => r.phoneNumber.replace(/\s+/g, '') === clean);
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          const curr = updated[existingIdx];
+          updated[existingIdx] = {
+            ...curr,
+            occurrences: (curr.occurrences || 1) + 1,
+            status: valid ? 'APPROVED' : curr.status,
+            detectedFrom: 'Manual Check',
+          };
+          return updated;
+        }
+        const newItem: StorePendingApprovalItem = {
+          id: `ben-store-${Date.now()}`,
+          phoneNumber: clean,
+          network: testNetwork,
+          status: valid ? 'APPROVED' : 'PENDING',
+          providerReference: `DH-${clean.slice(-6)}`,
+          detectedFrom: 'Manual Check',
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          validatedAt: valid ? new Date().toISOString() : undefined,
+          occurrences: 1,
+        };
+        return [newItem, ...prev];
       });
 
       fetchApprovals();
@@ -849,6 +881,9 @@ export const StorePendingApprovalsPage: React.FC = () => {
                   Network
                 </th>
                 <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
+                  Occurrences
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
                   Bundle / Size
                 </th>
                 <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
@@ -868,7 +903,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                  <td colSpan={8} style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
                       <RefreshCw size={24} className="animate-spin" color="var(--color-brand-primary)" />
                       <span>Loading pending MTN approvals...</span>
@@ -877,7 +912,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
                 </tr>
               ) : paginatedRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                  <td colSpan={8} style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                       <CheckCircle2 size={32} color="var(--color-success)" />
                       <strong style={{ color: 'var(--color-text-primary)' }}>No Pending Numbers Found</strong>
@@ -926,6 +961,29 @@ export const StorePendingApprovalsPage: React.FC = () => {
                       >
                         <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#D97706' }} />
                         {item.network}
+                      </span>
+                    </td>
+
+                    {/* Occurrences */}
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.3rem',
+                          padding: '0.2rem 0.55rem',
+                          borderRadius: 'var(--radius-full)',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          fontFamily: 'var(--font-mono)',
+                          backgroundColor: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
+                          color: (item.occurrences || 1) > 1 ? '#B45309' : 'var(--color-text-secondary)',
+                          border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
+                        }}
+                        title={`Recorded ${item.occurrences || 1} time(s) across order prechecks`}
+                      >
+                        <Layers size={11} />
+                        {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
                       </span>
                     </td>
 
@@ -1187,7 +1245,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
                     >
                       <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>#{ord.id.slice(0, 8)}</span>
                       <span>{(ord.dataAmountMb / 1024).toFixed(1)} GB</span>
-                      <Badge variant="brand" size="xs">{ord.orderStatus}</Badge>
+                      <Badge variant="brand" size="sm">{ord.orderStatus}</Badge>
                     </div>
                   ))}
                 </div>

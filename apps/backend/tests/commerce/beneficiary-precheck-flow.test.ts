@@ -437,7 +437,6 @@ describe('Beneficiary Precheck & MTN Up2U Approval Flow Suite', () => {
         if (query.includes('FROM beneficiary_validation') && query.includes("validation_status IN ('VALID', 'APPROVED')")) {
           return Promise.resolve({
             rows: [
-              { phoneNumber: '0531983428', accountName: null },
               { phoneNumber: '0241112233', accountName: null },
             ],
           });
