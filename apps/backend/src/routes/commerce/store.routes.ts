@@ -45,6 +45,8 @@ export interface StoreDto {
   paystackReference?: string;
   adminNotes?: string;
   visitCount?: number;
+  dailyVisits?: number;
+  lastVisitDate?: string;
   settings?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
@@ -69,7 +71,18 @@ export async function storeRoutes(
       await db.query('ALTER TABLE IF EXISTS stores ALTER COLUMN description TYPE TEXT');
       await db.query('ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS visit_count BIGINT NOT NULL DEFAULT 0');
       await db.query('ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS last_visited_at TIMESTAMPTZ');
+      await db.query('ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS daily_visits BIGINT NOT NULL DEFAULT 0');
+      await db.query('ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS last_visit_date DATE DEFAULT CURRENT_DATE');
       await db.query(`ALTER TABLE IF EXISTS stores ADD COLUMN IF NOT EXISTS settings JSONB NOT NULL DEFAULT '{"autoFulfill":true,"smsAlerts":true,"emailAlerts":true}'::jsonb`);
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS store_visits (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          store_id UUID NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+          visited_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          visit_date DATE NOT NULL DEFAULT CURRENT_DATE
+        )
+      `);
+      await db.query('CREATE INDEX IF NOT EXISTS idx_store_visits_store_date ON store_visits(store_id, visit_date)');
       await db.query(`
         CREATE OR REPLACE VIEW agent_stores AS
         SELECT 
@@ -100,6 +113,11 @@ export async function storeRoutes(
               approval_status as "approvalStatus", store_status as "storeStatus",
               activation_fee_pesewas as "activationFeePesewas", paystack_reference as "paystackReference",
               admin_notes as "adminNotes", COALESCE(visit_count, 0) as "visitCount",
+              CASE 
+                WHEN last_visit_date = CURRENT_DATE THEN COALESCE(daily_visits, 0)
+                ELSE 0
+              END as "dailyVisits",
+              last_visit_date as "lastVisitDate",
               COALESCE(settings, '{"autoFulfill":true,"smsAlerts":true,"emailAlerts":true}'::jsonb) as "settings",
               created_at as "createdAt", updated_at as "updatedAt"
        FROM stores
@@ -784,7 +802,7 @@ export async function storeRoutes(
       }
 
       // Calculate scoped store metrics
-      const [ordersRes, trendRes] = await Promise.all([
+      const [ordersRes, trendRes, visitsRes] = await Promise.all([
         db.query(
           `SELECT COUNT(*) as total_orders,
                   COUNT(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' THEN 1 END) as orders_today_count,
@@ -809,6 +827,7 @@ export async function storeRoutes(
                       ELSE 0
                     END
                   ELSE 0 END), 0) as today_profit_pesewas,
+                  COUNT(DISTINCT CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' THEN recipient_phone END) as customers_today_count,
                   COUNT(DISTINCT CASE WHEN payment_status = 'PAID' THEN recipient_phone END) as customers_count,
                   COUNT(CASE WHEN order_status = 'COMPLETED' OR order_status = 'DELIVERED' THEN 1 END) as completed_orders,
                   COUNT(CASE WHEN order_status = 'PROCESSING' THEN 1 END) as processing_orders,
@@ -834,6 +853,14 @@ export async function storeRoutes(
            ORDER BY d.day ASC`,
           [store.id],
         ),
+        db.query(
+          `SELECT 
+             COUNT(CASE WHEN visit_date = CURRENT_DATE THEN 1 END) as daily_visits,
+             COUNT(*) as total_visits
+           FROM store_visits
+           WHERE store_id = $1`,
+          [store.id],
+        ).catch(() => ({ rows: [] })),
       ]);
 
       const stats = ordersRes.rows[0];
@@ -845,6 +872,14 @@ export async function storeRoutes(
 
       const ordersTodayCount = Number(stats.orders_today_count || 0);
       const totalOrdersCount = Number(stats.paid_orders_count || 0);
+
+      // Determine today's store visits (resets everyday at midnight)
+      const dailyVisitsFromTable = visitsRes?.rows?.[0]?.daily_visits != null ? Number(visitsRes.rows[0].daily_visits) : null;
+      const dailyVisits = dailyVisitsFromTable !== null && dailyVisitsFromTable > 0
+        ? dailyVisitsFromTable
+        : Number(store.dailyVisits || 0);
+      const todayCustomers = Number(stats.customers_today_count || 0);
+      const storeVisits = Math.max(dailyVisits, todayCustomers);
 
       return reply.send({
         success: true,
@@ -865,7 +900,8 @@ export async function storeRoutes(
             ordersTodayCount,
             totalOrdersCount,
             customersCount: Number(stats.customers_count || 0),
-            storeVisits: Math.max(Number(store.visitCount || 0), Number(stats.customers_count || 0)),
+            storeVisits,
+            totalStoreVisits: Math.max(Number(store.visitCount || 0), Number(stats.customers_count || 0)),
           },
           orderHealth: {
             completed: Number(stats.completed_orders || 0),
@@ -1153,7 +1189,25 @@ export async function storeRoutes(
 
       const store = storeRes.rows[0];
 
-      db.query('UPDATE stores SET visit_count = visit_count + 1, last_visited_at = CURRENT_TIMESTAMP WHERE id = $1', [store.id]).catch(() => {});
+      // Record daily visit and update cumulative & daily counts
+      Promise.all([
+        db.query(
+          `UPDATE stores 
+           SET visit_count = COALESCE(visit_count, 0) + 1,
+               daily_visits = CASE 
+                 WHEN last_visit_date = CURRENT_DATE THEN COALESCE(daily_visits, 0) + 1 
+                 ELSE 1 
+               END,
+               last_visit_date = CURRENT_DATE,
+               last_visited_at = CURRENT_TIMESTAMP 
+           WHERE id = $1`,
+          [store.id],
+        ),
+        db.query(
+          `INSERT INTO store_visits (store_id, visited_at, visit_date) VALUES ($1, CURRENT_TIMESTAMP, CURRENT_DATE)`,
+          [store.id],
+        ),
+      ]).catch(() => {});
 
       const productsRes = await db.query(
         `SELECT sp.id, sp.catalog_product_id as "catalogProductId",

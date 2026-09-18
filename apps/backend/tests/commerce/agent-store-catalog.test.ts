@@ -105,6 +105,9 @@ describe('Agent Store & Custom Catalog Suite', () => {
                 activationFeePesewas: 15000,
                 primaryColor: '#0066FF',
                 accentColor: '#10B981',
+                visitCount: 42,
+                dailyVisits: 7,
+                lastVisitDate: new Date().toISOString().slice(0, 10),
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               },
@@ -220,6 +223,50 @@ describe('Agent Store & Custom Catalog Suite', () => {
               },
             ],
           });
+        }
+        if (sql.includes('FROM store_visits WHERE store_id = $1')) {
+          return Promise.resolve({
+            rows: [
+              {
+                daily_visits: '7',
+                total_visits: '42',
+              },
+            ],
+          });
+        }
+        if (sql.includes('FROM orders WHERE store_id = $1') && sql.includes('orders_today_count')) {
+          return Promise.resolve({
+            rows: [
+              {
+                total_orders: '10',
+                orders_today_count: '2',
+                paid_orders_count: '8',
+                total_sales_pesewas: '40000',
+                today_sales_pesewas: '8000',
+                total_profit_pesewas: '10000',
+                today_profit_pesewas: '2000',
+                customers_today_count: '2',
+                customers_count: '6',
+                completed_orders: '8',
+                processing_orders: '1',
+                pending_orders: '1',
+                failed_orders: '0',
+              },
+            ],
+          });
+        }
+        if (sql.includes('generate_series')) {
+          return Promise.resolve({
+            rows: [
+              { date: '2026-09-18', revenuePesewas: '8000', orderCount: 2 },
+            ],
+          });
+        }
+        if (sql.includes('UPDATE stores') && sql.includes('daily_visits')) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (sql.includes('INSERT INTO store_visits')) {
+          return Promise.resolve({ rows: [] });
         }
         return Promise.resolve({ rows: [] });
       }),
@@ -452,6 +499,48 @@ describe('Agent Store & Custom Catalog Suite', () => {
       expect(json.data.openGraph.title).toContain('FastData Reseller');
       expect(json.data.openGraph.image).toContain('/api/og?slug=fastdata');
       expect(json.data.twitter.card).toBe('summary_large_image');
+    });
+
+    it('GET /stores/my-store/dashboard should return daily store visits that reset everyday', async () => {
+      const token = 'Bearer valid_agent_token';
+      const res = await app.inject({
+        method: 'GET',
+        url: '/stores/my-store/dashboard',
+        headers: { authorization: token },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.kpis).toBeDefined();
+      expect(json.data.kpis.storeVisits).toBe(7); // daily visits for today
+      expect(json.data.kpis.totalStoreVisits).toBe(42); // lifetime total visits
+      expect(json.data.kpis.ordersTodayCount).toBe(2);
+      expect(json.data.kpis.totalOrdersCount).toBe(8);
+    });
+
+    it('GET /stores/public/:slug should atomically record daily visits and store_visits entries', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/stores/public/fastdata',
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.store).toBeDefined();
+      expect(json.data.store.slug).toBe('fastdata');
+
+      // Verify db queries executed atomic daily visit update
+      const calls = (mockDb.query as any).mock.calls;
+      const hasAtomicDailyUpdate = calls.some((c: any[]) => 
+        typeof c[0] === 'string' && c[0].includes('daily_visits = CASE') && c[0].includes('last_visit_date = CURRENT_DATE')
+      );
+      const hasStoreVisitsInsert = calls.some((c: any[]) => 
+        typeof c[0] === 'string' && c[0].includes('INSERT INTO store_visits')
+      );
+      expect(hasAtomicDailyUpdate).toBe(true);
+      expect(hasStoreVisitsInsert).toBe(true);
     });
   });
 });

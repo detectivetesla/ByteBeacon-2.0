@@ -31,6 +31,7 @@ import { migration00000000000028 } from './migrations/00000000000028_enhance_aud
 import { migration00000000000029 } from './migrations/00000000000029_enhance_store_settings_and_visits.js';
 import { migration00000000000030 } from './migrations/00000000000030_performance_and_auth_indexes.js';
 import { migration00000000000031 } from './migrations/00000000000031_ensure_store_branding_text_columns.js';
+import { migration00000000000032 } from './migrations/00000000000032_daily_store_visits.js';
 
 export const allMigrations: MigrationFile[] = [
   migration00000000000000,
@@ -65,6 +66,5 @@ export const allMigrations: MigrationFile[] = [
   migration00000000000029,
   migration00000000000030,
   migration00000000000031,
+  migration00000000000032,
 ];
-
-

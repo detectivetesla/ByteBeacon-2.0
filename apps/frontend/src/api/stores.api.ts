@@ -22,6 +22,9 @@ export interface StoreProfileDto {
   activationFeePesewas: number;
   paystackReference?: string;
   adminNotes?: string;
+  visitCount?: number;
+  dailyVisits?: number;
+  lastVisitDate?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -123,6 +126,8 @@ export interface StoreDashboardDto {
     totalOrdersCount?: number;
     customersCount: number;
     storeVisits: number;
+    dailyVisits?: number;
+    totalStoreVisits?: number;
     completedOrders?: number;
     processingOrders?: number;
     pendingOrders?: number;

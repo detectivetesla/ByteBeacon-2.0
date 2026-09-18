@@ -17,7 +17,6 @@ import {
   Clock,
   RotateCcw,
   Search,
-  Filter,
   PackageX,
 } from 'lucide-react';
 
@@ -332,8 +331,9 @@ export const StoreDashboardPage: React.FC = () => {
           <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
             {kpis.storeVisits || 0}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700, minHeight: '18px' }}>
-            <span>{(kpis.storeVisits || 0) > 0 ? ((((kpis.totalOrdersCount !== undefined ? kpis.totalOrdersCount : kpis.ordersCount)) / kpis.storeVisits) * 100).toFixed(1) : '0.0'}% conversion rate</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700, minHeight: '18px' }}>
+            <span>{(kpis.storeVisits || 0) > 0 ? ((((kpis.ordersTodayCount !== undefined ? kpis.ordersTodayCount : kpis.ordersCount)) / kpis.storeVisits) * 100).toFixed(1) : '0.0'}% conversion rate</span>
+            <span style={{ color: 'var(--color-text-muted)', fontWeight: 500 }}>Resets daily</span>
           </div>
         </Card>
       </div>
