@@ -33,8 +33,8 @@ interface PresetTheme {
 }
 
 const PRESET_THEMES: PresetTheme[] = [
+  { name: 'Emerald Growth (Default)', primary: '#10B981', accent: '#A3E635', description: 'Trusted fintech green with lime accents' },
   { name: 'Ocean Blue', primary: '#0066FF', accent: '#00E599', description: 'Electric blue with vibrant mint highlight' },
-  { name: 'Emerald Growth', primary: '#10B981', accent: '#A3E635', description: 'Trusted fintech green with lime accents' },
   { name: 'Royal Violet', primary: '#8B5CF6', accent: '#EC4899', description: 'Modern purple with neon orchid accents' },
   { name: 'Midnight Indigo', primary: '#4F46E5', accent: '#06B6D4', description: 'Deep indigo with cyan contrast' },
   { name: 'Sunset Amber', primary: '#F59E0B', accent: '#FBBF24', description: 'Warm amber with radiant golden highlights' },
@@ -50,8 +50,8 @@ export const StoreAppearancePage: React.FC = () => {
   const [slug, setSlug] = useState('');
   const [tagline, setTagline] = useState('Instant Automated Telecommunications Data');
   const [description, setDescription] = useState('Direct automated data bundle delivery straight to your phone across MTN, Telecel, and AirtelTigo.');
-  const [primaryColor, setPrimaryColor] = useState('#0066FF');
-  const [accentColor, setAccentColor] = useState('#00E599');
+  const [primaryColor, setPrimaryColor] = useState('#10B981');
+  const [accentColor, setAccentColor] = useState('#A3E635');
   const [logoUrl, setLogoUrl] = useState('');
   const [bannerUrl, setBannerUrl] = useState('');
 
@@ -132,8 +132,8 @@ export const StoreAppearancePage: React.FC = () => {
   };
 
   const handleResetDefaults = () => {
-    setPrimaryColor('#0066FF');
-    setAccentColor('#00E599');
+    setPrimaryColor('#10B981');
+    setAccentColor('#A3E635');
     toastSuccess('Colors Reset', 'Reset color palette to default brand theme.');
   };
 
@@ -836,6 +836,8 @@ export const StoreAppearancePage: React.FC = () => {
                   overflow: 'hidden',
                   background: bannerUrl
                     ? `linear-gradient(rgba(11, 15, 25, 0.78), rgba(11, 15, 25, 0.92)), url(${bannerUrl}) center/cover no-repeat`
+                    : primaryColor === '#10B981'
+                    ? 'linear-gradient(145deg, #052e16 0%, #064e3b 50%, #047857 100%)'
                     : `linear-gradient(135deg, ${primaryColor} 0%, #0A1128 75%)`,
                 }}
               >

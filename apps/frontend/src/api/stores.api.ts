@@ -119,12 +119,17 @@ export interface StoreDashboardDto {
   kpis: {
     todaySalesGhs: number;
     totalSalesGhs: number;
+    filteredSalesGhs?: number;
     todayProfitGhs?: number;
     totalProfitGhs?: number;
+    filteredProfitGhs?: number;
     ordersCount: number;
     ordersTodayCount?: number;
     totalOrdersCount?: number;
+    filteredOrdersCount?: number;
     customersCount: number;
+    customersTodayCount?: number;
+    filteredCustomersCount?: number;
     storeVisits: number;
     dailyVisits?: number;
     totalStoreVisits?: number;
@@ -138,6 +143,8 @@ export interface StoreDashboardDto {
     processing: number;
     pending: number;
     failed: number;
+    total?: number;
+    successRate?: number;
   };
   revenueTrend?: Array<{ date: string; revenueGhs: number; orderCount?: number }>;
 }
@@ -438,8 +445,25 @@ export const storesApi = {
 
   // ─── Agent Commerce: Dashboard ───────────────────────────────────
 
-  getStoreDashboard: async (): Promise<StoreDashboardDto> => {
-    return apiClient.get<StoreDashboardDto>('/stores/my-store/dashboard');
+  getStoreDashboard: async (params?: {
+    search?: string;
+    status?: string;
+    paymentStatus?: string;
+    network?: string;
+    dateRange?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<StoreDashboardDto> => {
+    const query = new URLSearchParams();
+    if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.status && params.status !== 'ALL') query.set('status', params.status);
+    if (params?.paymentStatus && params.paymentStatus !== 'ALL') query.set('paymentStatus', params.paymentStatus);
+    if (params?.network && params.network !== 'ALL') query.set('network', params.network);
+    if (params?.dateRange && params.dateRange !== 'ALL') query.set('dateRange', params.dateRange);
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    const qs = query.toString();
+    return apiClient.get<StoreDashboardDto>(`/stores/my-store/dashboard${qs ? `?${qs}` : ''}`);
   },
 
   // ─── Agent Commerce: Orders ──────────────────────────────────────

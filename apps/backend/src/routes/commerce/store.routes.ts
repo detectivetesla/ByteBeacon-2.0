@@ -789,10 +789,20 @@ export async function storeRoutes(
   );
 
   // 5. STORE DASHBOARD OVERVIEW (/stores/my-store/dashboard)
-  app.get(
+  app.get<{
+    Querystring: {
+      dateRange?: string;
+      startDate?: string;
+      endDate?: string;
+      network?: string;
+      paymentStatus?: string;
+      status?: string;
+      search?: string;
+    };
+  }>(
     '/stores/my-store/dashboard',
     { preHandler: [authHooks.authenticateCustomer] },
-    async (req: FastifyRequest, reply: FastifyReply) => {
+    async (req, reply) => {
       const store = await getAgentStore(req.user!.sub);
       if (!store) {
         throw new ForbiddenError('You do not have an Agent Store account.');
@@ -800,6 +810,62 @@ export async function storeRoutes(
       if (store.paymentStatus !== 'PAID' || store.approvalStatus !== 'APPROVED' || store.storeStatus !== 'ACTIVE') {
         throw new ForbiddenError('Your Agent Store is not active yet. Please check approval status.');
       }
+
+      const { dateRange, startDate, endDate, network, paymentStatus, status, search } = req.query || {};
+
+      // Build dynamic SQL condition for filtered metrics
+      const filterConditions: string[] = [];
+      const filterParams: any[] = [store.id];
+
+      if (network && network !== 'ALL') {
+        filterParams.push(network);
+        filterConditions.push(`network = $${filterParams.length}`);
+      }
+      if (paymentStatus && paymentStatus !== 'ALL') {
+        filterParams.push(paymentStatus);
+        filterConditions.push(`payment_status = $${filterParams.length}`);
+      }
+      if (status && status !== 'ALL') {
+        if (status === 'COMPLETED' || status === 'DELIVERED') {
+          filterConditions.push(`order_status IN ('COMPLETED', 'DELIVERED')`);
+        } else if (status === 'PROCESSING') {
+          filterConditions.push(`order_status IN ('PROCESSING', 'SUBMITTED')`);
+        } else if (status === 'PENDING') {
+          filterConditions.push(`order_status IN ('PENDING', 'CREATED', 'READY_FOR_FULFILLMENT', 'VALIDATING', 'AWAITING_APPROVAL')`);
+        } else if (status === 'FAILED') {
+          filterConditions.push(`order_status IN ('FAILED', 'CANCELLED')`);
+        } else {
+          filterParams.push(status);
+          filterConditions.push(`order_status = $${filterParams.length}`);
+        }
+      }
+      if (search && search.trim()) {
+        filterParams.push(`%${search.trim()}%`);
+        filterConditions.push(`(recipient_phone ILIKE $${filterParams.length} OR public_id ILIKE $${filterParams.length})`);
+      }
+      if (startDate) {
+        filterParams.push(startDate);
+        filterConditions.push(`created_at >= $${filterParams.length}::timestamptz`);
+      }
+      if (endDate) {
+        filterParams.push(endDate);
+        filterConditions.push(`created_at <= ($${filterParams.length}::date + INTERVAL '1 day')::timestamptz`);
+      } else if (dateRange && dateRange !== 'ALL' && dateRange !== 'all') {
+        if (dateRange === 'today' || dateRange === 'TODAY') {
+          filterConditions.push(`created_at >= CURRENT_DATE`);
+        } else if (dateRange === 'yesterday' || dateRange === 'YESTERDAY') {
+          filterConditions.push(`created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE`);
+        } else if (dateRange === '7d' || dateRange === '7D') {
+          filterConditions.push(`created_at >= NOW() - INTERVAL '7 days'`);
+        } else if (dateRange === '14d' || dateRange === '14D') {
+          filterConditions.push(`created_at >= NOW() - INTERVAL '14 days'`);
+        } else if (dateRange === '30d' || dateRange === '30D') {
+          filterConditions.push(`created_at >= NOW() - INTERVAL '30 days'`);
+        }
+      }
+
+      const hasCustomFilter = filterConditions.length > 0;
+      const customFilterSql = hasCustomFilter ? ` AND ${filterConditions.join(' AND ')}` : '';
 
       // Calculate scoped store metrics
       const [ordersRes, trendRes, visitsRes] = await Promise.all([
@@ -829,10 +895,10 @@ export async function storeRoutes(
                   ELSE 0 END), 0) as today_profit_pesewas,
                   COUNT(DISTINCT CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' THEN recipient_phone END) as customers_today_count,
                   COUNT(DISTINCT CASE WHEN payment_status = 'PAID' THEN recipient_phone END) as customers_count,
-                  COUNT(CASE WHEN order_status = 'COMPLETED' OR order_status = 'DELIVERED' THEN 1 END) as completed_orders,
-                  COUNT(CASE WHEN order_status = 'PROCESSING' THEN 1 END) as processing_orders,
-                  COUNT(CASE WHEN (order_status = 'CREATED' OR order_status = 'READY_FOR_FULFILLMENT') AND payment_status = 'PAID' THEN 1 END) as pending_orders,
-                  COUNT(CASE WHEN order_status = 'FAILED' THEN 1 END) as failed_orders
+                  COUNT(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as completed_orders,
+                  COUNT(CASE WHEN order_status IN ('PROCESSING', 'SUBMITTED') THEN 1 END) as processing_orders,
+                  COUNT(CASE WHEN order_status IN ('PENDING', 'CREATED', 'READY_FOR_FULFILLMENT', 'VALIDATING', 'AWAITING_APPROVAL') THEN 1 END) as pending_orders,
+                  COUNT(CASE WHEN order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as failed_orders
            FROM orders
            WHERE store_id = $1`,
           [store.id],
@@ -863,7 +929,35 @@ export async function storeRoutes(
         ).catch(() => ({ rows: [] })),
       ]);
 
+      let filteredRes: any = null;
+      if (hasCustomFilter) {
+        filteredRes = await db.query(
+          `SELECT COUNT(*) as filtered_orders_count,
+                  COUNT(CASE WHEN payment_status = 'PAID' THEN 1 END) as filtered_paid_orders_count,
+                  COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN amount_pesewas ELSE 0 END), 0) as filtered_sales_pesewas,
+                  COALESCE(SUM(CASE WHEN payment_status = 'PAID' AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED') THEN
+                    CASE
+                      WHEN (pricing_snapshot->>'markupPesewas') IS NOT NULL AND (pricing_snapshot->>'markupPesewas') != ''
+                        THEN (pricing_snapshot->>'markupPesewas')::bigint
+                      WHEN (pricing_snapshot->>'unitPricePesewas') IS NOT NULL AND (pricing_snapshot->>'basePricePesewas') IS NOT NULL
+                        THEN GREATEST(0, (pricing_snapshot->>'unitPricePesewas')::bigint - (pricing_snapshot->>'basePricePesewas')::bigint)
+                      ELSE 0
+                    END
+                  ELSE 0 END), 0) as filtered_profit_pesewas,
+                  COUNT(DISTINCT CASE WHEN payment_status = 'PAID' THEN recipient_phone END) as filtered_customers_count,
+                  COUNT(CASE WHEN order_status IN ('COMPLETED', 'DELIVERED') THEN 1 END) as filtered_completed_orders,
+                  COUNT(CASE WHEN order_status IN ('PROCESSING', 'SUBMITTED') THEN 1 END) as filtered_processing_orders,
+                  COUNT(CASE WHEN order_status IN ('PENDING', 'CREATED', 'READY_FOR_FULFILLMENT', 'VALIDATING', 'AWAITING_APPROVAL') THEN 1 END) as filtered_pending_orders,
+                  COUNT(CASE WHEN order_status IN ('FAILED', 'CANCELLED') THEN 1 END) as filtered_failed_orders
+           FROM orders
+           WHERE store_id = $1 ${customFilterSql}`,
+          filterParams,
+        ).catch(() => null);
+      }
+
       const stats = ordersRes.rows[0];
+      const fStats = filteredRes?.rows?.[0];
+
       const revenueTrend = trendRes.rows.map((r: any) => ({
         date: r.date,
         revenueGhs: Number((parseInt(r.revenuePesewas, 10) / 100).toFixed(2)),
@@ -881,6 +975,20 @@ export async function storeRoutes(
       const todayCustomers = Number(stats.customers_today_count || 0);
       const storeVisits = Math.max(dailyVisits, todayCustomers);
 
+      const completedOrders = fStats ? Number(fStats.filtered_completed_orders || 0) : Number(stats.completed_orders || 0);
+      const processingOrders = fStats ? Number(fStats.filtered_processing_orders || 0) : Number(stats.processing_orders || 0);
+      const pendingOrders = fStats ? Number(fStats.filtered_pending_orders || 0) : Number(stats.pending_orders || 0);
+      const failedOrders = fStats ? Number(fStats.filtered_failed_orders || 0) : Number(stats.failed_orders || 0);
+      const totalHealthOrders = completedOrders + processingOrders + pendingOrders + failedOrders;
+      const successRate = totalHealthOrders > 0
+        ? Number(((completedOrders / totalHealthOrders) * 100).toFixed(1))
+        : 100;
+
+      const filteredSalesGhs = fStats ? Number(fStats.filtered_sales_pesewas || 0) / 100 : Number(stats.today_sales_pesewas || 0) / 100;
+      const filteredProfitGhs = fStats ? Number(fStats.filtered_profit_pesewas || 0) / 100 : Number(stats.today_profit_pesewas || 0) / 100;
+      const filteredOrdersCount = fStats ? Number(fStats.filtered_orders_count || 0) : ordersTodayCount;
+      const filteredCustomersCount = fStats ? Number(fStats.filtered_customers_count || 0) : Number(stats.customers_count || 0);
+
       return reply.send({
         success: true,
         data: {
@@ -894,20 +1002,27 @@ export async function storeRoutes(
           kpis: {
             todaySalesGhs: Number(stats.today_sales_pesewas || 0) / 100,
             totalSalesGhs: Number(stats.total_sales_pesewas || 0) / 100,
+            filteredSalesGhs,
             todayProfitGhs: Number(stats.today_profit_pesewas || 0) / 100,
             totalProfitGhs: Number(stats.total_profit_pesewas || 0) / 100,
+            filteredProfitGhs,
             ordersCount: ordersTodayCount,
             ordersTodayCount,
             totalOrdersCount,
+            filteredOrdersCount,
             customersCount: Number(stats.customers_count || 0),
+            customersTodayCount: Number(stats.customers_today_count || 0),
+            filteredCustomersCount,
             storeVisits,
             totalStoreVisits: Math.max(Number(store.visitCount || 0), Number(stats.customers_count || 0)),
           },
           orderHealth: {
-            completed: Number(stats.completed_orders || 0),
-            processing: Number(stats.processing_orders || 0),
-            pending: Number(stats.pending_orders || 0),
-            failed: Number(stats.failed_orders || 0),
+            completed: completedOrders,
+            processing: processingOrders,
+            pending: pendingOrders,
+            failed: failedOrders,
+            total: totalHealthOrders,
+            successRate,
           },
           revenueTrend,
         },
