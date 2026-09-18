@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Badge } from '../../components/ui/Badge/Badge.js';
+import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
+import { Table } from '../../components/ui/Table/Table.js';
 import { useNavigate } from 'react-router-dom';
-import { storesApi, StoreDashboardDto } from '../../api/stores.api.js';
+import { storesApi, StoreDashboardDto, StoreOrderRecordDto } from '../../api/stores.api.js';
 import {
   DollarSign,
   ShoppingBag,
@@ -15,6 +16,9 @@ import {
   CheckCircle2,
   Clock,
   RotateCcw,
+  Search,
+  Filter,
+  PackageX,
 } from 'lucide-react';
 
 export const StoreDashboardPage: React.FC = () => {
@@ -22,6 +26,26 @@ export const StoreDashboardPage: React.FC = () => {
   const [data, setData] = useState<StoreDashboardDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filter state
+  const [storeOrders, setStoreOrders] = useState<StoreOrderRecordDto[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterNetwork, setFilterNetwork] = useState('');
+  const [filterDatePreset, setFilterDatePreset] = useState('');
+
+  const activeFilterCount =
+    (filterStatus ? 1 : 0) +
+    (filterNetwork ? 1 : 0) +
+    (filterDatePreset ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setFilterSearch('');
+    setFilterStatus('');
+    setFilterNetwork('');
+    setFilterDatePreset('');
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -48,6 +72,35 @@ export const StoreDashboardPage: React.FC = () => {
       clearInterval(interval);
     };
   }, []);
+
+  // Fetch filtered orders
+  const fetchOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const res = await storesApi.getStoreOrders({
+        limit: 20,
+        ...(filterSearch ? { search: filterSearch } : {}),
+        ...(filterStatus ? { status: filterStatus } : {}),
+        ...(filterNetwork ? { network: filterNetwork } : {}),
+      });
+      setStoreOrders(Array.isArray(res?.orders) ? res.orders : []);
+    } catch {
+      setStoreOrders([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, [filterStatus, filterNetwork]);
+
+  // Re-fetch when dropdown filters change
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => { fetchOrders(); }, 400);
+    return () => clearTimeout(timer);
+  }, [filterSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (
@@ -421,6 +474,207 @@ export const StoreDashboardPage: React.FC = () => {
           </div>
         </Card>
       </div>
+
+      {/* 4. Recent Store Orders with Filters */}
+      <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-2xl)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+            Recent Store Orders
+          </h2>
+          <Button variant="outline" size="sm" onClick={() => navigate('/store-console/orders')} rightIcon={<ArrowRight size={13} />}>
+            View All Orders
+          </Button>
+        </div>
+
+        {/* Filter Bar */}
+        <style>{`
+          .store-filter-bar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            flex-wrap: wrap;
+            margin-bottom: var(--space-4);
+            padding: var(--space-3) var(--space-4);
+            background: var(--color-bg-base);
+            border-radius: var(--radius-xl);
+            border: 1px solid var(--color-border-subtle);
+          }
+          .store-filter-bar .sf-search-input {
+            flex: 1;
+            min-width: 180px;
+            max-width: 280px;
+            padding: 0.45rem 0.7rem 0.45rem 2rem;
+            font-size: var(--font-size-xs);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--color-border-default);
+            background: var(--color-bg-surface);
+            color: var(--color-text-primary);
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+          }
+          .store-filter-bar .sf-search-input:focus {
+            border-color: #3B82F6;
+          }
+          .store-filter-bar .sf-search-input::placeholder {
+            color: var(--color-text-muted);
+          }
+          .store-filter-bar select.sf-select {
+            padding: 0.45rem 0.6rem;
+            font-size: var(--font-size-xs);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--color-border-default);
+            background: var(--color-bg-surface);
+            color: var(--color-text-primary);
+            font-family: inherit;
+            cursor: pointer;
+            min-width: 120px;
+            outline: none;
+          }
+          .store-filter-bar select.sf-select:focus {
+            border-color: #3B82F6;
+          }
+          @media (max-width: 767px) {
+            .store-filter-bar {
+              flex-direction: column;
+              align-items: stretch;
+            }
+            .store-filter-bar .sf-search-input {
+              max-width: 100%;
+            }
+          }
+        `}</style>
+        <div className="store-filter-bar">
+          {/* Search */}
+          <div style={{ position: 'relative', flex: 1, minWidth: '180px', maxWidth: '280px' }}>
+            <Search size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', pointerEvents: 'none' }} />
+            <input
+              type="text"
+              className="sf-search-input"
+              placeholder="Search phone, ref..."
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+            />
+          </div>
+
+          {/* Status Filter */}
+          <select
+            className="sf-select"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="">All Statuses</option>
+            <option value="COMPLETED">Delivered</option>
+            <option value="PROCESSING">Processing</option>
+            <option value="SUBMITTED">Submitted</option>
+            <option value="READY_FOR_FULFILLMENT">Ready</option>
+            <option value="FAILED">Failed</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+
+          {/* Network Filter */}
+          <select
+            className="sf-select"
+            value={filterNetwork}
+            onChange={(e) => setFilterNetwork(e.target.value)}
+          >
+            <option value="">All Networks</option>
+            <option value="MTN">MTN</option>
+            <option value="TELECEL">Telecel</option>
+            <option value="AIRTELTIGO">AirtelTigo</option>
+          </select>
+
+          {/* Reset Filters */}
+          {activeFilterCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetFilters}
+              leftIcon={<RotateCcw size={12} />}
+              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+            >
+              Reset ({activeFilterCount})
+            </Button>
+          )}
+        </div>
+
+        {/* Orders Table */}
+        {ordersLoading ? (
+          <div style={{ padding: 'var(--space-8) var(--space-4)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>
+            Loading orders...
+          </div>
+        ) : storeOrders.length === 0 ? (
+          <div style={{ padding: 'var(--space-10) var(--space-4)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ padding: '0.75rem', borderRadius: '50%', backgroundColor: 'var(--color-bg-base)', color: 'var(--color-text-muted)' }}>
+              <PackageX size={28} />
+            </div>
+            <div>
+              <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, margin: 0, color: 'var(--color-text-primary)' }}>
+                {activeFilterCount > 0 || filterSearch ? 'No orders match your filters' : 'No store orders yet'}
+              </h4>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+                {activeFilterCount > 0 || filterSearch ? 'Try adjusting your search or filter criteria.' : 'Customer orders will appear here once your store receives its first order.'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <Table<StoreOrderRecordDto>
+            columns={[
+              {
+                header: 'Network',
+                accessor: 'network',
+                render: (row) => <NetworkBadge network={row.network as any} size="sm" />,
+              },
+              {
+                header: 'Recipient',
+                accessor: 'recipientPhone',
+                render: (row) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>{row.recipientPhone}</span>,
+              },
+              {
+                header: 'Bundle',
+                accessor: 'dataAmountMb',
+                render: (row) => <strong style={{ color: 'var(--color-text-primary)' }}>{row.dataLabel || `${(row.dataAmountMb / 1024).toFixed(1)} GB`}</strong>,
+              },
+              {
+                header: 'Amount',
+                accessor: 'amountPesewas',
+                render: (row) => (
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-data)' }}>GH₵ {(row.amountPesewas / 100).toFixed(2)}</span>
+                ),
+              },
+              {
+                header: 'Profit',
+                accessor: 'profitPesewas' as any,
+                render: (row) => (
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-data)', color: '#10B981' }}>
+                    {row.profitPesewas != null ? `GH₵ ${(row.profitPesewas / 100).toFixed(2)}` : '—'}
+                  </span>
+                ),
+              },
+              {
+                header: 'Status',
+                accessor: 'orderStatus',
+                render: (row) => (
+                  <Badge variant={row.orderStatus === 'COMPLETED' ? 'success' : row.orderStatus === 'FAILED' || row.orderStatus === 'CANCELLED' ? 'danger' : 'warning'} size="sm">
+                    {row.orderStatus === 'COMPLETED' ? 'Delivered' : row.orderStatus === 'FAILED' ? 'Failed' : row.orderStatus === 'CANCELLED' ? 'Cancelled' : 'Pending'}
+                  </Badge>
+                ),
+              },
+              {
+                header: 'Date',
+                accessor: 'createdAt',
+                render: (row) => (
+                  <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
+                    {row.createdAt ? new Date(row.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </span>
+                ),
+              },
+            ]}
+            data={storeOrders}
+            keyExtractor={(item) => item.id}
+          />
+        )}
+      </Card>
     </div>
   );
 };
