@@ -29,11 +29,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
   const handleBack = () => {
-    if (window.history.length > 1) {
-      navigate(-1);
-    } else {
-      navigate('/');
-    }
+    navigate('/');
   };
 
   return (
