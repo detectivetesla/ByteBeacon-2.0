@@ -24,12 +24,12 @@ export const SocialAuthButton: React.FC<SocialAuthButtonProps> = ({
       disabled={isDisabled}
       style={{
         width: '100%',
-        height: '44px',
-        borderRadius: 'var(--radius-sm)',
+        height: '46px',
+        borderRadius: 'var(--radius-md, 0.625rem)',
         backgroundColor: isDisabled ? 'var(--color-bg-surface-muted)' : 'var(--color-bg-surface-elevated)',
         border: '1px solid var(--color-border-default)',
         color: isDisabled ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
-        fontSize: 'var(--font-size-xs)',
+        fontSize: '0.875rem',
         fontWeight: 600,
         display: 'flex',
         alignItems: 'center',
@@ -37,8 +37,8 @@ export const SocialAuthButton: React.FC<SocialAuthButtonProps> = ({
         gap: '0.625rem',
         cursor: isDisabled ? 'not-allowed' : 'pointer',
         opacity: isDisabled ? 0.6 : 1,
-        boxShadow: isDisabled ? 'none' : 'var(--shadow-tactile-sm)',
-        transition: 'all var(--transition-fast)',
+        boxShadow: isDisabled ? 'none' : '0 1px 2px rgba(0, 0, 0, 0.04)',
+        transition: 'all 0.15s ease',
         userSelect: 'none',
       }}
       onMouseEnter={(e) => {

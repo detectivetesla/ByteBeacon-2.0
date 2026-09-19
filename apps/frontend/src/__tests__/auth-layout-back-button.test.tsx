@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -41,4 +41,28 @@ describe('AuthLayout — Go Back Navigation', () => {
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
+
+  it('renders top switcher link in responsive switcher containers', () => {
+    render(
+      <MemoryRouter initialEntries={['/signin']}>
+        <AuthLayout
+          title="Welcome back to ByteBeacon!"
+          subtitle="Please enter your details to sign in your account"
+          topActionText="Don't have an account?"
+          topActionLinkText="Sign Up"
+          topActionHref="/signup"
+        >
+          <div>Form Content</div>
+        </AuthLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/Welcome back to ByteBeacon!/i)).toBeInTheDocument();
+    expect(screen.getByText(/Please enter your details to sign in your account/i)).toBeInTheDocument();
+
+    const signUpLinks = screen.getAllByRole('link', { name: /Sign Up/i });
+    expect(signUpLinks.length).toBeGreaterThanOrEqual(1);
+    expect(signUpLinks[0]).toHaveAttribute('href', '/signup');
+  });
 });
+

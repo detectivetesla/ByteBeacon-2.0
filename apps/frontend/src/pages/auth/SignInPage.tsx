@@ -110,7 +110,7 @@ export const SignInPage: React.FC = () => {
       topActionHref="/signup"
     >
       {/* Social Fast-Auth Options */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: 'var(--space-4)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: '1rem' }}>
         <SocialAuthButton
           provider="google"
           onClick={handleGoogleSignIn}
@@ -130,18 +130,18 @@ export const SignInPage: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           gap: '0.75rem',
-          margin: 'var(--space-3) 0 var(--space-4)',
+          margin: '1.25rem 0 1.25rem',
         }}
       >
         <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
-        <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
           Or sign in with email
         </span>
         <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
       </div>
 
       {/* Form Fields */}
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
         {/* Email or Phone Input */}
         <Input
           id="signin-identifier"
@@ -175,7 +175,8 @@ export const SignInPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            fontSize: 'var(--font-size-xs)',
+            fontSize: '0.8125rem',
+            marginTop: '0.125rem',
           }}
         >
           <Checkbox
@@ -204,7 +205,7 @@ export const SignInPage: React.FC = () => {
           size="lg"
           fullWidth
           isLoading={isLoading}
-          style={{ marginTop: 'var(--space-2)' }}
+          style={{ marginTop: '1.25rem', minHeight: '48px', fontSize: '0.9375rem', fontWeight: 700 }}
           rightIcon={<ArrowRight size={16} strokeWidth={2.4} />}
         >
           Sign In

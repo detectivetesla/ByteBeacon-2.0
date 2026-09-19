@@ -100,7 +100,7 @@ export const AgentSignUpPage: React.FC = () => {
         <span>Resellers receive wholesale rates, bulk API access, and instant delivery.</span>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {/* Store / Business Name */}
         <Input
           id="agent-store-name"
@@ -178,7 +178,10 @@ export const AgentSignUpPage: React.FC = () => {
           disabled={isMaintenanceMode}
           isLoading={isLoading}
           style={{
-            marginTop: 'var(--space-3)',
+            marginTop: '1.25rem',
+            minHeight: '48px',
+            fontSize: '0.9375rem',
+            fontWeight: 700,
           }}
           rightIcon={<ArrowRight size={16} strokeWidth={2.8} />}
         >

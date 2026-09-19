@@ -114,7 +114,7 @@ export const SignUpPage: React.FC = () => {
       topActionHref="/signin"
     >
       {/* Social Fast-Auth Options */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: 'var(--space-4)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: '1rem' }}>
         <SocialAuthButton
           provider="google"
           onClick={handleGoogleSignUp}
@@ -134,18 +134,18 @@ export const SignUpPage: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           gap: '0.75rem',
-          margin: 'var(--space-3) 0 var(--space-4)',
+          margin: '1.25rem 0 1.25rem',
         }}
       >
         <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
-        <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
           Or register with email
         </span>
         <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border-default)' }} />
       </div>
 
       {/* Registration Form */}
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {/* Full Name */}
         <Input
           id="signup-name"
@@ -201,7 +201,7 @@ export const SignUpPage: React.FC = () => {
         />
 
         {/* Terms notice */}
-        <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', lineHeight: 1.4, margin: 'var(--space-1) 0' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', lineHeight: 1.5, margin: '0.5rem 0' }}>
           By signing up, you agree to ByteBeacon's Terms of Service and Privacy Policy.
         </p>
 
@@ -213,7 +213,7 @@ export const SignUpPage: React.FC = () => {
           fullWidth
           disabled={isMaintenanceMode}
           isLoading={isLoading}
-          style={{ marginTop: 'var(--space-1)' }}
+          style={{ marginTop: '1rem', minHeight: '48px', fontSize: '0.9375rem', fontWeight: 700 }}
           rightIcon={<ArrowRight size={16} strokeWidth={2.4} />}
         >
           {isMaintenanceMode ? 'Registration Paused' : 'Create Account'}
@@ -222,8 +222,8 @@ export const SignUpPage: React.FC = () => {
         <div
           style={{
             textAlign: 'center',
-            marginTop: 'var(--space-2)',
-            fontSize: 'var(--font-size-2xs)',
+            marginTop: '1.25rem',
+            fontSize: '0.8125rem',
             color: 'var(--color-text-muted)',
           }}
         >

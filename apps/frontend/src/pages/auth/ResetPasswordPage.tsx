@@ -163,9 +163,9 @@ export const ResetPasswordPage: React.FC = () => {
           fullWidth
           isLoading={isLoading}
           style={{
-            marginTop: 'var(--space-2)',
-            height: '46px',
-            fontSize: 'var(--font-size-sm)',
+            marginTop: '1.25rem',
+            minHeight: '48px',
+            fontSize: '0.9375rem',
             fontWeight: 700,
           }}
           rightIcon={<ArrowRight size={16} strokeWidth={2.8} />}

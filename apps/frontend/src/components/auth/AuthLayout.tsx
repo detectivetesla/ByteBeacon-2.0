@@ -33,139 +33,303 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
   };
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 'var(--space-page-x, var(--space-6))',
-        backgroundColor: 'var(--color-bg-base)',
-        backgroundImage: 'url(/auth/auth-bg.jpg)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-      }}
-    >
+    <div className="auth-page-wrapper">
       <style>{`
+        .auth-page-wrapper {
+          min-height: 100vh;
+          min-height: 100dvh;
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justifyContent: center;
+          padding: 2.5rem 1.5rem;
+          background-color: var(--color-bg-base);
+          background-image: radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.05) 0%, transparent 65%), url(/auth/auth-bg.jpg);
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+          box-sizing: border-box;
+        }
+
         .auth-split-card {
           display: grid;
           grid-template-columns: 1fr;
           width: 100%;
-          max-width: 1040px;
-          min-height: 640px;
+          max-width: 480px;
+          min-height: auto;
           background-color: var(--color-bg-surface);
-          border-radius: var(--radius-xl);
+          border-radius: 1.25rem;
           border: 1px solid var(--color-border-default);
-          box-shadow: var(--shadow-floating);
+          box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.04);
           overflow: hidden;
+          transition: max-width 0.2s ease;
         }
 
         .auth-visual-col {
           display: none;
         }
 
+        .auth-form-surface {
+          display: flex;
+          flex-direction: column;
+          justifyContent: space-between;
+          padding: 2.25rem 2rem;
+          background-color: var(--color-bg-surface);
+          box-sizing: border-box;
+          width: 100%;
+        }
+
+        .auth-header-wrapper {
+          width: 100%;
+          margin-bottom: 1.75rem;
+        }
+
+        .auth-top-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          gap: 0.75rem;
+        }
+
+        .auth-brand-group {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+        }
+
+        .auth-back-button {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.375rem;
+          height: 36px;
+          padding: 0 0.75rem;
+          border-radius: 0.5rem;
+          background-color: var(--color-bg-surface-elevated);
+          border: 1px solid var(--color-border-default);
+          color: var(--color-text-secondary);
+          font-size: 0.8125rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          user-select: none;
+          flex-shrink: 0;
+        }
+
+        .auth-back-button:hover {
+          color: var(--color-text-primary);
+          border-color: var(--color-border-strong);
+          background-color: var(--color-bg-surface);
+          transform: translateY(-1px);
+        }
+
+        .auth-logo-link {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          text-decoration: none;
+          flex-shrink: 0;
+        }
+
+        .auth-logo-img {
+          width: 36px;
+          height: 36px;
+          object-fit: contain;
+          transition: transform 0.15s ease;
+        }
+
+        .auth-logo-link:hover .auth-logo-img {
+          transform: scale(1.04);
+        }
+
+        /* Desktop Switcher Link */
+        .auth-switcher-desktop {
+          display: none;
+          font-size: 0.8125rem;
+          color: var(--color-text-secondary);
+          text-align: right;
+          white-space: nowrap;
+        }
+
+        /* Mobile Switcher Banner */
+        .auth-switcher-mobile {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.375rem;
+          font-size: 0.8125rem;
+          padding: 0.5rem 0.875rem;
+          margin-top: 1rem;
+          border-radius: 9999px;
+          background-color: var(--color-bg-surface-elevated);
+          border: 1px solid var(--color-border-subtle);
+          color: var(--color-text-secondary);
+          text-align: center;
+          line-height: 1.4;
+        }
+
+        .auth-switcher-link {
+          font-weight: 700;
+          color: var(--color-primary);
+          text-decoration: none;
+        }
+
+        .auth-switcher-link:hover {
+          text-decoration: underline;
+        }
+
+        .auth-form-core {
+          width: 100%;
+          max-width: 440px;
+          margin: 0 auto;
+        }
+
+        .auth-title-block {
+          text-align: center;
+          margin-bottom: 1.75rem;
+        }
+
+        .auth-title {
+          font-size: 1.5rem;
+          font-weight: 800;
+          letter-spacing: -0.03em;
+          line-height: 1.25;
+          color: var(--color-text-primary);
+          font-family: var(--font-display);
+          margin: 0;
+        }
+
+        .auth-subtitle {
+          font-size: 0.875rem;
+          color: var(--color-text-secondary);
+          margin-top: 0.5rem;
+          line-height: 1.5;
+        }
+
+        .auth-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding-top: 1.5rem;
+          font-size: 0.75rem;
+          color: var(--color-text-muted);
+          border-top: 1px solid var(--color-border-subtle);
+          margin-top: 1.75rem;
+        }
+
+        /* Responsive Breakpoints */
+        @media (min-width: 640px) {
+          .auth-switcher-desktop {
+            display: block;
+          }
+          .auth-switcher-mobile {
+            display: none;
+          }
+          .auth-title {
+            font-size: 1.625rem;
+          }
+        }
+
         @media (min-width: 960px) {
           .auth-split-card {
             grid-template-columns: 440px 1fr;
+            max-width: 1020px;
+            min-height: 640px;
+            border-radius: 1.5rem;
           }
           .auth-visual-col {
             display: block;
           }
+          .auth-form-surface {
+            padding: 2.75rem 3rem;
+          }
+          .auth-title {
+            font-size: 1.75rem;
+          }
         }
 
         @media (max-width: 480px) {
+          .auth-page-wrapper {
+            padding: 1rem 0.75rem;
+          }
           .auth-split-card {
-            border-radius: var(--radius-lg);
-            min-height: auto;
+            border-radius: 1rem;
+          }
+          .auth-form-surface {
+            padding: 1.25rem 1rem;
+          }
+          .auth-title {
+            font-size: 1.375rem;
+          }
+          .auth-subtitle {
+            font-size: 0.8125rem;
+          }
+          .auth-header-wrapper {
+            margin-bottom: 1.25rem;
+          }
+          .auth-title-block {
+            margin-bottom: 1.25rem;
+          }
+          .auth-footer {
+            flex-direction: column;
+            gap: 0.5rem;
+            text-align: center;
+            padding-top: 1.25rem;
+            margin-top: 1.25rem;
           }
         }
       `}</style>
 
       {/* Main Split Authentication Card */}
       <div className="auth-split-card">
-        {/* Left Column: Visual / Editorial Panel */}
+        {/* Left Column: Visual / Editorial Panel (desktop only) */}
         <div className="auth-visual-col">
           <VisualPanel title={visualTitle} subtitle={visualSubtitle} />
         </div>
 
         {/* Right Column: Form & Interaction Surface */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            padding: 'var(--space-card-p, var(--space-8))',
-            backgroundColor: 'var(--color-bg-surface)',
-          }}
-        >
+        <div className="auth-form-surface">
           {/* Top Header: Back Button + Logo + Switcher Link */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 'var(--space-6)',
-            }}
-          >
-            {/* Top-Left: Back Navigation & Brand Logo */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <button
-                type="button"
-                onClick={handleBack}
-                aria-label="Go Back to Landing Page"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.375rem',
-                  padding: '0.35rem 0.65rem',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: 'var(--color-bg-surface-muted)',
-                  border: '1px solid var(--color-border-default)',
-                  color: 'var(--color-text-secondary)',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = 'var(--color-text-primary)';
-                  e.currentTarget.style.borderColor = 'var(--color-border-strong)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--color-text-secondary)';
-                  e.currentTarget.style.borderColor = 'var(--color-border-default)';
-                }}
-              >
-                <ArrowLeft size={14} strokeWidth={2.4} />
-                <span>Go Back</span>
-              </button>
+          <div className="auth-header-wrapper">
+            <div className="auth-top-bar">
+              {/* Back Navigation & Brand Logo */}
+              <div className="auth-brand-group">
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  aria-label="Go Back to Landing Page"
+                  className="auth-back-button"
+                >
+                  <ArrowLeft size={15} strokeWidth={2.2} />
+                  <span>Go Back</span>
+                </button>
 
-              <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <img
-                  src="/logo.png"
-                  alt="ByteBeacon"
-                  style={{
-                    width: '42px',
-                    height: '42px',
-                    objectFit: 'contain',
-                  }}
-                />
-              </Link>
+                <Link to="/" className="auth-logo-link" aria-label="ByteBeacon Home">
+                  <img
+                    src="/logo.png"
+                    alt="ByteBeacon"
+                    className="auth-logo-img"
+                  />
+                </Link>
+              </div>
+
+              {/* Desktop Switcher Link (hidden on mobile) */}
+              {topActionLinkText && topActionHref && (
+                <div className="auth-switcher-desktop">
+                  <span>{topActionText} </span>
+                  <Link to={topActionHref} className="auth-switcher-link">
+                    {topActionLinkText}
+                  </Link>
+                </div>
+              )}
             </div>
 
-            {/* Top-Right Alternate Auth Switcher Link */}
+            {/* Mobile Switcher Banner (visible only on mobile) */}
             {topActionLinkText && topActionHref && (
-              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                {topActionText}{' '}
-                <Link
-                  to={topActionHref}
-                  style={{
-                    fontWeight: 700,
-                    color: 'var(--color-text-primary)',
-                    textDecoration: 'underline',
-                  }}
-                >
+              <div className="auth-switcher-mobile">
+                <span>{topActionText} </span>
+                <Link to={topActionHref} className="auth-switcher-link">
                   {topActionLinkText}
                 </Link>
               </div>
@@ -173,33 +337,12 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
           </div>
 
           {/* Form Core Container */}
-          <div style={{ maxWidth: 'min(380px, 100%)', width: '100%', margin: '0 auto', padding: 'var(--space-2) 0' }}>
+          <div className="auth-form-core">
             {/* Form Title & Subtitle */}
             {title && (
-              <div style={{ textAlign: 'center', marginBottom: 'var(--space-6)' }}>
-                <h1
-                  style={{
-                    fontSize: 'clamp(1.5rem, 3vw, 1.875rem)',
-                    fontWeight: 800,
-                    letterSpacing: '-0.03em',
-                    color: 'var(--color-text-primary)',
-                    fontFamily: 'var(--font-display)',
-                  }}
-                >
-                  {title}
-                </h1>
-                {subtitle && (
-                  <p
-                    style={{
-                      fontSize: 'var(--font-size-xs)',
-                      color: 'var(--color-text-secondary)',
-                      marginTop: '0.375rem',
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {subtitle}
-                  </p>
-                )}
+              <div className="auth-title-block">
+                <h1 className="auth-title">{title}</h1>
+                {subtitle && <p className="auth-subtitle">{subtitle}</p>}
               </div>
             )}
 
@@ -239,18 +382,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
           </div>
 
           {/* Bottom Footer: Copyright & Legal */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingTop: 'var(--space-6)',
-              fontSize: 'var(--font-size-2xs)',
-              color: 'var(--color-text-muted)',
-              borderTop: '1px solid var(--color-border-subtle)',
-              marginTop: 'var(--space-6)',
-            }}
-          >
+          <div className="auth-footer">
             <div>© {new Date().getFullYear()} ByteBeacon</div>
             <div style={{ display: 'flex', gap: '1.25rem' }}>
               <span style={{ cursor: 'pointer' }} onClick={() => (window.location.href = '/')}>Privacy Policy</span>
