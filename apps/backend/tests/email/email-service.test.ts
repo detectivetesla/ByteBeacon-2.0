@@ -142,16 +142,16 @@ describe('EmailService Unit Tests', () => {
       expect.objectContaining({
         to: 'customer@example.com',
         subject: 'Welcome to ByteBeacon',
-        from: 'ByteBeacon <no-reply@bytebeacon.online>',
+        from: '"ByteBeacon" <no-reply@bytebeacon.online>',
       }),
     );
   });
 
-  it('should adapt Gmail sender address to authenticated user to avoid 553 rejection and set replyTo', async () => {
+  it('should preserve brand sender display name and from address without leaking authenticated user', async () => {
     const service = new EmailService({
       host: 'smtp.gmail.com',
       port: 465,
-      user: 'kofi@gmail.com',
+      user: 'nomotsumartin@gmail.com',
       pass: 'abcdefghijklmnop',
       from: 'ByteBeacon <no-reply@bytebeacon.online>',
     });
@@ -166,13 +166,13 @@ describe('EmailService Unit Tests', () => {
     expect(sendMailMock).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'customer@example.com',
-        from: 'ByteBeacon <kofi@gmail.com>',
-        replyTo: 'ByteBeacon <no-reply@bytebeacon.online>',
+        from: '"ByteBeacon" <no-reply@bytebeacon.online>',
+        replyTo: '"ByteBeacon" <no-reply@bytebeacon.online>',
       }),
     );
   });
 
-  it('should generate properly branded password reset email with correct reset link', async () => {
+  it('should generate properly branded password reset email with logo attachment and correct reset link', async () => {
     const service = new EmailService({
       host: 'smtp.bytebeacon.online',
       port: 587,
@@ -189,6 +189,7 @@ describe('EmailService Unit Tests', () => {
 
     const callArgs = sendMailMock.mock.calls[0][0];
     expect(callArgs.to).toBe('alice@example.com');
+    expect(callArgs.from).toBe('"ByteBeacon" <no-reply@bytebeacon.online>');
     expect(callArgs.subject).toBe('Reset Your ByteBeacon Password');
     expect(callArgs.text).toContain('Hello Alice,');
     expect(callArgs.text).toContain(resetLink);
@@ -196,6 +197,10 @@ describe('EmailService Unit Tests', () => {
     expect(callArgs.html).toContain('Reset Your ByteBeacon Password');
     expect(callArgs.html).toContain(resetLink);
     expect(callArgs.html).toContain('Alice');
+    expect(callArgs.html).toContain('cid:bytebeacon-logo');
+    expect(callArgs.attachments).toBeDefined();
+    expect(callArgs.attachments).toHaveLength(1);
+    expect(callArgs.attachments[0].cid).toBe('bytebeacon-logo');
   });
 
   it('should operate safely in mock/dev mode when SMTP credentials are not configured', async () => {

@@ -1,6 +1,7 @@
 import nodemailer, { Transporter } from 'nodemailer';
 import { logger } from '../../core/logging/logger.js';
 import { getConfig } from '../../config/env.js';
+import { getByteBeaconLogoBuffer } from './logo.asset.js';
 
 export interface EmailServiceConfig {
   host?: string;
@@ -12,12 +13,21 @@ export interface EmailServiceConfig {
   frontendUrl?: string;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content?: string | Buffer;
+  path?: string;
+  cid?: string;
+  contentType?: string;
+}
+
 export interface SendEmailOptions {
   to: string;
   subject: string;
   html: string;
   text?: string;
   from?: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface SendEmailResult {
@@ -176,31 +186,33 @@ export class EmailService {
   }
 
   public async sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
-    let fromAddress = options.from || this.config.from || 'ByteBeacon <no-reply@bytebeacon.online>';
-    fromAddress = fromAddress.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '');
-    let replyToAddress = fromAddress;
+    let rawFrom = options.from || this.config.from || 'ByteBeacon <no-reply@bytebeacon.online>';
+    rawFrom = rawFrom.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '');
+
+    let fromAddress: string;
+    let displayName = 'ByteBeacon';
+    let addressPart = 'no-reply@bytebeacon.online';
+
+    if (rawFrom.includes('<') && rawFrom.includes('>')) {
+      const match = rawFrom.match(/^([^<]*?)<([^>]+)>/);
+      if (match) {
+        displayName = match[1].trim().replace(/^["']|["']$/g, '') || 'ByteBeacon';
+        addressPart = match[2].trim();
+      }
+      fromAddress = `"${displayName}" <${addressPart}>`;
+    } else if (rawFrom.includes('@')) {
+      addressPart = rawFrom.trim();
+      fromAddress = `"${displayName}" <${addressPart}>`;
+    } else {
+      displayName = rawFrom.trim() || 'ByteBeacon';
+      fromAddress = `"${displayName}" <no-reply@bytebeacon.online>`;
+    }
+
+    const replyToAddress = fromAddress;
 
     const isGmail = Boolean(
       this.config.host && (this.config.host.toLowerCase().includes('gmail') || this.config.host.toLowerCase() === 'smtp.gmail.com')
     );
-
-    // Gmail Sender Restriction Resolution:
-    // If authenticated via Gmail SMTP using a @gmail.com or @googlemail.com account,
-    // Google strictly forbids sending from an unverified external domain (e.g. no-reply@bytebeacon.online)
-    // and will reject with "553 5.1.2 Sender address rejected".
-    // We automatically preserve the brand display name ("ByteBeacon") while using the authenticated Gmail
-    // address as the SMTP From address, and point Reply-To to the intended fromAddress.
-    if (isGmail && this.config.user) {
-      const authUser = this.config.user.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '');
-      const authDomain = authUser.includes('@') ? authUser.split('@')[1].toLowerCase() : '';
-
-      if (authDomain === 'gmail.com' || authDomain === 'googlemail.com') {
-        const nameMatch = fromAddress.match(/^([^<]+)/);
-        const displayName = nameMatch ? nameMatch[1].trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '') : 'ByteBeacon';
-        replyToAddress = fromAddress;
-        fromAddress = `${displayName} <${authUser}>`;
-      }
-    }
 
     if (!this.isReady() || !this.transporter) {
       // Mock / Dev fallback: Log the email content safely so local development and tests succeed
@@ -228,6 +240,7 @@ export class EmailService {
         subject: options.subject,
         text: options.text,
         html: options.html,
+        attachments: options.attachments,
       });
 
       logger.info(
@@ -276,6 +289,7 @@ export class EmailService {
               subject: options.subject,
               text: options.text,
               html: options.html,
+              attachments: options.attachments,
             });
 
             logger.info(
@@ -336,6 +350,8 @@ The ByteBeacon Team
 https://www.bytebeacon.online
 `;
 
+    const frontendUrl = this.config.frontendUrl || 'https://www.bytebeacon.online';
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -370,16 +386,20 @@ https://www.bytebeacon.online
       text-align: center;
       margin-bottom: 28px;
     }
-    .brand-logo {
+    .brand-badge {
       display: inline-block;
-      font-size: 22px;
-      font-weight: 800;
-      color: #FFFFFF;
-      letter-spacing: -0.03em;
-      text-decoration: none;
+      background-color: #FFFFFF;
+      border-radius: 12px;
+      padding: 12px 24px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
     }
-    .brand-accent {
-      color: #10B981;
+    .brand-logo-img {
+      width: 160px;
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+      border: 0;
     }
     h1 {
       font-size: 20px;
@@ -448,8 +468,10 @@ https://www.bytebeacon.online
   <div class="wrapper">
     <div class="card">
       <div class="brand-header">
-        <a href="https://www.bytebeacon.online" class="brand-logo">
-          Byte<span class="brand-accent">Beacon</span>
+        <a href="${frontendUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; display: inline-block;">
+          <div class="brand-badge">
+            <img src="cid:bytebeacon-logo" alt="ByteBeacon" class="brand-logo-img" width="160" />
+          </div>
         </a>
       </div>
 
@@ -481,11 +503,21 @@ https://www.bytebeacon.online
 </body>
 </html>`;
 
+    const logoBuffer = getByteBeaconLogoBuffer();
+
     return this.sendEmail({
       to,
       subject,
       text: plainText,
       html,
+      attachments: [
+        {
+          filename: 'bytebeacon-logo.png',
+          content: logoBuffer,
+          cid: 'bytebeacon-logo',
+          contentType: 'image/png',
+        },
+      ],
     });
   }
 }
