@@ -1517,39 +1517,54 @@ export async function customerAuthRoutes(
             );
           }
 
-          try {
-            mailResult = await emailService.sendPasswordResetEmail(user.email, resetLink, user.full_name || undefined);
-            if (!mailResult.success) {
-              logger.error(
-                { error: mailResult.error, userId: user.id, recipient: user.email, smtpReady: emailService.isReady() },
-                '[PASSWORD_RESET] Failed to deliver password reset email via SMTP relay',
-              );
-            } else {
-              logger.info(
-                { messageId: mailResult.messageId, recipient: user.email, userId: user.id },
-                '[PASSWORD_RESET] Successfully dispatched password reset email via SMTP',
-              );
-            }
-          } catch (mailErr: any) {
-            logger.error({ error: mailErr.message, userId: user.id, recipient: user.email }, '[PASSWORD_RESET] Exception during password reset email dispatch');
-            mailResult = { success: false, error: mailErr.message };
-          }
+          const dispatchTask = async () => {
+            try {
+              const res = await emailService.sendPasswordResetEmail(user.email, resetLink!, user.full_name || undefined);
+              const deliveryStatus = res.success ? 'DELIVERED' : 'FAILED';
+              await db.query(
+                `INSERT INTO communication_delivery_logs (
+                   message_id, recipient_user_id, recipient_email, channel, priority,
+                   subject, body, status, sent_at, delivered_at
+                 ) VALUES ($1, $2, $3, 'EMAIL', 'HIGH', $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+                [
+                  `pwd_reset_${crypto.randomUUID()}`,
+                  user.id,
+                  user.email,
+                  'Reset Your ByteBeacon Password',
+                  res.error ? `Failed: ${res.error}` : `Password reset link dispatched: ${resetLink}`,
+                  deliveryStatus,
+                ],
+              ).catch(() => null);
 
-          const deliveryStatus = mailResult.success ? 'DELIVERED' : 'FAILED';
-          await db.query(
-            `INSERT INTO communication_delivery_logs (
-               message_id, recipient_user_id, recipient_email, channel, priority,
-               subject, body, status, sent_at, delivered_at
-             ) VALUES ($1, $2, $3, 'EMAIL', 'HIGH', $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-            [
-              `pwd_reset_${crypto.randomUUID()}`,
-              user.id,
-              user.email,
-              'Reset Your ByteBeacon Password',
-              mailResult.error ? `Failed: ${mailResult.error}` : `Password reset link dispatched: ${resetLink}`,
-              deliveryStatus,
-            ],
-          ).catch(() => null);
+              if (!res.success) {
+                logger.error(
+                  { error: res.error, userId: user.id, recipient: user.email, smtpReady: emailService.isReady() },
+                  '[PASSWORD_RESET] Failed to deliver password reset email via SMTP relay',
+                );
+              } else {
+                logger.info(
+                  { messageId: res.messageId, recipient: user.email, userId: user.id },
+                  '[PASSWORD_RESET] Successfully dispatched password reset email via SMTP',
+                );
+              }
+              return res;
+            } catch (mailErr: any) {
+              logger.error({ error: mailErr.message, userId: user.id, recipient: user.email }, '[PASSWORD_RESET] Exception during password reset email dispatch');
+              return { success: false, error: mailErr.message };
+            }
+          };
+
+          // In test environments, await dispatch synchronously; in production/development, dispatch via setImmediate so HTTP response returns in <50ms and never times out
+          if (config.NODE_ENV === 'test') {
+            mailResult = await dispatchTask();
+          } else {
+            setImmediate(() => {
+              dispatchTask().catch((err) => {
+                logger.error({ err: err.message }, '[PASSWORD_RESET] Background dispatch error');
+              });
+            });
+            mailResult = { success: true };
+          }
         } else {
           logger.warn({ userId: user.id }, 'Password reset requested for user record with no email address');
         }

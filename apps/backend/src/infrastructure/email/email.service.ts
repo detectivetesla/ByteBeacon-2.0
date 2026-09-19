@@ -77,7 +77,13 @@ export class EmailService {
 
     if (host && (user || pass || port)) {
       try {
-        const portNum = Number(port) || (isGmail ? 465 : 587);
+        // On cloud hosting platforms (Render, Railway, AWS), outbound port 465 (SMTPS) is frequently
+        // blocked or rate-limited by egress firewalls. Port 587 (STARTTLS) is the RFC-standard submission port and is universally open.
+        // For Gmail on cloud hosting, automatically use port 587 to prevent firewall connection drops.
+        let portNum = Number(port) || (isGmail ? 587 : 587);
+        if (isGmail && portNum === 465 && process.env.NODE_ENV === 'production') {
+          portNum = 587;
+        }
         const isSecure = secure !== undefined ? secure : (portNum === 465);
 
         this.transporter = nodemailer.createTransport({
@@ -91,10 +97,10 @@ export class EmailService {
           tls: {
             rejectUnauthorized: false,
           },
-          // Generous timeouts to avoid prematurely dropping slow SMTP handshakes
-          connectionTimeout: 15000,
-          greetingTimeout: 15000,
-          socketTimeout: 20000,
+          // 5-second connection timeouts prevent slow network hangs
+          connectionTimeout: 5000,
+          greetingTimeout: 5000,
+          socketTimeout: 10000,
         });
 
         this.isConfigured = true;
@@ -227,9 +233,9 @@ export class EmailService {
                 pass: this.config.pass.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '').replace(/\s+/g, ''),
               },
               tls: { rejectUnauthorized: false },
-              connectionTimeout: 15000,
-              greetingTimeout: 15000,
-              socketTimeout: 20000,
+              connectionTimeout: 5000,
+              greetingTimeout: 5000,
+              socketTimeout: 10000,
             });
 
             const fallbackInfo = await fallbackTransporter.sendMail({
