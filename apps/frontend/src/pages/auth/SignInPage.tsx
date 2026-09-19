@@ -187,7 +187,17 @@ export const SignInPage: React.FC = () => {
           />
 
           <Link
-            to="/forgot-password"
+            to={identifier.trim() ? `/forgot-password?identifier=${encodeURIComponent(identifier.trim())}` : '/forgot-password'}
+            state={{ identifier: identifier.trim() }}
+            onClick={() => {
+              if (identifier.trim()) {
+                try {
+                  sessionStorage.setItem('bytebeacon_pending_reset_identifier', identifier.trim());
+                } catch {
+                  // ignore
+                }
+              }
+            }}
             style={{
               color: 'var(--color-primary)',
               fontWeight: 600,

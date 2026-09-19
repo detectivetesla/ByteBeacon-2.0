@@ -1,20 +1,48 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { Input, Button } from '../../components/ui/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { authApi } from '../../api/auth.api.js';
-import { ArrowRight, CheckCircle2, Mail } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Mail, Lock } from 'lucide-react';
 
 export const ForgotPasswordPage: React.FC = () => {
-  const [identifier, setIdentifier] = useState('');
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const resolveInitialIdentifier = (): string => {
+    const fromQuery = searchParams.get('identifier') || searchParams.get('email');
+    if (fromQuery && fromQuery.trim()) return fromQuery.trim();
+
+    const stateObj = location.state as any;
+    if (stateObj?.identifier && typeof stateObj.identifier === 'string' && stateObj.identifier.trim()) {
+      return stateObj.identifier.trim();
+    }
+    if (stateObj?.email && typeof stateObj.email === 'string' && stateObj.email.trim()) {
+      return stateObj.email.trim();
+    }
+
+    try {
+      const fromSession = sessionStorage.getItem('bytebeacon_pending_reset_identifier');
+      if (fromSession && fromSession.trim()) {
+        return fromSession.trim();
+      }
+    } catch {
+      // Ignore
+    }
+
+    return '';
+  };
+
+  const [identifier, setIdentifier] = useState(resolveInitialIdentifier);
+  const [isLocked, setIsLocked] = useState(() => Boolean(resolveInitialIdentifier()));
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [debugData, setDebugData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState('');
 
   const { error: toastError, success: toastSuccess } = useToast();
-  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,18 +162,97 @@ export const ForgotPasswordPage: React.FC = () => {
       backHref="/signin"
     >
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        <Input
-          id="forgot-email"
-          label="Email Address or Phone Number"
-          type="text"
-          placeholder="e.g. kofi@example.com or 0241234567"
-          value={identifier}
-          onChange={(e) => setIdentifier(e.target.value)}
-          disabled={isLoading}
-          error={errorMsg}
-          leftIcon={<Mail size={15} color="var(--color-text-muted)" />}
-          required
-        />
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
+            <label
+              htmlFor="forgot-email"
+              style={{
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                color: 'var(--color-text-primary)',
+              }}
+            >
+              Email Address or Phone Number
+            </label>
+            {isLocked && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  fontSize: '0.6875rem',
+                  fontWeight: 600,
+                  color: 'var(--color-primary)',
+                  backgroundColor: 'var(--color-primary-soft)',
+                  padding: '0.125rem 0.5rem',
+                  borderRadius: '9999px',
+                }}
+              >
+                <Lock size={10} strokeWidth={2.5} />
+                Locked for confirmation
+              </span>
+            )}
+          </div>
+
+          <Input
+            id="forgot-email"
+            type="text"
+            placeholder="name@company.com or phone number"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            disabled={isLoading}
+            readOnly={isLocked}
+            error={errorMsg}
+            leftIcon={isLocked ? <Lock size={15} color="var(--color-primary)" /> : <Mail size={15} color="var(--color-text-muted)" />}
+            rightIcon={
+              isLocked ? (
+                <button
+                  type="button"
+                  onClick={() => setIsLocked(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-primary)',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: '0.25rem 0.5rem',
+                    textDecoration: 'underline',
+                  }}
+                  title="Click to edit account or use another email"
+                >
+                  Edit
+                </button>
+              ) : undefined
+            }
+            required
+            style={isLocked ? { backgroundColor: 'var(--color-bg-surface-elevated)', cursor: 'default' } : undefined}
+          />
+
+          {isLocked && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.375rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                Account confirmed from your sign-in details.
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsLocked(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--color-primary)',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: 0,
+                  textDecoration: 'underline',
+                }}
+              >
+                Use different account
+              </button>
+            </div>
+          )}
+        </div>
 
         <Button
           type="submit"
@@ -161,7 +268,7 @@ export const ForgotPasswordPage: React.FC = () => {
           }}
           rightIcon={<ArrowRight size={16} strokeWidth={2.8} />}
         >
-          Send Reset Link
+          {isLocked ? 'Confirm & Send Reset Link' : 'Send Reset Link'}
         </Button>
       </form>
     </AuthLayout>
