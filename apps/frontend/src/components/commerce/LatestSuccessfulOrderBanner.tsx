@@ -134,59 +134,67 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
         role="region"
         aria-label="Latest order delivery status"
         style={{
-          borderRadius: 'var(--radius-md)',
+          borderRadius: '10px',
           border: '1px solid var(--color-border-subtle)',
-          borderLeft: '3px solid var(--color-brand)',
           backgroundColor: 'var(--color-bg-surface)',
-          boxShadow: 'var(--shadow-tactile-sm)',
           padding: '0.45rem 0.75rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 'var(--space-2)',
-          flexWrap: 'wrap',
-          transition: 'all var(--transition-normal)',
+          gap: '0.5rem',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+          transition: 'border-color 0.2s ease',
           ...style,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0, flexWrap: 'wrap' }}>
           <span
             style={{
               width: '6px',
               height: '6px',
               borderRadius: '50%',
-              backgroundColor: '#22C55E',
-              boxShadow: '0 0 6px rgba(34, 197, 94, 0.8)',
+              backgroundColor: '#10B981',
+              boxShadow: '0 0 6px rgba(16, 185, 129, 0.7)',
               display: 'inline-block',
               flexShrink: 0,
             }}
           />
-          <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+          <span style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
             Latest {displayName} Order:
           </span>
-          <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-brand)', fontWeight: 700 }}>
+          <span
+            style={{
+              fontSize: '11px',
+              color: 'var(--color-brand)',
+              fontWeight: 600,
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.2)',
+              borderRadius: '9999px',
+              padding: '1px 6px',
+            }}
+          >
             {activeTelemetry.durationDisplay}
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
           {showEstimatedBadge && (
             <span
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px',
-                padding: '2px 8px',
+                gap: '3px',
+                padding: '2px 7px',
                 borderRadius: '9999px',
-                backgroundColor: 'rgba(239, 68, 68, 0.10)',
-                border: '1px solid rgba(239, 68, 68, 0.22)',
-                color: '#DC2626',
-                fontSize: '10px',
-                fontWeight: 700,
+                backgroundColor: 'var(--color-bg-surface-elevated, rgba(255, 255, 255, 0.04))',
+                border: '1px solid var(--color-border-subtle)',
+                color: 'var(--color-text-secondary)',
+                fontSize: '10.5px',
+                fontWeight: 500,
                 letterSpacing: '0.01em',
               }}
             >
-              <Clock size={10} strokeWidth={2.4} />
+              <Clock size={10} strokeWidth={2.2} style={{ opacity: 0.7 }} />
               <span>{activeTelemetry.estimatedDeliveryDisplay}</span>
             </span>
           )}
@@ -199,17 +207,18 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
             style={{
               background: 'none',
               border: 'none',
-              padding: '2px',
+              padding: '3px',
               cursor: 'pointer',
               color: 'var(--color-text-muted)',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
+              borderRadius: '4px',
             }}
           >
             <RefreshCw
               size={11}
-              strokeWidth={2.4}
+              strokeWidth={2.2}
               style={{
                 animation: isLoading ? 'spin 0.8s linear infinite' : 'none',
               }}
@@ -226,16 +235,12 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
       role="region"
       aria-label="Latest order delivery status"
       style={{
-        borderRadius: 'var(--radius-xl)',
+        borderRadius: '12px',
         border: '1px solid var(--color-border-subtle)',
-        borderLeft: '4px solid var(--color-brand)',
         backgroundColor: 'var(--color-bg-surface)',
-        padding: '0.85rem 1.25rem',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.45rem',
-        boxShadow: 'var(--shadow-tactile-sm)',
-        transition: 'all var(--transition-normal)',
+        padding: '0.625rem 0.875rem',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
+        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
         position: 'relative',
         ...style,
       }}
@@ -243,35 +248,59 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
       <style>{`
         @keyframes telemetryPulse {
           0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.35; transform: scale(0.85); }
+          50% { opacity: 0.4; transform: scale(0.85); }
+        }
+        .bb-sla-grid {
+          display: grid;
+          grid-template-areas:
+            "title actions"
+            "badges actions"
+            "times times";
+          grid-template-columns: 1fr auto;
+          align-items: center;
+          row-gap: 0.35rem;
+          column-gap: 0.5rem;
+        }
+        @media (min-width: 640px) {
+          .bb-sla-grid {
+            grid-template-areas:
+              "title badges actions"
+              "times times actions";
+            grid-template-columns: auto 1fr auto;
+            row-gap: 0.25rem;
+            column-gap: 0.75rem;
+          }
         }
       `}</style>
 
-      {/* Row 1: Header + Live Indicator + Est Delivery Badge + Refresh */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '0.75rem',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
+      <div className="bb-sla-grid">
+        {/* Area: Title + Live SLA Indicator */}
+        <div
+          style={{
+            gridArea: 'title',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            minWidth: 0,
+            flexWrap: 'wrap',
+          }}
+        >
           <span
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '5px',
-              padding: '2px 7px',
+              gap: '4px',
+              padding: '1.5px 6px',
               borderRadius: '9999px',
-              backgroundColor: 'var(--color-brand-surface)',
-              border: '1px solid var(--color-brand-border)',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.22)',
               fontSize: '10px',
-              fontWeight: 800,
-              color: 'var(--color-brand)',
-              letterSpacing: '0.05em',
+              fontWeight: 700,
+              color: 'var(--color-brand, #10B981)',
+              letterSpacing: '0.04em',
               textTransform: 'uppercase',
+              lineHeight: 1.3,
+              flexShrink: 0,
             }}
           >
             <span
@@ -279,8 +308,8 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
                 width: '6px',
                 height: '6px',
                 borderRadius: '50%',
-                backgroundColor: '#22C55E',
-                boxShadow: '0 0 6px rgba(34, 197, 94, 0.8)',
+                backgroundColor: '#10B981',
+                boxShadow: '0 0 6px rgba(16, 185, 129, 0.7)',
                 display: 'inline-block',
                 animation: 'telemetryPulse 2s ease-in-out infinite',
               }}
@@ -291,39 +320,79 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
           <h3
             style={{
               margin: 0,
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 800,
+              fontSize: '12.5px',
+              fontWeight: 600,
               color: 'var(--color-text-primary)',
               letterSpacing: '-0.01em',
+              lineHeight: 1.3,
             }}
           >
             Latest {displayName} Successful Order
           </h3>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        {/* Area: Badges (Duration & Estimated Delivery) */}
+        <div
+          style={{
+            gridArea: 'badges',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.375rem',
+            flexWrap: 'wrap',
+            justifySelf: 'start',
+          }}
+        >
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              color: 'var(--color-brand, #10B981)',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.2)',
+              padding: '1.5px 7px',
+              borderRadius: '9999px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              lineHeight: 1.3,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>{activeTelemetry.durationDisplay}</span>
+          </span>
+
           {showEstimatedBadge && (
             <span
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '5px',
-                padding: '3px 10px',
+                gap: '3.5px',
+                padding: '1.5px 7px',
                 borderRadius: '9999px',
-                backgroundColor: 'rgba(239, 68, 68, 0.10)',
-                border: '1px solid rgba(239, 68, 68, 0.22)',
-                color: '#DC2626',
+                backgroundColor: 'var(--color-bg-surface-elevated, rgba(255, 255, 255, 0.04))',
+                border: '1px solid var(--color-border-subtle)',
+                color: 'var(--color-text-secondary)',
                 fontSize: '11px',
-                fontWeight: 700,
+                fontWeight: 500,
                 letterSpacing: '0.01em',
+                lineHeight: 1.3,
                 whiteSpace: 'nowrap',
               }}
             >
-              <Clock size={12} strokeWidth={2.4} />
+              <Clock size={10.5} strokeWidth={2.2} style={{ opacity: 0.65 }} />
               <span>{activeTelemetry.estimatedDeliveryDisplay}</span>
             </span>
           )}
+        </div>
 
+        {/* Area: Refresh Action */}
+        <div
+          style={{
+            gridArea: 'actions',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+          }}
+        >
           <button
             type="button"
             onClick={handleManualRefresh}
@@ -331,23 +400,25 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
             aria-label="Refresh real-time telemetry"
             style={{
               background: 'none',
-              border: '1px solid var(--color-border-subtle)',
-              borderRadius: 'var(--radius-xs)',
-              padding: '3px 5px',
+              border: '1px solid transparent',
+              borderRadius: '6px',
+              padding: '4px',
               cursor: 'pointer',
               color: 'var(--color-text-muted)',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'all var(--transition-fast)',
+              transition: 'all 0.15s ease',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = 'var(--color-brand)';
-              e.currentTarget.style.borderColor = 'var(--color-brand-border)';
+              e.currentTarget.style.backgroundColor = 'var(--color-bg-surface-elevated, rgba(255,255,255,0.05))';
+              e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.color = 'var(--color-text-muted)';
-              e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.borderColor = 'transparent';
             }}
           >
             <RefreshCw
@@ -359,50 +430,31 @@ export const LatestSuccessfulOrderBanner: React.FC<LatestSuccessfulOrderBannerPr
             />
           </button>
         </div>
-      </div>
 
-      {/* Row 2: Timestamps + Duration */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.6rem',
-          flexWrap: 'wrap',
-          fontSize: 'var(--font-size-xs)',
-          color: 'var(--color-text-secondary)',
-          fontWeight: 500,
-          lineHeight: 1.4,
-        }}
-      >
-        <span>
-          Placed at{' '}
-          <strong style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>
-            {activeTelemetry.placedAtFormatted}
-          </strong>
-          , Delivered at{' '}
-          <strong style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>
-            {activeTelemetry.deliveredAtFormatted}
-          </strong>
-        </span>
-
-        <span style={{ color: 'var(--color-border-strong)', fontSize: '10px' }}>•</span>
-
-        <span
+        {/* Area: Timestamps */}
+        <div
           style={{
-            fontSize: '11px',
-            fontWeight: 700,
-            color: 'var(--color-brand)',
-            backgroundColor: 'var(--color-brand-surface)',
-            padding: '1px 8px',
-            borderRadius: 'var(--radius-full)',
-            border: '1px solid var(--color-brand-border)',
-            display: 'inline-flex',
+            gridArea: 'times',
+            display: 'flex',
             alignItems: 'center',
-            gap: '4px',
+            gap: '0.35rem',
+            flexWrap: 'wrap',
+            fontSize: '11px',
+            color: 'var(--color-text-muted)',
+            lineHeight: 1.3,
           }}
         >
-          {activeTelemetry.durationDisplay}
-        </span>
+          <span>
+            Placed at{' '}
+            <strong style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+              {activeTelemetry.placedAtFormatted}
+            </strong>
+            , Delivered at{' '}
+            <strong style={{ fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+              {activeTelemetry.deliveredAtFormatted}
+            </strong>
+          </span>
+        </div>
       </div>
     </div>
   );
