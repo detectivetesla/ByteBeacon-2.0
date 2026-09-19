@@ -18,21 +18,18 @@ import {
   ArrowRight,
   Code2,
   Server,
-  Layers,
-  Clock,
-  CheckCircle2,
   AlertTriangle,
-  Send,
-  CreditCard,
-  Shield,
-  Trash2,
   Zap,
   ExternalLink,
   Lock,
   Globe,
   RefreshCw,
-  FileCode,
   Download,
+  List,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  X,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 
@@ -78,6 +75,26 @@ export const DeveloperPortal: React.FC = () => {
   // In-System Modals for Swagger UI and OpenAPI JSON to prevent kicking out of the dashboard
   const [swaggerModalOpen, setSwaggerModalOpen] = useState(false);
   const [openapiModalOpen, setOpenapiModalOpen] = useState(false);
+  const [mobileTocOpen, setMobileTocOpen] = useState(false);
+
+  const currentSectionIndex = useMemo(() => {
+    const idx = SECTIONS.findIndex((s) => s.id === activeSectionId);
+    return idx >= 0 ? idx : 0;
+  }, [activeSectionId]);
+
+  const currentSection = SECTIONS[currentSectionIndex] || SECTIONS[0];
+
+  const goToPrevSection = () => {
+    if (currentSectionIndex > 0) {
+      scrollToSection(SECTIONS[currentSectionIndex - 1].id);
+    }
+  };
+
+  const goToNextSection = () => {
+    if (currentSectionIndex < SECTIONS.length - 1) {
+      scrollToSection(SECTIONS[currentSectionIndex + 1].id);
+    }
+  };
 
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isProgrammaticScrollRef = useRef(false);
@@ -188,195 +205,491 @@ export const DeveloperPortal: React.FC = () => {
   }, [searchQuery]);
 
   return (
-    <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', padding: 'var(--space-4) var(--space-2)' }}>
+    <div className="dev-portal-container">
       <style>{`
+        /* Responsive Developer Portal Layout */
+        .dev-portal-container {
+          max-width: 1440px;
+          margin: 0 auto;
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-4);
+          padding: 12px;
+          box-sizing: border-box;
+        }
+
+        @media (min-width: 768px) {
+          .dev-portal-container {
+            padding: var(--space-5) var(--space-6);
+            gap: var(--space-6);
+          }
+        }
+
         section[id^="sec-"] {
-          scroll-margin-top: 84px;
+          scroll-margin-top: 130px;
+        }
+        @media (min-width: 1024px) {
+          section[id^="sec-"] {
+            scroll-margin-top: 88px;
+          }
+        }
+
+        .dev-hero-title {
+          font-size: 1.25rem;
+          font-weight: 900;
+          color: var(--color-text-primary);
+          margin: 0;
+          letter-spacing: -0.02em;
+          line-height: 1.25;
+        }
+        @media (min-width: 768px) {
+          .dev-hero-title {
+            font-size: var(--font-size-2xl);
+          }
+        }
+
+        .dev-quick-hub {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+        }
+        @media (min-width: 768px) {
+          .dev-quick-hub {
+            grid-template-columns: repeat(4, 1fr);
+            gap: var(--space-4);
+          }
+        }
+
+        .dev-quick-card {
+          padding: 10px;
+          border-radius: var(--radius-lg);
+          background: linear-gradient(145deg, var(--color-bg-surface-elevated), var(--color-bg-surface));
+          border: 1px solid var(--color-border-default);
+          box-shadow: var(--shadow-tactile-sm);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          transition: all 120ms ease;
+          min-width: 0;
+        }
+        @media (min-width: 768px) {
+          .dev-quick-card {
+            padding: var(--space-4);
+            border-radius: var(--radius-xl);
+          }
+        }
+
+        .dev-main-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: var(--space-4);
+          align-items: start;
+          width: 100%;
+          min-width: 0;
+        }
+        @media (min-width: 1024px) {
+          .dev-main-grid {
+            grid-template-columns: 290px 1fr;
+            gap: var(--space-6);
+          }
+        }
+
+        .dev-desktop-sidebar {
+          display: none;
+        }
+        @media (min-width: 1024px) {
+          .dev-desktop-sidebar {
+            display: flex;
+            flex-direction: column;
+            position: sticky;
+            top: 80px;
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+            gap: var(--space-3);
+            padding: var(--space-3);
+            border-radius: var(--radius-xl);
+            background-color: var(--color-bg-surface);
+            border: 1px solid var(--color-border-default);
+            box-shadow: var(--shadow-tactile-sm);
+          }
+        }
+
+        .dev-mobile-toc-bar {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          position: sticky;
+          top: 68px;
+          z-index: 30;
+          padding: 8px 10px;
+          background-color: var(--color-bg-surface-glass, rgba(15, 23, 42, 0.92));
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border: 1px solid var(--color-border-default);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-tactile-sm);
+        }
+        @media (min-width: 1024px) {
+          .dev-mobile-toc-bar {
+            display: none !important;
+          }
+        }
+
+        .dev-mobile-toc-btn {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+          padding: 6px 10px;
+          border-radius: var(--radius-md);
+          background-color: var(--color-bg-surface-elevated);
+          border: 1px solid var(--color-border-default);
+          color: var(--color-text-primary);
+          cursor: pointer;
+          text-align: left;
+          min-width: 0;
+          font-family: inherit;
+        }
+
+        .dev-mobile-toc-title {
+          font-size: 11px;
+          font-weight: 700;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: var(--color-text-primary);
+        }
+
+        .dev-mobile-badge {
+          font-size: 9px;
+          padding: 1px 5px;
+          border-radius: 4px;
+          background-color: var(--color-primary);
+          color: #ffffff;
+          font-weight: 800;
+          flex-shrink: 0;
+        }
+
+        .dev-nav-step-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 32px;
+          height: 32px;
+          border-radius: var(--radius-md);
+          background-color: var(--color-bg-surface-elevated);
+          border: 1px solid var(--color-border-default);
+          color: var(--color-text-primary);
+          cursor: pointer;
+          transition: all 120ms ease;
+          flex-shrink: 0;
+        }
+        .dev-nav-step-btn:disabled {
+          opacity: 0.35;
+          cursor: not-allowed;
+        }
+
+        pre {
+          max-width: 100%;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          box-sizing: border-box;
+        }
+
+        table {
+          max-width: 100%;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slideInLeft {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
         }
       `}</style>
+
       {/* 1. Header & Hero */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.85rem' }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <TactileIcon icon={BookOpen} color="api" size="sm" />
-            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-              ByteBeacon Agent Developer Documentation & Authoritative API Specifications
+            <h1 className="dev-hero-title">
+              ByteBeacon API Docs
             </h1>
+            <Badge variant="purple" size="sm">REST API v2.0</Badge>
           </div>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.35rem 0 0 0', maxWidth: '850px', lineHeight: 1.5 }}>
             Production REST API surface for telecom agents, wholesale pricing engines, automated order dispatch, Up2U beneficiary prechecking, and cryptographic webhook delivery.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Badge variant="purple" size="md">REST API v2.0</Badge>
-          <Badge variant="success" dot size="md">Authoritative Backend</Badge>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setSwaggerModalOpen(true)}
-            leftIcon={<ExternalLink size={14} />}
+            leftIcon={<ExternalLink size={13} />}
           >
-            Swagger UI (/docs)
+            Swagger UI
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setOpenapiModalOpen(true)}
-            leftIcon={<Code2 size={14} />}
+            leftIcon={<Code2 size={13} />}
           >
-            OpenAPI 3.1 JSON
+            OpenAPI
           </Button>
           <Button
             variant="primary"
             size="sm"
             onClick={() => navigate('/agent/sandbox')}
-            leftIcon={<Terminal size={14} />}
+            leftIcon={<Terminal size={13} />}
           >
-            API Sandbox
+            Sandbox
           </Button>
         </div>
       </div>
 
-      {/* 2. Quick Action Hub */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
+      {/* 2. Quick Action Hub (Compact 2x2 on mobile, 4-col on desktop) */}
+      <div className="dev-quick-hub">
         <div
           onClick={() => navigate('/agent/api')}
-          style={{
-            padding: 'var(--space-4)',
-            borderRadius: 'var(--radius-xl)',
-            background: 'linear-gradient(145deg, var(--color-bg-surface-elevated), var(--color-bg-surface))',
-            border: '1px solid var(--color-border-default)',
-            boxShadow: 'var(--shadow-tactile-sm)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            transition: 'all 120ms ease',
-          }}
+          className="dev-quick-card"
           onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-primary)')}
           onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(139, 92, 246, 0.15)', border: '1px solid rgba(139, 92, 246, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
-              <Key size={18} strokeWidth={2.4} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(139, 92, 246, 0.15)', border: '1px solid rgba(139, 92, 246, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6', flexShrink: 0 }}>
+              <Key size={16} strokeWidth={2.4} />
             </div>
-            <div>
-              <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>API Keys</div>
-              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Generate & rotate secrets</div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>API Keys</div>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Generate & rotate</div>
             </div>
           </div>
-          <ArrowRight size={14} color="var(--color-text-muted)" />
+          <ArrowRight size={13} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
         </div>
 
         <div
           onClick={() => setSwaggerModalOpen(true)}
-          style={{
-            padding: 'var(--space-4)',
-            borderRadius: 'var(--radius-xl)',
-            background: 'linear-gradient(145deg, var(--color-bg-surface-elevated), var(--color-bg-surface))',
-            border: '1px solid var(--color-border-default)',
-            boxShadow: 'var(--shadow-tactile-sm)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            transition: 'all 120ms ease',
-          }}
+          className="dev-quick-card"
           onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#10B981')}
           onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
-              <Server size={18} strokeWidth={2.4} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981', flexShrink: 0 }}>
+              <Server size={16} strokeWidth={2.4} />
             </div>
-            <div>
-              <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>Interactive Swagger UI</div>
-              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Explore in-system docs</div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Swagger UI</div>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Interactive docs</div>
             </div>
           </div>
-          <ArrowRight size={14} color="var(--color-text-muted)" />
+          <ArrowRight size={13} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
         </div>
 
         <div
           onClick={() => setOpenapiModalOpen(true)}
-          style={{
-            padding: 'var(--space-4)',
-            borderRadius: 'var(--radius-xl)',
-            background: 'linear-gradient(145deg, var(--color-bg-surface-elevated), var(--color-bg-surface))',
-            border: '1px solid var(--color-border-default)',
-            boxShadow: 'var(--shadow-tactile-sm)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            transition: 'all 120ms ease',
-          }}
+          className="dev-quick-card"
           onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#06B6D4')}
           onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(6, 182, 212, 0.15)', border: '1px solid rgba(6, 182, 212, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#06B6D4' }}>
-              <Code2 size={18} strokeWidth={2.4} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(6, 182, 212, 0.15)', border: '1px solid rgba(6, 182, 212, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#06B6D4', flexShrink: 0 }}>
+              <Code2 size={16} strokeWidth={2.4} />
             </div>
-            <div>
-              <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>OpenAPI 3.1 Spec</div>
-              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Raw machine-readable JSON</div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>OpenAPI 3.1</div>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Machine JSON</div>
             </div>
           </div>
-          <ArrowRight size={14} color="var(--color-text-muted)" />
+          <ArrowRight size={13} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
         </div>
 
         <div
           onClick={() => navigate('/agent/webhooks')}
-          style={{
-            padding: 'var(--space-4)',
-            borderRadius: 'var(--radius-xl)',
-            background: 'linear-gradient(145deg, var(--color-bg-surface-elevated), var(--color-bg-surface))',
-            border: '1px solid var(--color-border-default)',
-            boxShadow: 'var(--shadow-tactile-sm)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            transition: 'all 120ms ease',
-          }}
+          className="dev-quick-card"
           onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#F59E0B')}
           onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F59E0B' }}>
-              <Webhook size={18} strokeWidth={2.4} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F59E0B', flexShrink: 0 }}>
+              <Webhook size={16} strokeWidth={2.4} />
             </div>
-            <div>
-              <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-primary)' }}>Webhooks</div>
-              <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Live webhook endpoints</div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--color-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Webhooks</div>
+              <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Live endpoints</div>
             </div>
           </div>
-          <ArrowRight size={14} color="var(--color-text-muted)" />
+          <ArrowRight size={13} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
         </div>
       </div>
 
-      {/* 3. Main Workspace: Sticky Auto-Scrolling Sidebar + Ultra-Detailed Content */}
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 'var(--space-6)', alignItems: 'start' }}>
-        {/* Sticky Sidebar Documentation Index with Auto-Scroll */}
-        <div
-          ref={sidebarRef}
-          style={{
-            position: 'sticky',
-            top: '80px',
-            maxHeight: 'calc(100vh - 100px)',
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-3)',
-            padding: 'var(--space-3)',
-            borderRadius: 'var(--radius-xl)',
-            backgroundColor: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border-default)',
-            boxShadow: 'var(--shadow-tactile-sm)',
-          }}
+      {/* Mobile Sticky Section Header & Jump Bar */}
+      <div className="dev-mobile-toc-bar">
+        <button
+          type="button"
+          onClick={() => setMobileTocOpen(true)}
+          className="dev-mobile-toc-btn"
         >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+            <List size={15} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+            <span className="dev-mobile-toc-title">
+              {currentSection.title}
+            </span>
+            {currentSection.badge && (
+              <span className="dev-mobile-badge">{currentSection.badge}</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, color: 'var(--color-text-muted)' }}>
+            <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)' }}>{currentSectionIndex + 1}/{SECTIONS.length}</span>
+            <ChevronDown size={14} />
+          </div>
+        </button>
+
+        {/* Quick Prev / Next Buttons */}
+        <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={goToPrevSection}
+            disabled={currentSectionIndex === 0}
+            title="Previous Section"
+            className="dev-nav-step-btn"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={goToNextSection}
+            disabled={currentSectionIndex === SECTIONS.length - 1}
+            title="Next Section"
+            className="dev-nav-step-btn"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Table of Contents Slide-Over Sheet */}
+      {mobileTocOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            display: 'flex',
+            justifyContent: 'flex-start',
+            animation: 'fadeIn 150ms ease',
+          }}
+          onClick={() => setMobileTocOpen(false)}
+        >
+          <div
+            style={{
+              width: '85%',
+              maxWidth: '320px',
+              height: '100%',
+              backgroundColor: 'var(--color-bg-surface)',
+              borderRight: '1px solid var(--color-border-default)',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: 'var(--shadow-xl)',
+              animation: 'slideInLeft 200ms ease',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--color-border-default)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <BookOpen size={17} style={{ color: 'var(--color-primary)' }} />
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>Documentation Index</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileTocOpen(false)}
+                style={{ background: 'none', border: 'none', padding: '4px', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div style={{ padding: '10px 14px' }}>
+              <SearchInput
+                placeholder="Filter 21 sections..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* Section List */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 24px' }}>
+              {filteredSections.map((item) => {
+                const isActive = activeSectionId === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setMobileTocOpen(false);
+                      scrollToSection(item.id);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '9px 10px',
+                      borderRadius: 'var(--radius-md)',
+                      border: 'none',
+                      background: isActive ? 'var(--color-primary-light, rgba(99, 102, 241, 0.12))' : 'transparent',
+                      color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                      fontWeight: isActive ? 800 : 500,
+                      fontSize: '11.5px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      margin: '2px 0',
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.title}
+                    </span>
+                    {item.badge && (
+                      <span
+                        style={{
+                          fontSize: '9px',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          backgroundColor: isActive ? 'var(--color-primary)' : 'var(--color-border-default)',
+                          color: isActive ? '#fff' : 'var(--color-text-muted)',
+                          fontWeight: 700,
+                          marginLeft: '6px',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Main Workspace: Sticky Auto-Scrolling Sidebar (Desktop) + Ultra-Detailed Content */}
+      <div className="dev-main-grid">
+        {/* Sticky Sidebar Documentation Index with Auto-Scroll (Desktop) */}
+        <div ref={sidebarRef} className="dev-desktop-sidebar">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
               Documentation Index
@@ -564,7 +877,7 @@ export const DeveloperPortal: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL)</span>
                   <button onClick={() => handleCopy(`curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \\\n  -H "x-api-key: ak_live_8f3c..."`, 'c-agent-me')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                    <Copy size={12} /> Copy
+                    {copiedKey === 'c-agent-me' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                   </button>
                 </div>
                 <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
@@ -707,7 +1020,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
             <Card variant="elevated" padding="lg">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Badge variant="primary" size="sm">POST</Badge>
+                  <Badge variant="brand" size="sm">POST</Badge>
                   <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
                     /agent/orders — Place Single Order
                   </h3>
@@ -745,15 +1058,15 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                       </tr>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>idempotencyKey</code></td>
-                        <td style={{ padding: '6px' }}>UUID v4</td>
+                        <td style={{ padding: '6px' }}>UUID</td>
                         <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>Unique UUID v4. Replays within 24h return original order without double charge.</td>
+                        <td style={{ padding: '6px' }}>Unique UUID v4 to prevent duplicate billing on retries</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>email</code></td>
                         <td style={{ padding: '6px' }}>string</td>
-                        <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>no</td>
-                        <td style={{ padding: '6px' }}>Optional customer email address for receipt delivery</td>
+                        <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>optional</td>
+                        <td style={{ padding: '6px' }}>Optional notification email</td>
                       </tr>
                     </tbody>
                   </table>
@@ -764,7 +1077,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL)</span>
                   <button onClick={() => handleCopy(`curl -X POST https://bytebeacon-2-0.onrender.com/api/v1/agent/orders \\\n  -H "x-api-key: ak_live_8f3c..." \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "bundleId": "550e8400-e29b-41d4-a716-446655440000",\n    "phoneNumber": "+233241234567",\n    "idempotencyKey": "b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f",\n    "email": "customer@example.com"\n  }'`, 'c-single-order')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                    <Copy size={12} /> Copy
+                    {copiedKey === 'c-single-order' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                   </button>
                 </div>
                 <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
@@ -865,7 +1178,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
             <Card variant="elevated" padding="lg">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Badge variant="primary" size="sm">POST</Badge>
+                  <Badge variant="brand" size="sm">POST</Badge>
                   <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
                     /agent/orders/bulk — Multi-Recipient Batch Order
                   </h3>
@@ -973,7 +1286,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
             <Card variant="elevated" padding="lg">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Badge variant="primary" size="sm">POST</Badge>
+                  <Badge variant="brand" size="sm">POST</Badge>
                   <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
                     /me/agent/orders/bulk — Excel XLSX File Upload Mirror
                   </h3>
@@ -991,7 +1304,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
             <Card variant="elevated" padding="lg">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Badge variant="primary" size="sm">POST</Badge>
+                  <Badge variant="brand" size="sm">POST</Badge>
                   <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
                     /orders/beneficiaries/precheck — Public MTN Up2U Precheck
                   </h3>
@@ -1033,7 +1346,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
             <Card variant="elevated" padding="lg">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Badge variant="primary" size="sm">POST</Badge>
+                  <Badge variant="brand" size="sm">POST</Badge>
                   <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
                     /agent/beneficiaries/precheck — Keyed Bulk Precheck
                   </h3>
@@ -1390,12 +1703,12 @@ export function verifyWebhookSignature(rawBody: string, header: string, secret: 
         subtitle="Live API testing and OpenAPI interactive specification directly within your agent workspace"
         maxWidth="1180px"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '75vh', minHeight: '500px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--color-border-default)' }}>
-            <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '75vh', minHeight: '360px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', borderBottom: '1px solid var(--color-border-default)' }}>
+            <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', wordBreak: 'break-all' }}>
               Source: <code style={{ color: 'var(--color-primary)' }}>{swaggerUrl}</code>
             </span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
               <Button
                 variant="outline"
                 size="sm"
@@ -1429,11 +1742,11 @@ export function verifyWebhookSignature(rawBody: string, header: string, secret: 
         maxWidth="840px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--color-border-default)' }}>
-            <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', borderBottom: '1px solid var(--color-border-default)' }}>
+            <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', wordBreak: 'break-all' }}>
               Endpoint: <code style={{ color: '#06B6D4' }}>{openapiUrl}</code>
             </span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
               <Button
                 variant="outline"
                 size="sm"
