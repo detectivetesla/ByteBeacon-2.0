@@ -48,14 +48,6 @@ export function extractApiKeyFromRequest(req: FastifyRequest): string | null {
     }
   }
 
-  const query = req.query as any;
-  if (query) {
-    const qKey = query.api_key || query.apiKey;
-    if (typeof qKey === 'string' && (qKey.startsWith('ak_live_') || qKey.startsWith('ak_test_'))) {
-      return qKey.trim();
-    }
-  }
-
   return null;
 }
 
@@ -192,7 +184,7 @@ export function createAuthHooks(
       const rawKey = extractApiKeyFromRequest(req);
 
       if (!rawKey) {
-        throw new UnauthorizedError('API key missing from request headers or query');
+        throw new UnauthorizedError('API key missing from request headers (use X-API-Key or Authorization: Bearer)');
       }
 
       const validatedKey = await apiKeyService.validateApiKey(rawKey, requiredScope);

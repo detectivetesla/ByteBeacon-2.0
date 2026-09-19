@@ -850,6 +850,7 @@ export const DeveloperPortal: React.FC = () => {
               </div>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
                 The quickest way to confirm a key works is to fetch your own agent profile. Returns the agent record and loaded user relation.
+                Always supply API keys via request headers (<code>x-api-key</code> or <code>Authorization: Bearer &lt;key&gt;</code>). API keys in query parameters are rejected.
               </p>
               <div style={{ margin: '0.75rem 0' }}>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Headers</div>
@@ -865,7 +866,7 @@ export const DeveloperPortal: React.FC = () => {
                     <tbody>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>x-api-key</code></td>
-                        <td style={{ padding: '6px' }}><code>ak_live_8f3c...</code></td>
+                        <td style={{ padding: '6px' }}><code>ak_live_REDACTED_EXAMPLE</code></td>
                         <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>required</td>
                       </tr>
                     </tbody>
@@ -876,13 +877,13 @@ export const DeveloperPortal: React.FC = () => {
               <div style={{ marginTop: '0.75rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL)</span>
-                  <button onClick={() => handleCopy(`curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \\\n  -H "x-api-key: ak_live_8f3c..."`, 'c-agent-me')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                  <button onClick={() => handleCopy(`curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \\\n  -H "x-api-key: ak_live_REDACTED_EXAMPLE"`, 'c-agent-me')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
                     {copiedKey === 'c-agent-me' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                   </button>
                 </div>
                 <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
 curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
-  -H "x-api-key: ak_live_8f3c..."
+  -H "x-api-key: ak_live_REDACTED_EXAMPLE"
                 </pre>
               </div>
 
@@ -897,7 +898,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
     "id": "9b2e5d1a-6c54-4b01-90e6-d701748f0851",
     "publicId": "agt_01J8K9P2X4",
     "businessName": "ByteBeacon Enterprise Partner",
-    "businessPhone": "+233241234567",
+    "businessPhone": "+233240000000",
     "address": "Accra, Ghana",
     "tier": "gold",
     "status": "approved",
@@ -910,7 +911,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
       "id": "5f0c1122-3344-5566-7788-99aabbccddeeff",
       "name": "Kwame Mensah",
       "email": "kwame@example.com",
-      "phone": "+233241234567"
+      "phone": "+233240000000"
     },
     "createdAt": "2026-05-20T09:00:00.000Z"
   }
@@ -1054,7 +1055,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                         <td style={{ padding: '6px' }}><code>phoneNumber</code></td>
                         <td style={{ padding: '6px' }}>string</td>
                         <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>Ghanaian MSISDN format (e.g. <code>0241234567</code> or <code>+233241234567</code>)</td>
+                        <td style={{ padding: '6px' }}>Ghanaian MSISDN format (e.g. <code>0240000000</code> or <code>+233240000000</code>)</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>idempotencyKey</code></td>
@@ -1076,17 +1077,17 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
               <div style={{ marginTop: '0.75rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL)</span>
-                  <button onClick={() => handleCopy(`curl -X POST https://bytebeacon-2-0.onrender.com/api/v1/agent/orders \\\n  -H "x-api-key: ak_live_8f3c..." \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "bundleId": "550e8400-e29b-41d4-a716-446655440000",\n    "phoneNumber": "+233241234567",\n    "idempotencyKey": "b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f",\n    "email": "customer@example.com"\n  }'`, 'c-single-order')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                  <button onClick={() => handleCopy(`curl -X POST https://bytebeacon-2-0.onrender.com/api/v1/agent/orders \\\n  -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "bundleId": "550e8400-e29b-41d4-a716-446655440000",\n    "phoneNumber": "+233240000000",\n    "idempotencyKey": "b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f",\n    "email": "customer@example.com"\n  }'`, 'c-single-order')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
                     {copiedKey === 'c-single-order' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                   </button>
                 </div>
                 <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
 {`curl -X POST https://bytebeacon-2-0.onrender.com/api/v1/agent/orders \\
-  -H "x-api-key: ak_live_8f3c..." \\
+  -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\
   -H "Content-Type: application/json" \\
   -d '{
     "bundleId": "550e8400-e29b-41d4-a716-446655440000",
-    "phoneNumber": "+233241234567",
+    "phoneNumber": "+233240000000",
     "idempotencyKey": "b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f",
     "email": "customer@example.com"
   }'`}
@@ -1113,7 +1114,7 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
     "network": "MTN",
     "bundleType": "DATA",
     "groupSizeGb": "5.00",
-    "phoneNumber": "0241234567",
+    "phoneNumber": "0240000000",
     "email": "customer@example.com",
     "status": "received",
     "isSandbox": false,
@@ -1323,8 +1324,8 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
     "network": "MTN",
     "results": [
       {
-        "phone": "0241234567",
-        "normalized": "0241234567",
+        "phone": "0240000000",
+        "normalized": "0240000000",
         "valid": true,
         "known": true
       },
@@ -1377,8 +1378,8 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
     "unknown": ["0209990000"],
     "results": [
       {
-        "phone": "0241234567",
-        "normalized": "0241234567",
+        "phone": "0240000000",
+        "normalized": "0240000000",
         "valid": true,
         "known": true
       },

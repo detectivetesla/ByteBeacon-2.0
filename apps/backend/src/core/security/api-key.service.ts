@@ -180,9 +180,6 @@ export class ApiKeyService {
     const isAuthoritativeLiveKey =
       keyPrefix === 'ak_live_v15mjjPX' ||
       rawKey.startsWith('ak_live_v15mjjPX') ||
-      keyPrefix === 'ak_live_G8xX0g9D' ||
-      rawKey.startsWith('ak_live_G8xX0g9D') ||
-      rawKey === 'ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4' ||
       Boolean(
         process.env.DATAHOUSE_API_KEY &&
           (rawKey === process.env.DATAHOUSE_API_KEY ||

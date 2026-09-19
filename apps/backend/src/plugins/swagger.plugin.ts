@@ -4,33 +4,40 @@ import fastifySwaggerUi from '@fastify/swagger-ui';
 import { openApiPaths, openApiSchemas } from './openapi-spec.js';
 
 export async function registerSwagger(app: FastifyInstance) {
+  const isProd = process.env.NODE_ENV === 'production';
+  const servers = [
+    {
+      url: 'https://api.bytebeacon.online',
+      description: 'Production API Gateway',
+    },
+    {
+      url: 'https://bytebeacon-2-0.onrender.com',
+      description: 'Production Application Server (Render)',
+    },
+    ...(isProd
+      ? []
+      : [
+          {
+            url: 'http://localhost:3000',
+            description: 'Local Development Server',
+          },
+        ]),
+  ];
+
   await app.register(fastifySwagger, {
     openapi: {
       openapi: '3.1.0',
       info: {
-        title: 'ByteBeacon 2.0 API',
+        title: 'ByteBeacon 2.0 Developer API',
         description:
-          'Authoritative Telecom Aggregation, Double-Entry Reseller Ledger, High-Speed Up2U Beneficiary Precheck, and Automated Carrier Fulfillment API.',
+          'Official ByteBeacon 2.0 Developer API for Telecom Data Orders, Recipient Precheck, Wallet Balance, and Webhooks.',
         version: '2.0.0',
         contact: {
           name: 'ByteBeacon Developer Support',
           email: 'support@bytebeacon.online',
         },
       },
-      servers: [
-        {
-          url: 'https://bytebeacon-2-0.onrender.com',
-          description: 'Production Live Server (Render)',
-        },
-        {
-          url: 'https://api.bytebeacon.online',
-          description: 'Production Live Gateway',
-        },
-        {
-          url: 'http://localhost:3000',
-          description: 'Local Development Server',
-        },
-      ],
+      servers,
       components: {
         securitySchemes: {
           ApiKeyAuth: {
@@ -38,25 +45,24 @@ export async function registerSwagger(app: FastifyInstance) {
             name: 'X-API-Key',
             in: 'header',
             description:
-              'Developer API key (format: `ak_live_...` for live transactions e.g. `ak_live_G8xX0g9D98nu_oq7c9lkag7IKrZ3YDq4`, `ak_test_...` for sandbox simulation). Also accepted via `Authorization: Bearer <key>`, `Authorization: ApiKey <key>`, or `?api_key=<key>`.',
+              'Developer API key (format: `ak_live_...` for live transactions e.g. `ak_live_REDACTED_EXAMPLE`, `ak_test_...` for sandbox simulation e.g. `ak_test_XXXXXXXXXXXXXXXX`). Also accepted via `Authorization: Bearer <key>` or `Authorization: ApiKey <key>`. Do not pass API keys in URL query parameters.',
           },
           BearerAuth: {
             type: 'http',
             scheme: 'bearer',
             bearerFormat: 'JWT or API Key',
-            description: 'JWT session access token or API Key passed via standard Authorization Bearer header.',
+            description: 'JWT session token or API Key passed via standard Authorization: Bearer header.',
           },
         },
         schemas: openApiSchemas,
       },
       paths: openApiPaths,
       tags: [
-        { name: 'Beneficiaries & Up2U', description: 'High-speed precheck, Up2U verification engine, and async batch jobs' },
-        { name: 'Pending Approvals', description: 'MTN pending approvals management, manual clearance, and bulk purge' },
-        { name: 'Orders', description: 'Single and high-throughput bulk telecom data dispatch' },
-        { name: 'Catalog', description: 'Active bundle packages, validity, and wholesale agent pricing' },
-        { name: 'Wallet & Telemetry', description: 'Float balances, statement reporting, and API usage telemetry' },
-        { name: 'Webhooks', description: 'Real-time HTTP callbacks and HMAC-SHA256 signature verification' },
+        { name: 'Beneficiaries & Up2U', description: 'Recipient eligibility precheck and asynchronous validation batch jobs' },
+        { name: 'Orders', description: 'Single and bulk data bundle dispatch and tracking' },
+        { name: 'Catalog', description: 'Available data bundle packages and wholesale pricing' },
+        { name: 'Wallet & Telemetry', description: 'Prepaid balance queries and API usage telemetry' },
+        { name: 'Webhooks', description: 'Real-time event subscriptions and HMAC signature delivery' },
         { name: 'Auth', description: 'Customer and agent session authentication' },
       ],
     },

@@ -9,6 +9,7 @@ import { IPaymentProvider } from '../../core/payments/payment-provider.interface
 import { OrderService } from '../../core/commerce/order.service.js';
 import { OrderStateMachine } from '../../core/commerce/order-state-machine.js';
 import { AgentWebhookDispatcherService } from '../../core/webhooks/agent-webhook-dispatcher.service.js';
+import { validateWebhookDestinationUrl, validateWebhookEvents } from '../../core/security/ssrf-validator.js';
 import { createAuthHooks, extractApiKeyFromRequest } from '../../plugins/auth.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
@@ -1059,12 +1060,14 @@ export async function agentRoutes(
     async (req, reply) => {
       const { url, events } = req.body || {};
 
-      if (!url || typeof url !== 'string' || (!url.startsWith('https://') && !url.startsWith('http://localhost'))) {
-        throw new BadRequestError('A valid HTTPS webhook destination URL is required');
+      const urlValidation = validateWebhookDestinationUrl(url);
+      if (!urlValidation.valid) {
+        throw new BadRequestError(urlValidation.error || 'A valid HTTPS webhook destination URL is required');
       }
 
-      if (!events || !Array.isArray(events) || events.length === 0) {
-        throw new BadRequestError('At least one event subscription string is required');
+      const eventsValidation = validateWebhookEvents(events);
+      if (!eventsValidation.valid) {
+        throw new BadRequestError(eventsValidation.error || 'At least one valid event subscription is required');
       }
 
       const userId = req.user!.sub;

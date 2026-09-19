@@ -1,18 +1,18 @@
 /**
- * Authoritative OpenAPI 3.1 Specification for ByteBeacon 2.0 API.
- * Defines comprehensive paths, components, request/response models,
- * and security schemes across Telecom Prechecks, Asynchronous Jobs,
- * Order Dispatch, Approvals, Catalog, Wallet, and Webhooks.
+ * Authoritative Public Developer OpenAPI 3.1 Specification for ByteBeacon 2.0.
+ * Defines public developer contract for Telecom Recipient Precheck, Asynchronous
+ * Validation Jobs, Data Order Dispatch & Tracking, Catalog, Wallet Balances,
+ * and Webhook Event Subscriptions.
  */
 
 export const openApiPaths: Record<string, any> = {
-  // 1. MTN / TELECOM BENEFICIARY PRECHECK
+  // 1. RECIPIENT / BENEFICIARY PRECHECK
   '/api/v1/orders/beneficiaries/precheck': {
     post: {
       tags: ['Beneficiaries & Up2U'],
-      summary: 'Public Recipient Precheck (Up2U Eligibility)',
+      summary: 'Public Recipient Eligibility Precheck',
       description:
-        'Rapidly check Ghanaian mobile numbers for Up2U eligibility. Classifies recipients into APPROVED, UNAPPROVED/NEW, or REJECTED/INVALID with sub-second response times.',
+        'Validates Ghanaian mobile subscriber numbers for eligibility. Returns normalized MSISDNs and validation status.',
       operationId: 'publicPrecheckBeneficiaries',
       requestBody: {
         required: true,
@@ -30,13 +30,13 @@ export const openApiPaths: Record<string, any> = {
                 },
                 phoneNumbers: {
                   type: 'array',
-                  items: { type: 'string', example: '0241112233' },
+                  items: { type: 'string', example: '0240000000' },
                   description: 'Array of Ghanaian MSISDNs (max 500 numbers per batch)',
                 },
                 record: {
                   type: 'boolean',
-                  default: true,
-                  description: 'When true, logs unapproved numbers to Pending Approvals queue for subsequent processing',
+                  default: false,
+                  description: 'When true, logs unapproved numbers to pending queue for verification',
                 },
               },
             },
@@ -52,7 +52,7 @@ export const openApiPaths: Record<string, any> = {
             },
           },
         },
-        '400': { description: 'Bad Request - invalid phone format or missing network' },
+        '400': { description: 'Bad Request - invalid phone format or unsupported network' },
         '429': { description: 'Rate Limit Exceeded' },
       },
     },
@@ -61,9 +61,9 @@ export const openApiPaths: Record<string, any> = {
   '/api/v1/beneficiaries/precheck': {
     post: {
       tags: ['Beneficiaries & Up2U'],
-      summary: 'High-Capacity Beneficiary Precheck',
+      summary: 'High-Capacity Recipient Precheck',
       description:
-        'High-capacity recipient precheck supporting up to 1,000 numbers per request, authenticated caller attribution, and explicit cache bypass.',
+        'High-capacity recipient precheck supporting up to 1,000 numbers per request with authenticated caller attribution.',
       operationId: 'highCapacityPrecheck',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       requestBody: {
@@ -77,18 +77,18 @@ export const openApiPaths: Record<string, any> = {
                 network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
                 phoneNumbers: {
                   type: 'array',
-                  items: { type: 'string' },
+                  items: { type: 'string', example: '0240000000' },
                   description: 'Array of recipient numbers (up to 1,000)',
                 },
                 record: {
                   type: 'boolean',
                   default: false,
-                  description: 'Opt-in to record unapproved numbers to Pending Approvals',
+                  description: 'Opt-in to record unapproved numbers for verification',
                 },
                 bypassCache: {
                   type: 'boolean',
                   default: false,
-                  description: 'Bypass cached Redis validation states to query the telecom gateway live',
+                  description: 'Request a fresh eligibility check instead of using a cached result',
                 },
               },
             },
@@ -97,13 +97,14 @@ export const openApiPaths: Record<string, any> = {
       },
       responses: {
         '200': {
-          description: 'High-capacity precheck evaluated',
+          description: 'Precheck evaluated successfully',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/PrecheckResponse' },
             },
           },
         },
+        '401': { description: 'Unauthorized - invalid or missing API key' },
       },
     },
   },
@@ -113,7 +114,7 @@ export const openApiPaths: Record<string, any> = {
       tags: ['Beneficiaries & Up2U'],
       summary: 'Agent Reseller Beneficiary Precheck',
       description:
-        'Authoritative Up2U precheck endpoint for integrated third-party platforms and agents, executing via high-speed upstream telecom pipe.',
+        'Authoritative recipient precheck endpoint for integrated reseller platforms and agents.',
       operationId: 'agentPrecheckBeneficiaries',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       requestBody: {
@@ -125,9 +126,13 @@ export const openApiPaths: Record<string, any> = {
               required: ['network', 'phoneNumbers'],
               properties: {
                 network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
-                phoneNumbers: { type: 'array', items: { type: 'string' } },
+                phoneNumbers: { type: 'array', items: { type: 'string', example: '0240000000' } },
                 record: { type: 'boolean', default: false },
-                bypassCache: { type: 'boolean', default: false },
+                bypassCache: {
+                  type: 'boolean',
+                  default: false,
+                  description: 'Request a fresh eligibility check instead of using a cached result',
+                },
               },
             },
           },
@@ -150,9 +155,9 @@ export const openApiPaths: Record<string, any> = {
   '/api/v1/beneficiaries/verification-jobs': {
     post: {
       tags: ['Beneficiaries & Up2U'],
-      summary: 'Initiate High-Speed Asynchronous Verification Job',
+      summary: 'Initiate Asynchronous Verification Job',
       description:
-        'Submits up to 10,000 phone numbers for asynchronous background verification. Returns HTTP 202 Accepted with a unique Job ID, processing 500-1,000 rows per second.',
+        'Submits up to 10,000 phone numbers for background verification. Returns HTTP 202 Accepted with a unique Job ID to poll for progress.',
       operationId: 'createVerificationJob',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       requestBody: {
@@ -166,7 +171,7 @@ export const openApiPaths: Record<string, any> = {
                 network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
                 phoneNumbers: {
                   type: 'array',
-                  items: { type: 'string' },
+                  items: { type: 'string', example: '0240000000' },
                   description: 'Array of up to 10,000 phone numbers to verify',
                 },
                 record: { type: 'boolean', default: false },
@@ -205,7 +210,7 @@ export const openApiPaths: Record<string, any> = {
       tags: ['Beneficiaries & Up2U'],
       summary: 'Get Verification Job Status & Progress',
       description:
-        'Poll real-time progress for a verification job, including processed count, percentage, summary counts (approved, unapproved, rejected), and full recipient results.',
+        'Polls real-time progress for an asynchronous verification job, including processed count, percentage, summary status, and recipient outcomes.',
       operationId: 'getVerificationJob',
       parameters: [
         {
@@ -234,7 +239,7 @@ export const openApiPaths: Record<string, any> = {
     post: {
       tags: ['Beneficiaries & Up2U'],
       summary: 'Cancel Active Verification Job',
-      description: 'Aborts a running asynchronous verification job and stops further upstream requests.',
+      description: 'Aborts a running asynchronous verification job and stops further processing.',
       operationId: 'cancelVerificationJob',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       parameters: [
@@ -271,117 +276,13 @@ export const openApiPaths: Record<string, any> = {
     },
   },
 
-  // 3. PENDING MTN APPROVALS MANAGEMENT
-  '/api/v1/beneficiaries/approvals': {
-    get: {
-      tags: ['Pending Approvals'],
-      summary: 'List Pending Beneficiary Approvals',
-      description:
-        'Retrieve a paginated list of pending beneficiary registrations and approvals with status and network filters.',
-      operationId: 'listBeneficiaryApprovals',
-      security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
-      parameters: [
-        { name: 'network', in: 'query', schema: { type: 'string' }, description: 'MTN, TELECEL, etc.' },
-        { name: 'status', in: 'query', schema: { type: 'string' }, description: 'PENDING, APPROVED, REJECTED' },
-        { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
-        { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
-      ],
-      responses: {
-        '200': {
-          description: 'Paginated list of pending approvals',
-        },
-      },
-    },
-    delete: {
-      tags: ['Pending Approvals'],
-      summary: 'Bulk Delete / Clear All Pending Approvals',
-      description:
-        'Clears all pending approval records in the system (or filtered by network and status) for the authenticated agent/customer.',
-      operationId: 'deleteAllBeneficiaryApprovals',
-      security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
-      parameters: [
-        { name: 'network', in: 'query', schema: { type: 'string' }, description: 'Filter deletion by network' },
-        { name: 'status', in: 'query', schema: { type: 'string' }, description: 'Filter deletion by status' },
-      ],
-      responses: {
-        '200': {
-          description: 'Records cleared successfully',
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: { type: 'boolean' },
-                  data: {
-                    type: 'object',
-                    properties: {
-                      deletedCount: { type: 'integer', example: 193 },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-
-  '/api/v1/beneficiaries/approvals/{id}': {
-    delete: {
-      tags: ['Pending Approvals'],
-      summary: 'Delete Single Pending Approval',
-      description: 'Removes an individual pending approval record by ID.',
-      operationId: 'deleteBeneficiaryApproval',
-      security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
-      parameters: [
-        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
-      ],
-      responses: {
-        '200': { description: 'Record deleted successfully' },
-        '404': { description: 'Record not found' },
-      },
-    },
-  },
-
-  '/api/v1/beneficiaries/pending-count': {
-    get: {
-      tags: ['Pending Approvals'],
-      summary: 'Get Pending Approvals Count',
-      description: 'Returns real-time count of pending approvals for badge indicators and navigation bars.',
-      operationId: 'getPendingApprovalsCount',
-      security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
-      responses: {
-        '200': {
-          description: 'Pending count',
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  success: { type: 'boolean', example: true },
-                  data: {
-                    type: 'object',
-                    properties: {
-                      pendingCount: { type: 'integer', example: 193 },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-
-  // 4. ORDER DISPATCH (SINGLE & BULK)
+  // 3. ORDER DISPATCH (SINGLE & BULK)
   '/api/v1/agent/orders': {
     post: {
       tags: ['Orders'],
-      summary: 'Create Single Data Bundle Order (Dispatch)',
+      summary: 'Create Single Data Bundle Order',
       description:
-        'Dispatches an automated telecom data bundle to a customer beneficiary MSISDN. Debits wallet balance in real time and enforces idempotency.',
+        'Dispatches a telecom data bundle to a recipient MSISDN. Validates wallet balance and enforces idempotency to prevent duplicate charges.',
       operationId: 'createAgentOrder',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       parameters: [
@@ -390,7 +291,7 @@ export const openApiPaths: Record<string, any> = {
           in: 'header',
           required: true,
           schema: { type: 'string', format: 'uuid' },
-          description: 'UUID v4 to prevent double-charging on network retry',
+          description: 'Unique UUID v4 to prevent duplicate billing on network retries',
         },
       ],
       requestBody: {
@@ -401,10 +302,11 @@ export const openApiPaths: Record<string, any> = {
               type: 'object',
               required: ['bundleId', 'phoneNumber', 'network'],
               properties: {
-                bundleId: { type: 'string', example: 'mtn_10gb_promo' },
-                phoneNumber: { type: 'string', example: '0241112233' },
+                bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000' },
+                phoneNumber: { type: 'string', example: '0240000000' },
                 network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
                 idempotencyKey: { type: 'string', format: 'uuid' },
+                email: { type: 'string', example: 'customer@example.com' },
               },
             },
           },
@@ -412,7 +314,7 @@ export const openApiPaths: Record<string, any> = {
       },
       responses: {
         '201': {
-          description: 'Order created and queued for automated fulfillment',
+          description: 'Order created and queued for fulfillment',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/OrderEnvelope' },
@@ -420,7 +322,7 @@ export const openApiPaths: Record<string, any> = {
           },
         },
         '400': { description: 'Invalid phone number or bundle ID' },
-        '402': { description: 'Insufficient wallet float balance' },
+        '402': { description: 'Insufficient wallet balance' },
       },
     },
     get: {
@@ -445,7 +347,7 @@ export const openApiPaths: Record<string, any> = {
     get: {
       tags: ['Orders'],
       summary: 'Query Order Status by ID',
-      description: 'Fetch real-time fulfillment status, telecom reference, and delivery timestamps for a specific order.',
+      description: 'Fetch fulfillment status, delivery confirmation, and timestamps for a specific order.',
       operationId: 'getAgentOrderById',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       parameters: [
@@ -468,9 +370,9 @@ export const openApiPaths: Record<string, any> = {
   '/api/v1/agent/orders/bulk': {
     post: {
       tags: ['Orders'],
-      summary: 'High-Throughput Bulk Order Dispatch',
+      summary: 'Bulk Order Dispatch',
       description:
-        'Submits a batch of data bundle dispatches in a single atomic transaction. Validates float balance and dispatches fulfillment asynchronously.',
+        'Submits a batch of data bundle dispatches for multiple recipients. Validates available balance and queues orders for fulfillment.',
       operationId: 'createBulkOrders',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       requestBody: {
@@ -488,8 +390,8 @@ export const openApiPaths: Record<string, any> = {
                     type: 'object',
                     required: ['phoneNumber', 'bundleId'],
                     properties: {
-                      phoneNumber: { type: 'string', example: '0241112233' },
-                      bundleId: { type: 'string', example: 'mtn_10gb_promo' },
+                      phoneNumber: { type: 'string', example: '0240000000' },
+                      bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000' },
                       pricePesewas: { type: 'integer' },
                     },
                   },
@@ -507,18 +409,18 @@ export const openApiPaths: Record<string, any> = {
       },
       responses: {
         '202': { description: 'Bulk order accepted for processing' },
-        '402': { description: 'Insufficient balance for bulk dispatch' },
+        '402': { description: 'Insufficient wallet balance for bulk dispatch' },
       },
     },
   },
 
-  // 5. CATALOG & BUNDLES
+  // 4. CATALOG & BUNDLES
   '/api/v1/agent/bundles': {
     get: {
       tags: ['Catalog'],
-      summary: 'Query Available Data Bundles (Agent Pricing)',
+      summary: 'Query Available Data Bundles (Agent Wholesale Pricing)',
       description:
-        'Returns active data bundle packages, volume limits, and wholesale agent prices across supported networks.',
+        'Returns active data bundle packages, volume quotas, and wholesale agent pricing across supported networks.',
       operationId: 'getAgentBundles',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       parameters: [
@@ -559,12 +461,13 @@ export const openApiPaths: Record<string, any> = {
     },
   },
 
-  // 6. WALLET & USAGE TELEMETRY
+  // 5. WALLET & USAGE TELEMETRY
   '/api/v1/agent/wallet/balance': {
     get: {
       tags: ['Wallet & Telemetry'],
       summary: 'Get Prepaid Wallet Balance',
-      description: 'Query current float balance, currency, and account standing in pesewas and formatted GHS.',
+      description:
+        'Query current available balance, currency, and account standing in pesewas and formatted GHS. Balance is strictly derived from the authenticated caller identity.',
       operationId: 'getWalletBalance',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       responses: {
@@ -599,7 +502,7 @@ export const openApiPaths: Record<string, any> = {
       tags: ['Wallet & Telemetry'],
       summary: 'Query API Usage & Telemetry Metrics',
       description:
-        'Returns request volume, average response times, error rates, and per-endpoint latency metrics for the authenticated API key.',
+        'Returns request volume, response latency percentiles, error rates, and quota status for the authenticated key.',
       operationId: 'getApiUsageMetrics',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       responses: {
@@ -610,13 +513,14 @@ export const openApiPaths: Record<string, any> = {
     },
   },
 
-  // 7. WEBHOOKS
-  '/api/v1/webhooks': {
+  // 6. WEBHOOKS
+  '/api/v1/agent/webhooks': {
     post: {
       tags: ['Webhooks'],
       summary: 'Register Webhook Endpoint',
-      description: 'Configures a URL to receive real-time order completion and status change notifications.',
-      operationId: 'registerWebhook',
+      description:
+        'Configures an HTTPS URL to receive signed real-time order and status notifications. The server generates an HMAC-SHA256 signing secret that is displayed once upon creation.',
+      operationId: 'registerAgentWebhook',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       requestBody: {
         required: true,
@@ -626,29 +530,109 @@ export const openApiPaths: Record<string, any> = {
               type: 'object',
               required: ['url', 'events'],
               properties: {
-                url: { type: 'string', format: 'uri', example: 'https://your-domain.com/webhooks/bytebeacon' },
+                url: {
+                  type: 'string',
+                  format: 'uri',
+                  example: 'https://example.com/api/webhooks/bytebeacon',
+                  description: 'Valid HTTPS endpoint destination',
+                },
                 events: {
                   type: 'array',
-                  items: { type: 'string', example: 'order.completed' },
+                  items: {
+                    type: 'string',
+                    enum: [
+                      'order.completed',
+                      'order.processing',
+                      'order.failed',
+                      'beneficiary.approved',
+                      'beneficiary.rejected',
+                      'wallet.credited',
+                      'wallet.debited',
+                    ],
+                    example: 'order.completed',
+                  },
+                  description: 'Array of event subscriptions',
                 },
-                secret: { type: 'string', description: 'Optional custom HMAC secret' },
               },
             },
           },
         },
       },
       responses: {
-        '201': { description: 'Webhook registered successfully' },
+        '201': {
+          description: 'Webhook registered successfully. Signing secret returned once in response.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  statusCode: { type: 'integer', example: 201 },
+                  message: { type: 'string', example: 'Subscription created. The secret is shown ONCE — store it now.' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string', example: 'wh_sub_01J9X8Y7' },
+                      agentId: { type: 'string', example: 'agent_01J9X8Y7' },
+                      url: { type: 'string', example: 'https://example.com/api/webhooks/bytebeacon' },
+                      events: { type: 'array', items: { type: 'string' } },
+                      isActive: { type: 'boolean', example: true },
+                      createdAt: { type: 'string', format: 'date-time' },
+                      signingSecret: { type: 'string', example: 'whsec_EXAMPLE_SIGNING_SECRET_STRING' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        '400': { description: 'Invalid HTTPS URL or unsupported event subscription' },
       },
     },
     get: {
       tags: ['Webhooks'],
       summary: 'List Registered Webhooks',
-      description: 'Returns all configured webhook subscriptions and their delivery status.',
-      operationId: 'listWebhooks',
+      description: 'Returns all active webhook endpoints configured for the authenticated agent.',
+      operationId: 'listAgentWebhooks',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       responses: {
         '200': { description: 'Active webhook subscriptions' },
+      },
+    },
+  },
+
+  '/api/v1/agent/webhooks/{id}': {
+    delete: {
+      tags: ['Webhooks'],
+      summary: 'Delete Webhook Endpoint',
+      description: 'Removes an active webhook subscription by ID.',
+      operationId: 'deleteAgentWebhook',
+      security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Webhook subscription ID' },
+      ],
+      responses: {
+        '200': { description: 'Webhook deleted successfully' },
+        '404': { description: 'Webhook not found' },
+      },
+    },
+  },
+
+  '/api/v1/agent/webhooks/{id}/rotate-secret': {
+    post: {
+      tags: ['Webhooks'],
+      summary: 'Rotate Webhook Signing Secret',
+      description: 'Generates a new HMAC signing secret for an existing webhook subscription and invalidates the old secret.',
+      operationId: 'rotateAgentWebhookSecret',
+      security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'Webhook subscription ID' },
+      ],
+      responses: {
+        '200': {
+          description: 'Secret rotated successfully. New secret displayed once in response.',
+        },
+        '404': { description: 'Webhook not found' },
       },
     },
   },
@@ -669,10 +653,10 @@ export const openApiSchemas: Record<string, any> = {
           summary: {
             type: 'object',
             properties: {
-              total: { type: 'integer', example: 476 },
-              approved: { type: 'integer', example: 282 },
-              unapproved: { type: 'integer', example: 193 },
-              rejected: { type: 'integer', example: 1 },
+              total: { type: 'integer', example: 10 },
+              approved: { type: 'integer', example: 8 },
+              unapproved: { type: 'integer', example: 2 },
+              rejected: { type: 'integer', example: 0 },
             },
           },
           results: {
@@ -680,8 +664,8 @@ export const openApiSchemas: Record<string, any> = {
             items: {
               type: 'object',
               properties: {
-                phone: { type: 'string', example: '0241112233' },
-                normalized: { type: 'string', example: '+233241112233' },
+                phone: { type: 'string', example: '0240000000' },
+                normalized: { type: 'string', example: '+233240000000' },
                 status: { type: 'string', enum: ['APPROVED', 'UNAPPROVED', 'REJECTED'], example: 'APPROVED' },
                 valid: { type: 'boolean', example: true },
                 known: { type: 'boolean', example: true },
@@ -699,18 +683,18 @@ export const openApiSchemas: Record<string, any> = {
       id: { type: 'string', example: 'job_01J123456789' },
       network: { type: 'string', example: 'MTN' },
       status: { type: 'string', enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'], example: 'COMPLETED' },
-      totalRows: { type: 'integer', example: 476 },
-      processedRows: { type: 'integer', example: 476 },
+      totalRows: { type: 'integer', example: 10 },
+      processedRows: { type: 'integer', example: 10 },
       percent: { type: 'number', example: 100 },
-      approvedCount: { type: 'integer', example: 282 },
-      unapprovedCount: { type: 'integer', example: 193 },
-      rejectedCount: { type: 'integer', example: 1 },
+      approvedCount: { type: 'integer', example: 8 },
+      unapprovedCount: { type: 'integer', example: 2 },
+      rejectedCount: { type: 'integer', example: 0 },
       results: {
         type: 'array',
         items: {
           type: 'object',
           properties: {
-            phone: { type: 'string', example: '0241112233' },
+            phone: { type: 'string', example: '0240000000' },
             status: { type: 'string', example: 'APPROVED' },
             valid: { type: 'boolean', example: true },
           },
@@ -730,12 +714,12 @@ export const openApiSchemas: Record<string, any> = {
         properties: {
           orderId: { type: 'string', example: 'ORD-99214' },
           status: { type: 'string', enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'], example: 'PROCESSING' },
-          bundleId: { type: 'string', example: 'mtn_10gb_promo' },
-          recipientPhone: { type: 'string', example: '0241112233' },
+          bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000' },
+          recipientPhone: { type: 'string', example: '0240000000' },
           network: { type: 'string', example: 'MTN' },
           amountPesewas: { type: 'integer', example: 5700 },
           balanceAfterPesewas: { type: 'integer', example: 145000 },
-          networkReference: { type: 'string', example: 'BB_TELCO_99410' },
+          networkReference: { type: 'string', example: 'BB_REF_100234' },
           createdAt: { type: 'string', format: 'date-time' },
         },
       },
@@ -745,9 +729,9 @@ export const openApiSchemas: Record<string, any> = {
   BundleItem: {
     type: 'object',
     properties: {
-      bundleId: { type: 'string', example: 'mtn_10gb_promo' },
+      bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000' },
       network: { type: 'string', example: 'MTN' },
-      name: { type: 'string', example: 'MTN 10GB Executive Package' },
+      name: { type: 'string', example: 'MTN 10GB Non-Expiry' },
       volumeMb: { type: 'integer', example: 10240 },
       pricePesewas: { type: 'integer', example: 5700 },
       validity: { type: 'string', example: 'NON_EXPIRING' },
