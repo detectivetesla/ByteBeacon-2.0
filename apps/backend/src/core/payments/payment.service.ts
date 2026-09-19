@@ -642,7 +642,7 @@ export class PaymentService {
       await client.query('BEGIN');
 
       const payRes = await client.query(
-        `SELECT id, order_id, user_id, amount_pesewas, currency, status, provider_reference
+        `SELECT id, order_id, user_id, amount_pesewas, currency, status, provider_reference, metadata
          FROM payments
          WHERE id = $1
          FOR UPDATE`,
@@ -668,17 +668,35 @@ export class PaymentService {
         };
       }
 
-      const amountPesewas = Number(gatewayData.amountPesewas || payment.amount_pesewas);
+      const totalChargedPesewas = Number(gatewayData.amountPesewas || payment.amount_pesewas);
       const paidAt = gatewayData.paidAt || new Date();
 
-      // 1. Lock user row and compute new balance
+      // Extract authoritative credit amount (base deposit) and fee from metadata
+      const meta = typeof payment.metadata === 'string'
+        ? JSON.parse(payment.metadata)
+        : (payment.metadata || {});
+
+      let creditAmountPesewas = 0;
+      let feePesewas = 0;
+      if (meta.creditAmountPesewas) {
+        creditAmountPesewas = Number(meta.creditAmountPesewas);
+        feePesewas = Number(meta.feePesewas || (totalChargedPesewas - creditAmountPesewas));
+      } else if (meta.amountPesewas) {
+        creditAmountPesewas = Number(meta.amountPesewas);
+        feePesewas = totalChargedPesewas > creditAmountPesewas ? (totalChargedPesewas - creditAmountPesewas) : Math.round(creditAmountPesewas * 0.03);
+      } else {
+        creditAmountPesewas = Math.round(totalChargedPesewas / 1.03);
+        feePesewas = totalChargedPesewas - creditAmountPesewas;
+      }
+
+      // 1. Lock user row and compute new balance based on 100% of base deposit
       const userRes = await client.query(
         `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
         [payment.user_id],
       );
 
       const currentPesewas = Number(userRes.rows[0]?.wallet_balance_pesewas || 0);
-      const newBalancePesewas = currentPesewas + amountPesewas;
+      const newBalancePesewas = currentPesewas + creditAmountPesewas;
       const newBalanceGhs = Number((newBalancePesewas / 100).toFixed(2));
 
       // 2. Atomically credit user balance
@@ -722,7 +740,9 @@ export class PaymentService {
             type: 'WALLET_TOPUP',
             providerReference,
             channel: gatewayData.channel,
-            amountPesewas,
+            totalChargedPesewas,
+            creditAmountPesewas,
+            feePesewas,
             newBalancePesewas,
           }),
         ],
@@ -736,7 +756,7 @@ export class PaymentService {
           entryType: LedgerEntryType.DEBIT,
           accountType: LedgerAccountType.PLATFORM_ESCROW,
           accountId: platformSystemAccountId,
-          amountPesewas,
+          amountPesewas: creditAmountPesewas,
           currency: (payment.currency || Currency.GHS) as Currency,
           referenceType: 'DEPOSIT',
           referenceId: providerReference || paymentId,
@@ -746,7 +766,7 @@ export class PaymentService {
           entryType: LedgerEntryType.CREDIT,
           accountType: LedgerAccountType.CUSTOMER_WALLET,
           accountId: payment.user_id,
-          amountPesewas,
+          amountPesewas: creditAmountPesewas,
           currency: (payment.currency || Currency.GHS) as Currency,
           referenceType: 'DEPOSIT',
           referenceId: providerReference || paymentId,
@@ -756,7 +776,7 @@ export class PaymentService {
 
       await client.query('COMMIT');
       logger.info(
-        { paymentId, userId: payment.user_id, amountPesewas, newBalancePesewas },
+        { paymentId, userId: payment.user_id, creditAmountPesewas, feePesewas, totalChargedPesewas, newBalancePesewas },
         'Wallet top-up successfully credited to user and financial ledger',
       );
 

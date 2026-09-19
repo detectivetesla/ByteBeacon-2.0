@@ -8,6 +8,8 @@ export const ALLOWED_WEBHOOK_EVENTS = [
   'beneficiary.rejected',
   'wallet.credited',
   'wallet.debited',
+  'purchase.success',
+  'purchase.failed',
 ] as const;
 
 export type AllowedWebhookEvent = (typeof ALLOWED_WEBHOOK_EVENTS)[number];

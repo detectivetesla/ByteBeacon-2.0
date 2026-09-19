@@ -79,7 +79,13 @@ export const WalletPage: React.FC = () => {
         .verifyTopup(reference)
         .then((res) => {
           if (res?.success) {
-            toastSuccess('Wallet Funded!', `Deposit confirmed. New balance: GH₵ ${(res.newBalancePesewas / 100).toFixed(2)}`);
+            const creditedGhs = res.amountCreditedPesewas ? (res.amountCreditedPesewas / 100).toFixed(2) : null;
+            toastSuccess(
+              'Wallet Funded!',
+              creditedGhs
+                ? `Deposit confirmed. GH₵ ${creditedGhs} credited to your wallet balance.`
+                : `Deposit confirmed. New balance: GH₵ ${(res.newBalancePesewas / 100).toFixed(2)}`,
+            );
           } else {
             toastSuccess('Deposit Received', 'Your wallet balance has been updated.');
           }
@@ -96,6 +102,10 @@ export const WalletPage: React.FC = () => {
       fetchWalletData();
     }
   }, [searchParams, setSearchParams, toastInfo, toastSuccess, fetchWalletData, refreshBalance]);
+
+  const parsedTopUpAmount = parseFloat(topUpAmount) || 0;
+  const paystackFeeGhs = parsedTopUpAmount > 0 ? Number((parsedTopUpAmount * 0.03).toFixed(2)) : 0;
+  const totalPayableGhs = Number((parsedTopUpAmount + paystackFeeGhs).toFixed(2));
 
   const handleProceedToPayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -510,12 +520,71 @@ export const WalletPage: React.FC = () => {
                 required
               />
 
-              <div style={{ backgroundColor: 'var(--color-bg-base)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)' }}>
-                <span style={{ color: 'var(--color-text-muted)' }}>Payable Amount:</span>
-                <span style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                  GH₵ {parseFloat(topUpAmount || '0').toFixed(2)}
-                </span>
-              </div>
+              {parsedTopUpAmount > 0 ? (
+                <div
+                  style={{
+                    backgroundColor: 'var(--color-bg-base)',
+                    padding: '0.85rem 1rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.4rem',
+                    fontSize: 'var(--font-size-xs)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-text-secondary)' }}>
+                    <span>Deposit to Wallet:</span>
+                    <strong style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)' }}>
+                      GH₵ {parsedTopUpAmount.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-text-secondary)' }}>
+                    <span>Processing Fee (3%):</span>
+                    <span style={{ color: 'var(--color-accent-amber, #F59E0B)', fontFamily: 'var(--font-data)' }}>
+                      GH₵ {paystackFeeGhs.toFixed(2)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      borderTop: '1px solid var(--color-border-subtle)',
+                      paddingTop: '0.4rem',
+                      marginTop: '0.2rem',
+                    }}
+                  >
+                    <strong style={{ color: 'var(--color-text-primary)' }}>Total to Pay (MoMo/Card):</strong>
+                    <strong style={{ color: 'var(--color-primary)', fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-sm)' }}>
+                      GH₵ {totalPayableGhs.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div
+                    style={{
+                      marginTop: '0.35rem',
+                      padding: '0.35rem 0.5rem',
+                      backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      color: 'var(--color-success)',
+                      fontSize: 'var(--font-size-2xs)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                    }}
+                  >
+                    <span>✓</span>
+                    <span>100% of your deposit (GH₵ {parsedTopUpAmount.toFixed(2)}) is credited directly to your wallet.</span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ backgroundColor: 'var(--color-bg-base)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>Payable Amount:</span>
+                  <span style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                    GH₵ 0.00
+                  </span>
+                </div>
+              )}
 
               {isMaintenanceMode && (
                 <div

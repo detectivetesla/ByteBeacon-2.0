@@ -78,15 +78,38 @@ export const walletApi = {
     };
   },
 
-  initializeTopup: async (amountGhs: number, callbackUrl?: string): Promise<{ authorizationUrl: string; reference: string }> => {
-    return apiClient.post<{ authorizationUrl: string; reference: string }>('/agents/wallet/topup/initialize', {
+  initializeTopup: async (
+    amountGhs: number,
+    callbackUrl?: string,
+  ): Promise<{
+    authorizationUrl: string;
+    reference: string;
+    creditAmountPesewas?: number;
+    feePesewas?: number;
+    totalPayablePesewas?: number;
+  }> => {
+    return apiClient.post('/agents/wallet/topup/initialize', {
       amountPesewas: Math.round(amountGhs * 100),
       callbackUrl,
     });
   },
 
-  verifyTopup: async (reference: string): Promise<{ success: boolean; newBalancePesewas: number }> => {
-    const res = await apiClient.post<{ success: boolean; newBalancePesewas: number }>('/agents/wallet/topup/verify', {
+  verifyTopup: async (
+    reference: string,
+  ): Promise<{
+    success: boolean;
+    newBalancePesewas: number;
+    amountCreditedPesewas?: number;
+    feePesewas?: number;
+    message?: string;
+  }> => {
+    const res = await apiClient.post<{
+      success: boolean;
+      newBalancePesewas: number;
+      amountCreditedPesewas?: number;
+      feePesewas?: number;
+      message?: string;
+    }>('/agents/wallet/topup/verify', {
       reference,
     });
     if (typeof window !== 'undefined') {

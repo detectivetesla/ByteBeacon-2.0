@@ -1860,11 +1860,18 @@ export async function agentRoutes(
     }
 
     const userId = req.user!.sub;
+    const creditAmountPesewas = Math.round(amountPesewas);
+    const feePesewas = Math.round(creditAmountPesewas * 0.03);
+    const totalPayablePesewas = creditAmountPesewas + feePesewas;
+
     const tempRef = `pst_topup_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const metadata = {
       type: 'WALLET_TOPUP',
       userId,
-      amountPesewas,
+      creditAmountPesewas,
+      feePesewas,
+      totalPayablePesewas,
+      amountPesewas: creditAmountPesewas,
     };
 
     // Pre-insert pending payment intent into payments table so webhooks can find it
@@ -1875,7 +1882,7 @@ export async function agentRoutes(
            user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status, metadata
          ) VALUES ($1, $2, 'GHS', 'PAYSTACK', $3, 'MOMO', 'PENDING', $4)
          RETURNING id`,
-        [userId, amountPesewas, tempRef, JSON.stringify(metadata)],
+        [userId, totalPayablePesewas, tempRef, JSON.stringify(metadata)],
       );
       paymentId = insertRes.rows[0]?.id || '';
     } catch {
@@ -1885,7 +1892,7 @@ export async function agentRoutes(
              user_id, amount_pesewas, currency, provider, provider_reference, payment_method, status
            ) VALUES ($1, $2, 'GHS', 'PAYSTACK', $3, 'MOMO', 'PENDING')
            RETURNING id`,
-          [userId, amountPesewas, tempRef],
+          [userId, totalPayablePesewas, tempRef],
         );
         paymentId = insertRes.rows[0]?.id || '';
       } catch (err: any) {
@@ -1901,7 +1908,7 @@ export async function agentRoutes(
       const initRes = await paymentProvider.initializePayment({
         orderId: `topup_${userId}_${Date.now()}`,
         email: req.user!.email || 'user@bytebeacon.online',
-        amountPesewas,
+        amountPesewas: totalPayablePesewas,
         currency: Currency.GHS,
         paymentMethod: PaymentMethod.MOMO,
         callbackUrl: callbackUrl || defaultCallback,
@@ -1909,12 +1916,15 @@ export async function agentRoutes(
           type: 'WALLET_TOPUP',
           userId,
           paymentId,
+          creditAmountPesewas,
+          feePesewas,
+          totalPayablePesewas,
         },
       });
 
       // Update provider_reference if Paystack generated its own reference
       if (paymentId && initRes.providerReference) {
-        db.query(
+        await db.query(
           `UPDATE payments SET provider_reference = $1 WHERE id = $2`,
           [initRes.providerReference, paymentId],
         ).catch(() => {});
@@ -1925,6 +1935,9 @@ export async function agentRoutes(
         data: {
           authorizationUrl: initRes.authorizationUrl,
           reference: initRes.providerReference,
+          creditAmountPesewas,
+          feePesewas,
+          totalPayablePesewas,
         },
       });
     }
@@ -1934,6 +1947,9 @@ export async function agentRoutes(
       data: {
         authorizationUrl: `https://checkout.paystack.com/${tempRef}`,
         reference: tempRef,
+        creditAmountPesewas,
+        feePesewas,
+        totalPayablePesewas,
       },
     });
   };
@@ -1986,6 +2002,32 @@ export async function agentRoutes(
       isAlreadyCredited = false;
     }
 
+    // Query payment record and metadata to accurately credit base deposit amount and calculate fee
+    let creditAmountPesewas = 0;
+    let feePesewas = 0;
+    let matchedPaymentId: string | null = null;
+    try {
+      const payRes = await db.query(
+        `SELECT id, amount_pesewas, metadata FROM payments WHERE provider_reference = $1`,
+        [reference],
+      );
+      if (payRes.rows.length > 0) {
+        matchedPaymentId = payRes.rows[0].id;
+        const meta = typeof payRes.rows[0].metadata === 'string'
+          ? JSON.parse(payRes.rows[0].metadata)
+          : (payRes.rows[0].metadata || {});
+        if (meta.creditAmountPesewas) {
+          creditAmountPesewas = Number(meta.creditAmountPesewas);
+          feePesewas = Number(meta.feePesewas || 0);
+        } else if (meta.amountPesewas) {
+          creditAmountPesewas = Number(meta.amountPesewas);
+          feePesewas = Math.round(creditAmountPesewas * 0.03);
+        }
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message, reference }, '[TOPUP_VERIFY] Failed to lookup payment metadata');
+    }
+
     if (isAlreadyCredited) {
       const uRes = await db.query(
         `SELECT wallet_balance_pesewas FROM users WHERE id = $1`,
@@ -1998,6 +2040,8 @@ export async function agentRoutes(
         data: {
           success: true,
           newBalancePesewas: currentPesewas,
+          amountCreditedPesewas: creditAmountPesewas,
+          feePesewas,
           message: 'Deposit already credited.',
         },
       });
@@ -2012,6 +2056,12 @@ export async function agentRoutes(
       verifiedAmountPesewas = verifyRes.amountPesewas;
     }
 
+    // If creditAmountPesewas was not found in payment record metadata, self-heal using the 3% surcharge rule
+    if (creditAmountPesewas <= 0) {
+      creditAmountPesewas = Math.round(verifiedAmountPesewas / 1.03);
+      feePesewas = verifiedAmountPesewas - creditAmountPesewas;
+    }
+
     // Read current user balance
     let currentPesewas = 0;
     try {
@@ -2024,7 +2074,7 @@ export async function agentRoutes(
       }
     } catch {}
 
-    let newBalancePesewas = currentPesewas + verifiedAmountPesewas;
+    let newBalancePesewas = currentPesewas + creditAmountPesewas;
     const client = typeof db.connect === 'function' ? await db.connect().catch(() => null) : null;
 
     if (client) {
@@ -2036,11 +2086,11 @@ export async function agentRoutes(
           `SELECT wallet_balance_pesewas, wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
           [userId],
         );
-        const currentPesewas = Number(userRes.rows[0]?.wallet_balance_pesewas || 0);
-        newBalancePesewas = currentPesewas + verifiedAmountPesewas;
+        const lockedPesewas = Number(userRes.rows[0]?.wallet_balance_pesewas || 0);
+        newBalancePesewas = lockedPesewas + creditAmountPesewas;
         const newBalanceGhs = Number((newBalancePesewas / 100).toFixed(2));
 
-        // 2. Atomically credit users table
+        // 2. Atomically credit users table with 100% of requested deposit
         await client.query(
           `UPDATE users
            SET wallet_balance_pesewas = $1,
@@ -2058,7 +2108,7 @@ export async function agentRoutes(
               entryType: LedgerEntryType.DEBIT,
               accountType: LedgerAccountType.PLATFORM_ESCROW,
               accountId: platformAccountId,
-              amountPesewas: verifiedAmountPesewas,
+              amountPesewas: creditAmountPesewas,
               currency: Currency.GHS,
               referenceType: 'DEPOSIT',
               referenceId: reference,
@@ -2068,7 +2118,7 @@ export async function agentRoutes(
               entryType: LedgerEntryType.CREDIT,
               accountType: LedgerAccountType.CUSTOMER_WALLET,
               accountId: userId,
-              amountPesewas: verifiedAmountPesewas,
+              amountPesewas: creditAmountPesewas,
               currency: Currency.GHS,
               referenceType: 'DEPOSIT',
               referenceId: reference,
@@ -2085,7 +2135,7 @@ export async function agentRoutes(
                ('CREDIT', 'CUSTOMER_WALLET', $5, $2, 'GHS', 'DEPOSIT', $3, $6)`,
             [
               platformAccountId,
-              verifiedAmountPesewas,
+              creditAmountPesewas,
               reference,
               `Paystack wallet top-up verified (${reference})`,
               userId,
@@ -2094,12 +2144,12 @@ export async function agentRoutes(
           );
         }
 
-        // 4. Update payments table if record exists
+        // 4. Update payments table: mark PAID and ensure provider_reference matches
         await client.query(
           `UPDATE payments
            SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-           WHERE provider_reference = $1`,
-          [reference],
+           WHERE provider_reference = $1 OR id = $2`,
+          [reference, matchedPaymentId || '00000000-0000-0000-0000-000000000000'],
         ).catch(() => {});
 
         await client.query('COMMIT');
@@ -2119,7 +2169,7 @@ export async function agentRoutes(
             entryType: LedgerEntryType.DEBIT,
             accountType: LedgerAccountType.PLATFORM_ESCROW,
             accountId: platformAccountId,
-            amountPesewas: verifiedAmountPesewas,
+            amountPesewas: creditAmountPesewas,
             currency: Currency.GHS,
             referenceType: 'DEPOSIT',
             referenceId: reference,
@@ -2129,7 +2179,7 @@ export async function agentRoutes(
             entryType: LedgerEntryType.CREDIT,
             accountType: LedgerAccountType.CUSTOMER_WALLET,
             accountId: userId,
-            amountPesewas: verifiedAmountPesewas,
+            amountPesewas: creditAmountPesewas,
             currency: Currency.GHS,
             referenceType: 'DEPOSIT',
             referenceId: reference,
@@ -2143,7 +2193,14 @@ export async function agentRoutes(
              wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $2`,
-        [verifiedAmountPesewas, userId],
+        [creditAmountPesewas, userId],
+      ).catch(() => {});
+
+      await db.query(
+        `UPDATE payments
+         SET status = 'PAID', paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE provider_reference = $1 OR id = $2`,
+        [reference, matchedPaymentId || '00000000-0000-0000-0000-000000000000'],
       ).catch(() => {});
     }
 
@@ -2152,7 +2209,8 @@ export async function agentRoutes(
       data: {
         success: true,
         newBalancePesewas,
-        amountCreditedPesewas: verifiedAmountPesewas,
+        amountCreditedPesewas: creditAmountPesewas,
+        feePesewas,
       },
     });
   };

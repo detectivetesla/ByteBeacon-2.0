@@ -145,8 +145,8 @@ export const AgentWalletPage: React.FC = () => {
   const [copiedId, setCopiedId] = useState<boolean>(false);
 
   const parsedTopUpAmount = parseFloat(topUpAmountGhs) || 0;
-  const paystackFeeGhs = parsedTopUpAmount > 0 ? parsedTopUpAmount * 0.03 : 0;
-  const totalPayableGhs = parsedTopUpAmount + paystackFeeGhs;
+  const paystackFeeGhs = parsedTopUpAmount > 0 ? Number((parsedTopUpAmount * 0.03).toFixed(2)) : 0;
+  const totalPayableGhs = Number((parsedTopUpAmount + paystackFeeGhs).toFixed(2));
 
   // Server-Side Query Fetcher
   const fetchTransactions = useCallback(async () => {
@@ -200,7 +200,13 @@ export const AgentWalletPage: React.FC = () => {
         .verifyTopup(reference)
         .then((res) => {
           if (res?.success) {
-            toastSuccess('Wallet Funded!', `Deposit confirmed. New balance: GH₵ ${(res.newBalancePesewas / 100).toFixed(2)}`);
+            const creditedGhs = res.amountCreditedPesewas ? (res.amountCreditedPesewas / 100).toFixed(2) : null;
+            toastSuccess(
+              'Wallet Funded!',
+              creditedGhs
+                ? `Deposit confirmed. GH₵ ${creditedGhs} credited to your wallet balance.`
+                : `Deposit confirmed. New balance: GH₵ ${(res.newBalancePesewas / 100).toFixed(2)}`,
+            );
           } else {
             toastSuccess('Deposit Received', 'Your wallet balance has been updated.');
           }
@@ -538,6 +544,23 @@ export const AgentWalletPage: React.FC = () => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255, 255, 255, 0.15)', paddingTop: '3px', marginTop: '2px' }}>
                     <strong style={{ color: '#FFFFFF', fontSize: 'var(--font-size-xs)' }}>Total to pay:</strong>
                     <strong style={{ color: '#34D399', fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-sm)' }}>GH₵ {totalPayableGhs.toFixed(2)}</strong>
+                  </div>
+                  <div
+                    style={{
+                      marginTop: '0.35rem',
+                      padding: '0.3rem 0.5rem',
+                      backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      color: '#34D399',
+                      fontSize: 'var(--font-size-3xs)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                    }}
+                  >
+                    <span>✓</span>
+                    <span>100% of your deposit (GH₵ {parsedTopUpAmount.toFixed(2)}) is credited directly to your wallet.</span>
                   </div>
                 </div>
               )}

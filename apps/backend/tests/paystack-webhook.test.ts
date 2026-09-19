@@ -186,4 +186,155 @@ describe('Paystack Webhook Security & Durable Deduplication', () => {
     expect(processSuccessfulWalletTopupMock).toHaveBeenCalledTimes(1);
     expect(processSuccessfulPaymentMock).not.toHaveBeenCalled();
   });
+
+  it('should credit exactly 1000 pesewas to user wallet when 1030 pesewas (10 GHS + 3% fee) is paid via Paystack', async () => {
+    let creditedAmountPesewas = 0;
+    let ledgerDebitedPesewas = 0;
+    let ledgerCreditedPesewas = 0;
+    let updatedPaymentStatus = '';
+
+    const mockClient = {
+      query: vi.fn().mockImplementation((q: string, params?: unknown[]) => {
+        if (q === 'BEGIN' || q === 'COMMIT' || q === 'ROLLBACK') {
+          return Promise.resolve();
+        }
+        if (q.includes('FROM payments') && q.includes('FOR UPDATE')) {
+          return Promise.resolve({
+            rows: [{
+              id: 'pay_topup_10ghs',
+              order_id: null,
+              user_id: 'usr_10ghs',
+              amount_pesewas: 1030,
+              currency: 'GHS',
+              status: 'PENDING',
+              provider_reference: 'pst_topup_ref_10',
+              metadata: {
+                type: 'WALLET_TOPUP',
+                userId: 'usr_10ghs',
+                creditAmountPesewas: 1000,
+                feePesewas: 30,
+                totalPayablePesewas: 1030,
+              },
+            }],
+          });
+        }
+        if (q.includes('SELECT wallet_balance_pesewas') && q.includes('FOR UPDATE')) {
+          return Promise.resolve({
+            rows: [{ wallet_balance_pesewas: 500, wallet_balance: 5.00 }],
+          });
+        }
+        if (q.includes('UPDATE users')) {
+          creditedAmountPesewas = (params?.[0] as number) - 500;
+          return Promise.resolve({ rows: [] });
+        }
+        if (q.includes('UPDATE payments')) {
+          updatedPaymentStatus = params?.[0] as string;
+          return Promise.resolve({ rows: [] });
+        }
+        if (q.includes('INSERT INTO payment_events')) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      release: vi.fn(),
+    };
+
+    const mockDb = {
+      connect: vi.fn().mockResolvedValue(mockClient),
+    } as unknown as pg.Pool;
+
+    const mockLedgerService = {
+      recordJournalEntries: vi.fn().mockImplementation((_client: unknown, entries: any[]) => {
+        ledgerDebitedPesewas = entries[0].amountPesewas;
+        ledgerCreditedPesewas = entries[1].amountPesewas;
+        return Promise.resolve();
+      }),
+    };
+
+    const paymentService = new PaymentService(
+      mockDb,
+      adapter,
+      mockLedgerService as any,
+      {} as any,
+    );
+
+    const result = await paymentService.processSuccessfulWalletTopup(
+      'pay_topup_10ghs',
+      'pst_topup_ref_10',
+      { amountPesewas: 1030 },
+      'corr_10ghs',
+    );
+
+    expect(result.alreadyProcessed).toBe(false);
+    expect(result.newBalancePesewas).toBe(1500); // 500 initial + 1000 deposit
+    expect(creditedAmountPesewas).toBe(1000); // exactly 10.00 GHS deposited
+    expect(ledgerDebitedPesewas).toBe(1000); // Platform escrow debited base 10.00 GHS
+    expect(ledgerCreditedPesewas).toBe(1000); // Customer wallet credited base 10.00 GHS
+    expect(updatedPaymentStatus).toBe('PAID');
+  });
+
+  it('should credit exactly 1700 pesewas when 1751 pesewas (17 GHS + 3% fee) is paid and self-heal if metadata is absent', async () => {
+    let creditedAmountPesewas = 0;
+
+    const mockClient = {
+      query: vi.fn().mockImplementation((q: string, params?: unknown[]) => {
+        if (q === 'BEGIN' || q === 'COMMIT' || q === 'ROLLBACK') {
+          return Promise.resolve();
+        }
+        if (q.includes('FROM payments') && q.includes('FOR UPDATE')) {
+          return Promise.resolve({
+            rows: [{
+              id: 'pay_topup_17ghs',
+              order_id: null,
+              user_id: 'usr_17ghs',
+              amount_pesewas: 1751,
+              currency: 'GHS',
+              status: 'PENDING',
+              provider_reference: 'pst_topup_ref_17',
+              metadata: null, // Test self-healing fallback when metadata is missing!
+            }],
+          });
+        }
+        if (q.includes('SELECT wallet_balance_pesewas') && q.includes('FOR UPDATE')) {
+          return Promise.resolve({
+            rows: [{ wallet_balance_pesewas: 0, wallet_balance: 0 }],
+          });
+        }
+        if (q.includes('UPDATE users')) {
+          creditedAmountPesewas = params?.[0] as number;
+          return Promise.resolve({ rows: [] });
+        }
+        if (q.includes('UPDATE payments') || q.includes('INSERT INTO payment_events')) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      release: vi.fn(),
+    };
+
+    const mockDb = {
+      connect: vi.fn().mockResolvedValue(mockClient),
+    } as unknown as pg.Pool;
+
+    const mockLedgerService = {
+      recordJournalEntries: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const paymentService = new PaymentService(
+      mockDb,
+      adapter,
+      mockLedgerService as any,
+      {} as any,
+    );
+
+    const result = await paymentService.processSuccessfulWalletTopup(
+      'pay_topup_17ghs',
+      'pst_topup_ref_17',
+      { amountPesewas: 1751 },
+      'corr_17ghs',
+    );
+
+    expect(result.newBalancePesewas).toBe(1700); // 1700 pesewas = 17.00 GHS (1751 / 1.03 rounded)
+    expect(creditedAmountPesewas).toBe(1700);
+  });
 });

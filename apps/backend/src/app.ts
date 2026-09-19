@@ -572,6 +572,13 @@ export function createApp(options: AppOptions = {}) {
     });
   });
 
+  // Root Webhook Routes (allows /webhooks/paystack and /paystack/webhook at root level)
+  app.register(async (rootWebhookApp: FastifyInstance) => {
+    await webhookRoutes(rootWebhookApp, {
+      webhookService,
+    });
+  });
+
   // Customer Auth Routes: /api/v1/auth
   app.register(
     async (authSubApp: FastifyInstance) => {

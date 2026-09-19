@@ -102,6 +102,19 @@ export class PaymentWebhookService {
         const metaUserId = metadataObj.userId;
         if (metaType === 'WALLET_TOPUP' && metaUserId) {
           logger.info({ reference, metaUserId }, 'Auto-registering pending wallet top-up payment from webhook payload metadata');
+          const totalAmountPesewas = Number(payload.data.amount || 100);
+          const creditAmountPesewas = metadataObj.creditAmountPesewas
+            ? Number(metadataObj.creditAmountPesewas)
+            : Math.round(totalAmountPesewas / 1.03);
+          const feePesewas = metadataObj.feePesewas
+            ? Number(metadataObj.feePesewas)
+            : totalAmountPesewas - creditAmountPesewas;
+          const mergedMetadata = {
+            ...metadataObj,
+            creditAmountPesewas,
+            feePesewas,
+            totalPayablePesewas: totalAmountPesewas,
+          };
           try {
             payRes = await client.query(
               `INSERT INTO payments (
@@ -110,9 +123,9 @@ export class PaymentWebhookService {
                RETURNING id, order_id, user_id, amount_pesewas, status, metadata`,
               [
                 metaUserId,
-                Number(payload.data.amount || 100),
+                totalAmountPesewas,
                 reference,
-                JSON.stringify(payload.data.metadata),
+                JSON.stringify(mergedMetadata),
               ],
             );
           } catch {

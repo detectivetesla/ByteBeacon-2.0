@@ -8,34 +8,42 @@ export async function webhookRoutes(
     webhookService: PaymentWebhookService;
   },
 ) {
-  app.post(
+  const webhookHandler = async (req: FastifyRequest, reply: FastifyReply) => {
+    const signature = (req.headers['x-paystack-signature'] as string) || '';
+    const rawBody = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+
+    try {
+      const result = await deps.webhookService.handlePaystackWebhook(
+        rawBody,
+        signature,
+        req.id,
+      );
+
+      reply.status(200).send({
+        success: true,
+        status: result.status,
+        message: result.message,
+      });
+    } catch (err: any) {
+      logger.error({ err, reqId: req.id }, 'Webhook rejection');
+      reply.status(err.statusCode || 400).send({
+        success: false,
+        error: {
+          code: err.code || 'WEBHOOK_ERROR',
+          message: err.message,
+        },
+      });
+    }
+  };
+
+  const webhookPaths = [
     '/webhooks/paystack',
-    async (req: FastifyRequest, reply: FastifyReply) => {
-      const signature = (req.headers['x-paystack-signature'] as string) || '';
-      const rawBody = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+    '/paystack/webhook',
+    '/api/v1/webhooks/paystack',
+    '/api/paystack/webhook',
+  ];
 
-      try {
-        const result = await deps.webhookService.handlePaystackWebhook(
-          rawBody,
-          signature,
-          req.id,
-        );
-
-        reply.status(200).send({
-          success: true,
-          status: result.status,
-          message: result.message,
-        });
-      } catch (err: any) {
-        logger.error({ err, reqId: req.id }, 'Webhook rejection');
-        reply.status(err.statusCode || 400).send({
-          success: false,
-          error: {
-            code: err.code || 'WEBHOOK_ERROR',
-            message: err.message,
-          },
-        });
-      }
-    },
-  );
+  for (const path of webhookPaths) {
+    app.post(path, webhookHandler);
+  }
 }
