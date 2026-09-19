@@ -3,6 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Currency } from '@bytebeacon/shared';
 import { OrderTrackingPage } from '../pages/public/OrderTrackingPage.js';
+import { Navbar } from '../components/navigation/Navbar.js';
+import { ThemeProvider } from '../context/ThemeContext.js';
 import { ordersApi } from '../api/orders.api.js';
 
 vi.mock('../api/orders.api.js', () => ({
@@ -14,6 +16,19 @@ vi.mock('../api/orders.api.js', () => ({
 describe('Real-Time Delivery Tracker — OrderTrackingPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
   });
 
   it('renders Tracker headers, input box, and Track button', () => {
@@ -88,5 +103,33 @@ describe('Real-Time Delivery Tracker — OrderTrackingPage', () => {
 
     expect(await screen.findByText(/Order Not Found/i)).toBeInTheDocument();
     expect(screen.getByText(/No order record was found matching "NONEXISTENT_REF"/i)).toBeInTheDocument();
+  });
+
+  it('provides working Buy Data link to home /#networks from /track page', () => {
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/track']}>
+          <Navbar />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    const buyDataLink = screen.getByText('Buy Data').closest('a');
+    expect(buyDataLink).toBeInTheDocument();
+    expect(buyDataLink).toHaveAttribute('href', '/#networks');
+  });
+
+  it('provides working Buy Data link to home /#networks from /developer page', () => {
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/developer']}>
+          <Navbar />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    const buyDataLink = screen.getByText('Buy Data').closest('a');
+    expect(buyDataLink).toBeInTheDocument();
+    expect(buyDataLink).toHaveAttribute('href', '/#networks');
   });
 });

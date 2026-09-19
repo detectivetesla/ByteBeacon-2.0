@@ -30,6 +30,24 @@ export const LandingPage: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    const handleHashScroll = () => {
+      if (window.location.hash === '#networks') {
+        const el = document.getElementById('networks');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+    };
+
+    const timer = setTimeout(handleHashScroll, 120);
+    window.addEventListener('hashchange', handleHashScroll);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('hashchange', handleHashScroll);
+    };
+  }, []);
+
   return (
     <div style={{ width: '100%', overflowX: 'hidden' }}>
       {/* =========================================================================

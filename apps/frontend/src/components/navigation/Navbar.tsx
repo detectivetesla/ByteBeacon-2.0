@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '../ui/Button/Button.js';
 import { useTheme } from '../../context/ThemeContext.js';
 import { Menu, X, Sun, Moon } from 'lucide-react';
@@ -9,6 +9,25 @@ export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { resolvedTheme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleBuyDataClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (mobileMenuOpen) {
+      setMobileMenuOpen(false);
+    }
+
+    if (location.pathname === '/') {
+      const el = document.getElementById('networks');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } else {
+      navigate('/#networks');
+    }
+  };
 
   return (
     <header
@@ -79,18 +98,15 @@ export const Navbar: React.FC = () => {
           }}
           className="desktop-nav"
         >
-          <a
-            href="#networks"
-            onClick={(e) => {
-              e.preventDefault();
-              document.getElementById('networks')?.scrollIntoView({ behavior: 'smooth' });
-            }}
+          <Link
+            to="/#networks"
+            onClick={handleBuyDataClick}
             style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', fontWeight: 600, transition: 'color var(--transition-fast)', cursor: 'pointer' }}
             onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-primary)')}
             onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
           >
             Buy Data
-          </a>
+          </Link>
           <Link
             to="/track"
             style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', fontWeight: 600, transition: 'color var(--transition-fast)' }}
@@ -184,7 +200,7 @@ export const Navbar: React.FC = () => {
           }}
         >
           {[
-            { label: 'Buy Data', isScroll: true, scrollTarget: 'networks' },
+            { label: 'Buy Data', to: '/#networks', isBuyData: true },
             { label: 'Track Order', to: '/track' },
             { label: 'API Docs', to: '/developer' },
           ].map((item) => {
@@ -202,36 +218,11 @@ export const Navbar: React.FC = () => {
               cursor: 'pointer',
             };
 
-            if (item.isScroll) {
-              return (
-                <a
-                  key={item.label}
-                  href={`#${item.scrollTarget}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setMobileMenuOpen(false);
-                    document.getElementById(item.scrollTarget!)?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  style={linkStyle}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'var(--color-bg-surface-hover)';
-                    e.currentTarget.style.color = 'var(--color-text-primary)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = 'var(--color-text-secondary)';
-                  }}
-                >
-                  {item.label}
-                </a>
-              );
-            }
-
             return (
               <Link
                 key={item.label}
-                to={item.to!}
-                onClick={() => setMobileMenuOpen(false)}
+                to={item.to}
+                onClick={item.isBuyData ? handleBuyDataClick : () => setMobileMenuOpen(false)}
                 style={linkStyle}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = 'var(--color-bg-surface-hover)';
