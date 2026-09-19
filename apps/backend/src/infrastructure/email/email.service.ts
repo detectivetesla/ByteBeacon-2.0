@@ -31,32 +31,39 @@ export class EmailService {
   private transporter: Transporter | null = null;
   private config: EmailServiceConfig;
   private isConfigured: boolean = false;
+  private isCustomConfig: boolean = false;
+  public lastError?: string;
 
   constructor(customConfig?: EmailServiceConfig) {
     if (customConfig) {
+      this.isCustomConfig = true;
       this.config = customConfig;
     } else {
-      const env = getConfig();
-      const host = env.SMTP_HOST || env.SMPT_HOST;
-      const port = env.SMTP_PORT || env.SMPT_PORT || 587;
-      const user = env.SMTP_USER || env.SMPT_USER;
-      const pass = env.SMTP_PASS || env.SMPT_PASS;
-      const secure = env.SMTP_SECURE !== undefined ? env.SMTP_SECURE : (port === 465);
-      const from = env.SMTP_FROM || 'ByteBeacon <no-reply@bytebeacon.online>';
-      const frontendUrl = env.FRONTEND_URL || 'https://www.bytebeacon.online';
-
-      this.config = {
-        host,
-        port,
-        user,
-        pass,
-        secure,
-        from,
-        frontendUrl,
-      };
+      this.config = this.loadEnvConfig();
     }
 
     this.initializeTransporter();
+  }
+
+  private loadEnvConfig(): EmailServiceConfig {
+    const env = getConfig();
+    const host = env.SMTP_HOST || env.SMPT_HOST;
+    const port = env.SMTP_PORT || env.SMPT_PORT || 587;
+    const user = env.SMTP_USER || env.SMPT_USER;
+    const pass = env.SMTP_PASS || env.SMPT_PASS;
+    const secure = env.SMTP_SECURE !== undefined ? env.SMTP_SECURE : (port === 465);
+    const from = env.SMTP_FROM || 'ByteBeacon <no-reply@bytebeacon.online>';
+    const frontendUrl = env.FRONTEND_URL || 'https://www.bytebeacon.online';
+
+    return {
+      host,
+      port,
+      user,
+      pass,
+      secure,
+      from,
+      frontendUrl,
+    };
   }
 
   private initializeTransporter(): void {
@@ -119,7 +126,31 @@ export class EmailService {
   }
 
   public isReady(): boolean {
+    if (!this.isCustomConfig && (!this.isConfigured || !this.transporter)) {
+      this.config = this.loadEnvConfig();
+      this.initializeTransporter();
+    }
     return this.isConfigured && this.transporter !== null;
+  }
+
+  public getDiagnostics(): {
+    isConfigured: boolean;
+    host?: string;
+    port?: number;
+    user?: string;
+    hasPass: boolean;
+    secure?: boolean;
+    lastError?: string;
+  } {
+    return {
+      isConfigured: this.isConfigured,
+      host: this.config.host,
+      port: this.config.port,
+      user: this.config.user ? `${this.config.user.slice(0, 3)}***` : undefined,
+      hasPass: Boolean(this.config.pass && this.config.pass.length > 0),
+      secure: this.config.secure,
+      lastError: this.lastError,
+    };
   }
 
   public async verifyConnection(): Promise<{ success: boolean; message: string }> {

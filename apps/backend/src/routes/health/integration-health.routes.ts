@@ -4,6 +4,7 @@ import type { Redis } from 'ioredis';
 import { ITelecomProvider } from '../../core/providers/telecom/telecom-provider.interface.js';
 import { IPaymentProvider } from '../../core/payments/payment-provider.interface.js';
 import { IntegrationHealthReport } from '@bytebeacon/shared';
+import { getEmailService } from '../../infrastructure/email/email.service.js';
 
 export async function integrationHealthRoutes(
   app: FastifyInstance,
@@ -71,6 +72,9 @@ export async function integrationHealthRoutes(
 
     const overallStatus = isHealthy ? 'HEALTHY' : isDegraded ? 'DEGRADED' : 'UNHEALTHY';
 
+    const emailService = getEmailService();
+    const smtpDiag = emailService.getDiagnostics();
+
     const report: IntegrationHealthReport = {
       status: overallStatus,
       integrations: {
@@ -80,6 +84,15 @@ export async function integrationHealthRoutes(
         paystack: paystackHealth,
         redis: { status: redisStatus, latencyMs: redisLatency },
         database: { status: dbStatus, latencyMs: dbLatency },
+        smtp: {
+          status: smtpDiag.isConfigured ? 'UP' : 'DOWN',
+          host: smtpDiag.host || 'NOT_CONFIGURED',
+          port: smtpDiag.port || null,
+          user: smtpDiag.user || null,
+          hasPass: smtpDiag.hasPass,
+          isConfigured: smtpDiag.isConfigured,
+          lastError: smtpDiag.lastError,
+        },
       },
       timestamp: new Date().toISOString(),
     };

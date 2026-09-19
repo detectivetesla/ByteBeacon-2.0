@@ -91,6 +91,15 @@ export interface IntegrationHealthReport {
     paystack: ProviderHealth;
     redis: { status: 'UP' | 'DOWN'; latencyMs: number };
     database: { status: 'UP' | 'DOWN'; latencyMs: number };
+    smtp?: {
+      status: 'UP' | 'DOWN';
+      host?: string;
+      port?: number | null;
+      user?: string | null;
+      hasPass?: boolean;
+      isConfigured?: boolean;
+      lastError?: string;
+    };
   };
   timestamp: string;
 }

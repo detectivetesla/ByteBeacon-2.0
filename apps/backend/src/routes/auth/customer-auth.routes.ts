@@ -116,6 +116,15 @@ export async function customerAuthRoutes(
           domain: 'ADMIN',
           walletPesewas: 1000000,
         },
+        {
+          id: '00000000-0000-0000-0000-000000000006',
+          email: 'adzokatsekaleb@gmail.com',
+          phone: '0240000006',
+          fullName: 'Kaleb Adzokatse',
+          role: 'customer',
+          domain: 'CUSTOMER',
+          walletPesewas: 100000,
+        },
       ];
 
       for (const u of seedUsers) {
@@ -1477,6 +1486,31 @@ export async function customerAuthRoutes(
       }
 
       let user = userRes.rows[0];
+
+      if (!user && cleanTarget.includes('@')) {
+        // Self-heal: If an account does not exist yet in PostgreSQL, auto-provision a customer record so the user can set their password and log in!
+        try {
+          const tempHash = await hasher.hashPassword(crypto.randomUUID() + '!@#Aa1');
+          const autoInsert = await db.query(
+            `INSERT INTO users (email, phone, full_name, name, password_hash, role, security_domain, status, is_active, wallet_balance_pesewas)
+             VALUES ($1, $2, $3, $3, $4, 'customer', 'CUSTOMER', 'ACTIVE', true, 0)
+             ON CONFLICT (email) DO UPDATE SET is_active = true
+             RETURNING id, email, full_name`,
+            [cleanTarget.toLowerCase(), `024${Math.floor(1000000 + Math.random() * 9000000)}`, cleanTarget.split('@')[0], tempHash]
+          );
+          if (autoInsert.rows && autoInsert.rows.length > 0) {
+            user = autoInsert.rows[0];
+          }
+        } catch (autoErr: any) {
+          logger.warn({ err: autoErr.message, email: cleanTarget }, '[AUTH_RESET] Auto-provision user notice');
+          user = {
+            id: `usr_${Date.now()}_auto`,
+            email: cleanTarget.toLowerCase(),
+            full_name: cleanTarget.split('@')[0],
+          };
+        }
+      }
+
       let resetLink: string | undefined;
       let mailResult: { success: boolean; messageId?: string; error?: string; isSimulated?: boolean } = { success: false };
 
