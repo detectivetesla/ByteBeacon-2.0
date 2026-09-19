@@ -32,6 +32,7 @@ import {
   Palette,
   DollarSign,
   Mail,
+  UserCheck,
 } from 'lucide-react';
 
 export interface NavItemConfig {
@@ -89,6 +90,13 @@ export const CUSTOMER_NAVIGATION_GROUPS: NavGroupConfig[] = [
         icon: React.createElement(Clock, { size: 18, strokeWidth: 2.4, color: '#FFCC00' }),
         permission: 'orders.view_own',
         color: '#FFCC00',
+      },
+      {
+        label: 'Become an Agent',
+        path: '/app/apply-agent',
+        icon: React.createElement(UserCheck, { size: 18, strokeWidth: 2.4, color: '#10B981' }),
+        permission: 'orders.create',
+        color: '#10B981',
       },
     ],
   },

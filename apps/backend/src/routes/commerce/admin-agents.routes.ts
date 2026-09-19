@@ -22,6 +22,7 @@ import {
   AgentCustomerSummaryDto,
   ApiResponse,
   AgentAccountStatus,
+  AgentApplicationDto,
   LedgerAccountType,
   LedgerEntryType,
   Currency,
@@ -1351,6 +1352,384 @@ export async function adminAgentsRoutes(
       return reply.send({
         success: true,
         data: res.rows,
+      });
+    },
+  );
+
+  // =========================================================================
+  // AGENT APPLICATIONS & ONBOARDING WORKFLOW ENDPOINTS
+  // =========================================================================
+
+  // Helper to map DB row to AgentApplicationDto
+  const mapAppRow = (r: any): AgentApplicationDto => {
+    const feePesewas = parseInt(r.fee_pesewas || r.feePesewas || '10000', 10);
+    return {
+      id: r.id,
+      userId: r.user_id || r.userId,
+      fullName: r.full_name || r.fullName || '',
+      businessName: r.business_name || r.businessName || '',
+      slug: r.slug || '',
+      phone: r.phone || '',
+      email: r.email || '',
+      locationRegion: r.location_region || r.locationRegion || undefined,
+      experienceDescription: r.experience_description || r.experienceDescription || undefined,
+      feePesewas,
+      feeGhs: Number((feePesewas / 100).toFixed(2)),
+      paymentStatus: (r.payment_status || r.paymentStatus || 'PAYMENT_PENDING') as any,
+      paystackReference: r.paystack_reference || r.paystackReference || undefined,
+      status: (r.status || 'PENDING_APPROVAL') as any,
+      adminNotes: r.admin_notes || r.adminNotes || undefined,
+      reviewedBy: r.reviewed_by || r.reviewedBy || undefined,
+      reviewedAt: r.reviewed_at ? new Date(r.reviewed_at).toISOString() : undefined,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+    };
+  };
+
+  // 1. LIST AGENT APPLICATIONS (/admin/agents/applications)
+  app.get<{
+    Querystring: {
+      status?: string;
+      search?: string;
+      page?: string;
+      limit?: string;
+    };
+  }>(
+    '/admin/agents/applications',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { status = 'ALL', search = '', page = '1', limit = '20' } = req.query || {};
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const conditions: string[] = [];
+      const params: any[] = [];
+      let paramIdx = 1;
+
+      if (status && status !== 'ALL') {
+        conditions.push(`status = $${paramIdx++}`);
+        params.push(status.toUpperCase());
+      }
+
+      if (search && search.trim()) {
+        const term = `%${search.trim()}%`;
+        conditions.push(`(full_name ILIKE $${paramIdx} OR business_name ILIKE $${paramIdx} OR email ILIKE $${paramIdx} OR phone ILIKE $${paramIdx} OR slug ILIKE $${paramIdx})`);
+        params.push(term);
+        paramIdx++;
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const countRes = await db.query(
+        `SELECT COUNT(*) as total FROM agent_applications ${whereClause}`,
+        params,
+      );
+      const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+      const query = `
+        SELECT * FROM agent_applications
+        ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT $${paramIdx++} OFFSET $${paramIdx++}
+      `;
+      params.push(limitNum, offset);
+
+      const itemsRes = await db.query(query, params);
+      const items = itemsRes.rows.map(mapAppRow);
+
+      // Pending count helper
+      const pendingCountRes = await db.query(
+        `SELECT COUNT(*) as count FROM agent_applications WHERE status = 'PENDING_APPROVAL'`,
+      ).catch(() => ({ rows: [{ count: '0' }] }));
+
+      return reply.send({
+        success: true,
+        data: {
+          items,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total,
+            totalPages: Math.ceil(total / limitNum) || 1,
+          },
+          pendingCount: parseInt(pendingCountRes.rows[0]?.count || '0', 10),
+        },
+      });
+    },
+  );
+
+  // 2. GET SINGLE AGENT APPLICATION DETAIL (/admin/agents/applications/:id)
+  app.get<{ Params: { id: string } }>(
+    '/admin/agents/applications/:id',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { id } = req.params;
+      const res = await db.query(`SELECT * FROM agent_applications WHERE id = $1`, [id]);
+      if (res.rows.length === 0) {
+        throw new NotFoundError('Agent application not found');
+      }
+      return reply.send({
+        success: true,
+        data: mapAppRow(res.rows[0]),
+      });
+    },
+  );
+
+  // 3. APPROVE AGENT APPLICATION (/admin/agents/applications/:id/approve)
+  app.post<{ Params: { id: string } }>(
+    '/admin/agents/applications/:id/approve',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { id } = req.params;
+      const appRes = await db.query(`SELECT * FROM agent_applications WHERE id = $1`, [id]);
+      if (appRes.rows.length === 0) {
+        throw new NotFoundError('Agent application not found');
+      }
+
+      const application = appRes.rows[0];
+      const adminId = req.user?.sub;
+      const isUuid = adminId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(adminId);
+
+      // 1. Mark application as APPROVED
+      await db.query(
+        `UPDATE agent_applications
+         SET status = 'APPROVED',
+             reviewed_by = $1,
+             reviewed_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [isUuid ? adminId : null, id],
+      );
+
+      // 2. Register/activate in agents table
+      const cleanSlug = application.slug || `agent-${String(application.user_id).slice(0, 8)}`;
+      await db.query(
+        `INSERT INTO agents (user_id, business_name, slug, is_active, status, agent_tier)
+         VALUES ($1, $2, $3, TRUE, 'ACTIVE', 'STANDARD')
+         ON CONFLICT (user_id)
+         DO UPDATE SET
+           business_name = EXCLUDED.business_name,
+           slug = EXCLUDED.slug,
+           is_active = TRUE,
+           status = 'ACTIVE',
+           updated_at = CURRENT_TIMESTAMP`,
+        [application.user_id, application.business_name, cleanSlug],
+      );
+
+      // 3. Promote user role in users table
+      await db.query(
+        `UPDATE users
+         SET role = 'agent', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [application.user_id],
+      );
+
+      // 4. Send celebratory notification to applicant
+      await db.query(
+        `INSERT INTO notifications (
+           user_id, type, severity, title, body, message, action_url, channel, is_read, created_at, updated_at
+         )
+         VALUES ($1, 'AGENT_APPROVAL', 'SUCCESS', 'Agent Application Approved!',
+           'Congratulations! Your agent application has been approved. You now have full access to reseller pricing and the Agent Portal.',
+           'Congratulations! Your agent application has been approved. You now have full access to reseller pricing and the Agent Portal.',
+           '/agent/dashboard', 'IN_APP', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [application.user_id],
+      ).catch(() => {});
+
+      // 5. Audit log event
+      if (auditService) {
+        await auditService.logEvent({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'APPROVE_AGENT_APPLICATION',
+          resourceType: 'agent_applications',
+          resourceId: id,
+          metadata: { userId: application.user_id, businessName: application.business_name, slug: cleanSlug },
+          ipAddress: req.ip,
+        }).catch(() => {});
+      }
+
+      return reply.send({
+        success: true,
+        message: `Agent application for '${application.business_name}' approved successfully. User role promoted to Agent.`,
+        data: {
+          id,
+          userId: application.user_id,
+          status: 'APPROVED',
+          businessName: application.business_name,
+          slug: cleanSlug,
+        },
+      });
+    },
+  );
+
+  // 4. REJECT AGENT APPLICATION (/admin/agents/applications/:id/reject)
+  app.post<{ Params: { id: string }; Body: { reason?: string; adminNotes?: string } }>(
+    '/admin/agents/applications/:id/reject',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { id } = req.params;
+      const { reason, adminNotes } = req.body || {};
+      const note = reason || adminNotes || 'Application does not meet current reseller onboarding criteria.';
+
+      const appRes = await db.query(`SELECT * FROM agent_applications WHERE id = $1`, [id]);
+      if (appRes.rows.length === 0) {
+        throw new NotFoundError('Agent application not found');
+      }
+
+      const application = appRes.rows[0];
+      const adminId = req.user?.sub;
+      const isUuid = adminId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(adminId);
+
+      // 1. Mark application as REJECTED
+      await db.query(
+        `UPDATE agent_applications
+         SET status = 'REJECTED',
+             admin_notes = $1,
+             reviewed_by = $2,
+             reviewed_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [note, isUuid ? adminId : null, id],
+      );
+
+      // 2. Notify applicant
+      await db.query(
+        `INSERT INTO notifications (
+           user_id, type, severity, title, body, message, action_url, channel, is_read, created_at, updated_at
+         )
+         VALUES ($1, 'AGENT_REJECTION', 'WARNING', 'Agent Application Status Update',
+           $2, $2, '/app/apply-agent', 'IN_APP', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [application.user_id, `Your agent application was reviewed: ${note}`],
+      ).catch(() => {});
+
+      // 3. Audit log
+      if (auditService) {
+        await auditService.logEvent({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'REJECT_AGENT_APPLICATION',
+          resourceType: 'agent_applications',
+          resourceId: id,
+          metadata: { userId: application.user_id, reason: note },
+          ipAddress: req.ip,
+        }).catch(() => {});
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Agent application has been marked as rejected.',
+        data: {
+          id,
+          userId: application.user_id,
+          status: 'REJECTED',
+          adminNotes: note,
+        },
+      });
+    },
+  );
+
+  // 5. GET AGENT APPLICATION FEE SETTING (/admin/agents/settings/application-fee)
+  app.get(
+    '/admin/agents/settings/application-fee',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (_req, reply) => {
+      const configRes = await db.query(
+        `SELECT value FROM system_configurations WHERE config_key = 'agent_application_fee_pesewas'`,
+      );
+      let feePesewas = 10000; // Default GH₵ 100.00
+      if (configRes.rows.length > 0) {
+        const val = configRes.rows[0].value;
+        const parsed = typeof val === 'number' ? val : parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          feePesewas = parsed;
+        }
+      }
+      return reply.send({
+        success: true,
+        data: {
+          applicationFeePesewas: feePesewas,
+          applicationFeeGhs: Number((feePesewas / 100).toFixed(2)),
+          configKey: 'agent_application_fee_pesewas',
+        },
+      });
+    },
+  );
+
+  // 6. UPDATE AGENT APPLICATION FEE SETTING (/admin/agents/settings/application-fee)
+  app.put<{
+    Body: { applicationFeeGhs?: number; applicationFeePesewas?: number; reason?: string };
+  }>(
+    '/admin/agents/settings/application-fee',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const { applicationFeeGhs, applicationFeePesewas, reason } = req.body || {};
+      let newPesewas: number;
+
+      if (applicationFeeGhs !== undefined && !isNaN(Number(applicationFeeGhs))) {
+        newPesewas = Math.round(Number(applicationFeeGhs) * 100);
+      } else if (applicationFeePesewas !== undefined && !isNaN(Number(applicationFeePesewas))) {
+        newPesewas = Math.round(Number(applicationFeePesewas));
+      } else {
+        throw new BadRequestError('applicationFeeGhs or applicationFeePesewas is required.');
+      }
+
+      if (newPesewas < 0) {
+        throw new BadRequestError('Application fee cannot be negative.');
+      }
+
+      const actorId = req.user?.sub;
+      const isUuid = actorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actorId);
+
+      await db.query(
+        `INSERT INTO system_configurations (
+           scope, config_key, category, value, data_type, is_secret, risk_level, requires_step_up, description, version, last_modified_by, last_modified_at
+         )
+         VALUES (
+           'AGENTS', 'agent_application_fee_pesewas', 'AGENTS', $1::jsonb, 'NUMBER', false, 'HIGH', true, 'One-time agent application fee in pesewas', 1, $2, CURRENT_TIMESTAMP
+         )
+         ON CONFLICT (config_key)
+         DO UPDATE SET
+           value = EXCLUDED.value,
+           version = system_configurations.version + 1,
+           last_modified_by = EXCLUDED.last_modified_by,
+           last_modified_at = CURRENT_TIMESTAMP`,
+        [JSON.stringify(newPesewas), isUuid ? actorId : null],
+      );
+
+      // Record audit history in configuration_versions if exists
+      await db.query(
+        `INSERT INTO configuration_versions (config_key, version, new_value, change_reason, changed_by, changed_by_name)
+         SELECT 'agent_application_fee_pesewas', version, value, $1, $2, $3
+         FROM system_configurations
+         WHERE config_key = 'agent_application_fee_pesewas'`,
+        [reason || 'Updated agent application fee', isUuid ? actorId : null, req.user?.email || 'Admin'],
+      ).catch(() => {});
+
+      if (auditService) {
+        await auditService.logEvent({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'UPDATE_SYSTEM_CONFIG',
+          resourceType: 'system_configurations',
+          resourceId: 'agent_application_fee_pesewas',
+          metadata: { newPesewas, newGhs: newPesewas / 100, reason },
+          ipAddress: req.ip,
+        }).catch(() => {});
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          applicationFeePesewas: newPesewas,
+          applicationFeeGhs: Number((newPesewas / 100).toFixed(2)),
+          configKey: 'agent_application_fee_pesewas',
+        },
+        message: `Agent application fee updated to GH₵ ${(newPesewas / 100).toFixed(2)}.`,
       });
     },
   );

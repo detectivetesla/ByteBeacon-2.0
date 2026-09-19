@@ -830,14 +830,23 @@ export async function adminFinanceRoutes(
     },
   );
 
-  // 8. GET /admin/finance/withdrawals — Dedicated Agent Withdrawals
+  // 8. GET /admin/finance/withdrawals — Dedicated Agent Withdrawals with Full Admin Filters
   app.get<{
-    Querystring: { status?: string; page?: string; limit?: string };
+    Querystring: {
+      status?: string;
+      search?: string;
+      dateRange?: string;
+      startDate?: string;
+      endDate?: string;
+      sortBy?: string;
+      page?: string;
+      limit?: string;
+    };
   }>(
     '/admin/finance/withdrawals',
     { preHandler: [authHooks.authenticateAdmin] },
     async (req, reply) => {
-      const { status, page = '1', limit = '20' } = req.query || {};
+      const { status, search, dateRange, startDate, endDate, sortBy = 'newest', page = '1', limit = '20' } = req.query || {};
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
       const offset = (pageNum - 1) * limitNum;
@@ -852,10 +861,64 @@ export async function adminFinanceRoutes(
         paramIndex++;
       }
 
+      // Search across store name, agent name, email, account number, reference
+      if (search && search.trim()) {
+        const searchTerm = `%${search.trim().toLowerCase()}%`;
+        whereClauses.push(`(
+          LOWER(COALESCE(s.store_name, '')) LIKE $${paramIndex}
+          OR LOWER(COALESCE(u.full_name, '')) LIKE $${paramIndex}
+          OR LOWER(COALESCE(u.email, '')) LIKE $${paramIndex}
+          OR LOWER(COALESCE(p.destination_account, '')) LIKE $${paramIndex}
+          OR LOWER(COALESCE(p.reference, '')) LIKE $${paramIndex}
+          OR LOWER(COALESCE(p.account_name, '')) LIKE $${paramIndex}
+        )`);
+        queryParams.push(searchTerm);
+        paramIndex++;
+      }
+
+      // Date range filtering on created_at
+      if (dateRange && dateRange !== 'all') {
+        if (dateRange === 'today') {
+          whereClauses.push(`p.created_at >= CURRENT_DATE`);
+        } else if (dateRange === 'yesterday') {
+          whereClauses.push(`p.created_at >= CURRENT_DATE - INTERVAL '1 day' AND p.created_at < CURRENT_DATE`);
+        } else if (dateRange === '7d') {
+          whereClauses.push(`p.created_at >= NOW() - INTERVAL '7 days'`);
+        } else if (dateRange === '14d') {
+          whereClauses.push(`p.created_at >= NOW() - INTERVAL '14 days'`);
+        } else if (dateRange === '30d') {
+          whereClauses.push(`p.created_at >= NOW() - INTERVAL '30 days'`);
+        } else if (dateRange === 'custom') {
+          if (startDate) {
+            whereClauses.push(`p.created_at >= $${paramIndex}::timestamptz`);
+            queryParams.push(startDate);
+            paramIndex++;
+          }
+          if (endDate) {
+            whereClauses.push(`p.created_at <= ($${paramIndex}::date + INTERVAL '1 day')`);
+            queryParams.push(endDate);
+            paramIndex++;
+          }
+        }
+      }
+
       const whereSql = whereClauses.join(' AND ');
 
-      const countRes = await db.query(`SELECT COUNT(*) as total FROM store_payouts p WHERE ${whereSql}`, queryParams);
-      const total = parseInt(countRes.rows[0]?.total || '0', 10);
+      // Determine ORDER BY clause from sortBy param
+      let orderClause = 'p.created_at DESC';
+      if (sortBy === 'oldest') orderClause = 'p.created_at ASC';
+      else if (sortBy === 'highest') orderClause = 'p.amount_pesewas DESC, p.created_at DESC';
+      else if (sortBy === 'lowest') orderClause = 'p.amount_pesewas ASC, p.created_at DESC';
+
+      // Count and list queries need JOINs for search to work
+      const fromJoins = `
+        FROM store_payouts p
+        LEFT JOIN stores s ON p.store_id = s.id
+        LEFT JOIN agents a ON p.agent_id = a.id
+        LEFT JOIN users u ON a.user_id = u.id
+      `;
+
+      const countSql = `SELECT COUNT(*) as total ${fromJoins} WHERE ${whereSql}`;
 
       const listSql = `
         SELECT 
@@ -878,16 +941,34 @@ export async function adminFinanceRoutes(
           p.reviewed_at as "reviewedAt",
           p.paid_at as "paidAt",
           p.created_at as "createdAt"
-        FROM store_payouts p
-        LEFT JOIN stores s ON p.store_id = s.id
-        LEFT JOIN agents a ON p.agent_id = a.id
-        LEFT JOIN users u ON a.user_id = u.id
+        ${fromJoins}
         WHERE ${whereSql}
-        ORDER BY p.created_at DESC
+        ORDER BY ${orderClause}
         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
       `;
 
-      const listRes = await db.query(listSql, [...queryParams, limitNum, offset]);
+      // Summary stats query for KPI badges (pending, scheduled, held counts)
+      const summarySql = `
+        SELECT
+          COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as "pendingCount",
+          COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount_pesewas ELSE 0 END), 0) as "pendingAmountPesewas",
+          COUNT(CASE WHEN status = 'SCHEDULED' THEN 1 END) as "scheduledCount",
+          COALESCE(SUM(CASE WHEN status = 'SCHEDULED' THEN amount_pesewas ELSE 0 END), 0) as "scheduledAmountPesewas",
+          COUNT(CASE WHEN status = 'HELD' THEN 1 END) as "heldCount",
+          COUNT(CASE WHEN status = 'PAID' THEN 1 END) as "paidCount",
+          COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount_pesewas ELSE 0 END), 0) as "paidAmountPesewas",
+          COUNT(CASE WHEN status = 'REJECTED' THEN 1 END) as "rejectedCount"
+        FROM store_payouts
+      `;
+
+      const [countRes, listRes, summaryRes] = await Promise.all([
+        db.query(countSql, queryParams),
+        db.query(listSql, [...queryParams, limitNum, offset]),
+        db.query(summarySql).catch(() => ({ rows: [] })),
+      ]);
+
+      const total = parseInt(countRes.rows[0]?.total || '0', 10);
+      const summaryRow = summaryRes.rows[0] || {};
 
       return reply.send({
         success: true,
@@ -899,34 +980,69 @@ export async function adminFinanceRoutes(
             total,
             totalPages: Math.ceil(total / limitNum) || 1,
           },
+          summary: {
+            pendingCount: parseInt(summaryRow.pendingCount || '0', 10),
+            pendingAmountPesewas: parseInt(summaryRow.pendingAmountPesewas || '0', 10),
+            scheduledCount: parseInt(summaryRow.scheduledCount || '0', 10),
+            scheduledAmountPesewas: parseInt(summaryRow.scheduledAmountPesewas || '0', 10),
+            heldCount: parseInt(summaryRow.heldCount || '0', 10),
+            paidCount: parseInt(summaryRow.paidCount || '0', 10),
+            paidAmountPesewas: parseInt(summaryRow.paidAmountPesewas || '0', 10),
+            rejectedCount: parseInt(summaryRow.rejectedCount || '0', 10),
+          },
         },
       });
     },
   );
 
-  // 8b. POST /admin/finance/withdrawals/:id/action — Settle/Approve/Reject Withdrawal
+  // 8b. POST /admin/finance/withdrawals/:id/action — Settle/Approve/Reject/Hold/Schedule Withdrawal
   app.post<{
     Params: { id: string };
-    Body: { action: 'PAID' | 'APPROVE' | 'REJECT' | 'HOLD'; reason?: string; notes?: string };
+    Body: {
+      action: 'PAID' | 'APPROVE' | 'REJECT' | 'HOLD' | 'SCHEDULE';
+      reason?: string;
+      notes?: string;
+      scheduledAt?: string; // ISO datetime for scheduled settlement
+    };
   }>(
     '/admin/finance/withdrawals/:id/action',
     { preHandler: [authHooks.authenticateAdmin] },
     async (req, reply) => {
       const { id } = req.params;
-      const { action, reason = '', notes = '' } = req.body || {};
+      const { action, reason = '', notes = '', scheduledAt } = req.body || {};
 
       let newStatus: string;
       if (action === 'APPROVE' || action === 'PAID') {
-        newStatus = 'PAID';
+        // If scheduledAt is provided with APPROVE, schedule instead of immediate settlement
+        if (scheduledAt && action === 'APPROVE') {
+          newStatus = 'SCHEDULED';
+        } else {
+          newStatus = 'PAID';
+        }
+      } else if (action === 'SCHEDULE') {
+        if (!scheduledAt) {
+          throw new BadRequestError('scheduledAt datetime is required for SCHEDULE action.');
+        }
+        newStatus = 'SCHEDULED';
       } else if (action === 'REJECT') {
         newStatus = 'REJECTED';
       } else if (action === 'HOLD') {
         newStatus = 'HELD';
       } else {
-        throw new BadRequestError(`Invalid action '${action}'. Allowed: APPROVE, PAID, REJECT, HOLD.`);
+        throw new BadRequestError(`Invalid action '${action}'. Allowed: APPROVE, PAID, REJECT, HOLD, SCHEDULE.`);
       }
 
-      const adminNote = notes || reason || `Admin marked as ${newStatus}`;
+      // Build admin note with optional scheduled date/time info
+      let adminNote = notes || reason || `Admin marked as ${newStatus}`;
+      if (scheduledAt && (newStatus === 'SCHEDULED')) {
+        const schedDate = new Date(scheduledAt);
+        adminNote = JSON.stringify({
+          note: notes || reason || 'Scheduled for settlement',
+          scheduledAt: schedDate.toISOString(),
+          scheduledBy: req.user!.sub,
+          scheduledLabel: schedDate.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }),
+        });
+      }
 
       const updateRes = await db.query(
         `UPDATE store_payouts
@@ -939,7 +1055,9 @@ export async function adminFinanceRoutes(
          WHERE id::text = $4
          RETURNING id, store_id as "storeId", agent_id as "agentId", amount_pesewas as "amountPesewas",
                    destination_account as "destinationAccount", destination_provider as "destinationProvider",
-                   account_name as "accountName", bank_name as "bankName", reference, status, paid_at as "paidAt"`,
+                   account_name as "accountName", bank_name as "bankName", reference, status,
+                   admin_notes as "adminNotes", reviewed_by as "reviewedBy", reviewed_at as "reviewedAt",
+                   paid_at as "paidAt", created_at as "createdAt"`,
         [newStatus, adminNote, req.user!.sub, id]
       );
 
@@ -949,10 +1067,24 @@ export async function adminFinanceRoutes(
 
       const updated = updateRes.rows[0];
 
+      // Parse scheduledAt from admin_notes if status is SCHEDULED
+      let parsedScheduledAt: string | null = null;
+      if (updated.status === 'SCHEDULED' && updated.adminNotes) {
+        try {
+          const parsed = JSON.parse(updated.adminNotes);
+          parsedScheduledAt = parsed.scheduledAt || null;
+        } catch {
+          // Not JSON, ignore
+        }
+      }
+
       return reply.send({
         success: true,
-        message: `Withdrawal successfully updated to ${newStatus}.`,
-        data: updated,
+        message: `Withdrawal successfully updated to ${newStatus}.${parsedScheduledAt ? ` Scheduled for: ${new Date(parsedScheduledAt).toLocaleString()}.` : ''}`,
+        data: {
+          ...updated,
+          scheduledAt: parsedScheduledAt,
+        },
       });
     },
   );

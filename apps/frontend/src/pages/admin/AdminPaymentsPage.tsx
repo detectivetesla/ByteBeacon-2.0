@@ -118,9 +118,22 @@ export const AdminPaymentsPage: React.FC = () => {
   const [wdPage, setWdPage] = useState(1);
   const [wdSearch, setWdSearch] = useState('');
   const [wdStatus, setWdStatus] = useState('ALL');
+  const [wdDateRange, setWdDateRange] = useState('all');
+  const [wdStartDate, setWdStartDate] = useState('');
+  const [wdEndDate, setWdEndDate] = useState('');
+  const [wdSortBy, setWdSortBy] = useState('newest');
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [wdTotalPages, setWdTotalPages] = useState(1);
   const [wdTotal, setWdTotal] = useState(0);
+  const [wdSummary, setWdSummary] = useState<{
+    pendingCount: number; pendingAmountPesewas: number;
+    scheduledCount: number; scheduledAmountPesewas: number;
+    heldCount: number; paidCount: number; paidAmountPesewas: number;
+    rejectedCount: number;
+  } | null>(null);
+  const [scheduleMode, setScheduleMode] = useState<'immediate' | 'schedule'>('immediate');
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('09:00');
 
   // --- Safety Settings State ---
   const [safety, setSafety] = useState<FinancialSafetySettingsDto | null>(null);
@@ -156,7 +169,7 @@ export const AdminPaymentsPage: React.FC = () => {
   const [refundReason, setRefundReason] = useState('');
   const [refundSubmitting, setRefundSubmitting] = useState(false);
 
-  const [withdrawalModalTarget, setWithdrawalModalTarget] = useState<{ id: string; item: any; action: 'PAID' | 'REJECT' } | null>(null);
+  const [withdrawalModalTarget, setWithdrawalModalTarget] = useState<{ id: string; item: any; action: 'PAID' | 'REJECT' | 'HOLD' | 'SCHEDULE' } | null>(null);
   const [withdrawalNote, setWithdrawalNote] = useState('');
   const [withdrawalSubmitting, setWithdrawalSubmitting] = useState(false);
 
@@ -224,7 +237,7 @@ export const AdminPaymentsPage: React.FC = () => {
     }
   }, [refPage, refStatus, refRisk]);
 
-  // 4. Fetch Withdrawals (Agent Payouts)
+  // 4. Fetch Withdrawals (Agent Payouts) with Full Admin Filters
   const fetchWithdrawals = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -232,18 +245,26 @@ export const AdminPaymentsPage: React.FC = () => {
         page: wdPage,
         limit: 20,
         status: wdStatus !== 'ALL' ? wdStatus : undefined,
+        search: wdSearch.trim() || undefined,
+        dateRange: wdDateRange !== 'all' ? wdDateRange : undefined,
+        startDate: wdDateRange === 'custom' && wdStartDate ? wdStartDate : undefined,
+        endDate: wdDateRange === 'custom' && wdEndDate ? wdEndDate : undefined,
+        sortBy: wdSortBy !== 'newest' ? wdSortBy : undefined,
       });
       if (res && Array.isArray(res.items)) {
         setWithdrawals(res.items);
         setWdTotalPages(res.pagination?.totalPages || 1);
         setWdTotal(res.pagination?.total || res.items.length);
+        if (res.summary) {
+          setWdSummary(res.summary);
+        }
       }
     } catch {
       setWithdrawals([]);
     } finally {
       setIsLoading(false);
     }
-  }, [wdPage, wdStatus]);
+  }, [wdPage, wdStatus, wdSearch, wdDateRange, wdStartDate, wdEndDate, wdSortBy]);
 
   // 5. Fetch Safety Controls
   const fetchSafetyControls = useCallback(async () => {
@@ -326,26 +347,58 @@ export const AdminPaymentsPage: React.FC = () => {
     }
   };
 
-  // Handle Withdrawal Action Confirmation
+  // Handle Withdrawal Action Confirmation (Settle / Reject / Hold / Schedule)
   const handleConfirmWithdrawalAction = async () => {
     if (!withdrawalModalTarget) return;
     if (withdrawalModalTarget.action === 'REJECT' && (!withdrawalNote.trim() || withdrawalNote.trim().length < 4)) {
       toastError('Reason Required', 'A rejection reason is required (min 4 characters).');
       return;
     }
+
+    // Build scheduledAt ISO string if scheduling
+    let scheduledAtIso: string | undefined;
+    if ((withdrawalModalTarget.action === 'PAID' || withdrawalModalTarget.action === 'SCHEDULE') && scheduleMode === 'schedule') {
+      if (!scheduledDate) {
+        toastError('Date Required', 'Please select a settlement date for scheduling.');
+        return;
+      }
+      scheduledAtIso = `${scheduledDate}T${scheduledTime || '09:00'}:00`;
+    }
+
     setWithdrawalSubmitting(true);
     try {
+      // Determine the backend action: if scheduling with PAID action, send APPROVE + scheduledAt
+      let backendAction: 'PAID' | 'APPROVE' | 'REJECT' | 'HOLD' | 'SCHEDULE' = withdrawalModalTarget.action;
+      if (withdrawalModalTarget.action === 'PAID' && scheduleMode === 'schedule' && scheduledAtIso) {
+        backendAction = 'APPROVE'; // APPROVE + scheduledAt = SCHEDULED
+      } else if (withdrawalModalTarget.action === 'SCHEDULE') {
+        backendAction = 'SCHEDULE';
+      }
+
       await adminApi.processWithdrawalAction(withdrawalModalTarget.id, {
-        action: withdrawalModalTarget.action,
+        action: backendAction,
         reason: withdrawalNote.trim() || undefined,
         notes: withdrawalNote.trim() || undefined,
+        scheduledAt: scheduledAtIso,
       });
-      toastSuccess(
-        `Payout ${withdrawalModalTarget.action === 'PAID' ? 'Settled' : 'Rejected'}`,
-        `Withdrawal marked as ${withdrawalModalTarget.action === 'PAID' ? 'Settled (PAID)' : 'REJECTED'}.`
-      );
+
+      const actionLabels: Record<string, [string, string]> = {
+        PAID: ['Payout Settled', 'Withdrawal marked as Settled (PAID).'],
+        REJECT: ['Payout Rejected', 'Withdrawal marked as REJECTED.'],
+        HOLD: ['Payout On Hold', 'Withdrawal placed on administrative hold.'],
+        SCHEDULE: ['Settlement Scheduled', `Withdrawal scheduled for ${scheduledDate} at ${scheduledTime}.`],
+      };
+      const isScheduled = scheduleMode === 'schedule' && scheduledAtIso;
+      const label = isScheduled
+        ? ['Settlement Scheduled', `Withdrawal scheduled for ${scheduledDate} at ${scheduledTime}.`]
+        : (actionLabels[withdrawalModalTarget.action] || ['Updated', 'Withdrawal updated.']);
+
+      toastSuccess(label[0], label[1]);
       setWithdrawalModalTarget(null);
       setWithdrawalNote('');
+      setScheduleMode('immediate');
+      setScheduledDate('');
+      setScheduledTime('09:00');
       fetchWithdrawals();
       fetchOverview();
       if (selectedPayout?.id === withdrawalModalTarget.id) {
@@ -436,18 +489,20 @@ export const AdminPaymentsPage: React.FC = () => {
     }
   };
 
-  // Filtered withdrawals client-side search
-  const displayedWithdrawals = useMemo(() => {
-    if (!wdSearch.trim()) return withdrawals;
-    const q = wdSearch.toLowerCase();
-    return withdrawals.filter((w) =>
-      (w.storeName || '').toLowerCase().includes(q) ||
-      (w.storeSlug || '').toLowerCase().includes(q) ||
-      (w.agentName || '').toLowerCase().includes(q) ||
-      (w.agentEmail || '').toLowerCase().includes(q) ||
-      (w.destinationAccount || '').toLowerCase().includes(q)
-    );
-  }, [withdrawals, wdSearch]);
+  // Withdrawals now filtered server-side; displayedWithdrawals is the direct backend result
+  const displayedWithdrawals = withdrawals;
+
+  // Helper: parse scheduledAt from adminNotes JSON
+  const parseScheduledAt = (w: any): string | null => {
+    if (w.scheduledAt) return w.scheduledAt;
+    if (w.adminNotes && w.status === 'SCHEDULED') {
+      try {
+        const parsed = JSON.parse(w.adminNotes);
+        return parsed.scheduledAt || null;
+      } catch { return null; }
+    }
+    return null;
+  };
 
   // Active filter chips for Payments
   const activePayFilters = useMemo(() => {
@@ -482,8 +537,16 @@ export const AdminPaymentsPage: React.FC = () => {
     if (wdStatus !== 'ALL') {
       chips.push({ id: 'status', label: `Status: ${wdStatus}`, onRemove: () => { setWdStatus('ALL'); setWdPage(1); } });
     }
+    if (wdDateRange !== 'all') {
+      const dateLabels: Record<string, string> = { today: 'Today', yesterday: 'Yesterday', '7d': '7 Days', '14d': '14 Days', '30d': '30 Days', custom: 'Custom Range' };
+      chips.push({ id: 'dateRange', label: `Date: ${dateLabels[wdDateRange] || wdDateRange}`, onRemove: () => { setWdDateRange('all'); setWdStartDate(''); setWdEndDate(''); setWdPage(1); } });
+    }
+    if (wdSortBy !== 'newest') {
+      const sortLabels: Record<string, string> = { oldest: 'Oldest First', highest: 'Highest Amount', lowest: 'Lowest Amount' };
+      chips.push({ id: 'sort', label: `Sort: ${sortLabels[wdSortBy] || wdSortBy}`, onRemove: () => { setWdSortBy('newest'); setWdPage(1); } });
+    }
     return chips;
-  }, [wdSearch, wdStatus]);
+  }, [wdSearch, wdStatus, wdDateRange, wdSortBy]);
 
   return (
     <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -1260,12 +1323,12 @@ export const AdminPaymentsPage: React.FC = () => {
               gap: 'var(--space-3)',
             }}
           >
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ flex: '1 1 280px', maxWidth: '420px' }}>
                 <SearchInput
                   value={wdSearch}
                   onChange={(e) => { setWdSearch(e.target.value); setWdPage(1); }}
-                  placeholder="Store name, agent, account number..."
+                  placeholder="Store name, agent, account number, reference..."
                 />
               </div>
 
@@ -1278,8 +1341,47 @@ export const AdminPaymentsPage: React.FC = () => {
                 >
                   <option value="ALL">All Statuses</option>
                   <option value="PENDING">Pending Approval</option>
+                  <option value="SCHEDULED">Scheduled</option>
+                  <option value="HELD">On Hold</option>
                   <option value="PAID">Settled / Paid</option>
                   <option value="REJECTED">Rejected</option>
+                </select>
+
+                <select
+                  value={wdDateRange}
+                  onChange={(e) => { setWdDateRange(e.target.value); setWdPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter Date Range"
+                >
+                  <option value="all">All Time</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="7d">7 Days</option>
+                  <option value="14d">14 Days</option>
+                  <option value="30d">30 Days</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+
+                {wdDateRange === 'custom' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <input type="date" value={wdStartDate} onChange={(e) => { setWdStartDate(e.target.value); setWdPage(1); }}
+                      style={{ ...selectStyle, padding: '0.35rem 0.5rem', minWidth: '120px' }} />
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>to</span>
+                    <input type="date" value={wdEndDate} onChange={(e) => { setWdEndDate(e.target.value); setWdPage(1); }}
+                      style={{ ...selectStyle, padding: '0.35rem 0.5rem', minWidth: '120px' }} />
+                  </div>
+                )}
+
+                <select
+                  value={wdSortBy}
+                  onChange={(e) => { setWdSortBy(e.target.value); setWdPage(1); }}
+                  style={selectStyle}
+                  aria-label="Sort Order"
+                >
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                  <option value="highest">Highest Amount</option>
+                  <option value="lowest">Lowest Amount</option>
                 </select>
 
                 <button
@@ -1293,6 +1395,18 @@ export const AdminPaymentsPage: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Summary KPI Badges */}
+            {wdSummary && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginRight: '0.25rem' }}>Queue:</span>
+                <Badge variant="warning" size="sm">{wdSummary.pendingCount} Pending · GH₵ {(wdSummary.pendingAmountPesewas / 100).toFixed(2)}</Badge>
+                {wdSummary.scheduledCount > 0 && <Badge variant="info" size="sm">{wdSummary.scheduledCount} Scheduled</Badge>}
+                {wdSummary.heldCount > 0 && <Badge variant="neutral" size="sm">{wdSummary.heldCount} Held</Badge>}
+                <Badge variant="success" size="sm">{wdSummary.paidCount} Paid · GH₵ {(wdSummary.paidAmountPesewas / 100).toFixed(2)}</Badge>
+                {wdSummary.rejectedCount > 0 && <Badge variant="danger" size="sm">{wdSummary.rejectedCount} Rejected</Badge>}
+              </div>
+            )}
 
             {/* Active Filter Chips */}
             {activeWdFilters.length > 0 && (
@@ -1346,7 +1460,7 @@ export const AdminPaymentsPage: React.FC = () => {
                 ))}
                 <button
                   type="button"
-                  onClick={() => { setWdSearch(''); setWdStatus('ALL'); setWdPage(1); }}
+                  onClick={() => { setWdSearch(''); setWdStatus('ALL'); setWdDateRange('all'); setWdStartDate(''); setWdEndDate(''); setWdSortBy('newest'); setWdPage(1); }}
                   style={{
                     fontSize: '11px',
                     fontWeight: 700,

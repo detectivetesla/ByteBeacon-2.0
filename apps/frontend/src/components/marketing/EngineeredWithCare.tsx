@@ -11,7 +11,6 @@ import {
   CreditCard,
   Terminal,
   ArrowRight,
-  UserCheck,
 } from 'lucide-react';
 
 export const EngineeredWithCare: React.FC = () => {
@@ -298,14 +297,6 @@ export const EngineeredWithCare: React.FC = () => {
             </p>
 
             <div style={{ marginTop: 'var(--space-6)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => (window.location.href = '/agent')}
-                leftIcon={<UserCheck size={16} strokeWidth={2.5} />}
-              >
-                Become an agent
-              </Button>
               <Button
                 variant="outline"
                 size="md"

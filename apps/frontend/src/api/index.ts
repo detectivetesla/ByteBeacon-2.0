@@ -6,4 +6,5 @@ export * from './orders.api.js';
 export * from './wallet.api.js';
 export * from './stores.api.js';
 export * from './beneficiary.api.js';
+export * from './agents.api.js';
 export * from './admin.api.js';

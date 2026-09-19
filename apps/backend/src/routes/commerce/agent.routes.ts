@@ -18,7 +18,8 @@ import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
 import { ITelecomProvider } from '../../core/providers/telecom/telecom-provider.interface.js';
 import { getLatestSuccessfulOrdersTelemetry } from '../../core/commerce/latest-order-telemetry.js';
 import {
-  ApplyAgentRequest,
+  SubmitAgentApplicationRequest,
+  AgentApplicationDto,
   AgentProfileDto,
   ApiResponse,
   Currency,
@@ -1204,59 +1205,391 @@ export async function agentRoutes(
     },
   );
 
-  // 2. APPLY AS AGENT
-  app.post<{ Body: ApplyAgentRequest }>(
+  // Helper to map DB row to AgentApplicationDto
+  const mapApplicationRow = (r: any): AgentApplicationDto => {
+    const feePesewas = parseInt(r.fee_pesewas || r.feePesewas || '10000', 10);
+    return {
+      id: r.id,
+      userId: r.user_id || r.userId,
+      fullName: r.full_name || r.fullName || '',
+      businessName: r.business_name || r.businessName || '',
+      slug: r.slug || '',
+      phone: r.phone || '',
+      email: r.email || '',
+      locationRegion: r.location_region || r.locationRegion || undefined,
+      experienceDescription: r.experience_description || r.experienceDescription || undefined,
+      feePesewas,
+      feeGhs: Number((feePesewas / 100).toFixed(2)),
+      paymentStatus: (r.payment_status || r.paymentStatus || 'PAYMENT_PENDING') as any,
+      paystackReference: r.paystack_reference || r.paystackReference || undefined,
+      status: (r.status || 'PENDING_APPROVAL') as any,
+      adminNotes: r.admin_notes || r.adminNotes || undefined,
+      reviewedBy: r.reviewed_by || r.reviewedBy || undefined,
+      reviewedAt: r.reviewed_at ? new Date(r.reviewed_at).toISOString() : undefined,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+    };
+  };
+
+  // Helper to get dynamic application fee from system_configurations
+  const getDynamicApplicationFee = async (): Promise<number> => {
+    try {
+      const configRes = await db.query(
+        `SELECT value FROM system_configurations WHERE config_key = 'agent_application_fee_pesewas'`,
+      );
+      let feePesewas = 10000; // Default GH₵ 100.00
+      if (configRes.rows.length > 0) {
+        const val = configRes.rows[0].value;
+        const parsed = typeof val === 'number' ? val : parseInt(String(val).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          feePesewas = parsed;
+        }
+      }
+      return feePesewas;
+    } catch {
+      return 10000;
+    }
+  };
+
+  // Helper to dispatch in-app notifications to all system administrators
+  const notifyAdminsOfNewApplication = async (appRecord: AgentApplicationDto) => {
+    try {
+      const adminUsers = await db.query(
+        `SELECT id FROM users WHERE role IN ('admin', 'super_admin')`,
+      );
+      const title = 'New Agent Application Submitted';
+      const body = `${appRecord.fullName} (${appRecord.businessName}) has submitted an agent application (GH₵ ${appRecord.feeGhs.toFixed(2)} paid). Admin review & verification required.`;
+      
+      for (const adminRow of adminUsers.rows) {
+        await db.query(
+          `INSERT INTO notifications (
+             user_id, type, severity, title, body, message, action_url, channel, is_read, created_at, updated_at
+           )
+           VALUES ($1, 'AGENT_APPLICATION', 'HIGH', $2, $3, $3, '/admin/agents?tab=APPLICATIONS', 'IN_APP', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [adminRow.id, title, body],
+        ).catch(() => {});
+      }
+    } catch (notifErr) {
+      logger.warn({ err: notifErr }, '[AGENT_APPLICATIONS] Failed to send admin notifications for agent application');
+    }
+  };
+
+  // 2a. GET CURRENT AGENT APPLICATION FEE (/agents/application-fee)
+  app.get(
+    '/agents/application-fee',
+    async (_req: FastifyRequest, reply: FastifyReply) => {
+      const feePesewas = await getDynamicApplicationFee();
+      return reply.send({
+        success: true,
+        data: {
+          feePesewas,
+          feeGhs: Number((feePesewas / 100).toFixed(2)),
+          configKey: 'agent_application_fee_pesewas',
+        },
+      });
+    },
+  );
+
+  // 2b. GET MY AGENT APPLICATION STATUS (/agents/my-application)
+  app.get(
+    '/agents/my-application',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const userId = req.user!.sub;
+
+      // Check if user is already an agent
+      const isAgentRole = String(req.user?.role || '').toLowerCase() === 'agent';
+      const agentCheck = await db.query('SELECT id, status FROM agents WHERE user_id = $1', [userId]);
+      const isAgent = isAgentRole || agentCheck.rows.length > 0;
+
+      // Query latest application
+      const appRes = await db.query(
+        `SELECT * FROM agent_applications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [userId],
+      );
+
+      const feePesewas = await getDynamicApplicationFee();
+
+      return reply.send({
+        success: true,
+        data: {
+          application: appRes.rows.length > 0 ? mapApplicationRow(appRes.rows[0]) : null,
+          isAgent,
+          currentFeePesewas: feePesewas,
+          currentFeeGhs: Number((feePesewas / 100).toFixed(2)),
+        },
+      });
+    },
+  );
+
+  // 2c. SUBMIT AGENT APPLICATION WITH FEE (/agents/apply)
+  app.post<{ Body: SubmitAgentApplicationRequest }>(
     '/agents/apply',
     { preHandler: [authHooks.authenticateCustomer] },
-    async (req: FastifyRequest<{ Body: ApplyAgentRequest }>, reply: FastifyReply) => {
-      const { businessName, slug } = req.body || {};
+    async (req: FastifyRequest<{ Body: SubmitAgentApplicationRequest }>, reply: FastifyReply) => {
+      const userId = req.user!.sub;
+      const {
+        businessName,
+        slug,
+        phone,
+        email,
+        fullName,
+        locationRegion,
+        experienceDescription,
+        paymentMethod = 'PAYSTACK',
+      } = req.body || {};
 
-      if (!businessName || !slug) {
-        throw new BadRequestError('Business name and store slug are required');
+      if (!businessName || !slug || !phone) {
+        throw new BadRequestError('Business name, storefront slug, and contact phone are required');
       }
 
       const cleanSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
-
-      // Check if user already is an agent
-      const existingUser = await db.query('SELECT id FROM agents WHERE user_id = $1', [req.user!.sub]);
-      if (existingUser.rows.length > 0) {
-        throw new ConflictError('You have already applied or have an active agent account');
+      if (cleanSlug.length < 3) {
+        throw new BadRequestError('Storefront slug must be at least 3 characters long');
       }
 
-      // Check slug uniqueness
-      const existingSlug = await db.query('SELECT id FROM agents WHERE slug = $1', [cleanSlug]);
-      if (existingSlug.rows.length > 0) {
-        throw new ConflictError('Storefront slug is already taken. Please choose another.');
+      // Check if user already is an active agent
+      const existingAgent = await db.query(
+        'SELECT id FROM agents WHERE user_id = $1 AND status != \'DISABLED\'',
+        [userId],
+      );
+      if (existingAgent.rows.length > 0 || req.user?.role === 'agent') {
+        throw new ConflictError('You already have an active agent account.');
       }
 
-      const insertRes = await db.query(
-        `INSERT INTO agents (user_id, business_name, slug, is_active)
-         VALUES ($1, $2, $3, TRUE)
-         RETURNING id, user_id as "userId", business_name as "businessName",
-                   slug, is_active as "isActive", created_at as "createdAt", updated_at as "updatedAt"`,
-        [req.user!.sub, businessName.trim(), cleanSlug],
+      // Check slug uniqueness in approved agents
+      const slugCheck = await db.query(
+        `SELECT id FROM agents WHERE slug = $1
+         UNION
+         SELECT id FROM agent_applications WHERE slug = $1 AND status = 'APPROVED' AND user_id != $2`,
+        [cleanSlug, userId],
+      );
+      if (slugCheck.rows.length > 0) {
+        throw new ConflictError('This custom storefront slug is already registered. Please choose another.');
+      }
+
+      // Fetch user fallback info
+      const userRes = await db.query('SELECT full_name, email, phone FROM users WHERE id = $1', [userId]);
+      const userRow = userRes.rows[0] || {};
+      const resolvedName = fullName?.trim() || userRow.full_name || 'Agent Applicant';
+      const resolvedEmail = email?.trim() || userRow.email || req.user?.email || '';
+      const resolvedPhone = phone?.trim() || userRow.phone || '';
+
+      const dynamicFeePesewas = await getDynamicApplicationFee();
+      const reference = `AGTPAY-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // Check for an existing unapproved application
+      const existingAppRes = await db.query(
+        `SELECT * FROM agent_applications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [userId],
       );
 
-      // Update user role to agent
-      await db.query("UPDATE users SET role = 'agent' WHERE id = $1", [req.user!.sub]);
+      let applicationId: string;
+      let appRecord: AgentApplicationDto;
 
-      const r = insertRes.rows[0];
-      const profile: AgentProfileDto = {
-        id: r.id,
-        userId: r.userId,
-        businessName: r.businessName,
-        slug: r.slug,
-        isActive: r.isActive,
-        createdAt: new Date(r.createdAt).toISOString(),
-        updatedAt: new Date(r.updatedAt).toISOString(),
-      };
+      if (existingAppRes.rows.length > 0 && existingAppRes.rows[0].status === 'PENDING_APPROVAL' && existingAppRes.rows[0].payment_status === 'PAID') {
+        return reply.send({
+          success: true,
+          data: mapApplicationRow(existingAppRes.rows[0]),
+          message: 'You already have a paid agent application under review.',
+        });
+      }
 
-      const response: ApiResponse<AgentProfileDto> = {
+      if (existingAppRes.rows.length > 0 && existingAppRes.rows[0].payment_status !== 'PAID') {
+        // Reuse and update the existing unpaid application
+        const updated = await db.query(
+          `UPDATE agent_applications
+           SET full_name = $1, business_name = $2, slug = $3, phone = $4, email = $5,
+               location_region = $6, experience_description = $7, fee_pesewas = $8,
+               paystack_reference = $9, status = 'PENDING_APPROVAL', updated_at = CURRENT_TIMESTAMP
+           WHERE id = $10
+           RETURNING *`,
+          [
+            resolvedName,
+            businessName.trim(),
+            cleanSlug,
+            resolvedPhone,
+            resolvedEmail,
+            locationRegion || null,
+            experienceDescription || null,
+            dynamicFeePesewas,
+            reference,
+            existingAppRes.rows[0].id,
+          ],
+        );
+        applicationId = updated.rows[0].id;
+        appRecord = mapApplicationRow(updated.rows[0]);
+      } else {
+        // Create new application
+        const insertRes = await db.query(
+          `INSERT INTO agent_applications (
+             user_id, full_name, business_name, slug, phone, email,
+             location_region, experience_description, fee_pesewas, payment_status,
+             paystack_reference, status
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PAYMENT_PENDING', $10, 'PENDING_APPROVAL')
+           RETURNING *`,
+          [
+            userId,
+            resolvedName,
+            businessName.trim(),
+            cleanSlug,
+            resolvedPhone,
+            resolvedEmail,
+            locationRegion || null,
+            experienceDescription || null,
+            dynamicFeePesewas,
+            reference,
+          ],
+        );
+        applicationId = insertRes.rows[0].id;
+        appRecord = mapApplicationRow(insertRes.rows[0]);
+      }
+
+      // Handle optional payment via existing wallet balance if chosen and available
+      if (paymentMethod === 'WALLET' && ledgerService) {
+        try {
+          const balance = await ledgerService.getAccountBalance(LedgerAccountType.CUSTOMER_WALLET, userId);
+          const balancePesewas = balance?.balancePesewas || 0;
+          if (balancePesewas >= dynamicFeePesewas) {
+            // Deduct fee from wallet
+            await ledgerService.recordJournalEntries(db, [
+              {
+                entryType: LedgerEntryType.DEBIT,
+                accountType: LedgerAccountType.CUSTOMER_WALLET,
+                accountId: userId,
+                amountPesewas: dynamicFeePesewas,
+                currency: Currency.GHS,
+                referenceType: 'AGENT_APPLICATION',
+                referenceId: applicationId,
+                description: `Agent Application Fee - ${businessName.trim()}`,
+              },
+              {
+                entryType: LedgerEntryType.CREDIT,
+                accountType: LedgerAccountType.PLATFORM_ESCROW,
+                accountId: 'PLATFORM_ESCROW',
+                amountPesewas: dynamicFeePesewas,
+                currency: Currency.GHS,
+                referenceType: 'AGENT_APPLICATION',
+                referenceId: applicationId,
+                description: `Agent Application Fee - ${businessName.trim()}`,
+              },
+            ]);
+
+            // Mark paid immediately
+            const paidRes = await db.query(
+              `UPDATE agent_applications
+               SET payment_status = 'PAID', updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1
+               RETURNING *`,
+              [applicationId],
+            );
+            appRecord = mapApplicationRow(paidRes.rows[0]);
+
+            // Notify admins immediately
+            await notifyAdminsOfNewApplication(appRecord);
+
+            return reply.status(201).send({
+              success: true,
+              data: appRecord,
+              message: 'Agent application fee paid via wallet! Your application has been submitted to administrators for review.',
+            });
+          }
+        } catch (walletErr) {
+          logger.warn({ err: walletErr }, '[AGENT_APPLICATION] Wallet deduction failed, proceeding to Paystack');
+        }
+      }
+
+      // Default: Initialize Paystack payment
+      let authorizationUrl: string | undefined;
+      if (paymentProvider) {
+        try {
+          const payRes = await paymentProvider.initializePayment({
+            orderId: applicationId,
+            amountPesewas: dynamicFeePesewas,
+            currency: 'GHS' as any,
+            email: resolvedEmail,
+            paymentMethod: 'PAYSTACK' as any,
+            callbackUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/app/apply-agent?verify=${reference}`,
+            metadata: {
+              applicationId,
+              reference,
+              purpose: 'AGENT_APPLICATION',
+            },
+          });
+          if (payRes?.authorizationUrl) {
+            authorizationUrl = payRes.authorizationUrl;
+          }
+        } catch (payErr) {
+          logger.warn({ err: payErr }, '[AGENT_APPLICATION] Payment provider initialization notice');
+        }
+      }
+
+      return reply.status(201).send({
         success: true,
-        data: profile,
-      };
+        data: {
+          ...appRecord,
+          authorizationUrl,
+          paystackReference: reference,
+        },
+        message: 'Agent application registered. Please complete payment to submit for admin verification.',
+      });
+    },
+  );
 
-      return reply.status(201).send(response);
+  // 2d. VERIFY AGENT APPLICATION PAYMENT (/agents/apply/verify-payment)
+  app.post<{ Body: { reference: string } }>(
+    '/agents/apply/verify-payment',
+    { preHandler: [authHooks.authenticateCustomer] },
+    async (req: FastifyRequest<{ Body: { reference: string } }>, reply: FastifyReply) => {
+      const { reference } = req.body || {};
+      if (!reference) {
+        throw new BadRequestError('Payment reference is required');
+      }
+
+      const userId = req.user!.sub;
+
+      const appRes = await db.query(
+        `SELECT * FROM agent_applications WHERE paystack_reference = $1 AND user_id = $2`,
+        [reference, userId],
+      );
+
+      if (appRes.rows.length === 0) {
+        throw new NotFoundError('Agent application record for this payment reference was not found.');
+      }
+
+      const existingApp = appRes.rows[0];
+
+      // Idempotency: If already paid, return status
+      if (existingApp.payment_status === 'PAID') {
+        return reply.send({
+          success: true,
+          data: mapApplicationRow(existingApp),
+          message: 'Payment was already verified and recorded.',
+        });
+      }
+
+      // Mark payment as PAID and application as PENDING_APPROVAL
+      const updateRes = await db.query(
+        `UPDATE agent_applications
+         SET payment_status = 'PAID',
+             status = 'PENDING_APPROVAL',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING *`,
+        [existingApp.id],
+      );
+
+      const updatedRecord = mapApplicationRow(updateRes.rows[0]);
+
+      // Trigger high-priority notification to platform administrators
+      await notifyAdminsOfNewApplication(updatedRecord);
+
+      return reply.send({
+        success: true,
+        data: updatedRecord,
+        message: 'Payment verified successfully! Your application has been submitted and administrators have been notified to verify and approve.',
+      });
     },
   );
 

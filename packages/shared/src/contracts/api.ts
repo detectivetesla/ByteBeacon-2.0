@@ -692,7 +692,66 @@ export interface BulkSubmissionDetailsDto extends BulkSubmissionSummaryDto {
 export interface ApplyAgentRequest {
   businessName: string;
   slug: string;
+  phone?: string;
+  email?: string;
+  fullName?: string;
+  locationRegion?: string;
   experience?: string;
+  reason?: string;
+  paymentMethod?: string;
+}
+
+export type AgentApplicationStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+export type AgentApplicationPaymentStatus = 'NOT_STARTED' | 'PAYMENT_PENDING' | 'PAID' | 'PAYMENT_FAILED';
+
+export interface SubmitAgentApplicationRequest {
+  fullName?: string;
+  businessName: string;
+  slug: string;
+  phone: string;
+  email?: string;
+  locationRegion?: string;
+  experienceDescription?: string;
+  paymentMethod?: 'PAYSTACK' | 'WALLET';
+}
+
+export interface AgentApplicationDto {
+  id: string;
+  userId: string;
+  fullName: string;
+  businessName: string;
+  slug: string;
+  phone: string;
+  email: string;
+  locationRegion?: string;
+  experienceDescription?: string;
+  feePesewas: number;
+  feeGhs: number;
+  paymentStatus: AgentApplicationPaymentStatus;
+  paystackReference?: string;
+  status: AgentApplicationStatus;
+  adminNotes?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  authorizationUrl?: string;
+}
+
+export interface AgentApplicationFeeConfigDto {
+  feePesewas: number;
+  feeGhs: number;
+  configKey: string;
+}
+
+export interface UpdateAgentApplicationFeeRequest {
+  applicationFeeGhs?: number;
+  applicationFeePesewas?: number;
+  reason?: string;
+}
+
+export interface AdminReviewAgentApplicationRequest {
+  adminNotes?: string;
   reason?: string;
 }
 

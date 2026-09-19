@@ -13,6 +13,7 @@ const CustomerProfilePage = withLazy(() => import('../pages/customer/CustomerPro
 const NotificationsPage = withLazy(() => import('../pages/shared/NotificationsPage.js'), 'NotificationsPage');
 const OrderTrackingPage = withLazy(() => import('../pages/public/OrderTrackingPage.js'), 'OrderTrackingPage');
 const CustomerPendingApprovalsPage = withLazy(() => import('../pages/customer/CustomerPendingApprovalsPage.js'), 'CustomerPendingApprovalsPage');
+const ApplyAgentPage = withLazy(() => import('../pages/customer/ApplyAgentPage.js'), 'ApplyAgentPage');
 
 export const customerRoutes: RouteObject[] = [
   {
@@ -86,6 +87,14 @@ export const customerRoutes: RouteObject[] = [
       {
         path: 'profile',
         element: <CustomerProfilePage />,
+      },
+      {
+        path: 'apply-agent',
+        element: <ApplyAgentPage />,
+      },
+      {
+        path: 'become-agent',
+        element: <Navigate to="/app/apply-agent" replace />,
       },
     ],
   },

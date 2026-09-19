@@ -100,14 +100,6 @@ export const Navbar: React.FC = () => {
             Track Order
           </Link>
           <Link
-            to="/agent"
-            style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', fontWeight: 600, transition: 'color var(--transition-fast)' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-primary)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
-          >
-            Agents
-          </Link>
-          <Link
             to="/developer"
             style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', fontWeight: 600, transition: 'color var(--transition-fast)' }}
             onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-primary)')}
@@ -194,7 +186,6 @@ export const Navbar: React.FC = () => {
           {[
             { label: 'Buy Data', isScroll: true, scrollTarget: 'networks' },
             { label: 'Track Order', to: '/track' },
-            { label: 'Agent Portal', to: '/agent' },
             { label: 'API Docs', to: '/developer' },
           ].map((item) => {
             const linkStyle: React.CSSProperties = {

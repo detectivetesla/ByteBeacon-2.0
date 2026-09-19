@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -49,14 +50,39 @@ import {
 export const AdminAgentsPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
   // Primary State
-  const [activeTab, setActiveTab] = useState<'ALL' | 'PENDING' | 'SUSPENDED' | 'API' | 'PRICING'>('ALL');
+  const [activeTab, setActiveTab] = useState<'ALL' | 'APPLICATIONS' | 'PENDING' | 'SUSPENDED' | 'API' | 'PRICING'>('ALL');
   const [stats, setStats] = useState<AdminAgentStats | null>(null);
   const [agents, setAgents] = useState<AdminAgentListItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalAgents, setTotalAgents] = useState<number>(0);
+
+  // Agent Applications State
+  const [applications, setApplications] = useState<any[]>([]);
+  const [isLoadingApplications, setIsLoadingApplications] = useState<boolean>(false);
+  const [applicationsPage, setApplicationsPage] = useState<number>(1);
+  const [applicationsTotalPages, setApplicationsTotalPages] = useState<number>(1);
+  const [totalApplications, setTotalApplications] = useState<number>(0);
+  const [pendingApplicationsCount, setPendingApplicationsCount] = useState<number>(0);
+  const [applicationStatusFilter, setApplicationStatusFilter] = useState<string>('ALL');
+
+  // Application Review Modal State
+  const [selectedApplication, setSelectedApplication] = useState<any | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
+  const [rejectionReason, setRejectionReason] = useState<string>('');
+  const [isApprovingApp, setIsApprovingApp] = useState<boolean>(false);
+  const [isRejectingApp, setIsRejectingApp] = useState<boolean>(false);
+
+  // Application Fee Management State
+  const [isFeeModalOpen, setIsFeeModalOpen] = useState<boolean>(false);
+  const [currentAppFeeGhs, setCurrentAppFeeGhs] = useState<number>(100);
+  const [newAppFeeInput, setNewAppFeeInput] = useState<string>('100');
+  const [feeChangeReason, setFeeChangeReason] = useState<string>('');
+  const [isUpdatingFee, setIsUpdatingFee] = useState<boolean>(false);
 
   // Filters State
   const [search, setSearch] = useState<string>('');
@@ -198,10 +224,130 @@ export const AdminAgentsPage: React.FC = () => {
     }
   }, [activeTab, statusFilter, storeFilter, apiFilter, financialFilter, dateRange, page, search, toastError]);
 
+  // Fetch Agent Applications
+  const fetchApplications = useCallback(async () => {
+    setIsLoadingApplications(true);
+    try {
+      const res = await adminApi.getAgentApplications({
+        status: applicationStatusFilter !== 'ALL' ? applicationStatusFilter : undefined,
+        search: search.trim() || undefined,
+        page: applicationsPage,
+        limit: 15,
+      });
+
+      const items = (res as any)?.items || (res as any)?.data?.items || [];
+      const pagination = (res as any)?.pagination || (res as any)?.data?.pagination;
+      const pendingCount = (res as any)?.pendingCount ?? (res as any)?.data?.pendingCount ?? 0;
+
+      setApplications(items);
+      setApplicationsTotalPages(pagination?.totalPages || 1);
+      setTotalApplications(pagination?.total !== undefined ? pagination.total : items.length);
+      setPendingApplicationsCount(pendingCount);
+    } catch (err: any) {
+      console.error('[ADMIN_AGENTS_PAGE] Failed to load agent applications:', err);
+    } finally {
+      setIsLoadingApplications(false);
+    }
+  }, [applicationStatusFilter, search, applicationsPage]);
+
+  // Fetch Current Application Fee
+  const fetchApplicationFee = useCallback(async () => {
+    try {
+      const res = await adminApi.getAgentApplicationFee();
+      const feeGhs = (res as any)?.applicationFeeGhs ?? ((res as any)?.applicationFeePesewas ? (res as any).applicationFeePesewas / 100 : 100);
+      setCurrentAppFeeGhs(feeGhs);
+      setNewAppFeeInput(feeGhs.toString());
+    } catch (err: any) {
+      console.error('[ADMIN_AGENTS_PAGE] Failed to load agent application fee:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStats();
     fetchAgents();
-  }, [fetchStats, fetchAgents]);
+    fetchApplicationFee();
+  }, [fetchStats, fetchAgents, fetchApplicationFee]);
+
+  useEffect(() => {
+    if (activeTab === 'APPLICATIONS') {
+      fetchApplications();
+    }
+  }, [activeTab, fetchApplications]);
+
+  // Watch URL params for tab=APPLICATIONS (e.g. from admin notification bell click)
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'APPLICATIONS') {
+      setActiveTab('APPLICATIONS');
+    }
+  }, [searchParams]);
+
+  // Approve Application Handler
+  const handleApproveApplication = async (appId: string) => {
+    setIsApprovingApp(true);
+    try {
+      await adminApi.approveAgentApplication(appId);
+      toastSuccess('Application Approved', 'Agent account created & activated. Applicant has been notified.');
+      setIsReviewModalOpen(false);
+      setSelectedApplication(null);
+      fetchApplications();
+      fetchStats();
+      fetchAgents();
+    } catch (err: any) {
+      toastError('Approval Failed', err.message || 'Could not approve agent application.');
+    } finally {
+      setIsApprovingApp(false);
+    }
+  };
+
+  // Reject Application Handler
+  const handleRejectApplication = async (appId: string) => {
+    if (!rejectionReason.trim()) {
+      toastError('Feedback Required', 'Please provide a brief reason or feedback for the applicant.');
+      return;
+    }
+    setIsRejectingApp(true);
+    try {
+      await adminApi.rejectAgentApplication(appId, {
+        reason: rejectionReason.trim(),
+        adminNotes: rejectionReason.trim(),
+      });
+      toastSuccess('Application Rejected', 'Applicant notified with the rejection notes.');
+      setIsReviewModalOpen(false);
+      setSelectedApplication(null);
+      setRejectionReason('');
+      fetchApplications();
+    } catch (err: any) {
+      toastError('Rejection Failed', err.message || 'Could not reject application.');
+    } finally {
+      setIsRejectingApp(false);
+    }
+  };
+
+  // Update Application Fee Handler
+  const handleUpdateApplicationFee = async () => {
+    const feeNumber = parseFloat(newAppFeeInput);
+    if (isNaN(feeNumber) || feeNumber < 0) {
+      toastError('Invalid Fee', 'Please enter a valid non-negative fee in Ghana Cedis (GH₵).');
+      return;
+    }
+    setIsUpdatingFee(true);
+    try {
+      const res = await adminApi.updateAgentApplicationFee({
+        applicationFeeGhs: feeNumber,
+        reason: feeChangeReason.trim() || 'Updated agent application fee via admin console',
+      });
+      const updatedGhs = (res as any)?.applicationFeeGhs ?? feeNumber;
+      setCurrentAppFeeGhs(updatedGhs);
+      toastSuccess('Fee Updated', `Agent application fee set to GH₵ ${updatedGhs.toFixed(2)}.`);
+      setIsFeeModalOpen(false);
+      setFeeChangeReason('');
+    } catch (err: any) {
+      toastError('Update Failed', err.message || 'Could not update agent application fee.');
+    } finally {
+      setIsUpdatingFee(false);
+    }
+  };
 
   // Fetch Individual Agent Dossier
   const openAgentDossier = async (agentId: string) => {
@@ -389,6 +535,23 @@ export const AdminAgentsPage: React.FC = () => {
       });
     }
 
+    if (activeTab === 'APPLICATIONS') {
+      if (applicationStatusFilter !== 'ALL') {
+        const appStatusLabels: Record<string, string> = {
+          PENDING_APPROVAL: 'Pending Approval',
+          APPROVED: 'Approved',
+          REJECTED: 'Rejected',
+          PAYMENT_PENDING: 'Payment Pending',
+        };
+        filters.push({
+          id: 'appStatus',
+          label: `App Status: ${appStatusLabels[applicationStatusFilter] || applicationStatusFilter}`,
+          onRemove: () => setApplicationStatusFilter('ALL'),
+        });
+      }
+      return filters;
+    }
+
     if (statusFilter !== 'ALL') {
       filters.push({
         id: 'status',
@@ -447,7 +610,7 @@ export const AdminAgentsPage: React.FC = () => {
     }
 
     return filters;
-  }, [search, statusFilter, storeFilter, apiFilter, financialFilter, dateRange]);
+  }, [search, activeTab, applicationStatusFilter, statusFilter, storeFilter, apiFilter, financialFilter, dateRange]);
 
   const handleResetFilters = () => {
     setSearch('');
@@ -456,7 +619,9 @@ export const AdminAgentsPage: React.FC = () => {
     setApiFilter('ALL');
     setFinancialFilter('ALL');
     setDateRange('ALL');
+    setApplicationStatusFilter('ALL');
     setPage(1);
+    setApplicationsPage(1);
   };
 
   const getTierBadgeVariant = (tier?: string): 'neutral' | 'info' | 'warning' | 'purple' => {
@@ -492,6 +657,18 @@ export const AdminAgentsPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setNewAppFeeInput(currentAppFeeGhs.toString());
+              setIsFeeModalOpen(true);
+            }}
+            style={tactileButtonStyle}
+            title="Configure Agent Onboarding Application Fee"
+          >
+            <DollarSign size={14} color="var(--color-brand-primary)" />
+            <span>App Fee: GH₵ {currentAppFeeGhs.toFixed(2)}</span>
+          </button>
           <button type="button" onClick={handleExport} style={tactileButtonStyle}>
             <Download size={14} />
             <span>Export CSV</span>
@@ -507,8 +684,8 @@ export const AdminAgentsPage: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => { fetchStats(); fetchAgents(); }}
-            disabled={isLoading}
+            onClick={() => { fetchStats(); fetchAgents(); if (activeTab === 'APPLICATIONS') fetchApplications(); }}
+            disabled={isLoading || isLoadingApplications}
             style={{
               ...tactileButtonStyle,
               padding: '0.45rem 0.6rem',
@@ -516,7 +693,7 @@ export const AdminAgentsPage: React.FC = () => {
             }}
             title="Refresh Data"
           >
-            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={(isLoading || isLoadingApplications) ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
@@ -546,8 +723,8 @@ export const AdminAgentsPage: React.FC = () => {
         />
         <MetricCard
           title="Pending Applications"
-          value={stats ? stats.pendingAgents.toLocaleString() : '—'}
-          subvalue="Awaiting Approval"
+          value={pendingApplicationsCount > 0 ? pendingApplicationsCount.toLocaleString() : (stats ? stats.pendingAgents.toLocaleString() : '0')}
+          subvalue="Awaiting Verification"
           accent="amber"
           icon={<TactileIcon icon={Clock} color="amber" size="sm" />}
         />
@@ -595,7 +772,8 @@ export const AdminAgentsPage: React.FC = () => {
       >
         {[
           { id: 'ALL', label: 'All Registered Agents', count: stats?.totalAgents ?? totalAgents, icon: <Users size={13} /> },
-          { id: 'PENDING', label: 'Pending Applications', count: stats?.pendingAgents ?? 0, icon: <Clock size={13} /> },
+          { id: 'APPLICATIONS', label: 'Agent Applications', count: pendingApplicationsCount, icon: <FileText size={13} /> },
+          { id: 'PENDING', label: 'Pending Accounts', count: stats?.pendingAgents ?? 0, icon: <Clock size={13} /> },
           { id: 'SUSPENDED', label: 'Suspended / Restricted', count: stats?.suspendedAgents ?? 0, icon: <UserX size={13} /> },
           { id: 'API', label: 'API Developer Access', count: stats?.agentsWithApi ?? 0, icon: <Key size={13} /> },
           { id: 'PRICING', label: 'Custom Wholesale Pricing', count: undefined, icon: <Sliders size={13} /> },
@@ -663,79 +841,105 @@ export const AdminAgentsPage: React.FC = () => {
           <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
             <SearchInput
               value={search}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setSearch(e.target.value); setPage(1); }}
-              placeholder="Search by agent name, email, phone, business, slug, or ID..."
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setSearch(e.target.value);
+                setPage(1);
+                setApplicationsPage(1);
+              }}
+              placeholder={
+                activeTab === 'APPLICATIONS'
+                  ? 'Search applications by applicant, email, business, or slug...'
+                  : 'Search by agent name, email, phone, business, slug, or ID...'
+              }
             />
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
-            {/* Status Dropdown */}
-            <select
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-              style={selectStyle}
-              aria-label="Filter by Status"
-            >
-              <option value="ALL">All Statuses</option>
-              <option value="ACTIVE">Active</option>
-              <option value="PENDING">Pending</option>
-              <option value="SUSPENDED">Suspended</option>
-              <option value="RESTRICTED">Restricted</option>
-              <option value="DISABLED">Disabled</option>
-            </select>
+            {activeTab === 'APPLICATIONS' ? (
+              /* Applications Status Filter */
+              <select
+                value={applicationStatusFilter}
+                onChange={(e) => { setApplicationStatusFilter(e.target.value); setApplicationsPage(1); }}
+                style={selectStyle}
+                aria-label="Filter Applications by Status"
+              >
+                <option value="ALL">All Application Statuses</option>
+                <option value="PENDING_APPROVAL">Pending Approval</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="PAYMENT_PENDING">Payment Pending</option>
+              </select>
+            ) : (
+              <>
+                {/* Status Dropdown */}
+                <select
+                  value={statusFilter}
+                  onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Status"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="SUSPENDED">Suspended</option>
+                  <option value="RESTRICTED">Restricted</option>
+                  <option value="DISABLED">Disabled</option>
+                </select>
 
-            {/* Storefront Dropdown */}
-            <select
-              value={storeFilter}
-              onChange={(e) => { setStoreFilter(e.target.value); setPage(1); }}
-              style={selectStyle}
-              aria-label="Filter by Storefront"
-            >
-              <option value="ALL">All Storefronts</option>
-              <option value="HAS_STORE">Has Storefront</option>
-              <option value="NO_STORE">No Storefront</option>
-              <option value="ACTIVE_STORE">Active Store</option>
-              <option value="PENDING_STORE">Pending Store</option>
-              <option value="SUSPENDED_STORE">Suspended Store</option>
-            </select>
+                {/* Storefront Dropdown */}
+                <select
+                  value={storeFilter}
+                  onChange={(e) => { setStoreFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Storefront"
+                >
+                  <option value="ALL">All Storefronts</option>
+                  <option value="HAS_STORE">Has Storefront</option>
+                  <option value="NO_STORE">No Storefront</option>
+                  <option value="ACTIVE_STORE">Active Store</option>
+                  <option value="PENDING_STORE">Pending Store</option>
+                  <option value="SUSPENDED_STORE">Suspended Store</option>
+                </select>
 
-            {/* API Access Dropdown */}
-            <select
-              value={apiFilter}
-              onChange={(e) => { setApiFilter(e.target.value); setPage(1); }}
-              style={selectStyle}
-              aria-label="Filter by API Access"
-            >
-              <option value="ALL">All API Access</option>
-              <option value="ENABLED">API Enabled</option>
-              <option value="DISABLED">API Disabled</option>
-            </select>
+                {/* API Access Dropdown */}
+                <select
+                  value={apiFilter}
+                  onChange={(e) => { setApiFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by API Access"
+                >
+                  <option value="ALL">All API Access</option>
+                  <option value="ENABLED">API Enabled</option>
+                  <option value="DISABLED">API Disabled</option>
+                </select>
 
-            {/* Balances Dropdown */}
-            <select
-              value={financialFilter}
-              onChange={(e) => { setFinancialFilter(e.target.value); setPage(1); }}
-              style={selectStyle}
-              aria-label="Filter by Wallet Float"
-            >
-              <option value="ALL">All Balances</option>
-              <option value="POSITIVE">Positive Float</option>
-              <option value="ZERO">Zero Float</option>
-              <option value="NEGATIVE">Negative / Anomaly</option>
-            </select>
+                {/* Balances Dropdown */}
+                <select
+                  value={financialFilter}
+                  onChange={(e) => { setFinancialFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Wallet Float"
+                >
+                  <option value="ALL">All Balances</option>
+                  <option value="POSITIVE">Positive Float</option>
+                  <option value="ZERO">Zero Float</option>
+                  <option value="NEGATIVE">Negative / Anomaly</option>
+                </select>
 
-            {/* Date Range Dropdown */}
-            <select
-              value={dateRange}
-              onChange={(e) => { setDateRange(e.target.value); setPage(1); }}
-              style={selectStyle}
-              aria-label="Filter by Registration Date"
-            >
-              <option value="ALL">All Registration Dates</option>
-              <option value="7d">Last 7 Days</option>
-              <option value="30d">Last 30 Days</option>
-              <option value="90d">Last 90 Days</option>
-            </select>
+                {/* Date Range Dropdown */}
+                <select
+                  value={dateRange}
+                  onChange={(e) => { setDateRange(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Registration Date"
+                >
+                  <option value="ALL">All Registration Dates</option>
+                  <option value="7d">Last 7 Days</option>
+                  <option value="30d">Last 30 Days</option>
+                  <option value="90d">Last 90 Days</option>
+                </select>
+              </>
+            )}
           </div>
         </div>
 
@@ -810,10 +1014,225 @@ export const AdminAgentsPage: React.FC = () => {
         )}
       </Card>
 
-      {/* Main Agent Table Card */}
-      <Card
-        elevated
-        style={{
+      {/* Agent Applications Table Card OR Main Agent Table Card */}
+      {activeTab === 'APPLICATIONS' ? (
+        <Card
+          elevated
+          style={{
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border-subtle)',
+            borderRadius: 'var(--radius-xl)',
+            boxShadow: 'var(--shadow-tactile-sm)',
+            overflow: 'hidden',
+            padding: 0,
+          }}
+        >
+          <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div>
+              <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-primary)', margin: 0, letterSpacing: '0.04em' }}>
+                Prospective Agent Applications & Verifications
+              </h3>
+              <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0.15rem 0 0 0' }}>
+                Review onboarding requests, verify application fees, and approve users as authorized ByteBeacon agents.
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                Showing {applications.length} of {totalApplications} applications ({pendingApplicationsCount} pending review)
+              </span>
+            </div>
+          </div>
+
+          <Table
+            minWidth="1050px"
+            headers={[
+              'Applicant',
+              'Business & Store Slug',
+              'Phone & Region',
+              'Application Fee',
+              'Status',
+              'Submitted',
+              'Actions',
+            ]}
+          >
+            {isLoadingApplications ? (
+              <tr>
+                <td colSpan={7} style={{ padding: 'var(--space-10) var(--space-4)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                  <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                  <p style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>Loading agent applications...</p>
+                </td>
+              </tr>
+            ) : applications.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ padding: 'var(--space-10) var(--space-4)', textAlign: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+                    <div
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        backgroundColor: 'var(--color-bg-subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--color-text-muted)',
+                      }}
+                    >
+                      <FileText size={24} />
+                    </div>
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                      No Applications Found
+                    </p>
+                    <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', maxWidth: '420px' }}>
+                      No agent applications match your filter or search criteria.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              applications.map((app) => {
+                const feeGhs = ((app.feePesewas || 10000) / 100).toFixed(2);
+                let statusVariant: 'success' | 'danger' | 'warning' | 'neutral' = 'neutral';
+                if (app.status === 'APPROVED') statusVariant = 'success';
+                else if (app.status === 'REJECTED') statusVariant = 'danger';
+                else if (app.status === 'PENDING_APPROVAL') statusVariant = 'warning';
+
+                return (
+                  <tr key={app.id} style={{ borderBottom: '1px solid var(--color-border-subtle)', transition: 'background-color var(--transition-fast)' }}>
+                    {/* Applicant */}
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <Avatar name={app.fullName} size="sm" />
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                            {app.fullName}
+                          </span>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '0.1rem' }}>
+                            {app.email}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Business & Slug */}
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                          {app.businessName}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--color-brand-primary)', fontFamily: 'var(--font-mono)', marginTop: '0.1rem' }}>
+                          /{app.slug}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Phone & Region */}
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
+                          {app.phone}
+                        </span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '0.1rem' }}>
+                          {app.locationRegion || 'Unspecified'}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Application Fee */}
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
+                          GH₵ {feeGhs}
+                        </span>
+                        <Badge variant={app.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
+                          {app.paymentStatus === 'PAID' ? 'PAID' : 'PAYMENT PENDING'}
+                        </Badge>
+                      </div>
+                    </td>
+
+                    {/* Status */}
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      <Badge variant={statusVariant} size="sm">
+                        {app.status === 'PENDING_APPROVAL' ? 'PENDING APPROVAL' : app.status}
+                      </Badge>
+                    </td>
+
+                    {/* Submitted */}
+                    <td style={{ padding: '0.85rem 1rem', fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {new Date(app.createdAt).toLocaleDateString()}
+                    </td>
+
+                    {/* Actions */}
+                    <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedApplication(app);
+                          setRejectionReason(app.adminNotes || '');
+                          setIsReviewModalOpen(true);
+                        }}
+                        style={{
+                          ...tactileButtonStyle,
+                          padding: '0.35rem 0.65rem',
+                          fontSize: '11px',
+                          color: app.status === 'PENDING_APPROVAL' ? '#FFFFFF' : 'var(--color-text-primary)',
+                          backgroundColor: app.status === 'PENDING_APPROVAL' ? 'var(--color-brand, #16A34A)' : 'var(--color-bg-surface)',
+                          borderColor: app.status === 'PENDING_APPROVAL' ? 'transparent' : 'var(--color-border-subtle)',
+                        }}
+                      >
+                        <Eye size={12} />
+                        <span>{app.status === 'PENDING_APPROVAL' ? 'Review & Verify' : 'View Application'}</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </Table>
+
+          {/* Applications Pagination */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1.25rem', borderTop: '1px solid var(--color-border-subtle)', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>
+              Showing {applications.length} of {totalApplications} applications
+            </span>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                disabled={applicationsPage <= 1}
+                onClick={() => setApplicationsPage((p) => Math.max(1, p - 1))}
+                style={{
+                  ...tactileButtonStyle,
+                  padding: '0.35rem 0.65rem',
+                  opacity: applicationsPage <= 1 ? 0.5 : 1,
+                  cursor: applicationsPage <= 1 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Previous
+              </button>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-primary)', padding: '0 0.5rem' }}>
+                Page {applicationsPage} of {applicationsTotalPages}
+              </span>
+              <button
+                type="button"
+                disabled={applicationsPage >= applicationsTotalPages}
+                onClick={() => setApplicationsPage((p) => Math.min(applicationsTotalPages, p + 1))}
+                style={{
+                  ...tactileButtonStyle,
+                  padding: '0.35rem 0.65rem',
+                  opacity: applicationsPage >= applicationsTotalPages ? 0.5 : 1,
+                  cursor: applicationsPage >= applicationsTotalPages ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        /* Main Agent Table Card */
+        <Card
+          elevated
+          style={{
           backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid var(--color-border-subtle)',
           borderRadius: 'var(--radius-xl)',
@@ -1116,6 +1535,7 @@ export const AdminAgentsPage: React.FC = () => {
           </div>
         </div>
       </Card>
+      )}
 
       {/* CREATE AGENT MODAL */}
       <Modal
@@ -1418,6 +1838,284 @@ export const AdminAgentsPage: React.FC = () => {
               }}
             >
               {isSavingPricing ? 'Saving...' : 'Save Wholesale Rules'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* AGENT APPLICATION REVIEW MODAL */}
+      <Modal
+        isOpen={isReviewModalOpen}
+        onClose={() => {
+          setIsReviewModalOpen(false);
+          setSelectedApplication(null);
+          setRejectionReason('');
+        }}
+        title={selectedApplication ? `Review Application: ${selectedApplication.fullName}` : 'Review Agent Application'}
+        maxWidth="720px"
+      >
+        {selectedApplication && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+            {/* Applicant Summary Cards */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: 'var(--space-3)',
+                background: 'var(--color-bg-subtle)',
+                padding: 'var(--space-4)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--color-border-subtle)',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Applicant Name</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                  {selectedApplication.fullName}
+                </p>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Email Address</span>
+                <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                  {selectedApplication.email}
+                </p>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Contact Phone</span>
+                <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
+                  {selectedApplication.phone}
+                </p>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Location / Region</span>
+                <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                  {selectedApplication.locationRegion || 'Unspecified'}
+                </p>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Proposed Business</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-brand-primary)' }}>
+                  {selectedApplication.businessName}
+                </p>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Proposed Store Slug</span>
+                <p style={{ margin: '2px 0 0', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                  /{selectedApplication.slug}
+                </p>
+              </div>
+            </div>
+
+            {/* Experience & Motivation */}
+            <div>
+              <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Business Experience & Statement
+              </span>
+              <p
+                style={{
+                  margin: '4px 0 0',
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-text-secondary)',
+                  background: 'var(--color-bg-subtle)',
+                  padding: '0.75rem 0.9rem',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border-subtle)',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {selectedApplication.experienceDescription || 'No statement provided.'}
+              </p>
+            </div>
+
+            {/* Payment & Fee Status Banner */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0.85rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                background: selectedApplication.paymentStatus === 'PAID' ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                border: `1px solid ${selectedApplication.paymentStatus === 'PAID' ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)'}`,
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 'var(--font-size-xs)',
+                      color: selectedApplication.paymentStatus === 'PAID' ? 'var(--color-success)' : 'var(--color-danger)',
+                    }}
+                  >
+                    {selectedApplication.paymentStatus === 'PAID' ? '✓ Application Fee Paid' : '⚠ Payment Pending'}
+                  </span>
+                  <Badge variant={selectedApplication.paymentStatus === 'PAID' ? 'success' : 'warning'} size="sm">
+                    GH₵ {((selectedApplication.feePesewas || 10000) / 100).toFixed(2)}
+                  </Badge>
+                </div>
+                {selectedApplication.paystackReference && (
+                  <span style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', marginTop: '2px', display: 'block' }}>
+                    Payment Reference: {selectedApplication.paystackReference}
+                  </span>
+                )}
+              </div>
+              <Badge
+                variant={
+                  selectedApplication.status === 'APPROVED'
+                    ? 'success'
+                    : selectedApplication.status === 'REJECTED'
+                    ? 'danger'
+                    : 'warning'
+                }
+              >
+                {selectedApplication.status}
+              </Badge>
+            </div>
+
+            {/* Rejection / Admin Notes Field */}
+            {selectedApplication.status === 'PENDING_APPROVAL' ? (
+              <div>
+                <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px', color: 'var(--color-text-primary)' }}>
+                  Admin Review Notes (Required if Rejecting)
+                </label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Provide review feedback or rejection reason to be sent to the applicant..."
+                  rows={3}
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem 0.75rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: 'var(--font-size-xs)',
+                    fontFamily: 'inherit',
+                    outline: 'none',
+                    resize: 'vertical',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            ) : selectedApplication.adminNotes ? (
+              <div style={{ background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 700 }}>Admin Decision Notes:</span>
+                <p style={{ margin: '4px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                  {selectedApplication.adminNotes}
+                </p>
+                {selectedApplication.reviewedAt && (
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                    Decided on: {new Date(selectedApplication.reviewedAt).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            ) : null}
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-2)' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReviewModalOpen(false);
+                  setSelectedApplication(null);
+                  setRejectionReason('');
+                }}
+                style={tactileButtonStyle}
+              >
+                Close
+              </button>
+
+              {selectedApplication.status === 'PENDING_APPROVAL' && (
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleRejectApplication(selectedApplication.id)}
+                    disabled={isRejectingApp || isApprovingApp}
+                    style={{
+                      ...tactileButtonStyle,
+                      color: 'var(--color-danger, #EF4444)',
+                      borderColor: 'rgba(239, 68, 68, 0.3)',
+                    }}
+                  >
+                    <UserX size={14} />
+                    <span>{isRejectingApp ? 'Rejecting...' : 'Reject Application'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleApproveApplication(selectedApplication.id)}
+                    disabled={isApprovingApp || isRejectingApp}
+                    style={primaryButtonStyle}
+                  >
+                    <UserCheck size={14} />
+                    <span>{isApprovingApp ? 'Promoting...' : 'Approve as Agent'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* CONFIGURE APPLICATION FEE MODAL */}
+      <Modal
+        isOpen={isFeeModalOpen}
+        onClose={() => setIsFeeModalOpen(false)}
+        title="Configure Agent Application Fee"
+        maxWidth="500px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          <div style={{ background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Current Authoritative Application Fee:</span>
+            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-brand-primary)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+              GH₵ {currentAppFeeGhs.toFixed(2)}
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+              All prospective agents must pay this non-refundable verification fee when applying to join the ByteBeacon agent network.
+            </p>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              New Application Fee in Ghana Cedis (GH₵) *
+            </label>
+            <Input
+              type="number"
+              step="1"
+              min="0"
+              value={newAppFeeInput}
+              onChange={(e) => setNewAppFeeInput(e.target.value)}
+              placeholder="100.00"
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Change Rationale / Audit Reason (Optional)
+            </label>
+            <Input
+              value={feeChangeReason}
+              onChange={(e) => setFeeChangeReason(e.target.value)}
+              placeholder="e.g. Promotional campaign or adjusted operational verification cost"
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-4)' }}>
+            <button type="button" onClick={() => setIsFeeModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleUpdateApplicationFee}
+              disabled={isUpdatingFee}
+              style={{
+                ...primaryButtonStyle,
+                opacity: isUpdatingFee ? 0.6 : 1,
+              }}
+            >
+              {isUpdatingFee ? 'Saving Fee...' : 'Save Application Fee'}
             </button>
           </div>
         </div>

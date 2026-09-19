@@ -1474,16 +1474,40 @@ export const adminApi = {
     return apiClient.post(`/admin/finance/refunds/${id}/action`, data);
   },
 
-  getFinanceWithdrawals: async (params: { status?: string; page?: number; limit?: number } = {}) => {
+  getFinanceWithdrawals: async (params: {
+    status?: string;
+    search?: string;
+    dateRange?: string;
+    startDate?: string;
+    endDate?: string;
+    sortBy?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
     return apiClient.get<{
       items: any[];
       pagination: { page: number; limit: number; total: number; totalPages: number };
+      summary: {
+        pendingCount: number;
+        pendingAmountPesewas: number;
+        scheduledCount: number;
+        scheduledAmountPesewas: number;
+        heldCount: number;
+        paidCount: number;
+        paidAmountPesewas: number;
+        rejectedCount: number;
+      };
     }>('/admin/finance/withdrawals', { params });
   },
 
   processWithdrawalAction: async (
     id: string,
-    data: { action: 'PAID' | 'APPROVE' | 'REJECT' | 'HOLD'; reason?: string; notes?: string },
+    data: {
+      action: 'PAID' | 'APPROVE' | 'REJECT' | 'HOLD' | 'SCHEDULE';
+      reason?: string;
+      notes?: string;
+      scheduledAt?: string;
+    },
   ) => {
     return apiClient.post(`/admin/finance/withdrawals/${id}/action`, data);
   },
@@ -2067,6 +2091,31 @@ export const adminApi = {
 
   getProviderHealthMetrics: async (providerId: string): Promise<ProviderHealthMetricDto> => {
     return apiClient.get<ProviderHealthMetricDto>(`/admin/telecom/providers/${providerId}/health`);
+  },
+
+  // --- Agent Applications & Pricing Management ---
+  getAgentApplications: async (params: { status?: string; search?: string; page?: number; limit?: number } = {}): Promise<{ items: any[]; pagination: any; pendingCount: number }> => {
+    return apiClient.get('/admin/agents/applications', { params });
+  },
+
+  getAgentApplicationDetail: async (id: string): Promise<any> => {
+    return apiClient.get(`/admin/agents/applications/${id}`);
+  },
+
+  approveAgentApplication: async (id: string): Promise<any> => {
+    return apiClient.post(`/admin/agents/applications/${id}/approve`);
+  },
+
+  rejectAgentApplication: async (id: string, data: { reason?: string; adminNotes?: string } = {}): Promise<any> => {
+    return apiClient.post(`/admin/agents/applications/${id}/reject`, data);
+  },
+
+  getAgentApplicationFee: async (): Promise<{ applicationFeePesewas: number; applicationFeeGhs: number; configKey: string }> => {
+    return apiClient.get('/admin/agents/settings/application-fee');
+  },
+
+  updateAgentApplicationFee: async (data: { applicationFeeGhs?: number; applicationFeePesewas?: number; reason?: string }): Promise<{ applicationFeePesewas: number; applicationFeeGhs: number; configKey: string }> => {
+    return apiClient.put('/admin/agents/settings/application-fee', data);
   },
 };
 
