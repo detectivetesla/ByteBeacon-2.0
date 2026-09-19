@@ -8,6 +8,7 @@ import { AdminSignInPage } from '../pages/auth/AdminSignInPage.js';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage.js';
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage.js';
 import { StoreLoginPage } from '../pages/store/StoreLoginPage.js';
+import { NotFoundPage } from '../pages/public/NotFoundPage.js';
 
 export const authRoutes: RouteObject[] = [
   {
@@ -28,11 +29,11 @@ export const authRoutes: RouteObject[] = [
   },
   {
     path: '/admin-auth/login',
-    element: <AdminSignInPage />,
+    element: <NotFoundPage />,
   },
   {
     path: '/admin/login',
-    element: <AdminSignInPage />,
+    element: <NotFoundPage />,
   },
   {
     path: '/gateway/secure-admin-entry',

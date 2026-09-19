@@ -3,15 +3,16 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.js';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 import { Button } from '../../components/ui/Button/Button.js';
+import { NotFoundPage } from '../../pages/public/NotFoundPage.js';
 
 export interface AdminRouteGuardProps {
   children: React.ReactNode;
-  stealthMode?: boolean; // When true, renders a 404 lockout rather than redirecting to login
+  stealthMode?: boolean; // When true, renders a clean 404 page rather than exposing the admin portal
 }
 
 export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
   children,
-  stealthMode = false,
+  stealthMode = true,
 }) => {
   const { user, isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
@@ -26,14 +27,14 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: 'var(--color-bg-base)',
+          backgroundColor: '#050914',
         }}
       >
         <div
           style={{
             width: '32px',
             height: '32px',
-            border: '3px solid var(--color-brand)',
+            border: '3px solid var(--color-primary, #16A34A)',
             borderTopColor: 'transparent',
             borderRadius: '50%',
             animation: 'guardSpinner 0.8s linear infinite',
@@ -48,64 +49,18 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
   if (!isAuthenticated || !user) {
     if (stealthMode) {
       return (
-        <div
+        <NotFoundPage
           data-testid="admin-stealth-lockout"
-          style={{
-            minHeight: '100vh',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 'var(--space-6)',
-            backgroundColor: '#090D16',
-            color: '#F1F5F9',
-            fontFamily: 'var(--font-sans)',
-          }}
-        >
-          <div
-            style={{
-              maxWidth: '480px',
-              width: '100%',
-              backgroundColor: '#0F172A',
-              border: '1px solid #1E293B',
-              borderRadius: 'var(--radius-xl)',
-              padding: 'var(--space-8)',
-              textAlign: 'center',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
-            }}
-          >
-            <h1 style={{ fontSize: '2.5rem', fontWeight: 900, margin: '0 0 0.5rem 0', letterSpacing: '-0.02em', color: '#64748B' }}>
-              404 — Access Restricted
-            </h1>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.5rem 0', letterSpacing: '-0.01em' }}>
-              Page Not Found
-            </h2>
-            <p style={{ fontSize: '0.875rem', color: '#94A3B8', margin: '0 0 var(--space-6) 0', lineHeight: 1.5 }}>
-              The page you're looking for doesn't exist or has been moved.
-            </p>
-            <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column' }}>
-              <Button
-                variant="primary"
-                onClick={() => navigate(`/admin/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`)}
-                style={{ width: '100%', minHeight: '44px' }}
-              >
-                Administrator Sign In
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => navigate('/')}
-                style={{ width: '100%', minHeight: '40px' }}
-              >
-                Go Home
-              </Button>
-            </div>
-          </div>
-        </div>
+          title="Page Not Found"
+          description="The page you are looking for doesn't exist, has been moved, or is temporarily unavailable."
+          showHomeButton={true}
+        />
       );
     }
 
     return (
       <Navigate
-        to={`/admin/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
+        to={`/admin-auth/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
         replace
       />
     );
@@ -115,6 +70,17 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
   const roleLower = (user.role || '').toLowerCase().trim();
   const isAdminRole = roleLower === 'admin' || roleLower === 'super_admin';
   if (!isAdminRole) {
+    if (stealthMode) {
+      return (
+        <NotFoundPage
+          data-testid="admin-stealth-lockout"
+          title="Page Not Found"
+          description="The page you are looking for doesn't exist, has been moved, or is temporarily unavailable."
+          showHomeButton={true}
+        />
+      );
+    }
+
     return (
       <div
         data-testid="admin-unauthorized-lockout"

@@ -2,6 +2,7 @@
 export * from './public/LandingPage.js';
 export * from './public/OrderTrackingPage.js';
 export * from './public/UnauthorizedPage.js';
+export * from './public/NotFoundPage.js';
 
 // Auth Pages
 export * from './auth/SignInPage.js';

@@ -11,6 +11,7 @@ const DeveloperPortal = withLazy(() => import('../pages/developer/DeveloperPorta
 const UnauthorizedPage = withLazy(() => import('../pages/public/UnauthorizedPage.js'), 'UnauthorizedPage');
 const PublicStorefrontPage = withLazy(() => import('../pages/public/PublicStorefrontPage.js'), 'PublicStorefrontPage');
 const ApiSolutionsPortalPage = withLazy(() => import('../pages/public/ApiSolutionsPortalPage.js'), 'ApiSolutionsPortalPage');
+import { NotFoundPage } from '../pages/public/NotFoundPage.js';
 
 export const DynamicHomeRoute: React.FC = () => {
   if (isStorefrontHostname()) {
@@ -110,6 +111,34 @@ export const publicRoutes: RouteObject[] = [
       {
         path: '/unauthorized',
         element: <UnauthorizedPage />,
+      },
+      {
+        path: '/about',
+        element: <NotFoundPage title="About ByteBeacon" description="Our official Company About page is currently being updated. ByteBeacon delivers secure, instant mobile data and connectivity solutions across Ghana." />,
+      },
+      {
+        path: '/support',
+        element: <NotFoundPage title="Help & Support Center" description="Need assistance? Our customer and agent support channels are available 24/7. Connect directly via WhatsApp or return home to track your order." />,
+      },
+      {
+        path: '/terms',
+        element: <NotFoundPage title="Terms of Service" description="Our platform terms and conditions are currently being refreshed. For immediate compliance questions, please contact our support team." />,
+      },
+      {
+        path: '/privacy',
+        element: <NotFoundPage title="Privacy Policy" description="ByteBeacon maintains strict data confidentiality and cryptographic protection. Our privacy documentation is being updated." />,
+      },
+      {
+        path: '/security',
+        element: <NotFoundPage title="Security & Escrow" description="ByteBeacon operates automated transaction escrow, cryptographic hashing, and direct carrier API verification." />,
+      },
+      {
+        path: '/status',
+        element: <NotFoundPage title="System Status" description="All carrier dispatch pipelines (MTN, Telecel, AT) and automated wallet settlement systems are currently fully operational." />,
+      },
+      {
+        path: '/404',
+        element: <NotFoundPage />,
       },
     ],
   },

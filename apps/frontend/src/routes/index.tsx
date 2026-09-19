@@ -8,6 +8,7 @@ import { storeRoutes } from './store.routes.js';
 import { adminRoutes } from './admin.routes.js';
 import { withLazy } from '../components/common/LazyRoute.js';
 import { isStorefrontHostname } from '../config/storefront.config.js';
+import { NotFoundPage } from '../pages/public/NotFoundPage.js';
 
 const PublicStorefrontPage = withLazy(() => import('../pages/public/PublicStorefrontPage.js'), 'PublicStorefrontPage');
 
@@ -34,16 +35,28 @@ const RESERVED_APP_PATHS = new Set([
   'unauthorized',
   'buy-data',
   'bundles',
+  'about',
+  'support',
+  'terms',
+  'privacy',
+  'security',
+  'status',
+  'help',
+  'contact',
+  'legal',
+  'faq',
+  '404',
 ]);
 
 /**
  * Renders custom agent storefront slug (e.g. apisolutions.store/:slug or localhost:5173/:slug).
- * If accessed on the main ByteBeacon domain in production, redirects to apisolutions.store/:slug.
+ * If accessed on the main ByteBeacon domain, an unrecognized root path is NOT treated as a storefront
+ * and cleanly renders the minimal 404 page instead of redirecting to apisolutions.store/:slug.
  */
 const StorefrontSlugRoute: React.FC = () => {
   const { slug } = useParams<{ slug?: string }>();
   if (slug && RESERVED_APP_PATHS.has(slug.toLowerCase())) {
-    return <Navigate to="/" replace />;
+    return <NotFoundPage />;
   }
 
   if (isStorefrontHostname()) {
@@ -56,13 +69,10 @@ const StorefrontSlugRoute: React.FC = () => {
     if (isLocalhost) {
       return <PublicStorefrontPage />;
     }
-    // On main domain, redirect to canonical apisolutions.store with the custom slug
-    const targetUrl = slug ? `https://apisolutions.store/${slug}` : 'https://apisolutions.store';
-    window.location.replace(targetUrl);
-    return null;
   }
 
-  return <Navigate to="/" replace />;
+  // On main platform domain, unrecognized paths are genuine 404s
+  return <NotFoundPage />;
 };
 
 export const routes: RouteObject[] = [
@@ -104,10 +114,9 @@ export const routes: RouteObject[] = [
     element: <StorefrontSlugRoute />,
   },
 
-  // Fallback Wildcard
+  // Fallback Wildcard (Minimal 404 UI)
   {
     path: '*',
-    element: <Navigate to="/" replace />,
+    element: <NotFoundPage />,
   },
 ];
-
