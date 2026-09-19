@@ -175,28 +175,47 @@ export const AgentOrdersPage: React.FC = () => {
     setCurrentPage(1);
   }, [statusFilter, paymentFilter, dateRange, customFrom, customTo, searchQuery, sortBy]);
 
-  // Calculate Real Metrics
-  const metrics = useMemo(() => {
-    let totalRevenue = 0;
-    let processingCount = 0;
-    let failedCount = 0;
+  // Dynamic Date Range Human Label
+  const dateRangeLabel = useMemo(() => {
+    switch (dateRange) {
+      case 'today':
+        return 'Today';
+      case 'yesterday':
+        return 'Yesterday';
+      case '7d':
+        return 'Last 7 days';
+      case '14d':
+        return 'Last 14 days';
+      case '30d':
+        return 'Last 30 days';
+      case '90d':
+        return 'Last 90 days';
+      case 'all':
+        return 'All time';
+      case 'custom':
+        if (customFrom && customTo) return `${customFrom} to ${customTo}`;
+        if (customFrom) return `From ${customFrom}`;
+        if (customTo) return `Until ${customTo}`;
+        return 'Custom range';
+      default:
+        return 'All time';
+    }
+  }, [dateRange, customFrom, customTo]);
 
-    orders.forEach((o) => {
-      const match = o.paidDisplay?.match(/[\d.]+/);
-      const val = match ? parseFloat(match[0]) : 0;
-      totalRevenue += val;
+  // Dynamic Subtitles for Cards
+  const revenueSubtitle = useMemo(() => {
+    const sortPrefix = sortBy === 'highest' ? 'Highest first • ' : sortBy === 'lowest' ? 'Lowest first • ' : '';
+    const paymentPrefix = paymentFilter !== 'ALL' ? `${paymentFilter === PaymentStatus.PAID ? 'Paid' : paymentFilter.toLowerCase()} • ` : '';
+    return `${sortPrefix}${paymentPrefix}${dateRangeLabel}`;
+  }, [sortBy, paymentFilter, dateRangeLabel]);
 
-      if (o.orderStatus === OrderStatus.PROCESSING) processingCount++;
-      if (o.orderStatus === OrderStatus.FAILED) failedCount++;
-    });
-
-    return {
-      revenueDisplay: `₵${totalRevenue.toFixed(2)}`,
-      ordersCount: orders.length,
-      processingCount,
-      failedCount,
-    };
-  }, [orders]);
+  const ordersSubtitle = useMemo(() => {
+    if (statusFilter !== 'ALL') {
+      const formattedStatus = statusFilter.charAt(0) + statusFilter.slice(1).toLowerCase();
+      return `${formattedStatus} orders • ${dateRangeLabel}`;
+    }
+    return dateRangeLabel;
+  }, [statusFilter, dateRangeLabel]);
 
   // Filter & Sort Logic
   const filteredOrders = useMemo(() => {
@@ -274,6 +293,29 @@ export const AgentOrdersPage: React.FC = () => {
 
     return result;
   }, [orders, statusFilter, paymentFilter, searchQuery, sortBy, dateRange, customFrom, customTo]);
+
+  // Calculate Real Dynamic Metrics from filtered orders
+  const metrics = useMemo(() => {
+    let totalRevenue = 0;
+    let processingCount = 0;
+    let failedCount = 0;
+
+    filteredOrders.forEach((o) => {
+      const match = (o.paidDisplay || o.amountDisplay || '').match(/[\d.]+/);
+      const val = match ? parseFloat(match[0]) : 0;
+      totalRevenue += val;
+
+      if (o.orderStatus === OrderStatus.PROCESSING) processingCount++;
+      if (o.orderStatus === OrderStatus.FAILED) failedCount++;
+    });
+
+    return {
+      revenueDisplay: `₵${totalRevenue.toFixed(2)}`,
+      ordersCount: filteredOrders.length,
+      processingCount,
+      failedCount,
+    };
+  }, [filteredOrders]);
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -370,18 +412,26 @@ export const AgentOrdersPage: React.FC = () => {
 
       {/* 2. Four Premium Distinct Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
-        {/* Card 1: Revenue (Deep Emerald) */}
+        {/* Card 1: Revenue (Deep Emerald - Interactive Sort Toggle) */}
         <div
+          onClick={() => setSortBy((prev) => (prev === 'highest' ? 'lowest' : 'highest'))}
+          title="Click to sort by amount (Highest / Lowest)"
           style={{
             padding: 'var(--space-5)',
             borderRadius: 'var(--radius-xl)',
-            background: 'linear-gradient(145deg, var(--color-success-surface), var(--color-bg-surface))',
-            border: '1px solid var(--color-success-border)',
+            background: (sortBy === 'highest' || sortBy === 'lowest')
+              ? 'linear-gradient(145deg, var(--color-success-surface), var(--color-bg-surface-elevated))'
+              : 'linear-gradient(145deg, var(--color-success-surface), var(--color-bg-surface))',
+            border: (sortBy === 'highest' || sortBy === 'lowest')
+              ? '2px solid var(--color-success)'
+              : '1px solid var(--color-success-border)',
             boxShadow: 'var(--shadow-tactile-sm)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
             minHeight: '130px',
+            cursor: 'pointer',
+            transition: 'all 150ms ease',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -410,23 +460,31 @@ export const AgentOrdersPage: React.FC = () => {
               {metrics.revenueDisplay}
             </div>
             <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
-              30 days
+              {revenueSubtitle}
             </span>
           </div>
         </div>
 
-        {/* Card 2: Orders (Deep Royal Blue) */}
+        {/* Card 2: Orders (Deep Royal Blue - Interactive View All) */}
         <div
+          onClick={() => setStatusFilter('ALL')}
+          title="Click to view all orders"
           style={{
             padding: 'var(--space-5)',
             borderRadius: 'var(--radius-xl)',
-            background: 'linear-gradient(145deg, var(--color-info-surface), var(--color-bg-surface))',
-            border: '1px solid var(--color-info-border)',
+            background: statusFilter === 'ALL'
+              ? 'linear-gradient(145deg, var(--color-info-surface), var(--color-bg-surface-elevated))'
+              : 'linear-gradient(145deg, var(--color-info-surface), var(--color-bg-surface))',
+            border: statusFilter === 'ALL'
+              ? '2px solid var(--color-info)'
+              : '1px solid var(--color-info-border)',
             boxShadow: 'var(--shadow-tactile-sm)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
             minHeight: '130px',
+            cursor: 'pointer',
+            transition: 'all 150ms ease',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -455,7 +513,7 @@ export const AgentOrdersPage: React.FC = () => {
               {metrics.ordersCount}
             </div>
             <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
-              30 days
+              {ordersSubtitle}
             </span>
           </div>
         </div>
@@ -463,6 +521,7 @@ export const AgentOrdersPage: React.FC = () => {
         {/* Card 3: Processing (Deep Amber - Interactive Quick Filter) */}
         <div
           onClick={() => setStatusFilter(statusFilter === OrderStatus.PROCESSING ? 'ALL' : OrderStatus.PROCESSING)}
+          title="Click to filter by Processing"
           style={{
             padding: 'var(--space-5)',
             borderRadius: 'var(--radius-xl)',
@@ -518,7 +577,7 @@ export const AgentOrdersPage: React.FC = () => {
               {metrics.processingCount}
             </div>
             <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
-              Currently processing
+              {statusFilter === OrderStatus.PROCESSING ? 'Filtered: Processing' : 'Currently processing'}
             </span>
           </div>
         </div>
@@ -526,6 +585,7 @@ export const AgentOrdersPage: React.FC = () => {
         {/* Card 4: Failed (Deep Crimson - Interactive Quick Filter) */}
         <div
           onClick={() => setStatusFilter(statusFilter === OrderStatus.FAILED ? 'ALL' : OrderStatus.FAILED)}
+          title="Click to filter by Failed"
           style={{
             padding: 'var(--space-5)',
             borderRadius: 'var(--radius-xl)',
@@ -566,7 +626,7 @@ export const AgentOrdersPage: React.FC = () => {
               {metrics.failedCount}
             </div>
             <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
-              Failed orders
+              {statusFilter === OrderStatus.FAILED ? 'Filtered: Failed' : 'Requires attention'}
             </span>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { OrderStatus, PaymentStatus } from '@bytebeacon/shared';
 import { OrdersPage } from '../pages/customer/OrdersPage.js';
@@ -165,6 +165,61 @@ describe('Customer & Agent Portal Filter & Sorting Suite', () => {
       expect(screen.getAllByText('ORD-FAIL-3').length).toBeGreaterThan(0);
       expect(screen.queryByText('ORD-SUBM-4')).not.toBeInTheDocument();
     });
+
+    it('dynamically updates summary cards (Revenue, Orders, Processing, Failed) when filters change', async () => {
+      vi.mocked(ordersApi.listOrders).mockResolvedValue({
+        orders: mockOrders as any,
+        total: mockOrders.length,
+        page: 1,
+        limit: 100,
+        totalPages: 1,
+      });
+
+      render(
+        <MemoryRouter>
+          <ToastProvider>
+            <OrdersPage />
+          </ToastProvider>
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getAllByText('ORD-PROC-1').length).toBeGreaterThan(0);
+      });
+
+      // Default (30d): ord-1 (10 GHS, proc), ord-2 (50 GHS, comp), ord-3 (20 GHS, fail) => Total: 80 GHS, Orders: 3, Proc: 1, Fail: 1
+      const ordersCard = screen.getByTitle('Click to view all orders');
+      const revenueCard = screen.getByTitle('Click to sort by amount (Highest / Lowest)');
+
+      expect(within(revenueCard).getByText('₵80.00')).toBeInTheDocument();
+      expect(within(ordersCard).getByText('3')).toBeInTheDocument();
+
+      // Click "Delivered" tab
+      const deliveredBtn = screen.getByRole('button', { name: /^Delivered$/i });
+      fireEvent.click(deliveredBtn);
+
+      // Now cards should update: Revenue 50.00, Orders 1, Processing 0, Failed 0
+      await waitFor(() => {
+        expect(within(revenueCard).getByText('₵50.00')).toBeInTheDocument();
+        expect(within(ordersCard).getByText('1')).toBeInTheDocument();
+        expect(screen.getByText('Completed orders • Last 30 days')).toBeInTheDocument();
+      });
+
+      // Clicking Orders card resets status filter to ALL
+      fireEvent.click(ordersCard);
+
+      await waitFor(() => {
+        expect(within(revenueCard).getByText('₵80.00')).toBeInTheDocument();
+        expect(within(ordersCard).getByText('3')).toBeInTheDocument();
+      });
+
+      // Clicking Revenue card toggles amount sorting
+      fireEvent.click(revenueCard);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Highest first • Last 30 days/i)).toBeInTheDocument();
+      });
+    });
   });
 
   describe('Agent OrdersPage Filters & Sorting', () => {
@@ -243,6 +298,9 @@ describe('Customer & Agent Portal Filter & Sorting Suite', () => {
         expect(screen.getByText('ORD-AG-FAIL')).toBeInTheDocument();
       });
 
+      // Initial card metrics: 10 + 25 + 15 = 50.00
+      expect(screen.getByText('₵50.00')).toBeInTheDocument();
+
       // Filter by Delivered
       const deliveredBtn = screen.getByRole('button', { name: /^Delivered$/i });
       fireEvent.click(deliveredBtn);
@@ -251,6 +309,9 @@ describe('Customer & Agent Portal Filter & Sorting Suite', () => {
         expect(screen.getByText('ORD-AG-DELIV')).toBeInTheDocument();
         expect(screen.queryByText('ORD-AG-PROC')).not.toBeInTheDocument();
         expect(screen.queryByText('ORD-AG-FAIL')).not.toBeInTheDocument();
+        // Cards should update to Delivered: ₵25.00, 1 order
+        expect(screen.getByText('₵25.00')).toBeInTheDocument();
+        expect(screen.getByText('Completed orders • All time')).toBeInTheDocument();
       });
 
       // Filter by Failed
@@ -261,6 +322,20 @@ describe('Customer & Agent Portal Filter & Sorting Suite', () => {
         expect(screen.getByText('ORD-AG-FAIL')).toBeInTheDocument();
         expect(screen.queryByText('ORD-AG-DELIV')).not.toBeInTheDocument();
         expect(screen.queryByText('ORD-AG-PROC')).not.toBeInTheDocument();
+        // Cards should update to Failed: ₵15.00, 1 order
+        expect(screen.getByText('₵15.00')).toBeInTheDocument();
+        expect(screen.getByText('Failed orders • All time')).toBeInTheDocument();
+      });
+
+      // Clicking Orders card resets status filter to ALL
+      const ordersCard = screen.getByTitle('Click to view all orders');
+      fireEvent.click(ordersCard);
+
+      await waitFor(() => {
+        expect(screen.getByText('ORD-AG-PROC')).toBeInTheDocument();
+        expect(screen.getByText('ORD-AG-DELIV')).toBeInTheDocument();
+        expect(screen.getByText('ORD-AG-FAIL')).toBeInTheDocument();
+        expect(screen.getByText('₵50.00')).toBeInTheDocument();
       });
     });
   });
