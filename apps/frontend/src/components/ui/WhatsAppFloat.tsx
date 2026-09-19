@@ -1,11 +1,12 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { OFFICIAL_WHATSAPP_COMMUNITY_URL } from '../../config/brand.config.js';
 
 /**
  * Floating WhatsApp community button.
  * Draggable, snaps to edges, opens community link on click.
  */
 
-const WHATSAPP_COMMUNITY_URL = 'https://chat.whatsapp.com/Jpmtz6kPYbR6bcYV63MiQi';
+const WHATSAPP_COMMUNITY_URL = OFFICIAL_WHATSAPP_COMMUNITY_URL;
 
 const WHATSAPP_SVG = (
   <svg viewBox="0 0 24 24" width="28" height="28" fill="#FFFFFF">
