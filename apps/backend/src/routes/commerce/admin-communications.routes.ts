@@ -1766,6 +1766,49 @@ export async function adminCommunicationsRoutes(
   );
 
   // =========================================================================
+  // 12b. POST /admin/communication/test-email — Test SMTP Connection & Dispatch
+  // =========================================================================
+  app.post<{ Body: { recipientEmail: string } }>(
+    '/admin/communication/test-email',
+    {
+      preHandler: [
+        authHooks.authenticateAdmin,
+        authHooks.requirePermission(Permission.USERS_MANAGE),
+      ],
+    },
+    async (req, reply) => {
+      const { recipientEmail } = req.body || {};
+      if (!recipientEmail || !recipientEmail.includes('@')) {
+        throw new BadRequestError('A valid recipient email address is required');
+      }
+
+      const connectionCheck = await emailService.verifyConnection();
+
+      let sendResult: any = null;
+      if (emailService.isReady()) {
+        sendResult = await emailService.sendEmail({
+          to: recipientEmail.trim(),
+          subject: 'ByteBeacon SMTP Configuration Test',
+          text: 'Congratulations! Your ByteBeacon SMTP email service is configured and operational.',
+          html: `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:20px;background:#0A0D14;color:#FFF;">
+            <div style="max-width:500px;margin:auto;background:#111827;padding:24px;border-radius:12px;border:1px solid #1F2937;">
+              <h2 style="color:#10B981;">ByteBeacon SMTP Connected</h2>
+              <p style="color:#94A3B8;">This is a test email verifying that your ByteBeacon transactional email service is successfully configured.</p>
+            </div>
+          </body></html>`,
+        });
+      }
+
+      return reply.send({
+        success: sendResult ? sendResult.success : false,
+        smtpReady: emailService.isReady(),
+        connectionCheck,
+        sendResult,
+      });
+    },
+  );
+
+  // =========================================================================
   // 11. GET /admin/communication/user-preferences/:userId — User Preferences
   // =========================================================================
   app.get<{ Params: { userId: string } }>(

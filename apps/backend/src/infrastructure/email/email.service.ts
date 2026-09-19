@@ -1,4 +1,4 @@
-﻿import nodemailer, { Transporter } from 'nodemailer';
+import nodemailer, { Transporter } from 'nodemailer';
 import { logger } from '../../core/logging/logger.js';
 import { getConfig } from '../../config/env.js';
 
@@ -24,6 +24,7 @@ export interface SendEmailResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  isSimulated?: boolean;
 }
 
 export class EmailService {
@@ -68,9 +69,12 @@ export class EmailService {
           port: port || 587,
           secure: secure ?? (port === 465),
           auth: user && pass ? {
-            user,
-            pass,
+            user: user.trim(),
+            pass: pass.trim(),
           } : undefined,
+          tls: {
+            rejectUnauthorized: process.env.NODE_ENV === 'production',
+          },
           // Reasonable timeouts to prevent hanging server requests
           connectionTimeout: 10000,
           greetingTimeout: 10000,
@@ -123,17 +127,18 @@ export class EmailService {
 
     if (!this.isReady() || !this.transporter) {
       // Mock / Dev fallback: Log the email content safely so local development and tests succeed
-      logger.info(
+      logger.warn(
         {
           to: options.to,
           subject: options.subject,
           previewText: options.text ? options.text.slice(0, 100) : undefined,
         },
-        '[EMAIL MOCK/DEV] SMTP transport inactive. Email dispatch simulated successfully.',
+        '[EMAIL MOCK/DEV] SMTP transport inactive. Email dispatch simulated successfully. (Set SMPT_HOST, SMPT_PORT, SMPT_USER, SMPT_PASS in your environment to send real emails).',
       );
 
       return {
         success: true,
+        isSimulated: true,
         messageId: `simulated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       };
     }
@@ -154,6 +159,7 @@ export class EmailService {
 
       return {
         success: true,
+        isSimulated: false,
         messageId: info.messageId,
       };
     } catch (err: any) {
@@ -164,6 +170,7 @@ export class EmailService {
 
       return {
         success: false,
+        isSimulated: false,
         error: err.message,
       };
     }

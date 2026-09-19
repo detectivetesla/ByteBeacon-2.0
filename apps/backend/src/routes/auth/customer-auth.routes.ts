@@ -1430,14 +1430,43 @@ export async function customerAuthRoutes(
         throw new BadRequestError('Email or phone is required');
       }
 
-      const userRes = await db.query<{ id: string; email: string; full_name?: string }>(
-        'SELECT id, email, full_name FROM users WHERE LOWER(email) = LOWER($1) OR phone = $1',
-        [target],
-      );
+      const cleanTarget = target.trim();
+      const phoneDigits = cleanTarget.replace(/\D/g, '');
+      const phoneCandidates: string[] = [cleanTarget];
+      if (phoneDigits.length >= 9) {
+        if (phoneDigits.startsWith('0') && phoneDigits.length === 10) {
+          phoneCandidates.push(`+233${phoneDigits.slice(1)}`);
+          phoneCandidates.push(`233${phoneDigits.slice(1)}`);
+        } else if (phoneDigits.startsWith('233') && phoneDigits.length === 12) {
+          phoneCandidates.push(`0${phoneDigits.slice(3)}`);
+          phoneCandidates.push(`+${phoneDigits}`);
+        }
+      }
 
-      // Always return positive response to avoid user enumeration
-      if (userRes.rows.length > 0) {
-        const user = userRes.rows[0];
+      let userRes: { rows: Array<{ id: string; email: string; full_name?: string }> } = { rows: [] };
+      try {
+        userRes = await db.query<{ id: string; email: string; full_name?: string }>(
+          'SELECT id, email, full_name FROM users WHERE LOWER(TRIM(email)) = LOWER($1) OR phone = ANY($2::text[])',
+          [cleanTarget, phoneCandidates],
+        );
+      } catch (dbErr: any) {
+        logger.error({ error: dbErr.message, target: cleanTarget }, 'Database error during forgot-password lookup');
+        for (const cached of devUserCache.values()) {
+          if (
+            (cached.email && cached.email.toLowerCase() === cleanTarget.toLowerCase()) ||
+            (cached.phone && phoneCandidates.includes(cached.phone))
+          ) {
+            userRes = { rows: [{ id: cached.id, email: cached.email, full_name: cached.fullName || cached.full_name }] };
+            break;
+          }
+        }
+      }
+
+      let user = userRes.rows[0];
+      let resetLink: string | undefined;
+      let mailResult: { success: boolean; messageId?: string; error?: string; isSimulated?: boolean } = { success: false };
+
+      if (user) {
         const rawToken = tokenService.generateRefreshToken().rawToken;
         const tokenHash = tokenService.hashToken(rawToken);
         const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
@@ -1445,33 +1474,52 @@ export async function customerAuthRoutes(
         await db.query(
           'INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
           [user.id, tokenHash, expiresAt],
-        );
+        ).catch((err: any) => {
+          logger.warn({ error: err.message, userId: user.id }, 'Could not record password_resets entry');
+        });
 
         const config = getConfig();
         const frontendBaseUrl = (config.FRONTEND_URL || (config.NODE_ENV === 'production' ? 'https://www.bytebeacon.online' : 'http://localhost:5173')).replace(/\/$/, '');
-        const resetLink = `${frontendBaseUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
+        resetLink = `${frontendBaseUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
         if (user.email) {
-          try {
-            await emailService.sendPasswordResetEmail(user.email, resetLink, user.full_name || undefined);
-          } catch (mailErr: any) {
-            logger.error({ error: mailErr.message, userId: user.id }, 'Failed to dispatch password reset email');
+          if (!emailService.isReady()) {
+            logger.warn(
+              { userId: user.id, email: user.email },
+              '[PASSWORD_RESET] SMTP is not configured! Real emails cannot be delivered until SMPT_HOST, SMPT_PORT, SMPT_USER, and SMPT_PASS are provided.',
+            );
           }
 
-          // Insert into communication_delivery_logs for visibility in admin communication dashboard
+          try {
+            mailResult = await emailService.sendPasswordResetEmail(user.email, resetLink, user.full_name || undefined);
+            if (!mailResult.success) {
+              logger.error(
+                { error: mailResult.error, userId: user.id, recipient: user.email },
+                'Failed to dispatch password reset email via SMTP',
+              );
+            }
+          } catch (mailErr: any) {
+            logger.error({ error: mailErr.message, userId: user.id }, 'Exception during password reset email dispatch');
+            mailResult = { success: false, error: mailErr.message };
+          }
+
+          const deliveryStatus = mailResult.success ? 'DELIVERED' : 'FAILED';
           await db.query(
             `INSERT INTO communication_delivery_logs (
                message_id, recipient_user_id, recipient_email, channel, priority,
                subject, body, status, sent_at, delivered_at
-             ) VALUES ($1, $2, $3, 'EMAIL', 'HIGH', $4, $5, 'DELIVERED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+             ) VALUES ($1, $2, $3, 'EMAIL', 'HIGH', $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
             [
               `pwd_reset_${crypto.randomUUID()}`,
               user.id,
               user.email,
               'Reset Your ByteBeacon Password',
-              `Password reset link dispatched: ${resetLink}`,
+              mailResult.error ? `Failed: ${mailResult.error}` : `Password reset link dispatched: ${resetLink}`,
+              deliveryStatus,
             ],
           ).catch(() => null);
+        } else {
+          logger.warn({ userId: user.id }, 'Password reset requested for user record with no email address');
         }
 
         await auditService.logEvent({
@@ -1480,12 +1528,31 @@ export async function customerAuthRoutes(
           actorType: 'CUSTOMER',
           action: 'PASSWORD_RESET_REQUESTED',
           ipAddress: req.ip,
+          metadata: {
+            hasEmail: Boolean(user.email),
+            smtpReady: emailService.isReady(),
+            mailDelivered: mailResult.success,
+            mailError: mailResult.error,
+          },
         });
+      } else {
+        logger.info({ identifier: cleanTarget }, 'Password reset requested for unknown email or phone');
       }
 
+      const config = getConfig();
       return reply.send({
         success: true,
         message: 'If the account exists, password reset instructions have been dispatched.',
+        ...(config.NODE_ENV !== 'production' && user ? {
+          debug: {
+            userFound: true,
+            smtpReady: emailService.isReady(),
+            recipientEmail: user.email,
+            deliverySuccess: mailResult.success,
+            deliveryError: mailResult.error,
+            resetLink,
+          },
+        } : {}),
       });
     },
   );

@@ -10,6 +10,7 @@ export const ForgotPasswordPage: React.FC = () => {
   const [identifier, setIdentifier] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [debugData, setDebugData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState('');
 
   const { error: toastError, success: toastSuccess } = useToast();
@@ -28,9 +29,12 @@ export const ForgotPasswordPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await authApi.forgotPassword(trimmed);
+      const res: any = await authApi.forgotPassword(trimmed);
+      if (res?.debug) {
+        setDebugData(res.debug);
+      }
       setIsSubmitted(true);
-      toastSuccess('Reset Link Sent', 'If an account exists with this identifier, instructions have been sent.');
+      toastSuccess('Reset Link Dispatched', 'If an account exists with this identifier, instructions have been sent.');
     } catch (err: any) {
       toastError('Request failed', err.message || 'Unable to send reset instructions.');
     } finally {
@@ -66,9 +70,43 @@ export const ForgotPasswordPage: React.FC = () => {
             <CheckCircle2 size={28} strokeWidth={2.5} />
           </div>
 
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-6)' }}>
-            Please check your inbox or SMS for your secure reset link. The link expires in 30 minutes.
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-5)' }}>
+            Please check your inbox (including your <strong>Spam or Junk folder</strong>) for your secure recovery link. The link expires in 15 minutes.
           </p>
+
+          {debugData?.resetLink && (
+            <div
+              style={{
+                marginBottom: 'var(--space-5)',
+                padding: '0.85rem 1rem',
+                backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+                borderRadius: 'var(--radius-md)',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-brand)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>
+                Development Reset Link
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: '0 0 8px 0', lineHeight: 1.4 }}>
+                {debugData.smtpReady
+                  ? 'Email dispatched via SMTP. You can also test directly with this link:'
+                  : 'SMTP transport is running in local development mode. Open your reset link directly:'}
+              </p>
+              <a
+                href={debugData.resetLink}
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--color-brand)',
+                  wordBreak: 'break-all',
+                  textDecoration: 'underline',
+                }}
+              >
+                Proceed to Reset Password &rarr;
+              </a>
+            </div>
+          )}
 
           <Button
             variant="primary"

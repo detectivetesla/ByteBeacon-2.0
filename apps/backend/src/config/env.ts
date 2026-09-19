@@ -22,7 +22,10 @@ function loadEnvFiles() {
             const eqIdx = trimmed.indexOf('=');
             if (eqIdx > 0) {
               const key = trimmed.slice(0, eqIdx).trim();
-              const val = trimmed.slice(eqIdx + 1).trim();
+              let val = trimmed.slice(eqIdx + 1).trim();
+              if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                val = val.slice(1, -1);
+              }
               if (process.env[key] === undefined) {
                 process.env[key] = val;
               }
@@ -129,27 +132,35 @@ export const envSchema = z.object({
   SMTP_HOST: z.string().optional(),
   SMPT_HOST: z.string().optional(),
   SMTP_PORT: z
-    .string()
+    .union([z.string(), z.number()])
     .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 587))
+    .transform((val) => (val !== undefined ? (typeof val === 'number' ? val : parseInt(val, 10)) : 587))
     .pipe(z.number().min(1).max(65535))
-    .default('587'),
+    .default(587),
   SMPT_PORT: z
-    .string()
+    .union([z.string(), z.number()])
     .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 587))
+    .transform((val) => (val !== undefined ? (typeof val === 'number' ? val : parseInt(val, 10)) : 587))
     .pipe(z.number().min(1).max(65535))
-    .default('587'),
+    .default(587),
   SMTP_USER: z.string().optional(),
   SMPT_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMPT_PASS: z.string().optional(),
   SMTP_FROM: z.string().default('ByteBeacon <no-reply@bytebeacon.online>'),
+  SMPT_FROM: z.string().optional(),
   SMTP_SECURE: z
-    .string()
+    .union([z.string(), z.boolean()])
     .optional()
     .transform((val) => {
-      if (val !== undefined) return val === 'true' || val === '1';
+      if (val !== undefined) return val === true || val === 'true' || val === '1';
+      return undefined;
+    }),
+  SMPT_SECURE: z
+    .union([z.string(), z.boolean()])
+    .optional()
+    .transform((val) => {
+      if (val !== undefined) return val === true || val === 'true' || val === '1';
       return undefined;
     }),
   FRONTEND_URL: z.string().default('https://www.bytebeacon.online'),
