@@ -1,13 +1,11 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Button } from '../ui/Button/Button.js';
 import { TactileIcon } from '../ui/TactileIcon/TactileIcon.js';
 import {
   Store,
   TrendingUp,
   Code2,
   Zap,
-  ArrowRight,
   Sparkles,
   ShieldCheck,
   Headphones,
@@ -25,7 +23,7 @@ export const BecomeAgentSection: React.FC = () => {
       icon: Store,
       color: 'analytics' as const,
       title: 'Branded Storefronts',
-      description: 'Deploy white-labeled retail storefronts and share unified float across all 3 Ghanaian carriers.',
+      description: 'Deploy white-labeled retail storefronts and share unified float across all Ghanaian carriers.',
     },
     {
       icon: Code2,
@@ -49,7 +47,7 @@ export const BecomeAgentSection: React.FC = () => {
         backgroundColor: '#050914',
         backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% 15%, rgba(16, 185, 129, 0.08) 0%, rgba(5, 9, 20, 0.95) 75%)',
         color: '#FFFFFF',
-        padding: 'var(--space-20) 0',
+        padding: 'var(--space-16) 0',
         borderTop: '1px solid rgba(255, 255, 255, 0.07)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.07)',
         position: 'relative',
@@ -79,8 +77,8 @@ export const BecomeAgentSection: React.FC = () => {
           zIndex: 1,
         }}
       >
-        {/* Header Block: Section Indicator + Heading + Subtitle */}
-        <div style={{ maxWidth: '720px', marginBottom: 'var(--space-12)' }}>
+        {/* Header Block: Section Indicator + Heading + Subtitle (Minimal UI) */}
+        <div style={{ maxWidth: '720px', marginBottom: 'var(--space-10)' }}>
           {/* Eyebrow Indicator */}
           <div
             style={{
@@ -100,16 +98,16 @@ export const BecomeAgentSection: React.FC = () => {
             }}
           >
             <Sparkles size={13} color="#FBBF24" strokeWidth={2.6} />
-            <span>RESELLER & API PLATFORM</span>
+            <span>RESELLER & AGENT PLATFORM</span>
           </div>
 
           <h2
             style={{
-              fontSize: 'clamp(2rem, 3.5vw, 2.75rem)',
+              fontSize: 'clamp(1.85rem, 3.2vw, 2.5rem)',
               fontWeight: 800,
               fontFamily: 'var(--font-display)',
               color: '#FFFFFF',
-              lineHeight: 1.15,
+              lineHeight: 1.18,
               letterSpacing: '-0.03em',
               margin: 0,
             }}
@@ -127,7 +125,7 @@ export const BecomeAgentSection: React.FC = () => {
               fontFamily: 'var(--font-sans)',
             }}
           >
-            Launch your branded data storefront in minutes. Enjoy maximum wholesale discounts, a unified float wallet, and developer API tools.
+            Launch your branded data storefront with maximum wholesale discounts, unified float management across all Ghanaian carriers, and developer API tools.
           </p>
         </div>
 
@@ -136,8 +134,8 @@ export const BecomeAgentSection: React.FC = () => {
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: 'var(--space-5)',
-            marginBottom: 'var(--space-12)',
+            gap: 'var(--space-4)',
+            marginBottom: 'var(--space-8)',
           }}
         >
           {features.map((feature, index) => (
@@ -151,7 +149,7 @@ export const BecomeAgentSection: React.FC = () => {
                 backgroundColor: 'rgba(255, 255, 255, 0.025)',
                 border: '1px solid rgba(255, 255, 255, 0.07)',
                 borderRadius: 'var(--radius-lg)',
-                padding: 'var(--space-6)',
+                padding: 'var(--space-5)',
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 'var(--space-4)',
@@ -187,50 +185,29 @@ export const BecomeAgentSection: React.FC = () => {
           ))}
         </div>
 
-        {/* Action Row: Primary CTA, Secondary API CTA, Trust Badges */}
+        {/* Minimal Information Footer (No action buttons) */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-start',
             flexWrap: 'wrap',
-            gap: 'var(--space-6)',
-            paddingTop: 'var(--space-8)',
-            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+            gap: '1.75rem',
+            paddingTop: 'var(--space-6)',
+            borderTop: '1px solid rgba(255, 255, 255, 0.06)',
           }}
         >
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={() => (window.location.href = '/signup')}
-              rightIcon={<ArrowRight size={16} strokeWidth={2.4} />}
-            >
-              Get Started as an Agent
-            </Button>
-
-            <Button
-              variant="hero-secondary"
-              size="lg"
-              onClick={() => (window.location.href = '/developer')}
-            >
-              View API Documentation
-            </Button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: 'var(--font-size-2xs)', color: 'rgba(255, 255, 255, 0.65)' }}>
+            <ShieldCheck size={14} color="var(--color-primary-bright)" />
+            <span>Wholesale Reseller Pricing</span>
           </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: 'var(--font-size-2xs)', color: 'rgba(255, 255, 255, 0.65)' }}>
-              <ShieldCheck size={14} color="var(--color-primary-bright)" />
-              <span>No Setup Fees</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: 'var(--font-size-2xs)', color: 'rgba(255, 255, 255, 0.65)' }}>
-              <Zap size={14} color="var(--color-primary-bright)" />
-              <span>Instant Activation</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: 'var(--font-size-2xs)', color: 'rgba(255, 255, 255, 0.65)' }}>
-              <Headphones size={14} color="var(--color-primary-bright)" />
-              <span>24/7 Dedicated Support</span>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: 'var(--font-size-2xs)', color: 'rgba(255, 255, 255, 0.65)' }}>
+            <Zap size={14} color="var(--color-primary-bright)" />
+            <span>Instant Automated Fulfillment</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: 'var(--font-size-2xs)', color: 'rgba(255, 255, 255, 0.65)' }}>
+            <Headphones size={14} color="var(--color-primary-bright)" />
+            <span>24/7 Dedicated Support</span>
           </div>
         </div>
       </div>

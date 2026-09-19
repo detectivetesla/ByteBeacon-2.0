@@ -6,6 +6,7 @@ import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
 import { HolographicGlobe } from '../../components/marketing/HolographicGlobe.js';
 import { HowItWorksSection } from '../../components/marketing/HowItWorksSection.js';
 import { BuiltForSection } from '../../components/marketing/BuiltForSection.js';
+import { BecomeAgentSection } from '../../components/marketing/BecomeAgentSection.js';
 import { CTASection } from '../../components/marketing/CTASection.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import {
@@ -277,6 +278,10 @@ export const LandingPage: React.FC = () => {
           ========================================================================= */}
       <BuiltForSection />
 
+      {/* =========================================================================
+          AGENT & DEVELOPER PLATFORM — Minimal UI Banner
+          ========================================================================= */}
+      <BecomeAgentSection />
 
       {/* =========================================================================
           CLOSING CONVERSION CTA — "Ready to Save on Data?"
