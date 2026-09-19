@@ -80,6 +80,7 @@ export const AgentSignUpPage: React.FC = () => {
       topActionText="Already an agent?"
       topActionLinkText="Sign In"
       topActionHref="/signin"
+      backHref="/signin"
     >
       {/* Reseller Perks Card */}
       <div

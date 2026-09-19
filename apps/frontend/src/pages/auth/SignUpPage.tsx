@@ -112,6 +112,7 @@ export const SignUpPage: React.FC = () => {
       topActionText="Already have an account?"
       topActionLinkText="Sign In"
       topActionHref="/signin"
+      backHref="/signin"
     >
       {/* Social Fast-Auth Options */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: '1rem' }}>

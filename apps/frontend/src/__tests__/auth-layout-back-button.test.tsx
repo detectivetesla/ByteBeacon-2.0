@@ -27,8 +27,19 @@ vi.mock('../context/ToastContext.js', () => ({
   }),
 }));
 
+vi.mock('../context/AuthContext.js', () => ({
+  useAuth: () => ({
+    user: null,
+    isAuthenticated: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage.js';
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage.js';
+import { SignUpPage } from '../pages/auth/SignUpPage.js';
+import { AgentSignUpPage } from '../pages/auth/AgentSignUpPage.js';
 
 describe('AuthLayout — Go Back Navigation', () => {
   beforeEach(() => {
@@ -115,6 +126,36 @@ describe('AuthLayout — Go Back Navigation', () => {
     render(
       <MemoryRouter initialEntries={['/reset-password?token=test-token']}>
         <ResetPasswordPage />
+      </MemoryRouter>,
+    );
+
+    const goBackButton = screen.getByRole('button', { name: /Go Back/i });
+    expect(goBackButton).toBeInTheDocument();
+
+    fireEvent.click(goBackButton);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/signin');
+  });
+
+  it('navigates to "/signin" when Go Back is clicked on SignUpPage', () => {
+    render(
+      <MemoryRouter initialEntries={['/signup']}>
+        <SignUpPage />
+      </MemoryRouter>,
+    );
+
+    const goBackButton = screen.getByRole('button', { name: /Go Back/i });
+    expect(goBackButton).toBeInTheDocument();
+
+    fireEvent.click(goBackButton);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/signin');
+  });
+
+  it('navigates to "/signin" when Go Back is clicked on AgentSignUpPage', () => {
+    render(
+      <MemoryRouter initialEntries={['/agent/signup']}>
+        <AgentSignUpPage />
       </MemoryRouter>,
     );
 
