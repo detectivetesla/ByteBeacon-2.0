@@ -13,6 +13,7 @@ export interface AuthLayoutProps {
   topActionText?: string;
   topActionLinkText?: string;
   topActionHref?: string;
+  backHref?: string;
 }
 
 export const AuthLayout: React.FC<AuthLayoutProps> = ({
@@ -24,12 +25,16 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
   topActionText,
   topActionLinkText,
   topActionHref,
+  backHref,
 }) => {
   const navigate = useNavigate();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
+  const isAccountSecurityPage = visualTitle === 'Account Security & Access Recovery';
+  const effectiveBackHref = backHref || (isAccountSecurityPage ? '/signin' : '/');
+
   const handleBack = () => {
-    navigate('/');
+    navigate(effectiveBackHref);
   };
 
   return (
@@ -298,7 +303,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
                 <button
                   type="button"
                   onClick={handleBack}
-                  aria-label="Go Back to Landing Page"
+                  aria-label={effectiveBackHref === '/signin' ? 'Go Back to Sign In' : 'Go Back to Landing Page'}
                   className="auth-back-button"
                 >
                   <ArrowLeft size={15} strokeWidth={2.2} />

@@ -63,6 +63,7 @@ export const ResetPasswordPage: React.FC = () => {
         topActionText="Remember password?"
         topActionLinkText="Sign In"
         topActionHref="/signin"
+        backHref="/signin"
       >
         <div style={{ textAlign: 'center', padding: 'var(--space-6) 0' }}>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 'var(--space-6)' }}>
@@ -91,6 +92,7 @@ export const ResetPasswordPage: React.FC = () => {
         topActionText=""
         topActionLinkText="Sign In"
         topActionHref="/signin"
+        backHref="/signin"
       >
         <div style={{ textAlign: 'center', padding: 'var(--space-6) 0' }}>
           <div
@@ -131,6 +133,7 @@ export const ResetPasswordPage: React.FC = () => {
       topActionText="Remember password?"
       topActionLinkText="Sign In"
       topActionHref="/signin"
+      backHref="/signin"
     >
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
         <PasswordInput
