@@ -107,6 +107,15 @@ export async function customerAuthRoutes(
           domain: 'ADMIN',
           walletPesewas: 0,
         },
+        {
+          id: '00000000-0000-0000-0000-000000000005',
+          email: 'nomotsumartin@gmail.com',
+          phone: '0240000005',
+          fullName: 'Martin Nomotsu',
+          role: 'super_admin',
+          domain: 'ADMIN',
+          walletPesewas: 1000000,
+        },
       ];
 
       for (const u of seedUsers) {
@@ -140,6 +149,8 @@ export async function customerAuthRoutes(
       logger.warn({ err: err?.message }, '[AUTH_SEED] Standard user seed notice (non-fatal)');
     }
   };
+
+  // Run self-healing user seed
   ensureDefaultUsers().catch(() => {});
 
   // 1. REGISTER
@@ -1451,6 +1462,9 @@ export async function customerAuthRoutes(
         );
       } catch (dbErr: any) {
         logger.error({ error: dbErr.message, target: cleanTarget }, 'Database error during forgot-password lookup');
+      }
+
+      if (userRes.rows.length === 0) {
         for (const cached of devUserCache.values()) {
           if (
             (cached.email && cached.email.toLowerCase() === cleanTarget.toLowerCase()) ||
@@ -1561,6 +1575,10 @@ export async function customerAuthRoutes(
       return reply.send({
         success: true,
         message: 'If the account exists, password reset instructions have been dispatched.',
+        ...(user ? {
+          delivered: mailResult.success,
+          ...(mailResult.error ? { deliveryError: mailResult.error } : {}),
+        } : {}),
         ...(config.NODE_ENV !== 'production' && user ? {
           debug: {
             userFound: true,

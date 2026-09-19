@@ -134,13 +134,25 @@ export const envSchema = z.object({
   SMTP_PORT: z
     .union([z.string(), z.number()])
     .optional()
-    .transform((val) => (val !== undefined ? (typeof val === 'number' ? val : parseInt(val, 10)) : 587))
+    .transform((val) => {
+      if (val === undefined || val === null || val === '') return 587;
+      if (typeof val === 'number') return val;
+      const digits = String(val).replace(/\D/g, '');
+      const parsed = parseInt(digits, 10);
+      return isNaN(parsed) ? 587 : parsed;
+    })
     .pipe(z.number().min(1).max(65535))
     .default(587),
   SMPT_PORT: z
     .union([z.string(), z.number()])
     .optional()
-    .transform((val) => (val !== undefined ? (typeof val === 'number' ? val : parseInt(val, 10)) : 587))
+    .transform((val) => {
+      if (val === undefined || val === null || val === '') return 587;
+      if (typeof val === 'number') return val;
+      const digits = String(val).replace(/\D/g, '');
+      const parsed = parseInt(digits, 10);
+      return isNaN(parsed) ? 587 : parsed;
+    })
     .pipe(z.number().min(1).max(65535))
     .default(587),
   SMTP_USER: z.string().optional(),
@@ -180,16 +192,34 @@ export function loadConfig(overrideEnv?: Record<string, string | undefined>): En
     ...(overrideEnv ?? process.env),
   };
 
-  // Strip leading and trailing quotes from all environment variables
-  // (e.g. Render/Vercel dashboard values entered as "value" or 'value')
+  // Support accidental key formatting in UI dashboards like "SMPT_PASS(value)" or "SMPT_HOST(smtp.gmail.com)"
+  for (const key of Object.keys(rawEnv)) {
+    const match = key.match(/^(SMTP|SMPT)_([A-Z_]+)\((.+)\)$/i);
+    if (match) {
+      const canonicalKey = `${match[1].toUpperCase()}_${match[2].toUpperCase()}`;
+      const inlineValue = match[3].trim();
+      if (!rawEnv[canonicalKey] || rawEnv[canonicalKey] === '') {
+        rawEnv[canonicalKey] = inlineValue;
+      }
+    }
+  }
+
+  // Strip leading and trailing quotes and parentheses from all environment variable values
+  // (e.g. Render/Vercel dashboard values entered as "value", 'value', or (value))
   for (const [key, value] of Object.entries(rawEnv)) {
     if (typeof value === 'string') {
       let cleaned = value.trim();
-      if (
-        (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
-        (cleaned.startsWith("'") && cleaned.endsWith("'"))
-      ) {
-        cleaned = cleaned.slice(1, -1).trim();
+      let changed = true;
+      while (changed && cleaned.length > 0) {
+        changed = false;
+        if (
+          (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+          (cleaned.startsWith("'") && cleaned.endsWith("'")) ||
+          (cleaned.startsWith('(') && cleaned.endsWith(')'))
+        ) {
+          cleaned = cleaned.slice(1, -1).trim();
+          changed = true;
+        }
       }
       rawEnv[key] = cleaned;
     }
@@ -224,7 +254,7 @@ export function loadConfig(overrideEnv?: Record<string, string | undefined>): En
   if (rawEnv.SMTP_FROM && !rawEnv.SMPT_FROM) rawEnv.SMPT_FROM = rawEnv.SMTP_FROM;
 
   if (rawEnv.SMPT_SECURE && !rawEnv.SMTP_SECURE) rawEnv.SMTP_SECURE = rawEnv.SMPT_SECURE;
-  if (rawEnv.SMTP_SECURE && !rawEnv.SMPT_SECURE) rawEnv.SMPT_SECURE = rawEnv.SMTP_SECURE;
+  if (rawEnv.SMTP_SECURE && !rawEnv.SMPT_SECURE) rawEnv.SMTP_SECURE = rawEnv.SMTP_SECURE;
 
   if (rawEnv.APP_URL && !rawEnv.FRONTEND_URL) rawEnv.FRONTEND_URL = rawEnv.APP_URL;
   if (rawEnv.FRONTEND_URL && !rawEnv.APP_URL) rawEnv.APP_URL = rawEnv.FRONTEND_URL;

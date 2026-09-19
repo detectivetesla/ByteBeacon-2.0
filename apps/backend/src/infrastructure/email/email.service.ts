@@ -63,9 +63,9 @@ export class EmailService {
     let { host, port, user, pass, secure } = this.config;
 
     // Clean and sanitize string inputs
-    host = host ? host.trim().replace(/^["']|["']$/g, '') : undefined;
-    user = user ? user.trim().replace(/^["']|["']$/g, '') : undefined;
-    pass = pass ? pass.trim().replace(/^["']|["']$/g, '') : undefined;
+    host = host ? host.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '') : undefined;
+    user = user ? user.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '') : undefined;
+    pass = pass ? pass.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '') : undefined;
 
     const isGmail = Boolean(host && (host.toLowerCase().includes('gmail') || host.toLowerCase() === 'smtp.gmail.com'));
 
@@ -140,7 +140,7 @@ export class EmailService {
 
   public async sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
     let fromAddress = options.from || this.config.from || 'ByteBeacon <no-reply@bytebeacon.online>';
-    fromAddress = fromAddress.trim().replace(/^["']|["']$/g, '');
+    fromAddress = fromAddress.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '');
     let replyToAddress = fromAddress;
 
     const isGmail = Boolean(
@@ -154,12 +154,12 @@ export class EmailService {
     // We automatically preserve the brand display name ("ByteBeacon") while using the authenticated Gmail
     // address as the SMTP From address, and point Reply-To to the intended fromAddress.
     if (isGmail && this.config.user) {
-      const authUser = this.config.user.trim().replace(/^["']|["']$/g, '');
+      const authUser = this.config.user.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '');
       const authDomain = authUser.includes('@') ? authUser.split('@')[1].toLowerCase() : '';
 
       if (authDomain === 'gmail.com' || authDomain === 'googlemail.com') {
         const nameMatch = fromAddress.match(/^([^<]+)/);
-        const displayName = nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, '') : 'ByteBeacon';
+        const displayName = nameMatch ? nameMatch[1].trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '') : 'ByteBeacon';
         replyToAddress = fromAddress;
         fromAddress = `${displayName} <${authUser}>`;
       }
@@ -204,6 +204,62 @@ export class EmailService {
         messageId: info.messageId,
       };
     } catch (err: any) {
+      // Automatic Gmail Port Fallback (465 SSL <-> 587 STARTTLS)
+      if (isGmail && this.config.user && this.config.pass) {
+        const isNetworkErr = /timeout|econnrefused|econnreset|esockettimedout|enetunreach/i.test(err.message || '');
+        const currentPort = Number(this.config.port) || 465;
+        const fallbackPort = currentPort === 465 ? 587 : 465;
+        const fallbackSecure = fallbackPort === 465;
+
+        if (isNetworkErr) {
+          logger.warn(
+            { originalPort: currentPort, fallbackPort, error: err.message },
+            'EmailService: Gmail primary port connection failed. Attempting fallback port...',
+          );
+
+          try {
+            const fallbackTransporter = nodemailer.createTransport({
+              host: 'smtp.gmail.com',
+              port: fallbackPort,
+              secure: fallbackSecure,
+              auth: {
+                user: this.config.user.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, ''),
+                pass: this.config.pass.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '').replace(/\s+/g, ''),
+              },
+              tls: { rejectUnauthorized: false },
+              connectionTimeout: 15000,
+              greetingTimeout: 15000,
+              socketTimeout: 20000,
+            });
+
+            const fallbackInfo = await fallbackTransporter.sendMail({
+              from: fromAddress,
+              replyTo: replyToAddress,
+              to: options.to,
+              subject: options.subject,
+              text: options.text,
+              html: options.html,
+            });
+
+            logger.info(
+              { messageId: fallbackInfo.messageId, to: options.to, fallbackPort },
+              'EmailService: Email successfully delivered via Gmail fallback port',
+            );
+
+            return {
+              success: true,
+              isSimulated: false,
+              messageId: fallbackInfo.messageId,
+            };
+          } catch (fallbackErr: any) {
+            logger.error(
+              { fallbackError: fallbackErr.message },
+              'EmailService: Gmail fallback port attempt also failed',
+            );
+          }
+        }
+      }
+
       logger.error(
         { error: err.message, to: options.to, subject: options.subject },
         'EmailService: Failed to deliver email via SMTP',
