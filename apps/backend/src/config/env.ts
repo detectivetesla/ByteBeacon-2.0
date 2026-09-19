@@ -124,6 +124,35 @@ export const envSchema = z.object({
   DEV_ADMIN_PASSWORD: z.string().min(8).optional(),
   DEV_SUPER_ADMIN_EMAIL: z.string().email().optional(),
   DEV_SUPER_ADMIN_PASSWORD: z.string().min(8).optional(),
+
+  // --- SMTP & SMPT Transactional Email Configuration ---
+  SMTP_HOST: z.string().optional(),
+  SMPT_HOST: z.string().optional(),
+  SMTP_PORT: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 587))
+    .pipe(z.number().min(1).max(65535))
+    .default('587'),
+  SMPT_PORT: z
+    .string()
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 587))
+    .pipe(z.number().min(1).max(65535))
+    .default('587'),
+  SMTP_USER: z.string().optional(),
+  SMPT_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMPT_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default('ByteBeacon <no-reply@bytebeacon.online>'),
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (val !== undefined) return val === 'true' || val === '1';
+      return undefined;
+    }),
+  FRONTEND_URL: z.string().default('https://www.bytebeacon.online'),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -142,6 +171,23 @@ export function loadConfig(overrideEnv?: Record<string, string | undefined>): En
   if (rawEnv.ALLOWED_ORIGINS && !rawEnv.CORS_ORIGINS) {
     rawEnv.CORS_ORIGINS = rawEnv.ALLOWED_ORIGINS;
   }
+
+  // Cross-mirror SMTP_* and user's SMPT_* aliases seamlessly
+  if (rawEnv.SMPT_HOST && !rawEnv.SMTP_HOST) rawEnv.SMTP_HOST = rawEnv.SMPT_HOST;
+  if (rawEnv.SMTP_HOST && !rawEnv.SMPT_HOST) rawEnv.SMPT_HOST = rawEnv.SMTP_HOST;
+
+  if (rawEnv.SMPT_PORT && !rawEnv.SMTP_PORT) rawEnv.SMTP_PORT = rawEnv.SMPT_PORT;
+  if (rawEnv.SMTP_PORT && !rawEnv.SMPT_PORT) rawEnv.SMPT_PORT = rawEnv.SMTP_PORT;
+
+  if (rawEnv.SMPT_USER && !rawEnv.SMTP_USER) rawEnv.SMTP_USER = rawEnv.SMPT_USER;
+  if (rawEnv.SMTP_USER && !rawEnv.SMPT_USER) rawEnv.SMPT_USER = rawEnv.SMTP_USER;
+
+  if (rawEnv.SMPT_PASS && !rawEnv.SMTP_PASS) rawEnv.SMTP_PASS = rawEnv.SMPT_PASS;
+  if (rawEnv.SMTP_PASS && !rawEnv.SMPT_PASS) rawEnv.SMPT_PASS = rawEnv.SMTP_PASS;
+
+  if (rawEnv.SMPT_FROM && !rawEnv.SMTP_FROM) rawEnv.SMTP_FROM = rawEnv.SMPT_FROM;
+  if (rawEnv.SMPT_SECURE && !rawEnv.SMTP_SECURE) rawEnv.SMTP_SECURE = rawEnv.SMPT_SECURE;
+  if (rawEnv.APP_URL && !rawEnv.FRONTEND_URL) rawEnv.FRONTEND_URL = rawEnv.APP_URL;
 
   const result = envSchema.safeParse(rawEnv);
 

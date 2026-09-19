@@ -11,6 +11,8 @@ import {
   NotFoundError,
   ForbiddenError,
 } from '../../core/errors/app-error.js';
+import { logger } from '../../core/logging/logger.js';
+import { EmailService, getEmailService } from '../../infrastructure/email/email.service.js';
 import {
   UserRole,
   Permission,
@@ -41,6 +43,7 @@ export interface AdminCommunicationsRouteDependencies {
   apiKeyService: ApiKeyService;
   rbacService: RbacService;
   auditService?: AuditService;
+  emailService?: EmailService;
 }
 
 function redactEmail(email: string | null | undefined): string {
@@ -60,6 +63,7 @@ export async function adminCommunicationsRoutes(
   deps: AdminCommunicationsRouteDependencies,
 ) {
   const { db, tokenService, apiKeyService, rbacService, auditService } = deps;
+  const emailService = deps.emailService ?? getEmailService();
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
 
   // =========================================================================
@@ -363,6 +367,46 @@ export async function adminCommunicationsRoutes(
                VALUES ($1, $2, $3, 'IN_APP', false, CURRENT_TIMESTAMP)`,
               [u.id, subject.trim(), body.trim()],
             ).catch(() => null);
+          }
+
+          // Send transactional email if channel is EMAIL and recipient has email
+          if (ch === CommunicationChannel.EMAIL && u.email) {
+            const sanitizedBody = body.trim()
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;')
+              .replace(/\n/g, '<br/>');
+            const recipientGreeting = u.full_name ? `Hello ${u.full_name},` : 'Hello,';
+            const emailHtml = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#0A0D14;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#E2E8F0;">
+  <div style="max-width:560px;margin:30px auto;background-color:#111827;border:1px solid #1F2937;border-radius:12px;padding:32px;box-shadow:0 8px 24px rgba(0,0,0,0.4);">
+    <div style="text-align:center;margin-bottom:24px;">
+      <span style="font-size:20px;font-weight:800;color:#FFFFFF;letter-spacing:-0.03em;">Byte<span style="color:#10B981;">Beacon</span></span>
+    </div>
+    <h2 style="margin-top:0;margin-bottom:16px;font-size:18px;color:#F8FAFC;">${subject.trim()}</h2>
+    <p style="font-size:14px;line-height:1.6;color:#94A3B8;margin-bottom:16px;">${recipientGreeting}</p>
+    <div style="font-size:14px;line-height:1.6;color:#94A3B8;margin-bottom:24px;">
+      ${sanitizedBody}
+    </div>
+    <div style="border-top:1px solid #1F2937;padding-top:16px;font-size:12px;color:#64748B;text-align:center;">
+      This message was sent from ByteBeacon.
+    </div>
+  </div>
+</body>
+</html>`;
+
+            await emailService.sendEmail({
+              to: u.email,
+              subject: subject.trim(),
+              text: body.trim(),
+              html: emailHtml,
+            }).catch((err: any) => {
+              logger.warn({ error: err.message, recipient: u.email }, 'Admin communication email delivery failed');
+            });
           }
         }
       }
@@ -1656,8 +1700,8 @@ export async function adminCommunicationsRoutes(
         waiting: (db as any).waitingCount || 0,
       };
 
-      const isEmailConfigured = Boolean(process.env.SMTP_HOST || process.env.SES_ACCESS_KEY || process.env.EMAIL_PROVIDER);
-      const emailProvider = process.env.EMAIL_PROVIDER || (process.env.SMTP_HOST ? 'SMTP Relay' : (process.env.SES_ACCESS_KEY ? 'Amazon SES' : 'ByteBeacon Mail Hub'));
+      const isEmailConfigured = emailService.isReady() || Boolean(process.env.SMTP_HOST || process.env.SMPT_HOST || process.env.SES_ACCESS_KEY || process.env.EMAIL_PROVIDER);
+      const emailProvider = process.env.EMAIL_PROVIDER || (process.env.SMTP_HOST || process.env.SMPT_HOST ? 'SMTP Relay' : (process.env.SES_ACCESS_KEY ? 'Amazon SES' : 'ByteBeacon Mail Hub'));
 
       const overallStatus = dbStatus === 'OPERATIONAL' ? 'HEALTHY' : 'DEGRADED';
       const probedAt = new Date().toISOString();

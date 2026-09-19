@@ -20,7 +20,9 @@ import {
   NotFoundError,
   AppError,
 } from '../../core/errors/app-error.js';
+import crypto from 'node:crypto';
 import type { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
+import { EmailService, getEmailService } from '../../infrastructure/email/email.service.js';
 import {
   SecurityDomain,
   UserRole,
@@ -49,6 +51,7 @@ export interface CustomerAuthRouteDependencies {
   apiKeyService: ApiKeyService;
   rbacService: RbacService;
   featureFlagService?: FeatureFlagService;
+  emailService?: EmailService;
 }
 
 // In-memory user cache for development when local PostgreSQL is offline
@@ -59,6 +62,7 @@ export async function customerAuthRoutes(
   deps: CustomerAuthRouteDependencies,
 ) {
   const { db, hasher, tokenService, sessionService, auditService, rateLimiter, featureFlagService } = deps;
+  const emailService = deps.emailService ?? getEmailService();
   const authHooks = createAuthHooks(tokenService, deps.apiKeyService, deps.rbacService, db, featureFlagService);
   const strictRateLimit = createRateLimitHook(rateLimiter, { limit: 10, windowSeconds: 60 });
 
@@ -1426,8 +1430,8 @@ export async function customerAuthRoutes(
         throw new BadRequestError('Email or phone is required');
       }
 
-      const userRes = await db.query<{ id: string; email: string }>(
-        'SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) OR phone = $1',
+      const userRes = await db.query<{ id: string; email: string; full_name?: string }>(
+        'SELECT id, email, full_name FROM users WHERE LOWER(email) = LOWER($1) OR phone = $1',
         [target],
       );
 
@@ -1442,6 +1446,33 @@ export async function customerAuthRoutes(
           'INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
           [user.id, tokenHash, expiresAt],
         );
+
+        const config = getConfig();
+        const frontendBaseUrl = (config.FRONTEND_URL || (config.NODE_ENV === 'production' ? 'https://www.bytebeacon.online' : 'http://localhost:5173')).replace(/\/$/, '');
+        const resetLink = `${frontendBaseUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+        if (user.email) {
+          try {
+            await emailService.sendPasswordResetEmail(user.email, resetLink, user.full_name || undefined);
+          } catch (mailErr: any) {
+            logger.error({ error: mailErr.message, userId: user.id }, 'Failed to dispatch password reset email');
+          }
+
+          // Insert into communication_delivery_logs for visibility in admin communication dashboard
+          await db.query(
+            `INSERT INTO communication_delivery_logs (
+               message_id, recipient_user_id, recipient_email, channel, priority,
+               subject, body, status, sent_at, delivered_at
+             ) VALUES ($1, $2, $3, 'EMAIL', 'HIGH', $4, $5, 'DELIVERED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+              `pwd_reset_${crypto.randomUUID()}`,
+              user.id,
+              user.email,
+              'Reset Your ByteBeacon Password',
+              `Password reset link dispatched: ${resetLink}`,
+            ],
+          ).catch(() => null);
+        }
 
         await auditService.logEvent({
           correlationId: req.id,
