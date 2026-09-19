@@ -31,6 +31,7 @@ import {
   ShieldCheck,
   ChevronRight,
   Hash,
+  Calendar,
 } from 'lucide-react';
 import {
   adminApi,
@@ -180,6 +181,30 @@ export const AdminPaymentsPage: React.FC = () => {
     setCopiedKey(key);
     toastSuccess('Copied', text);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const setPresetDate = (type: 'today' | 'tomorrow' | 'saturday' | 'monday') => {
+    const d = new Date();
+    if (type === 'today') {
+      setScheduledDate(d.toISOString().slice(0, 10));
+      setScheduledTime('18:00');
+    } else if (type === 'tomorrow') {
+      d.setDate(d.getDate() + 1);
+      setScheduledDate(d.toISOString().slice(0, 10));
+      setScheduledTime('09:00');
+    } else if (type === 'saturday') {
+      const day = d.getDay();
+      const diff = (6 - day + 7) % 7 || 7;
+      d.setDate(d.getDate() + diff);
+      setScheduledDate(d.toISOString().slice(0, 10));
+      setScheduledTime('10:00');
+    } else if (type === 'monday') {
+      const day = d.getDay();
+      const diff = (1 - day + 7) % 7 || 7;
+      d.setDate(d.getDate() + diff);
+      setScheduledDate(d.toISOString().slice(0, 10));
+      setScheduledTime('09:00');
+    }
   };
 
   // 1. Fetch Overview Stats
@@ -1512,7 +1537,7 @@ export const AdminPaymentsPage: React.FC = () => {
                     <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Amount</th>
                     <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Destination Account</th>
                     <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Status</th>
-                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Requested</th>
+                    <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px' }}>Requested / Schedule</th>
                     <th style={{ padding: '0.55rem 0.85rem', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '10px', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
@@ -1531,118 +1556,174 @@ export const AdminPaymentsPage: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    displayedWithdrawals.map((w) => (
-                      <tr key={w.id || w.storeName} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                        <td style={{ padding: '0.65rem 0.85rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <div
-                              style={{
-                                width: '30px',
-                                height: '30px',
-                                borderRadius: 'var(--radius-md)',
-                                backgroundColor: 'var(--color-bg-subtle)',
-                                border: '1px solid var(--color-border-subtle)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: 'var(--color-brand-primary)',
-                              }}
-                            >
-                              <Store size={14} />
+                    displayedWithdrawals.map((w) => {
+                      const schedAt = parseScheduledAt(w);
+                      return (
+                        <tr key={w.id || w.storeName} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <div
+                                style={{
+                                  width: '30px',
+                                  height: '30px',
+                                  borderRadius: 'var(--radius-md)',
+                                  backgroundColor: 'var(--color-bg-subtle)',
+                                  border: '1px solid var(--color-border-subtle)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'var(--color-brand-primary)',
+                                }}
+                              >
+                                <Store size={14} />
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                                  {w.storeName || 'Agent Direct'}
+                                </span>
+                                {w.storeSlug && (
+                                  <span style={{ fontSize: '10px', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
+                                    /{w.storeSlug}
+                                  </span>
+                                )}
+                              </div>
                             </div>
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span style={{ fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-                                {w.storeName || 'Agent Direct'}
-                              </span>
-                              {w.storeSlug && (
-                                <span style={{ fontSize: '10px', color: 'var(--color-brand)', fontFamily: 'var(--font-mono)' }}>
-                                  /{w.storeSlug}
+                              <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{w.agentName}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{w.agentEmail}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                              GH₵ {(w.amountPesewas / 100).toFixed(2)}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Badge variant="neutral" size="xs">
+                                  {w.bankName || w.destinationProvider || 'MOMO'}
+                                </Badge>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-primary)' }}>
+                                  {w.destinationAccount}
+                                </span>
+                              </div>
+                              {w.accountName && (
+                                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                                  {w.accountName}
                                 </span>
                               )}
                             </div>
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.65rem 0.85rem' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontWeight: 600, fontSize: 'var(--font-size-xs)' }}>{w.agentName}</span>
-                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>{w.agentEmail}</span>
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.65rem 0.85rem' }}>
-                          <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-                            GH₵ {(w.amountPesewas / 100).toFixed(2)}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.65rem 0.85rem' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <Badge variant="neutral" size="xs">
-                                {w.bankName || w.destinationProvider || 'MOMO'}
-                              </Badge>
-                              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-primary)' }}>
-                                {w.destinationAccount}
-                              </span>
-                            </div>
-                            {w.accountName && (
-                              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
-                                {w.accountName}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td style={{ padding: '0.65rem 0.85rem' }}>
-                          <Badge variant={w.status === 'PAID' ? 'success' : w.status === 'REJECTED' ? 'danger' : 'warning'} size="sm">
-                            {w.status}
-                          </Badge>
-                        </td>
-                        <td style={{ padding: '0.65rem 0.85rem' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
-                            {new Date(w.createdAt).toLocaleString()}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPayout(w)}
-                              style={{ ...tactileButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
-                              title="View Payout Dossier"
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <Badge
+                              variant={
+                                w.status === 'PAID'
+                                  ? 'success'
+                                  : w.status === 'SCHEDULED'
+                                  ? 'info'
+                                  : w.status === 'HELD'
+                                  ? 'neutral'
+                                  : w.status === 'REJECTED'
+                                  ? 'danger'
+                                  : 'warning'
+                              }
+                              size="sm"
                             >
-                              <Eye size={12} />
-                              <span>Dossier</span>
-                            </button>
-                            {w.status === 'PENDING' || w.status === 'PROCESSING' ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setWithdrawalModalTarget({ id: w.id, item: w, action: 'PAID' });
-                                    setWithdrawalNote('Direct settlement processed');
-                                  }}
-                                  style={{ ...primaryButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
-                                  title="Mark Paid / Settled"
-                                >
-                                  <Check size={12} />
-                                  <span>Mark Paid</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setWithdrawalModalTarget({ id: w.id, item: w, action: 'REJECT' });
-                                    setWithdrawalNote('');
-                                  }}
-                                  style={{ ...dangerButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
-                                  title="Reject Payout Request"
-                                >
-                                  <X size={12} />
-                                  <span>Reject</span>
-                                </button>
-                              </>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                              {w.status}
+                            </Badge>
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                {new Date(w.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                              </span>
+                              {w.status === 'SCHEDULED' && schedAt && (
+                                <span style={{ fontSize: '10px', color: 'var(--color-brand-primary)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <Clock size={10} /> Sched: {new Date(schedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                </span>
+                              )}
+                              {w.status === 'PAID' && w.paidAt && (
+                                <span style={{ fontSize: '10px', color: 'var(--color-success)', fontWeight: 600 }}>
+                                  Paid: {new Date(w.paidAt).toLocaleDateString()}
+                                </span>
+                              )}
+                              {w.status === 'HELD' && (
+                                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                                  Admin Hold
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPayout(w)}
+                                style={{ ...tactileButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
+                                title="View Payout Dossier"
+                              >
+                                <Eye size={12} />
+                                <span>Dossier</span>
+                              </button>
+                              {(w.status === 'PENDING' || w.status === 'PROCESSING' || w.status === 'SCHEDULED' || w.status === 'HELD') ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setWithdrawalModalTarget({ id: w.id, item: w, action: 'PAID' });
+                                      if (w.status === 'SCHEDULED' && schedAt) {
+                                        setScheduleMode('schedule');
+                                        const d = new Date(schedAt);
+                                        setScheduledDate(d.toISOString().slice(0, 10));
+                                        setScheduledTime(d.toTimeString().slice(0, 5));
+                                      } else {
+                                        setScheduleMode('immediate');
+                                        setScheduledDate(new Date().toISOString().slice(0, 10));
+                                        setScheduledTime('10:00');
+                                      }
+                                      setWithdrawalNote('');
+                                    }}
+                                    style={{ ...primaryButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
+                                    title={w.status === 'SCHEDULED' ? 'Reschedule or Settle Immediately' : 'Settle Immediately or Schedule'}
+                                  >
+                                    <Calendar size={12} />
+                                    <span>{w.status === 'SCHEDULED' ? 'Reschedule' : w.status === 'HELD' ? 'Release / Settle' : 'Settle / Schedule'}</span>
+                                  </button>
+                                  {w.status !== 'HELD' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setWithdrawalModalTarget({ id: w.id, item: w, action: 'HOLD' });
+                                        setWithdrawalNote('');
+                                      }}
+                                      style={{ ...tactileButtonStyle, padding: '0.35rem 0.55rem', fontSize: '11px', color: 'var(--color-warning)' }}
+                                      title="Place on Administrative Hold"
+                                    >
+                                      <span>Hold</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setWithdrawalModalTarget({ id: w.id, item: w, action: 'REJECT' });
+                                      setWithdrawalNote('');
+                                    }}
+                                    style={{ ...dangerButtonStyle, padding: '0.35rem 0.6rem', fontSize: '11px' }}
+                                    title="Reject Payout Request"
+                                  >
+                                    <X size={12} />
+                                    <span>Reject</span>
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -2744,7 +2825,20 @@ export const AdminPaymentsPage: React.FC = () => {
                     <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
                       Payout Request Dossier
                     </h2>
-                    <Badge variant={selectedPayout.status === 'PAID' ? 'success' : selectedPayout.status === 'REJECTED' ? 'danger' : 'warning'} size="sm">
+                    <Badge
+                      variant={
+                        selectedPayout.status === 'PAID'
+                          ? 'success'
+                          : selectedPayout.status === 'SCHEDULED'
+                          ? 'info'
+                          : selectedPayout.status === 'HELD'
+                          ? 'neutral'
+                          : selectedPayout.status === 'REJECTED'
+                          ? 'danger'
+                          : 'warning'
+                      }
+                      size="sm"
+                    >
                       {selectedPayout.status}
                     </Badge>
                   </div>
@@ -2781,6 +2875,51 @@ export const AdminPaymentsPage: React.FC = () => {
                   Requested on {new Date(selectedPayout.createdAt).toLocaleString()}
                 </span>
               </div>
+
+              {/* Scheduled Settlement Status Banner */}
+              {selectedPayout.status === 'SCHEDULED' && parseScheduledAt(selectedPayout) && (
+                <div style={{ padding: '0.85rem 1rem', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(59, 130, 246, 0.3)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <TactileIcon icon={Clock} color="blue" size="sm" />
+                  <div>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 800, color: 'var(--color-brand-primary)' }}>
+                      Scheduled Settlement Execution
+                    </span>
+                    <p style={{ margin: '0.15rem 0 0 0', fontWeight: 700, fontSize: '13px', color: 'var(--color-text-primary)' }}>
+                      {new Date(parseScheduledAt(selectedPayout)!).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Paid Status Banner */}
+              {selectedPayout.status === 'PAID' && selectedPayout.paidAt && (
+                <div style={{ padding: '0.85rem 1rem', backgroundColor: 'rgba(16, 185, 129, 0.08)', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.3)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <TactileIcon icon={CheckCircle2} color="emerald" size="sm" />
+                  <div>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 800, color: 'var(--color-success)' }}>
+                      Disbursement Completed
+                    </span>
+                    <p style={{ margin: '0.15rem 0 0 0', fontWeight: 700, fontSize: '12px', color: 'var(--color-text-primary)' }}>
+                      Settled on {new Date(selectedPayout.paidAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Administrative Hold Banner */}
+              {selectedPayout.status === 'HELD' && (
+                <div style={{ padding: '0.85rem 1rem', backgroundColor: 'rgba(245, 158, 11, 0.08)', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(245, 158, 11, 0.3)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <TactileIcon icon={AlertTriangle} color="amber" size="sm" />
+                  <div>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 800, color: 'var(--color-warning)' }}>
+                      Administrative Hold Active
+                    </span>
+                    <p style={{ margin: '0.15rem 0 0 0', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                      Payout is paused pending compliance review or verification.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Destination Bank & MOMO */}
               <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
@@ -2851,9 +2990,38 @@ export const AdminPaymentsPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Admin Review & Notes Dossier */}
+              {selectedPayout.adminNotes && (
+                <div style={{ padding: '1rem', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-subtle)' }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                    Admin Audit Notes & History
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {selectedPayout.adminNotes}
+                  </p>
+                  {selectedPayout.reviewedAt && (
+                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block', marginTop: '0.4rem' }}>
+                      Reviewed at: {new Date(selectedPayout.reviewedAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Settlement Actions in Drawer */}
-              {(selectedPayout.status === 'PENDING' || selectedPayout.status === 'PROCESSING') && (
-                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: 'var(--space-2)' }}>
+              {(selectedPayout.status === 'PENDING' || selectedPayout.status === 'PROCESSING' || selectedPayout.status === 'SCHEDULED' || selectedPayout.status === 'HELD') && (
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: 'var(--space-2)', flexWrap: 'wrap' }}>
+                  {selectedPayout.status !== 'HELD' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWithdrawalModalTarget({ id: selectedPayout.id, item: selectedPayout, action: 'HOLD' });
+                        setWithdrawalNote('');
+                      }}
+                      style={{ ...tactileButtonStyle, color: 'var(--color-warning)' }}
+                    >
+                      <span>Put on Hold</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -2868,13 +3036,24 @@ export const AdminPaymentsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
+                      const schedTime = parseScheduledAt(selectedPayout);
                       setWithdrawalModalTarget({ id: selectedPayout.id, item: selectedPayout, action: 'PAID' });
-                      setWithdrawalNote('Settled via Mobile Money float transfer');
+                      if (selectedPayout.status === 'SCHEDULED' && schedTime) {
+                        setScheduleMode('schedule');
+                        const d = new Date(schedTime);
+                        setScheduledDate(d.toISOString().slice(0, 10));
+                        setScheduledTime(d.toTimeString().slice(0, 5));
+                      } else {
+                        setScheduleMode('immediate');
+                        setScheduledDate(new Date().toISOString().slice(0, 10));
+                        setScheduledTime('10:00');
+                      }
+                      setWithdrawalNote('');
                     }}
                     style={primaryButtonStyle}
                   >
-                    <Check size={13} />
-                    <span>Mark Payout Settled (PAID)</span>
+                    <Calendar size={13} />
+                    <span>{selectedPayout.status === 'SCHEDULED' ? 'Reschedule / Settle' : 'Settle / Schedule Payout'}</span>
                   </button>
                 </div>
               )}
@@ -2952,9 +3131,17 @@ export const AdminPaymentsPage: React.FC = () => {
       <Modal
         isOpen={!!withdrawalModalTarget}
         onClose={() => setWithdrawalModalTarget(null)}
-        title={`${withdrawalModalTarget?.action === 'PAID' ? 'Mark Payout Settled (PAID)' : 'Reject Payout Request'}`}
-        subtitle="Authoritative disbursement audit log"
-        maxWidth="500px"
+        title={
+          withdrawalModalTarget?.action === 'REJECT'
+            ? 'Reject Payout Request'
+            : withdrawalModalTarget?.action === 'HOLD'
+            ? 'Place Withdrawal on Administrative Hold'
+            : withdrawalModalTarget?.item?.status === 'SCHEDULED'
+            ? 'Reschedule or Settle Payout'
+            : 'Authorize & Schedule Payout Settlement'
+        }
+        subtitle="Authoritative disbursement audit log & settlement scheduling"
+        maxWidth="520px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-1)' }}>
           {withdrawalModalTarget && (
@@ -2966,18 +3153,198 @@ export const AdminPaymentsPage: React.FC = () => {
               <div style={{ fontSize: '11px', marginTop: '4px', color: 'var(--color-text-muted)' }}>
                 Destination: {withdrawalModalTarget.item.destinationAccount} ({withdrawalModalTarget.item.bankName || withdrawalModalTarget.item.destinationProvider || 'MOMO'})
               </div>
+              {withdrawalModalTarget.item.status === 'SCHEDULED' && parseScheduledAt(withdrawalModalTarget.item) && (
+                <div style={{ fontSize: '11px', marginTop: '4px', color: 'var(--color-brand-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Clock size={12} />
+                  Currently Scheduled for: {new Date(parseScheduledAt(withdrawalModalTarget.item)!).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                </div>
+              )}
             </div>
           )}
 
+          {/* Settle / Schedule Timing Toggle (when action is PAID / SCHEDULE) */}
+          {(withdrawalModalTarget?.action === 'PAID' || withdrawalModalTarget?.action === 'SCHEDULE') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                Settlement Execution Timing
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setScheduleMode('immediate')}
+                  style={{
+                    padding: '0.6rem 0.75rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: scheduleMode === 'immediate' ? '2px solid var(--color-brand-primary)' : '1px solid var(--color-border-subtle)',
+                    backgroundColor: scheduleMode === 'immediate' ? 'rgba(16, 185, 129, 0.08)' : 'var(--color-bg-surface)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: '2px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: '12px', fontWeight: 800, color: scheduleMode === 'immediate' ? 'var(--color-brand-primary)' : 'var(--color-text-primary)' }}>
+                    ⚡ Settle Immediately
+                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                    Disburse funds & mark as PAID right now
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScheduleMode('schedule');
+                    if (!scheduledDate) {
+                      setScheduledDate(new Date().toISOString().slice(0, 10));
+                    }
+                  }}
+                  style={{
+                    padding: '0.6rem 0.75rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: scheduleMode === 'schedule' ? '2px solid var(--color-brand-primary)' : '1px solid var(--color-border-subtle)',
+                    backgroundColor: scheduleMode === 'schedule' ? 'rgba(16, 185, 129, 0.08)' : 'var(--color-bg-surface)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: '2px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span style={{ fontSize: '12px', fontWeight: 800, color: scheduleMode === 'schedule' ? 'var(--color-brand-primary)' : 'var(--color-text-primary)' }}>
+                    📅 Schedule Settlement
+                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                    Set custom execution date & time
+                  </span>
+                </button>
+              </div>
+
+              {/* Date & Time Picker Controls */}
+              {scheduleMode === 'schedule' && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.6rem',
+                  padding: '0.75rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-border-subtle)',
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '3px', textTransform: 'uppercase' }}>
+                        Settlement Date *
+                      </label>
+                      <input
+                        type="date"
+                        value={scheduledDate}
+                        min={new Date().toISOString().slice(0, 10)}
+                        onChange={(e) => setScheduledDate(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '0.45rem 0.6rem',
+                          fontSize: '12px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                          backgroundColor: 'var(--color-bg-surface)',
+                          color: 'var(--color-text-primary)',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '3px', textTransform: 'uppercase' }}>
+                        Settlement Time *
+                      </label>
+                      <input
+                        type="time"
+                        value={scheduledTime}
+                        onChange={(e) => setScheduledTime(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '0.45rem 0.6rem',
+                          fontSize: '12px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                          backgroundColor: 'var(--color-bg-surface)',
+                          color: 'var(--color-text-primary)',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Date Quick Presets */}
+                  <div>
+                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 600, marginRight: '0.4rem' }}>
+                      Presets:
+                    </span>
+                    <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '3px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setPresetDate('today')}
+                        style={{ ...tactileButtonStyle, padding: '0.2rem 0.45rem', fontSize: '10px' }}
+                      >
+                        Today 6:00 PM
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPresetDate('tomorrow')}
+                        style={{ ...tactileButtonStyle, padding: '0.2rem 0.45rem', fontSize: '10px' }}
+                      >
+                        Tomorrow 9:00 AM
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPresetDate('saturday')}
+                        style={{ ...tactileButtonStyle, padding: '0.2rem 0.45rem', fontSize: '10px', color: 'var(--color-brand-primary)' }}
+                      >
+                        Next Saturday (Batch)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPresetDate('monday')}
+                        style={{ ...tactileButtonStyle, padding: '0.2rem 0.45rem', fontSize: '10px' }}
+                      >
+                        Next Monday
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Notes / Reason Input */}
           <div>
             <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-              {withdrawalModalTarget?.action === 'PAID' ? 'Disbursement Reference / Note (Optional)' : 'Rejection Reason * (Required, min 4 chars)'}
+              {withdrawalModalTarget?.action === 'REJECT'
+                ? 'Rejection Reason * (Required, min 4 chars)'
+                : withdrawalModalTarget?.action === 'HOLD'
+                ? 'Hold Reason / Verification Notice (Optional)'
+                : scheduleMode === 'schedule'
+                ? 'Scheduling Notes / Batch Reference (Optional)'
+                : 'Disbursement Reference / Transaction ID (Optional)'}
             </label>
             <input
               type="text"
               value={withdrawalNote}
               onChange={(e) => setWithdrawalNote(e.target.value)}
-              placeholder={withdrawalModalTarget?.action === 'PAID' ? 'e.g. Momo transfer ref #829103' : 'e.g. Beneficiary account name does not match agent KYC'}
+              placeholder={
+                withdrawalModalTarget?.action === 'REJECT'
+                  ? 'e.g. Beneficiary account name does not match agent KYC verification'
+                  : withdrawalModalTarget?.action === 'HOLD'
+                  ? 'e.g. Awaiting telecom float reconciliation or suspicious velocity check'
+                  : scheduleMode === 'schedule'
+                  ? 'e.g. Enqueued for Saturday Weekly Settlement Cycle'
+                  : 'e.g. Momo transfer ref #829103 or bank EFT trace'
+              }
               style={{
                 width: '100%',
                 padding: '0.5rem 0.65rem',
@@ -3000,9 +3367,23 @@ export const AdminPaymentsPage: React.FC = () => {
               type="button"
               onClick={handleConfirmWithdrawalAction}
               disabled={withdrawalSubmitting}
-              style={withdrawalModalTarget?.action === 'PAID' ? primaryButtonStyle : dangerButtonStyle}
+              style={
+                withdrawalModalTarget?.action === 'REJECT'
+                  ? dangerButtonStyle
+                  : withdrawalModalTarget?.action === 'HOLD'
+                  ? { ...tactileButtonStyle, backgroundColor: 'var(--color-warning)', color: '#000', fontWeight: 800 }
+                  : primaryButtonStyle
+              }
             >
-              {withdrawalSubmitting ? 'Updating...' : `Confirm ${withdrawalModalTarget?.action === 'PAID' ? 'Settlement' : 'Rejection'}`}
+              {withdrawalSubmitting
+                ? 'Updating...'
+                : withdrawalModalTarget?.action === 'REJECT'
+                ? 'Confirm Rejection'
+                : withdrawalModalTarget?.action === 'HOLD'
+                ? 'Place on Administrative Hold'
+                : scheduleMode === 'schedule'
+                ? 'Confirm Settlement Schedule'
+                : 'Confirm Immediate Settlement'}
             </button>
           </div>
         </div>
