@@ -69,12 +69,14 @@ describe('ForgotPasswordPage — Standard Formal Placeholder & Locked Pre-filled
     expect(input).toBeInTheDocument();
     expect(input.value).toBe('kofi@bytebeacon.online');
     expect(input).toHaveAttribute('readonly');
-    expect(screen.getByText(/Locked for confirmation/i)).toBeInTheDocument();
-    expect(screen.getByText(/Account confirmed from your sign-in details/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Locked for confirmation/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Edit/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Use different account/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Account confirmed from your sign-in details/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Confirm & Send Reset Link/i })).toBeInTheDocument();
   });
 
-  it('unlocks the input when Edit or "Use different account" is clicked', () => {
+  it('keeps the input locked as read-only and does not give user the chance to edit or use different account', () => {
     render(
       <MemoryRouter initialEntries={['/forgot-password?email=ama%40example.com']}>
         <ForgotPasswordPage />
@@ -83,20 +85,13 @@ describe('ForgotPasswordPage — Standard Formal Placeholder & Locked Pre-filled
 
     const input = screen.getByRole('textbox') as HTMLInputElement;
     expect(input).toHaveAttribute('readonly');
+    expect(input.value).toBe('ama@example.com');
 
-    const editBtn = screen.getByRole('button', { name: /Edit/i });
-    expect(editBtn).toBeInTheDocument();
-
-    fireEvent.click(editBtn);
-
-    // Input should now be unlocked for editing
-    expect(input).not.toHaveAttribute('readonly');
+    // Asserts that no edit button or switch account action is rendered
+    expect(screen.queryByRole('button', { name: /Edit/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Use different account/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Locked for confirmation/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Send Reset Link/i })).toBeInTheDocument();
-
-    // User can change the email
-    fireEvent.change(input, { target: { value: 'newemail@example.com' } });
-    expect(input.value).toBe('newemail@example.com');
+    expect(screen.getByRole('button', { name: /Confirm & Send Reset Link/i })).toBeInTheDocument();
   });
 
   it('passes typed email from SignInPage to forgot-password link', () => {

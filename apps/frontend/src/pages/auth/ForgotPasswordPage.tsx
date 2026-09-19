@@ -36,7 +36,7 @@ export const ForgotPasswordPage: React.FC = () => {
   };
 
   const [identifier, setIdentifier] = useState(resolveInitialIdentifier);
-  const [isLocked, setIsLocked] = useState(() => Boolean(resolveInitialIdentifier()));
+  const isLocked = Boolean(resolveInitialIdentifier());
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [debugData, setDebugData] = useState<any>(null);
@@ -163,36 +163,18 @@ export const ForgotPasswordPage: React.FC = () => {
     >
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
-            <label
-              htmlFor="forgot-email"
-              style={{
-                fontSize: '0.8125rem',
-                fontWeight: 600,
-                color: 'var(--color-text-primary)',
-              }}
-            >
-              Email Address or Phone Number
-            </label>
-            {isLocked && (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.25rem',
-                  fontSize: '0.6875rem',
-                  fontWeight: 600,
-                  color: 'var(--color-primary)',
-                  backgroundColor: 'var(--color-primary-soft)',
-                  padding: '0.125rem 0.5rem',
-                  borderRadius: '9999px',
-                }}
-              >
-                <Lock size={10} strokeWidth={2.5} />
-                Locked for confirmation
-              </span>
-            )}
-          </div>
+          <label
+            htmlFor="forgot-email"
+            style={{
+              display: 'block',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              color: 'var(--color-text-primary)',
+              marginBottom: '0.375rem',
+            }}
+          >
+            Email Address or Phone Number
+          </label>
 
           <Input
             id="forgot-email"
@@ -204,54 +186,9 @@ export const ForgotPasswordPage: React.FC = () => {
             readOnly={isLocked}
             error={errorMsg}
             leftIcon={isLocked ? <Lock size={15} color="var(--color-primary)" /> : <Mail size={15} color="var(--color-text-muted)" />}
-            rightIcon={
-              isLocked ? (
-                <button
-                  type="button"
-                  onClick={() => setIsLocked(false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--color-primary)',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    padding: '0.25rem 0.5rem',
-                    textDecoration: 'underline',
-                  }}
-                  title="Click to edit account or use another email"
-                >
-                  Edit
-                </button>
-              ) : undefined
-            }
             required
             style={isLocked ? { backgroundColor: 'var(--color-bg-surface-elevated)', cursor: 'default' } : undefined}
           />
-
-          {isLocked && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.375rem' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                Account confirmed from your sign-in details.
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsLocked(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--color-primary)',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: 0,
-                  textDecoration: 'underline',
-                }}
-              >
-                Use different account
-              </button>
-            </div>
-          )}
         </div>
 
         <Button
