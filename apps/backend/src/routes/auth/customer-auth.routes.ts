@@ -1479,14 +1479,27 @@ export async function customerAuthRoutes(
         });
 
         const config = getConfig();
-        const frontendBaseUrl = (config.FRONTEND_URL || (config.NODE_ENV === 'production' ? 'https://www.bytebeacon.online' : 'http://localhost:5173')).replace(/\/$/, '');
+        const reqOrigin = typeof req.headers.origin === 'string' && req.headers.origin.startsWith('http')
+          ? req.headers.origin.trim().replace(/\/+$/, '')
+          : undefined;
+
+        // Use configured FRONTEND_URL, or dynamically adapt to caller's Origin (e.g. active Vercel domain)
+        const defaultProductionUrl = 'https://www.bytebeacon.online';
+        let effectiveFrontendUrl = config.FRONTEND_URL;
+        if ((!effectiveFrontendUrl || effectiveFrontendUrl === defaultProductionUrl) && reqOrigin) {
+          effectiveFrontendUrl = reqOrigin;
+        }
+        const frontendBaseUrl = (
+          effectiveFrontendUrl ||
+          (config.NODE_ENV === 'production' ? defaultProductionUrl : 'http://localhost:5173')
+        ).replace(/\/+$/, '');
         resetLink = `${frontendBaseUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
         if (user.email) {
           if (!emailService.isReady()) {
             logger.warn(
               { userId: user.id, email: user.email },
-              '[PASSWORD_RESET] SMTP is not configured! Real emails cannot be delivered until SMPT_HOST, SMPT_PORT, SMPT_USER, and SMPT_PASS are provided.',
+              '[PASSWORD_RESET] SMTP is NOT active! Emails cannot be delivered until SMPT_HOST, SMPT_USER, and SMPT_PASS are correctly configured in Render environment variables.',
             );
           }
 
@@ -1494,12 +1507,17 @@ export async function customerAuthRoutes(
             mailResult = await emailService.sendPasswordResetEmail(user.email, resetLink, user.full_name || undefined);
             if (!mailResult.success) {
               logger.error(
-                { error: mailResult.error, userId: user.id, recipient: user.email },
-                'Failed to dispatch password reset email via SMTP',
+                { error: mailResult.error, userId: user.id, recipient: user.email, smtpReady: emailService.isReady() },
+                '[PASSWORD_RESET] Failed to deliver password reset email via SMTP relay',
+              );
+            } else {
+              logger.info(
+                { messageId: mailResult.messageId, recipient: user.email, userId: user.id },
+                '[PASSWORD_RESET] Successfully dispatched password reset email via SMTP',
               );
             }
           } catch (mailErr: any) {
-            logger.error({ error: mailErr.message, userId: user.id }, 'Exception during password reset email dispatch');
+            logger.error({ error: mailErr.message, userId: user.id, recipient: user.email }, '[PASSWORD_RESET] Exception during password reset email dispatch');
             mailResult = { success: false, error: mailErr.message };
           }
 

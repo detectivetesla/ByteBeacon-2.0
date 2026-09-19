@@ -45,21 +45,23 @@ describe('Transactional Email & SMTP/SMPT Configuration', () => {
     expect(config.FRONTEND_URL).toBe('https://www.bytebeacon.online');
   });
 
-  it('should handle standard SMTP_* environment variables and map them to SMPT_*', () => {
+  it('should strip quotes from environment variables and remove internal spaces from Gmail app passwords', () => {
     const config = loadConfig({
       ...baseEnv,
-      SMTP_HOST: 'smtp.mailgun.org',
-      SMTP_PORT: '587',
-      SMTP_USER: 'postmaster@bytebeacon.online',
-      SMTP_PASS: 'mailgun_secret_pass',
+      SMPT_HOST: '"smtp.gmail.com"',
+      SMPT_PORT: '"465"',
+      SMPT_USER: '"kofi@gmail.com"',
+      SMPT_PASS: '"abcd efgh ijkl mnop"',
+      SMPT_FROM: '"ByteBeacon <no-reply@bytebeacon.online>"',
     });
 
-    expect(config.SMTP_HOST).toBe('smtp.mailgun.org');
-    expect(config.SMPT_HOST).toBe('smtp.mailgun.org');
-    expect(config.SMTP_PORT).toBe(587);
-    expect(config.SMPT_PORT).toBe(587);
-    expect(config.SMTP_USER).toBe('postmaster@bytebeacon.online');
-    expect(config.SMPT_USER).toBe('postmaster@bytebeacon.online');
+    expect(config.SMPT_HOST).toBe('smtp.gmail.com');
+    expect(config.SMTP_HOST).toBe('smtp.gmail.com');
+    expect(config.SMTP_PORT).toBe(465);
+    expect(config.SMTP_USER).toBe('kofi@gmail.com');
+    // App password spaces should be stripped
+    expect(config.SMTP_PASS).toBe('abcdefghijklmnop');
+    expect(config.SMTP_FROM).toBe('ByteBeacon <no-reply@bytebeacon.online>');
   });
 });
 
@@ -141,6 +143,31 @@ describe('EmailService Unit Tests', () => {
         to: 'customer@example.com',
         subject: 'Welcome to ByteBeacon',
         from: 'ByteBeacon <no-reply@bytebeacon.online>',
+      }),
+    );
+  });
+
+  it('should adapt Gmail sender address to authenticated user to avoid 553 rejection and set replyTo', async () => {
+    const service = new EmailService({
+      host: 'smtp.gmail.com',
+      port: 465,
+      user: 'kofi@gmail.com',
+      pass: 'abcdefghijklmnop',
+      from: 'ByteBeacon <no-reply@bytebeacon.online>',
+    });
+
+    const result = await service.sendEmail({
+      to: 'customer@example.com',
+      subject: 'Test Gmail',
+      html: '<p>Gmail Test</p>',
+    });
+
+    expect(result.success).toBe(true);
+    expect(sendMailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'customer@example.com',
+        from: 'ByteBeacon <kofi@gmail.com>',
+        replyTo: 'ByteBeacon <no-reply@bytebeacon.online>',
       }),
     );
   });

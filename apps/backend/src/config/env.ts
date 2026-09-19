@@ -179,6 +179,22 @@ export function loadConfig(overrideEnv?: Record<string, string | undefined>): En
   const rawEnv: Record<string, string | undefined> = {
     ...(overrideEnv ?? process.env),
   };
+
+  // Strip leading and trailing quotes from all environment variables
+  // (e.g. Render/Vercel dashboard values entered as "value" or 'value')
+  for (const [key, value] of Object.entries(rawEnv)) {
+    if (typeof value === 'string') {
+      let cleaned = value.trim();
+      if (
+        (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+        (cleaned.startsWith("'") && cleaned.endsWith("'"))
+      ) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+      rawEnv[key] = cleaned;
+    }
+  }
+
   if (rawEnv.ALLOWED_ORIGINS && !rawEnv.CORS_ORIGINS) {
     rawEnv.CORS_ORIGINS = rawEnv.ALLOWED_ORIGINS;
   }
@@ -196,9 +212,22 @@ export function loadConfig(overrideEnv?: Record<string, string | undefined>): En
   if (rawEnv.SMPT_PASS && !rawEnv.SMTP_PASS) rawEnv.SMTP_PASS = rawEnv.SMPT_PASS;
   if (rawEnv.SMTP_PASS && !rawEnv.SMPT_PASS) rawEnv.SMPT_PASS = rawEnv.SMTP_PASS;
 
+  // For Gmail SMTP, Google App Passwords are 16 chars with spaces (e.g. "abcd efgh ijkl mnop").
+  // Strip all internal whitespace so authentication succeeds.
+  const hostLower = (rawEnv.SMTP_HOST || rawEnv.SMPT_HOST || '').toLowerCase();
+  if (hostLower.includes('gmail') && rawEnv.SMTP_PASS) {
+    rawEnv.SMTP_PASS = rawEnv.SMTP_PASS.replace(/\s+/g, '');
+    rawEnv.SMPT_PASS = rawEnv.SMTP_PASS;
+  }
+
   if (rawEnv.SMPT_FROM && !rawEnv.SMTP_FROM) rawEnv.SMTP_FROM = rawEnv.SMPT_FROM;
+  if (rawEnv.SMTP_FROM && !rawEnv.SMPT_FROM) rawEnv.SMPT_FROM = rawEnv.SMTP_FROM;
+
   if (rawEnv.SMPT_SECURE && !rawEnv.SMTP_SECURE) rawEnv.SMTP_SECURE = rawEnv.SMPT_SECURE;
+  if (rawEnv.SMTP_SECURE && !rawEnv.SMPT_SECURE) rawEnv.SMPT_SECURE = rawEnv.SMTP_SECURE;
+
   if (rawEnv.APP_URL && !rawEnv.FRONTEND_URL) rawEnv.FRONTEND_URL = rawEnv.APP_URL;
+  if (rawEnv.FRONTEND_URL && !rawEnv.APP_URL) rawEnv.APP_URL = rawEnv.FRONTEND_URL;
 
   const result = envSchema.safeParse(rawEnv);
 

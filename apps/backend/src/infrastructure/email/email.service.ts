@@ -60,30 +60,46 @@ export class EmailService {
   }
 
   private initializeTransporter(): void {
-    const { host, port, user, pass, secure } = this.config;
+    let { host, port, user, pass, secure } = this.config;
+
+    // Clean and sanitize string inputs
+    host = host ? host.trim().replace(/^["']|["']$/g, '') : undefined;
+    user = user ? user.trim().replace(/^["']|["']$/g, '') : undefined;
+    pass = pass ? pass.trim().replace(/^["']|["']$/g, '') : undefined;
+
+    const isGmail = Boolean(host && (host.toLowerCase().includes('gmail') || host.toLowerCase() === 'smtp.gmail.com'));
+
+    // Google App Passwords are 16 characters often formatted with spaces (e.g. "abcd efgh ijkl mnop")
+    // Strip all internal whitespace so Google SMTP accepts the password
+    if (pass && (isGmail || pass.includes(' '))) {
+      pass = pass.replace(/\s+/g, '');
+    }
 
     if (host && (user || pass || port)) {
       try {
+        const portNum = Number(port) || (isGmail ? 465 : 587);
+        const isSecure = secure !== undefined ? secure : (portNum === 465);
+
         this.transporter = nodemailer.createTransport({
-          host,
-          port: port || 587,
-          secure: secure ?? (port === 465),
+          host: isGmail ? 'smtp.gmail.com' : host,
+          port: portNum,
+          secure: isSecure,
           auth: user && pass ? {
-            user: user.trim(),
-            pass: pass.trim(),
+            user,
+            pass,
           } : undefined,
           tls: {
-            rejectUnauthorized: process.env.NODE_ENV === 'production',
+            rejectUnauthorized: false,
           },
-          // Reasonable timeouts to prevent hanging server requests
-          connectionTimeout: 10000,
-          greetingTimeout: 10000,
-          socketTimeout: 15000,
+          // Generous timeouts to avoid prematurely dropping slow SMTP handshakes
+          connectionTimeout: 15000,
+          greetingTimeout: 15000,
+          socketTimeout: 20000,
         });
 
         this.isConfigured = true;
         logger.info(
-          { host, port: port || 587, user: user ? `${user.slice(0, 3)}***` : undefined },
+          { host: isGmail ? 'smtp.gmail.com' : host, port: portNum, secure: isSecure, user: user ? `${user.slice(0, 3)}***` : undefined },
           'EmailService: SMTP transport successfully initialized',
         );
       } catch (err: any) {
@@ -104,7 +120,7 @@ export class EmailService {
     if (!this.isReady() || !this.transporter) {
       return {
         success: false,
-        message: 'SMTP transport is not configured. Provide SMPT_HOST / SMTP_HOST credentials.',
+        message: 'SMTP transport is not configured. Provide SMPT_HOST, SMPT_USER, and SMPT_PASS credentials.',
       };
     }
 
@@ -123,7 +139,31 @@ export class EmailService {
   }
 
   public async sendEmail(options: SendEmailOptions): Promise<SendEmailResult> {
-    const fromAddress = options.from || this.config.from || 'ByteBeacon <no-reply@bytebeacon.online>';
+    let fromAddress = options.from || this.config.from || 'ByteBeacon <no-reply@bytebeacon.online>';
+    fromAddress = fromAddress.trim().replace(/^["']|["']$/g, '');
+    let replyToAddress = fromAddress;
+
+    const isGmail = Boolean(
+      this.config.host && (this.config.host.toLowerCase().includes('gmail') || this.config.host.toLowerCase() === 'smtp.gmail.com')
+    );
+
+    // Gmail Sender Restriction Resolution:
+    // If authenticated via Gmail SMTP using a @gmail.com or @googlemail.com account,
+    // Google strictly forbids sending from an unverified external domain (e.g. no-reply@bytebeacon.online)
+    // and will reject with "553 5.1.2 Sender address rejected".
+    // We automatically preserve the brand display name ("ByteBeacon") while using the authenticated Gmail
+    // address as the SMTP From address, and point Reply-To to the intended fromAddress.
+    if (isGmail && this.config.user) {
+      const authUser = this.config.user.trim().replace(/^["']|["']$/g, '');
+      const authDomain = authUser.includes('@') ? authUser.split('@')[1].toLowerCase() : '';
+
+      if (authDomain === 'gmail.com' || authDomain === 'googlemail.com') {
+        const nameMatch = fromAddress.match(/^([^<]+)/);
+        const displayName = nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, '') : 'ByteBeacon';
+        replyToAddress = fromAddress;
+        fromAddress = `${displayName} <${authUser}>`;
+      }
+    }
 
     if (!this.isReady() || !this.transporter) {
       // Mock / Dev fallback: Log the email content safely so local development and tests succeed
@@ -146,6 +186,7 @@ export class EmailService {
     try {
       const info = await this.transporter.sendMail({
         from: fromAddress,
+        replyTo: replyToAddress,
         to: options.to,
         subject: options.subject,
         text: options.text,
