@@ -81,16 +81,21 @@ export const walletApi = {
   initializeTopup: async (
     amountGhs: number,
     callbackUrl?: string,
+    email?: string,
   ): Promise<{
     authorizationUrl: string;
     reference: string;
     creditAmountPesewas?: number;
     feePesewas?: number;
     totalPayablePesewas?: number;
+    depositAmountGhs?: number;
+    feeGhs?: number;
+    totalChargedGhs?: number;
   }> => {
     return apiClient.post('/agents/wallet/topup/initialize', {
       amountPesewas: Math.round(amountGhs * 100),
       callbackUrl,
+      email,
     });
   },
 

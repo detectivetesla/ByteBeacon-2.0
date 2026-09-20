@@ -270,7 +270,7 @@ export const AgentWalletPage: React.FC = () => {
 
     try {
       const returnUrl = `${window.location.origin}/agent/wallet?paystack_verify=true`;
-      const data = await walletApi.initializeTopup(parsedTopUpAmount, returnUrl);
+      const data = await walletApi.initializeTopup(parsedTopUpAmount, returnUrl, payerEmail);
 
       if (data?.authorizationUrl) {
         toastInfo('Redirecting to Paystack', 'Opening secure checkout...');
@@ -505,8 +505,8 @@ export const AgentWalletPage: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.65rem', backgroundColor: 'rgba(0, 0, 0, 0.3)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255, 255, 255, 0.1)', fontSize: 'var(--font-size-3xs)' }}>
-                <span style={{ color: '#D1FAE5', fontWeight: 700 }}>Min: GHS 5</span>
-                <span style={{ color: '#A7F3D0' }}>Fee: 3% (Added to payment)</span>
+                <span style={{ color: '#D1FAE5', fontWeight: 700 }}>Min: GHS 1</span>
+                <span style={{ color: '#A7F3D0' }}>Fee: 3% (Added to Paystack prompt)</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: '#6EE7B7', fontWeight: 800 }}>
                   <Shield size={11} /> Secure
                 </span>
@@ -522,27 +522,27 @@ export const AgentWalletPage: React.FC = () => {
               />
 
               <AmountInput
-                label="Amount to Credit"
+                label="Amount to Credit (GH₵)"
                 placeholder="10"
                 value={topUpAmountGhs}
                 onChange={(e) => setTopUpAmountGhs(e.target.value)}
-                min={5}
-                quickAmounts={[50, 100, 200, 500, 1000]}
+                min={1}
+                quickAmounts={[10, 20, 50, 100, 200, 500]}
                 required
               />
 
               {parsedTopUpAmount > 0 && (
                 <div style={{ padding: '0.45rem 0.65rem', backgroundColor: 'rgba(0, 0, 0, 0.35)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255, 255, 255, 0.12)', fontSize: 'var(--font-size-xs)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'rgba(255, 255, 255, 0.75)', fontSize: 'var(--font-size-2xs)' }}>
-                    <span>Amount to Credit:</span>
+                    <span>Deposit to Wallet:</span>
                     <strong style={{ color: '#FFFFFF', fontFamily: 'var(--font-data)' }}>GHS {parsedTopUpAmount.toFixed(2)}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'rgba(255, 255, 255, 0.75)', fontSize: 'var(--font-size-2xs)' }}>
-                    <span>Fee (3%):</span>
+                    <span>Processing Fee (3%):</span>
                     <span style={{ color: '#A7F3D0', fontFamily: 'var(--font-data)' }}>GH₵ {paystackFeeGhs.toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255, 255, 255, 0.15)', paddingTop: '3px', marginTop: '2px' }}>
-                    <strong style={{ color: '#FFFFFF', fontSize: 'var(--font-size-xs)' }}>Total to pay:</strong>
+                    <strong style={{ color: '#FFFFFF', fontSize: 'var(--font-size-xs)' }}>Total Charged by Paystack:</strong>
                     <strong style={{ color: '#34D399', fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-sm)' }}>GH₵ {totalPayableGhs.toFixed(2)}</strong>
                   </div>
                   <div
@@ -560,7 +560,7 @@ export const AgentWalletPage: React.FC = () => {
                     }}
                   >
                     <span>✓</span>
-                    <span>100% of your deposit (GH₵ {parsedTopUpAmount.toFixed(2)}) is credited directly to your wallet.</span>
+                    <span>Prompt on your phone will show GH₵ {totalPayableGhs.toFixed(2)}. Exactly 100% of your deposit (GH₵ {parsedTopUpAmount.toFixed(2)}) is credited to your wallet.</span>
                   </div>
                 </div>
               )}
@@ -573,7 +573,7 @@ export const AgentWalletPage: React.FC = () => {
                 isLoading={isProcessingCheckout}
                 disabled={isMaintenanceMode}
               >
-                {isMaintenanceMode ? 'Platform in Maintenance' : 'Proceed to Paystack →'}
+                {isMaintenanceMode ? 'Platform in Maintenance' : (parsedTopUpAmount > 0 ? `Pay GH₵ ${totalPayableGhs.toFixed(2)} with Paystack →` : 'Proceed to Paystack →')}
               </Button>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontSize: 'var(--font-size-3xs)', color: 'rgba(255, 255, 255, 0.65)' }}>

@@ -103,7 +103,7 @@ describe('Agent Wallet Endpoints Suite', () => {
   });
 
   describe('POST /agents/wallet/topup/initialize', () => {
-    it('should initialize top-up intent and return Paystack authorization URL', async () => {
+    it('should initialize top-up intent with 3% fee (e.g. 500 GHS -> 515 GHS charged)', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/agents/wallet/topup/initialize',
@@ -120,6 +120,39 @@ describe('Agent Wallet Endpoints Suite', () => {
       expect(json.success).toBe(true);
       expect(json.data.authorizationUrl).toBe('https://checkout.paystack.com/pst_topup_ref_123');
       expect(json.data.reference).toBe('pst_topup_ref_123');
+      expect(json.data.creditAmountPesewas).toBe(50000);
+      expect(json.data.feePesewas).toBe(1500); // 3% of 50000
+      expect(json.data.totalPayablePesewas).toBe(51500); // GH₵ 515.00
+      expect(mockPaymentProvider.initializePayment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amountPesewas: 51500,
+        }),
+      );
+    });
+
+    it('should charge 10.30 GHS for a 10.00 GHS deposit (1000 pesewas + 30 pesewas fee)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agents/wallet/topup/initialize',
+        headers: {
+          authorization: 'Bearer valid_token',
+        },
+        payload: {
+          amountPesewas: 1000, // GH₵ 10.00
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.creditAmountPesewas).toBe(1000);
+      expect(json.data.feePesewas).toBe(30); // 3% of 1000
+      expect(json.data.totalPayablePesewas).toBe(1030); // GH₵ 10.30
+      expect(mockPaymentProvider.initializePayment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amountPesewas: 1030,
+        }),
+      );
     });
 
     it('should reject top-up below minimum 100 pesewas (GH₵ 1.00)', async () => {

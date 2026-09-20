@@ -1851,16 +1851,29 @@ export async function agentRoutes(
 
   // 5. INITIALIZE WALLET TOPUP (Paystack)
   const handleInitializeTopup = async (
-    req: FastifyRequest<{ Body: { amountPesewas: number; callbackUrl?: string } }>,
+    req: FastifyRequest<{ Body: { amountPesewas?: number; amount?: number; amountGhs?: number; callbackUrl?: string; email?: string } }>,
     reply: FastifyReply,
   ) => {
-    const { amountPesewas, callbackUrl } = req.body || {};
-    if (!amountPesewas || amountPesewas < 100) {
+    const body = (req.body || {}) as any;
+    const callbackUrl = body.callbackUrl;
+    let inputAmountPesewas = Number(body.amountPesewas ?? body.amount_pesewas);
+    if (isNaN(inputAmountPesewas) || inputAmountPesewas <= 0) {
+      if (body.amount !== undefined || body.amountGhs !== undefined) {
+        const rawAmt = Number(body.amount ?? body.amountGhs);
+        inputAmountPesewas = body.amountGhs !== undefined
+          ? Math.round(rawAmt * 100)
+          : (rawAmt < 100 ? Math.round(rawAmt * 100) : Math.round(rawAmt));
+      }
+    }
+
+    if (!inputAmountPesewas || inputAmountPesewas < 100) {
       throw new BadRequestError('Minimum top-up amount is GH₵ 1.00 (100 pesewas)');
     }
 
     const userId = req.user!.sub;
-    const creditAmountPesewas = Math.round(amountPesewas);
+    const creditAmountPesewas = Math.round(inputAmountPesewas);
+    // 3% processing fee applied directly to the deposit amount
+    // The bigger the amount, the bigger the fee proportionally (e.g. 10 GHS -> 30p, 50 GHS -> 1.50 GHS, 100 GHS -> 3.00 GHS, 1000 GHS -> 30.00 GHS)
     const feePesewas = Math.round(creditAmountPesewas * 0.03);
     const totalPayablePesewas = creditAmountPesewas + feePesewas;
 
@@ -1900,6 +1913,8 @@ export async function agentRoutes(
       }
     }
 
+    const payerEmail = body.email || req.user!.email || 'user@bytebeacon.online';
+
     if (paymentProvider) {
       const defaultCallback = req.user!.role === UserRole.AGENT
         ? 'https://bytebeacon.online/agent/wallet'
@@ -1907,7 +1922,7 @@ export async function agentRoutes(
 
       const initRes = await paymentProvider.initializePayment({
         orderId: `topup_${userId}_${Date.now()}`,
-        email: req.user!.email || 'user@bytebeacon.online',
+        email: payerEmail,
         amountPesewas: totalPayablePesewas,
         currency: Currency.GHS,
         paymentMethod: PaymentMethod.MOMO,
@@ -1938,6 +1953,9 @@ export async function agentRoutes(
           creditAmountPesewas,
           feePesewas,
           totalPayablePesewas,
+          depositAmountGhs: Number((creditAmountPesewas / 100).toFixed(2)),
+          feeGhs: Number((feePesewas / 100).toFixed(2)),
+          totalChargedGhs: Number((totalPayablePesewas / 100).toFixed(2)),
         },
       });
     }
@@ -1950,6 +1968,9 @@ export async function agentRoutes(
         creditAmountPesewas,
         feePesewas,
         totalPayablePesewas,
+        depositAmountGhs: Number((creditAmountPesewas / 100).toFixed(2)),
+        feeGhs: Number((feePesewas / 100).toFixed(2)),
+        totalChargedGhs: Number((totalPayablePesewas / 100).toFixed(2)),
       },
     });
   };

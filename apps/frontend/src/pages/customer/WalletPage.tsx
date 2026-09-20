@@ -574,7 +574,7 @@ export const WalletPage: React.FC = () => {
                     }}
                   >
                     <span>✓</span>
-                    <span>100% of your deposit (GH₵ {parsedTopUpAmount.toFixed(2)}) is credited directly to your wallet.</span>
+                    <span>Prompt on your phone will show GH₵ {totalPayableGhs.toFixed(2)}. Exactly 100% of your deposit (GH₵ {parsedTopUpAmount.toFixed(2)}) is credited directly to your wallet.</span>
                   </div>
                 </div>
               ) : (
@@ -613,7 +613,7 @@ export const WalletPage: React.FC = () => {
                 isLoading={isSubmittingTopUp}
                 disabled={isMaintenanceMode}
               >
-                {isMaintenanceMode ? 'Platform in Maintenance' : 'Proceed to Secure Checkout'}
+                {isMaintenanceMode ? 'Platform in Maintenance' : (parsedTopUpAmount > 0 ? `Pay GH₵ ${totalPayableGhs.toFixed(2)} via Paystack` : 'Proceed to Secure Checkout')}
               </Button>
             </form>
           </div>
