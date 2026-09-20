@@ -75,7 +75,7 @@ export interface ProfitLedgerRecord {
   isCredit: boolean;
 }
 
-export const PayoutStatusBadge: React.FC<{ status: PayoutStatus | string; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
+export const PayoutStatusBadge: React.FC<{ status: PayoutStatus | string; size?: 'xs' | 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
     case 'COMPLETED':
     case 'PAID':
@@ -96,7 +96,7 @@ export const PayoutStatusBadge: React.FC<{ status: PayoutStatus | string; size?:
 
 export const AgentWithdrawalsPage: React.FC = () => {
   const { user } = useAuth();
-  const { balanceGhs, refresh: refreshBalance } = useWalletBalance();
+  const { balanceGhs: _balanceGhs, refresh: refreshBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
   const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
 
@@ -105,7 +105,7 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const [totalProfitEarnedPesewas, setTotalProfitEarnedPesewas] = useState<number>(0);
   const [totalWithdrawnPesewas, setTotalWithdrawnPesewas] = useState<number>(0);
   const [hasStore, setHasStore] = useState<boolean>(true);
-  const [storeName, setStoreName] = useState<string>('');
+  const [_storeName, setStoreName] = useState<string>('');
 
   // In-Place Withdraw Form Drawer / Panel State
   const [isWithdrawPanelOpen, setIsWithdrawPanelOpen] = useState(false);

@@ -50,11 +50,6 @@ import {
   Power,
   Activity,
   Database,
-  CheckCheck,
-  Inbox,
-  Filter,
-  ExternalLink,
-  History,
 } from 'lucide-react';
 
 // Standardized Tactile Button & Input Styles
@@ -157,7 +152,7 @@ export const AdminCommunicationsPage: React.FC = () => {
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
   const [historyChannelFilter, setHistoryChannelFilter] = useState<string>('ALL');
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>('ALL');
-  const [historySearch, setHistorySearch] = useState<string>('');
+  const [_historySearch, _setHistorySearch] = useState<string>('');
   const [historyPage, setHistoryPage] = useState<number>(1);
   const [selectedHistoryMessage, setSelectedHistoryMessage] = useState<AdminDeliveryLogItemDto | null>(null);
   const [campaignStatusFilter, setCampaignStatusFilter] = useState<string>('ALL');

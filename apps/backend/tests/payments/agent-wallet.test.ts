@@ -46,7 +46,7 @@ describe('Agent Wallet Endpoints Suite', () => {
         provider: 'PAYSTACK',
         providerReference: 'pst_topup_ref_123',
         status: 'SUCCESS',
-        amountPesewas: 50000, // GH₵ 500.00
+        amountPesewas: 51500, // GH₵ 515.00 (GH₵ 500 deposit + 3% surcharge)
         currency: 'GHS',
         paidAt: new Date(),
         channel: 'mobile_money',

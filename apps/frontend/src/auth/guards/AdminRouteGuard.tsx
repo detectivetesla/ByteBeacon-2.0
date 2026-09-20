@@ -12,7 +12,7 @@ export interface AdminRouteGuardProps {
 
 export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
   children,
-  stealthMode = true,
+  stealthMode = false,
 }) => {
   const { user, isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
@@ -51,7 +51,7 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
       return (
         <NotFoundPage
           data-testid="admin-stealth-lockout"
-          title="Page Not Found"
+          title="404 — Access Restricted"
           description="The page you are looking for doesn't exist, has been moved, or is temporarily unavailable."
           showHomeButton={true}
         />
@@ -74,7 +74,7 @@ export const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({
       return (
         <NotFoundPage
           data-testid="admin-stealth-lockout"
-          title="Page Not Found"
+          title="404 — Access Restricted"
           description="The page you are looking for doesn't exist, has been moved, or is temporarily unavailable."
           showHomeButton={true}
         />

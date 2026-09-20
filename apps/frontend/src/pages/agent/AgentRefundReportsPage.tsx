@@ -42,7 +42,7 @@ export interface RefundRecord {
   timeline: Array<{ stage: string; time: string; completed: boolean }>;
 }
 
-export const RefundStatusBadge: React.FC<{ status: RefundStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
+export const RefundStatusBadge: React.FC<{ status: RefundStatus; size?: 'xs' | 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
     case 'Completed':
       return <Badge variant="success" size={size} dot>Completed</Badge>;

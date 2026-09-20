@@ -21,6 +21,8 @@ vi.mock('../context/ToastContext.js', () => ({
   useToast: () => ({
     success: mockToastSuccess,
     error: mockToastError,
+    toastSuccess: mockToastSuccess,
+    toastError: mockToastError,
   }),
 }));
 
@@ -181,9 +183,9 @@ describe('AdminUserDetailPage — Custom Data Bundle Pricing & Wallet Adjustment
       expect(screen.getByText('Telecel 2GB Bundle')).toBeInTheDocument();
     });
 
-    // Click "Set Custom" for Telecel 2GB
-    const setCustomBtns = screen.getAllByRole('button', { name: /Set Custom|Edit Price/i });
-    fireEvent.click(setCustomBtns[1]); // Telecel item
+    // Click "Set" for Telecel 2GB
+    const setCustomBtn = screen.getByRole('button', { name: /^Set$/i });
+    fireEvent.click(setCustomBtn);
 
     await waitFor(() => {
       expect(screen.getByText('Set Custom Bundle Price')).toBeInTheDocument();

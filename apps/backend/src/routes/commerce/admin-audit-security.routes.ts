@@ -54,31 +54,36 @@ export async function adminAuditSecurityRoutes(
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db, featureFlagService);
 
   // Self-healing schema guard to ensure all audit telemetry columns exist in audit_logs
-  db.query(`
-    DO $$ 
-    BEGIN
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'INFO';
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'ADMIN_ACTION';
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result VARCHAR(20) NOT NULL DEFAULT 'SUCCESS';
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS before_state JSONB;
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS after_state JSONB;
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS event_hash VARCHAR(64);
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS previous_event_hash VARCHAR(64);
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(50);
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id VARCHAR(100);
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS session_id VARCHAR(100);
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS source VARCHAR(50) NOT NULL DEFAULT 'WEB';
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS service VARCHAR(50) NOT NULL DEFAULT 'core-api';
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS endpoint VARCHAR(255);
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS http_method VARCHAR(10);
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS http_status INT;
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS latency_ms INT;
-      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS description TEXT;
-    EXCEPTION
-      WHEN OTHERS THEN NULL;
-    END $$;
-  `).catch(() => {});
+  try {
+    const qPromise = db.query(`
+      DO $$ 
+      BEGIN
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'INFO';
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS category VARCHAR(50) NOT NULL DEFAULT 'ADMIN_ACTION';
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result VARCHAR(20) NOT NULL DEFAULT 'SUCCESS';
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS before_state JSONB;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS after_state JSONB;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS event_hash VARCHAR(64);
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS previous_event_hash VARCHAR(64);
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(50);
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id VARCHAR(100);
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS session_id VARCHAR(100);
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS source VARCHAR(50) NOT NULL DEFAULT 'WEB';
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS service VARCHAR(50) NOT NULL DEFAULT 'core-api';
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS endpoint VARCHAR(255);
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS http_method VARCHAR(10);
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS http_status INT;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS latency_ms INT;
+        ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS description TEXT;
+      EXCEPTION
+        WHEN OTHERS THEN NULL;
+      END $$;
+    `);
+    if (qPromise && typeof (qPromise as any).catch === 'function') {
+      (qPromise as any).catch(() => {});
+    }
+  } catch {}
 
   // =========================================================================
   // 1. GET /admin/audit/overview — Security Health & Audit Overview

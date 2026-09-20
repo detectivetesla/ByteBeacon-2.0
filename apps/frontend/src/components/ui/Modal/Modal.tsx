@@ -7,6 +7,7 @@ export interface ModalProps {
   subtitle?: string;
   children: React.ReactNode;
   maxWidth?: string;
+  size?: string;
 }
 
 export const Modal: React.FC<ModalProps> = ({

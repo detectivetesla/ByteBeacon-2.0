@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
-import { Button } from '../../components/ui/Button/Button.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Input } from '../../components/ui/Input/Input.js';
 import { SearchInput, Avatar } from '../../components/ui/index.js';
@@ -23,7 +22,6 @@ import {
   Store,
   DollarSign,
   TrendingUp,
-  Search,
   RefreshCw,
   Eye,
   Plus,
@@ -38,19 +36,13 @@ import {
   Sliders,
   ExternalLink,
   X,
-  ChevronRight,
-  Check,
-  Filter,
-  Layers,
   FileText,
-  AlertCircle,
-  Building,
 } from 'lucide-react';
 
 export const AdminAgentsPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   // Primary State
   const [activeTab, setActiveTab] = useState<'ALL' | 'APPLICATIONS' | 'PENDING' | 'SUSPENDED' | 'API' | 'PRICING'>('ALL');

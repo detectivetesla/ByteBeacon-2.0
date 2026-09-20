@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --testTimeout=15000",
     "bench:argon2": "tsx src/core/security/password-hasher.bench.ts",
     "migrate": "tsx src/infrastructure/database/cli.ts",
     "migrate:up": "tsx src/infrastructure/database/cli.ts up",

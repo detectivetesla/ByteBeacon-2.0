@@ -145,7 +145,6 @@ export function createApp(options: AppOptions = {}) {
       return (req.headers['x-request-id'] as string) || randomUUID();
     },
     bodyLimit: 10485760, // 10MB payload limit to accommodate merchant logos, avatars, and assets
-    disableRequestLogging: false,
   });
 
   // 1. Security Headers (Helmet)
@@ -863,9 +862,6 @@ export function createApp(options: AppOptions = {}) {
         rbacService,
         rateLimiter,
         featureFlagService,
-      });
-      await webhookRoutes(commerceSubApp, {
-        webhookService,
       });
       await refundRoutes(commerceSubApp, {
         db: dbPool!,

@@ -443,7 +443,7 @@ describe('Phase 11.5: Order & Pending Approval Administration Suite', () => {
     expect(res.statusCode).toBe(200);
     expect(mockLedgerService.recordJournalEntries).toHaveBeenCalled();
     expect(mockAuditService.log).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'ORDER_REFUND' }),
+      expect.objectContaining({ action: 'ORDER_REFUNDED' }),
     );
   });
 

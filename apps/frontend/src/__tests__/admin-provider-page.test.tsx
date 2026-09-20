@@ -216,29 +216,29 @@ describe('Phase 11.9: AdminProviderPage 7-Tab Telecom Control Plane', () => {
     expect(await screen.findByText('AUTHORITATIVE')).toBeDefined();
 
     // Click Routing tab
-    const routingTab = await screen.findByRole('button', { name: /Routing & Authoritative Switch/i });
+    const routingTab = await screen.findByRole('button', { name: /Routing & Switch/i });
     fireEvent.click(routingTab);
 
     expect(await screen.findByText('Carrier Fulfillment Routing Rules')).toBeDefined();
     expect(await screen.findByText('Authoritative Provider Switch Safeguard')).toBeDefined();
 
     // Click Health tab
-    const healthTab = await screen.findByRole('button', { name: /Provider Health & Telemetry/i });
+    const healthTab = await screen.findByRole('button', { name: /Health & Telemetry/i });
     fireEvent.click(healthTab);
     expect(await screen.findByText('Provider Telemetry & Health Monitoring')).toBeDefined();
 
     // Click Webhooks tab
-    const webhooksTab = await screen.findByRole('button', { name: /Webhooks & Callbacks/i });
+    const webhooksTab = await screen.findByRole('button', { name: /^Webhooks/i });
     fireEvent.click(webhooksTab);
     expect(await screen.findByText('Inbound Webhooks & Delivery Endpoints')).toBeDefined();
 
     // Click Diagnostics tab
-    const testsTab = await screen.findByRole('button', { name: /Diagnostics & Sandbox/i });
+    const testsTab = await screen.findByRole('button', { name: /^Diagnostics/i });
     fireEvent.click(testsTab);
     expect(await screen.findByText('3-Tier Diagnostic & Testing Suite')).toBeDefined();
 
     // Click Incidents tab
-    const incidentsTab = await screen.findByRole('button', { name: /Incidents & Status/i });
+    const incidentsTab = await screen.findByRole('button', { name: /^Incidents/i });
     fireEvent.click(incidentsTab);
     expect(await screen.findByText('Provider Incidents & Outage Log')).toBeDefined();
   }, 15000);
@@ -290,7 +290,7 @@ describe('Phase 11.9: AdminProviderPage 7-Tab Telecom Control Plane', () => {
 
     render(<AdminProviderPage />);
 
-    const routingTab = await screen.findByRole('button', { name: /Routing & Authoritative Switch/i });
+    const routingTab = await screen.findByRole('button', { name: /Routing & Switch/i });
     fireEvent.click(routingTab);
 
     const validateBtn = await screen.findByRole('button', { name: /Run Pre-Flight Validation/i });

@@ -21,8 +21,6 @@ import {
   ShieldCheck,
   AlertCircle,
   RefreshCw,
-  Sparkles,
-  DollarSign,
   Phone,
   Building,
   User,
@@ -761,7 +759,7 @@ export const ApplyAgentPage: React.FC = () => {
               type="submit"
               variant="primary"
               size="lg"
-              loading={isSubmitting}
+              isLoading={isSubmitting}
               disabled={isSubmitting || (paymentMethod === 'WALLET' && balancePesewas < feePesewas)}
               rightIcon={<ArrowRight size={18} />}
             >

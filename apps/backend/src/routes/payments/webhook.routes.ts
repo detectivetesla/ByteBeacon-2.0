@@ -44,6 +44,9 @@ export async function webhookRoutes(
   ];
 
   for (const path of webhookPaths) {
+    if (typeof app.hasRoute === 'function' && app.hasRoute({ method: 'POST', url: path })) {
+      continue;
+    }
     app.post(path, webhookHandler);
   }
 }

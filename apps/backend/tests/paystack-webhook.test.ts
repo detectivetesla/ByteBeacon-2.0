@@ -337,4 +337,35 @@ describe('Paystack Webhook Security & Durable Deduplication', () => {
     expect(result.newBalancePesewas).toBe(1700); // 1700 pesewas = 17.00 GHS (1751 / 1.03 rounded)
     expect(creditedAmountPesewas).toBe(1700);
   });
+
+  it(
+    'should initialize Fastify app without FST_ERR_DUPLICATED_ROUTE and respond on all Paystack webhook endpoints',
+    async () => {
+      const { createApp } = await import('../src/app.js');
+      const app = createApp();
+
+      const testEndpoints = [
+        '/webhooks/paystack',
+        '/paystack/webhook',
+        '/api/v1/webhooks/paystack',
+        '/api/paystack/webhook',
+      ];
+
+      for (const endpoint of testEndpoints) {
+        const res = await app.inject({
+          method: 'POST',
+          url: endpoint,
+          headers: {
+            'content-type': 'application/json',
+            'x-paystack-signature': 'invalid_sig',
+          },
+          payload: JSON.stringify({ event: 'charge.success', data: { id: 1 } }),
+        });
+
+        // Validates endpoint exists and handler runs without 404 or FST_ERR_DUPLICATED_ROUTE
+        expect([400, 401]).toContain(res.statusCode);
+      }
+    },
+    30000,
+  );
 });

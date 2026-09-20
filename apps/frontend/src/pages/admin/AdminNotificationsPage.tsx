@@ -33,7 +33,6 @@ import {
   AlertOctagon,
   Shield,
   CheckCircle,
-  CheckCircle2,
   RefreshCw,
   Eye,
   Plus,
@@ -49,12 +48,7 @@ import {
   Check,
   Copy,
   Search,
-  User,
-  Sliders,
   ChevronRight,
-  XCircle,
-  Info,
-  FileText,
   Send,
 } from 'lucide-react';
 

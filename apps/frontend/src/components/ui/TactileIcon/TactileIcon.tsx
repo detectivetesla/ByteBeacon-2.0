@@ -17,6 +17,7 @@ export type TactileIconColor =
   | 'violet'
   | 'amber'
   | 'red'
+  | 'blue'
   | 'mtn'
   | 'telecel'
   | 'airteltigo';
@@ -161,6 +162,14 @@ const COLOR_CONFIGS: Record<TactileIconColor, ColorStyleConfig> = {
     iconGradient: 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)',
     iconColor: '#DC2626',
     shadow: '0 4px 12px rgba(239, 68, 68, 0.18)',
+    innerHighlight: 'rgba(255, 255, 255, 0.8)',
+  },
+  blue: {
+    bgGradient: 'linear-gradient(145deg, rgba(59, 130, 246, 0.16) 0%, rgba(37, 99, 235, 0.08) 100%)',
+    border: '1px solid rgba(59, 130, 246, 0.35)',
+    iconGradient: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
+    iconColor: '#2563EB',
+    shadow: '0 4px 12px rgba(59, 130, 246, 0.18)',
     innerHighlight: 'rgba(255, 255, 255, 0.8)',
   },
   mtn: {

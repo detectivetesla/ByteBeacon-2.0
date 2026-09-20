@@ -100,7 +100,7 @@ describe('OpenAPI Specification & Developer Sandbox Suite', () => {
       expect(res.statusCode).toBe(200);
       const json = JSON.parse(res.body);
       expect(json.openapi).toBe('3.1.0');
-      expect(json.info.title).toBe('ByteBeacon 2.0 API');
+      expect(json.info.title).toBe('ByteBeacon 2.0 Developer API');
       expect(json.components.securitySchemes.BearerAuth).toBeDefined();
       expect(json.components.securitySchemes.ApiKeyAuth).toBeDefined();
     });

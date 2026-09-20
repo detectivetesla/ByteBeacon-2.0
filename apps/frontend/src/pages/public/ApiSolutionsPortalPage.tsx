@@ -7,11 +7,8 @@ import {
   ShieldCheck,
   Zap,
   Radio,
-  CheckCircle2,
-  Clock,
   AlertCircle,
   Smartphone,
-  ExternalLink,
   Moon,
   Sun,
 } from 'lucide-react';

@@ -10,7 +10,6 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
-  FileText,
   RefreshCw,
   Eye,
   AlertTriangle,
@@ -27,20 +26,9 @@ import {
   CreditCard,
   Copy,
   ExternalLink,
-  Clock,
-  Server,
-  Globe,
-  Terminal,
-  Hash,
-  Calendar,
   Filter,
   X,
-  ChevronRight,
   Check,
-  Layers,
-  Search,
-  ArrowRight,
-  Radio,
   Zap,
 } from 'lucide-react';
 import {
@@ -130,7 +118,7 @@ export const AdminAuditPage: React.FC = () => {
   // Selected Log Detail Drawer State
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
   const [selectedLogDetail, setSelectedLogDetail] = useState<AdminAuditDetailDto | null>(null);
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [_isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Quick Export State
@@ -202,7 +190,7 @@ export const AdminAuditPage: React.FC = () => {
   const [emergencyReason, setEmergencyReason] = useState<string>('');
   const [emergencyStepUpInput, setEmergencyStepUpInput] = useState<string>('');
   const [emergencyError, setEmergencyError] = useState<string | null>(null);
-  const [emergencySuccessMsg, setEmergencySuccessMsg] = useState<string | null>(null);
+  const [_emergencySuccessMsg, setEmergencySuccessMsg] = useState<string | null>(null);
 
   // Clipboard copy helper
   const copyToClipboard = (text: string, key: string) => {
@@ -246,7 +234,7 @@ export const AdminAuditPage: React.FC = () => {
   }, []);
 
   // Fetch Overview Stats
-  const fetchOverview = useCallback(async (isSilent = false) => {
+  const fetchOverview = useCallback(async (_isSilent = false) => {
     try {
       const res = await adminApi.getAuditOverview();
       if (res) {
@@ -298,7 +286,7 @@ export const AdminAuditPage: React.FC = () => {
   }, [page, searchQuery, categoryFilter, severityFilter, resultFilter, roleFilter, sourceFilter, actionFilter, resourceFilter, actorFilter, startDateFilter, endDateFilter]);
 
   // Fetch Incidents
-  const fetchIncidents = useCallback(async (isSilent = false) => {
+  const fetchIncidents = useCallback(async (_isSilent = false) => {
     try {
       const res = await adminApi.getSecurityIncidents({
         status: incidentStatusFilter !== 'ALL' ? incidentStatusFilter : undefined,

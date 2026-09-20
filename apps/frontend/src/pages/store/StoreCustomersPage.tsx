@@ -312,7 +312,7 @@ export const StoreCustomersPage: React.FC = () => {
         ) : error ? (
           <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-danger)' }}>
             <p>{error}</p>
-            <Button variant="outline" size="sm" onClick={fetchCustomers} style={{ marginTop: 'var(--space-4)' }}>
+            <Button variant="outline" size="sm" onClick={() => fetchCustomers()} style={{ marginTop: 'var(--space-4)' }}>
               Retry
             </Button>
           </div>

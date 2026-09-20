@@ -342,7 +342,7 @@ describe('Phase 11.6: Data Plan & Catalog Management Control Plane', () => {
     const body = res.json();
     expect(body.success).toBe(true);
     expect(mockAuditService.log).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'PLAN_PRICE_CHANGED' }),
+      expect.objectContaining({ action: 'DATA_PLAN_PRICING_UPDATED' }),
     );
   });
 

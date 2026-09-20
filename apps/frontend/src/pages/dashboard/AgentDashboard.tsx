@@ -4,7 +4,6 @@ import { MetricCard, Card } from '../../components/ui/Card/Card.js';
 import { Table } from '../../components/ui/Table/Table.js';
 import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Select } from '../../components/ui/Select/Select.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { Avatar } from '../../components/ui/Avatar/Avatar.js';
 import { PurchaseModal } from '../../components/commerce/PurchaseModal.js';
@@ -33,7 +32,6 @@ import {
   PackageX,
   Search,
   RotateCcw,
-  Filter,
 } from 'lucide-react';
 
 interface AgentOrderRow {

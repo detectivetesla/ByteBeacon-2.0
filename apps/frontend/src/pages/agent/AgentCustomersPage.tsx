@@ -76,7 +76,7 @@ export interface SubAgentItem {
   activityLogs: Array<{ id: string; time: string; text: string }>;
 }
 
-export const SubAgentStatusBadge: React.FC<{ status: SubAgentStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
+export const SubAgentStatusBadge: React.FC<{ status: SubAgentStatus; size?: 'xs' | 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
     case 'ACTIVE':
       return <Badge variant="success" size={size} dot>Active</Badge>;

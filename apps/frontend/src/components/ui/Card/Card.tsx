@@ -1,7 +1,7 @@
 import React from 'react';
 
 export type CardVariant = 'default' | 'elevated' | 'accent' | 'feature';
-export type CardAccentColor = 'brand' | 'blue' | 'amber' | 'green' | 'purple' | 'cyan' | 'orange' | 'red';
+export type CardAccentColor = 'brand' | 'blue' | 'amber' | 'green' | 'emerald' | 'purple' | 'cyan' | 'orange' | 'red';
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   elevated?: boolean;

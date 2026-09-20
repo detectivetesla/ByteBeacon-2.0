@@ -14,7 +14,6 @@ import {
   DollarSign,
   RefreshCw,
   Activity,
-  Radio,
   Download,
   RotateCcw,
   Calendar,
@@ -220,7 +219,6 @@ export const AdminAnalyticsPage: React.FC = () => {
     const totalVol = networksData.reduce((sum, item) => sum + (item.volumePesewas || 0), 0);
     const mtn = networksData.find((n) => n.network === 'MTN')?.volumePesewas || 0;
     const telecel = networksData.find((n) => n.network === 'TELECEL')?.volumePesewas || 0;
-    const at = networksData.find((n) => n.network === 'AIRTELTIGO')?.volumePesewas || 0;
 
     if (totalVol === 0) {
       return { mtn: 70, telecel: 20, at: 10 };
@@ -316,7 +314,7 @@ export const AdminAnalyticsPage: React.FC = () => {
   }, [activeTimelineData, lineMetric]);
 
   // Generate smooth Bézier curve
-  const generateBezierSpline = (coords) => {
+  const generateBezierSpline = (coords: any[]) => {
     if (coords.length === 0) return '';
     if (coords.length === 1) return `M ${coords[0].x} ${coords[0].y}`;
     if (coords.length === 2) return `M ${coords[0].x} ${coords[0].y} L ${coords[1].x} ${coords[1].y}`;
@@ -338,7 +336,7 @@ export const AdminAnalyticsPage: React.FC = () => {
     return path;
   };
 
-  const generateFillPath = (coords, baselineY) => {
+  const generateFillPath = (coords: any[], baselineY: any) => {
     if (coords.length === 0) return '';
     const linePath = generateBezierSpline(coords);
     const last = coords[coords.length - 1];
@@ -379,7 +377,7 @@ export const AdminAnalyticsPage: React.FC = () => {
       csvRows.push('TELECOM NETWORK DISTRIBUTION');
       csvRows.push('Network,Order Count,Volume (GHS),Market Share (%),AOV (GHS)');
       networksData.forEach((n) => {
-        csvRows.push(`${n.network},${n.orderCount},${(n.volumePesewas / 100).toFixed(2)},${n.sharePct}%,${n.aovGhs || '0.00'}`);
+        csvRows.push(`${n.network},${n.orderCount},${(n.volumePesewas / 100).toFixed(2)},${n.sharePct}%,${(n as any).aovGhs || '0.00'}`);
       });
       csvRows.push('');
 

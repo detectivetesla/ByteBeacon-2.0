@@ -581,6 +581,10 @@ export const storesApi = {
     return apiClient.get<StoreSettingsDto>('/stores/my-store/settings');
   },
 
+  saveStoreSettings: async (settings: Partial<StoreSettingsDto>): Promise<StoreSettingsDto> => {
+    return apiClient.put<StoreSettingsDto>('/stores/my-store/settings', settings);
+  },
+
   // ─── Public Storefront: Beneficiary Precheck ──────────────────────
 
   precheckStoreBeneficiary: async (params: {

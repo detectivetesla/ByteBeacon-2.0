@@ -4,7 +4,7 @@ import { PaymentStatus, OrderStatus, NetworkProvider } from '@bytebeacon/shared'
 export interface BadgeProps {
   children?: React.ReactNode;
   variant?: 'default' | 'success' | 'warning' | 'info' | 'danger' | 'purple' | 'neutral' | 'brand';
-  size?: 'sm' | 'md';
+  size?: 'xs' | 'sm' | 'md';
   dot?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -75,7 +75,7 @@ export const Badge: React.FC<BadgeProps> = ({
   );
 };
 
-export const PaymentStatusBadge: React.FC<{ status: PaymentStatus | string; size?: 'sm' | 'md' }> = ({ status, size = 'md' }) => {
+export const PaymentStatusBadge: React.FC<{ status: PaymentStatus | string; size?: 'xs' | 'sm' | 'md' }> = ({ status, size = 'md' }) => {
   switch (status) {
     case PaymentStatus.PAID:
       return <Badge variant="success" size={size} dot>Paid</Badge>;
@@ -93,7 +93,7 @@ export const PaymentStatusBadge: React.FC<{ status: PaymentStatus | string; size
   }
 };
 
-export const OrderStatusBadge: React.FC<{ status: OrderStatus | string; size?: 'sm' | 'md' }> = ({ status, size = 'md' }) => {
+export const OrderStatusBadge: React.FC<{ status: OrderStatus | string; size?: 'xs' | 'sm' | 'md' }> = ({ status, size = 'md' }) => {
   switch (status) {
     case OrderStatus.COMPLETED:
       return <Badge variant="success" size={size} dot>Delivered</Badge>;
@@ -113,7 +113,7 @@ export const OrderStatusBadge: React.FC<{ status: OrderStatus | string; size?: '
   }
 };
 
-export const ApprovalStatusBadge: React.FC<{ status: string; size?: 'sm' | 'md' }> = ({ status, size = 'md' }) => {
+export const ApprovalStatusBadge: React.FC<{ status: string; size?: 'xs' | 'sm' | 'md' }> = ({ status, size = 'md' }) => {
   const s = String(status || '').toUpperCase();
   if (s === 'APPROVED' || s === 'COMPLETED' || s === 'VALID') {
     return <Badge variant="success" size={size} dot>Approved</Badge>;
@@ -127,7 +127,7 @@ export const ApprovalStatusBadge: React.FC<{ status: string; size?: 'sm' | 'md' 
   return <Badge variant="warning" size={size} dot>Pending</Badge>;
 };
 
-export const NetworkBadge: React.FC<{ network: NetworkProvider | string; size?: 'sm' | 'md' }> = ({ network, size = 'md' }) => {
+export const NetworkBadge: React.FC<{ network: NetworkProvider | string; size?: 'xs' | 'sm' | 'md' }> = ({ network, size = 'md' }) => {
   const net = String(network || '').toUpperCase();
   let bg = 'rgba(255, 204, 0, 0.15)';
   let color = '#FFCC00';

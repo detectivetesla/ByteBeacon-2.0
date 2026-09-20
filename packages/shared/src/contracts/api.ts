@@ -1214,7 +1214,9 @@ export interface AdminFinanceStats {
   customerWalletBalancePesewas: number;
   agentWalletBalancePesewas: number;
   totalDepositsPesewas: number;
+  totalDepositsCount?: number;
   totalWithdrawalsPesewas: number;
+  pendingWithdrawalsCount?: number;
   totalRevenuePesewas: number;
   totalCommissionsPesewas: number;
   totalRefundsPesewas: number;
@@ -2094,6 +2096,7 @@ export interface AdminAuditListItemDto {
   timestamp: string;
   actorId: string | null;
   actorName: string;
+  actorEmail?: string;
   actorEmailRedacted: string;
   actorRole: string;
   actorType: string;

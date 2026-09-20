@@ -34,16 +34,17 @@ describe('Phase 11.13 — System Configuration & Global Control Center Integrati
       query: vi.fn().mockImplementation(async (sql: string, params?: any[]) => {
         if (typeof sql === 'string') {
           if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
+            const isOpsAdmin = params?.[0] === '00000000-0000-0000-0000-000000000002';
             return {
               rows: [
                 {
-                  id: '00000000-0000-0000-0000-000000000001',
-                  uuid: '00000000-0000-0000-0000-000000000001',
-                  email: 'superadmin@bytebeacon.com',
-                  full_name: 'Super Admin',
+                  id: params?.[0] || '00000000-0000-0000-0000-000000000001',
+                  uuid: params?.[0] || '00000000-0000-0000-0000-000000000001',
+                  email: isOpsAdmin ? 'opsadmin@bytebeacon.com' : 'superadmin@bytebeacon.com',
+                  full_name: isOpsAdmin ? 'Ops Admin' : 'Super Admin',
                   status: 'ACTIVE',
                   is_active: true,
-                  role: UserRole.SUPER_ADMIN,
+                  role: isOpsAdmin ? UserRole.ADMIN : UserRole.SUPER_ADMIN,
                 },
               ],
             };

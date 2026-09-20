@@ -28,8 +28,6 @@ import {
   Check,
   X,
   CreditCard,
-  Layers,
-  ArrowRight,
   TrendingUp,
 } from 'lucide-react';
 

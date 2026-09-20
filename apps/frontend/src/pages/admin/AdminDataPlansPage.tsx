@@ -38,10 +38,6 @@ import {
   X,
   Trash2,
   Store,
-  Clock,
-  ChevronRight,
-  Database,
-  ArrowRight,
 } from 'lucide-react';
 
 export const AdminDataPlansPage: React.FC = () => {

@@ -17,7 +17,6 @@ import {
   Phone,
   ShieldCheck,
   ExternalLink,
-  ChevronRight,
   Zap,
   Layers,
   Trash2,

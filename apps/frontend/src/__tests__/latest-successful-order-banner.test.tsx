@@ -1,4 +1,3 @@
-import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { LatestSuccessfulOrderBanner } from '../components/commerce/LatestSuccessfulOrderBanner.js';
@@ -73,10 +72,10 @@ describe('LatestSuccessfulOrderBanner Suite', () => {
     render(<LatestSuccessfulOrderBanner network="MTN" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Latest MTN Successful Order')).toBeInTheDocument();
+      expect(screen.getByText('Sep 13, 11:55 PM')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Sep 13, 11:55 PM')).toBeInTheDocument();
+    expect(screen.getByText('Latest MTN Successful Order')).toBeInTheDocument();
     expect(screen.getByText('Sep 14, 12:03 AM')).toBeInTheDocument();
     expect(screen.getByText('Took about 8 mins.')).toBeInTheDocument();
     expect(screen.getByText('Est. delivery: Less than 10 mins.')).toBeInTheDocument();
@@ -86,10 +85,10 @@ describe('LatestSuccessfulOrderBanner Suite', () => {
     render(<LatestSuccessfulOrderBanner network="TELECEL" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Latest Telecel Successful Order')).toBeInTheDocument();
+      expect(screen.getByText('Sep 13, 11:50 PM')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Sep 13, 11:50 PM')).toBeInTheDocument();
+    expect(screen.getByText('Latest Telecel Successful Order')).toBeInTheDocument();
     expect(screen.getByText('Sep 13, 11:53 PM')).toBeInTheDocument();
     expect(screen.getByText('Took about 3 mins.')).toBeInTheDocument();
     expect(screen.getByText('Est. delivery: Less than 5 mins.')).toBeInTheDocument();

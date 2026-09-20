@@ -4,7 +4,7 @@ import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { SearchInput, Select } from '../../components/ui/index.js';
-import { Download, Loader2, ArrowDownToLine, Calendar, DollarSign, History, RotateCcw } from 'lucide-react';
+import { Download, Loader2, ArrowDownToLine, Calendar, History, RotateCcw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
 

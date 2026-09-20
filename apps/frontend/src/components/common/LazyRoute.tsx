@@ -75,7 +75,7 @@ export function withLazy<P extends object>(
 
   return (props: P) => (
     <Suspense fallback={<RouteLoadingFallback />}>
-      <LazyComponent {...props} />
+      <LazyComponent {...(props as any)} />
     </Suspense>
   );
 }

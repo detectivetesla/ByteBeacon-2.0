@@ -18,7 +18,6 @@ import {
   RotateCcw,
   ShieldCheck,
   ExternalLink,
-  ChevronRight,
   Server,
   Zap,
   Copy,
@@ -27,9 +26,7 @@ import {
   X,
   Eye,
   Phone,
-  User,
   DollarSign,
-  AlertCircle,
   Radio,
   FileText,
 } from 'lucide-react';
@@ -75,7 +72,7 @@ export const AdminOrdersPage: React.FC = () => {
   const [totalOrders, setTotalOrders] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [_lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
   // Selected Order Drawer State
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(searchParams.get('orderId') || null);
@@ -202,7 +199,7 @@ export const AdminOrdersPage: React.FC = () => {
         period: periodFilter !== 'ALL' && periodFilter !== 'CUSTOM' ? periodFilter : undefined,
         operationalState: operationalStateFilter !== 'ALL' ? operationalStateFilter : undefined,
         format,
-      });
+      } as any);
 
       if (format === 'JSON') {
         const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
@@ -1502,7 +1499,7 @@ export const AdminOrdersPage: React.FC = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: 'var(--font-size-xs)' }}>
                     <div>
                       <span style={{ color: 'var(--color-text-muted)' }}>Payment Status: </span>
-                      <strong>{typeof orderDetail.order.paymentStatus === 'object' ? String(orderDetail.order.paymentStatus?.status || 'PAID') : String(orderDetail.order.paymentStatus || 'PAID')}</strong>
+                      <strong>{String(orderDetail.order.paymentStatus || 'PAID')}</strong>
                     </div>
                     <div>
                       <span style={{ color: 'var(--color-text-muted)' }}>Reference: </span>
@@ -1512,7 +1509,7 @@ export const AdminOrdersPage: React.FC = () => {
                     </div>
                     <div>
                       <span style={{ color: 'var(--color-text-muted)' }}>Refund Status: </span>
-                      <span>{typeof orderDetail.order.refundStatus === 'object' ? String(orderDetail.order.refundStatus?.status || 'NONE') : String(orderDetail.order.refundStatus || 'NONE')}</span>
+                      <span>{String(orderDetail.order.refundStatus || 'NONE')}</span>
                     </div>
                     {orderDetail.refund && (
                       <div style={{ color: '#8B5CF6', fontWeight: 700 }}>

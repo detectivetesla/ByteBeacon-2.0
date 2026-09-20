@@ -734,8 +734,13 @@ describe('Phase 11.10: API Management, Developer Platform & API Security', () =>
   it('16. should retrieve a comprehensive API dossier for a specific agent', async () => {
     (mockDb.query as any).mockImplementation(async (sql: string, params?: any[]) => {
       if (typeof sql === 'string' && (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1'))) {
+        if (params?.[0] === 'agt_test') {
+          return {
+            rows: [{ id: 'agt_test', uuid: 'agt_test', email: 'agent@telecom.gh', full_name: 'Agent Kwesi', status: 'ACTIVE', role: UserRole.AGENT }],
+          };
+        }
         return {
-          rows: [{ id: 'agt_test', uuid: 'agt_test', email: 'agent@telecom.gh', full_name: 'Agent Kwesi', status: 'ACTIVE', role: UserRole.AGENT }],
+          rows: [{ id: 'admin_1', uuid: 'admin_1', email: 'admin@bytebeacon.com', full_name: 'Admin User', status: 'ACTIVE', role: UserRole.SUPER_ADMIN }],
         };
       }
       if (typeof sql === 'string' && sql.includes('FROM api_keys ak WHERE')) {

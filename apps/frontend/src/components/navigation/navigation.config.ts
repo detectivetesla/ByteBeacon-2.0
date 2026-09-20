@@ -19,7 +19,6 @@ import {
   RefreshCw,
   Cpu,
   AlertOctagon,
-  FileText,
   Bell,
   Clock,
   RotateCcw,

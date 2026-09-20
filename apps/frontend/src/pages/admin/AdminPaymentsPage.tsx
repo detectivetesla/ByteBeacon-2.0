@@ -23,14 +23,10 @@ import {
   ExternalLink,
   Copy,
   CheckCircle2,
-  XCircle,
   Clock,
-  User,
   Store,
   Layers,
   ShieldCheck,
-  ChevronRight,
-  Hash,
   Calendar,
 } from 'lucide-react';
 import {

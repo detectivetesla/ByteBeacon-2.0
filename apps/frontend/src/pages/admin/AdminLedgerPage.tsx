@@ -24,8 +24,6 @@ import {
   ExternalLink,
   Copy,
   Clock,
-  ChevronRight,
-  Sliders,
 } from 'lucide-react';
 import {
   adminApi,
@@ -86,7 +84,7 @@ const selectStyle: React.CSSProperties = {
 };
 
 export const AdminLedgerPage: React.FC = () => {
-  const { toastSuccess, toastError, toastWarning, toastInfo } = useToast();
+  const { toastSuccess, toastError, toastWarning, toastInfo: _toastInfo } = useToast();
 
   const [activeTab, setActiveTab] = useState<'TRANSACTIONS' | 'LEDGER' | 'ADJUSTMENTS'>('TRANSACTIONS');
   const [isLoading, setIsLoading] = useState(false);

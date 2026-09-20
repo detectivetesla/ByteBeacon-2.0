@@ -395,6 +395,7 @@ export interface AdminUserListItem {
   walletBalancePesewas: number;
   createdAt: string;
   lastLoginAt?: string;
+  isVerified?: boolean;
 }
 
 export interface AdminUserDetail {

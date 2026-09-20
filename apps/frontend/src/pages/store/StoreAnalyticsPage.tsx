@@ -243,7 +243,7 @@ export const StoreAnalyticsPage: React.FC = () => {
       ) : error ? (
         <Card style={{ padding: 'var(--space-12)', textAlign: 'center', backgroundColor: 'var(--color-bg-surface)' }}>
           <p style={{ color: 'var(--color-danger)' }}>{error}</p>
-          <Button variant="outline" size="sm" onClick={fetchAnalytics} style={{ marginTop: 'var(--space-4)' }}>
+          <Button variant="outline" size="sm" onClick={() => fetchAnalytics()} style={{ marginTop: 'var(--space-4)' }}>
             Retry
           </Button>
         </Card>

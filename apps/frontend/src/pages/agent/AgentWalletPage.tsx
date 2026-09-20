@@ -48,7 +48,7 @@ export interface WalletTransactionItem {
   rawDate: string;
 }
 
-export const StatusBadge: React.FC<{ status: TransactionStatus; size?: 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
+export const StatusBadge: React.FC<{ status: TransactionStatus; size?: 'xs' | 'sm' | 'md' }> = ({ status, size = 'sm' }) => {
   switch (status) {
     case 'SUCCESSFUL':
       return <Badge variant="success" size={size} dot>Successful</Badge>;

@@ -67,7 +67,6 @@ export const AgentStorePage: React.FC = () => {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [activationFeeGhs, setActivationFeeGhs] = useState<number>(90.00);
 
-  const publicStoreUrl = STOREFRONT_CONFIG.getRelativeStorePath(slug);
   const canonicalStoreUrl = STOREFRONT_CONFIG.getStoreUrl(slug);
   const cleanSlugVal = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
   const directStoreUrl = STOREFRONT_CONFIG.getDirectStoreUrl(cleanSlugVal);

@@ -23,7 +23,6 @@ import {
   CheckSquare,
   Square,
   X,
-  ShieldCheck,
   UserX,
 } from 'lucide-react';
 

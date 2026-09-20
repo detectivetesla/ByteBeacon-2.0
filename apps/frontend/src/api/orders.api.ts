@@ -8,7 +8,6 @@ import {
   NetworkProvider,
   OrderStatus,
   PaymentStatus,
-  LatestSuccessfulOrderDto,
   LatestSuccessfulOrdersResponse,
 } from '@bytebeacon/shared';
 

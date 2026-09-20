@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
@@ -111,7 +110,6 @@ export const DetectedChannelBadge: React.FC<{ source: string }> = ({ source }) =
 
 export const StorePendingApprovalsPage: React.FC = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const { toastSuccess, toastError, toastInfo } = useToast();
 
   // Data State
@@ -128,7 +126,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
   const [networkFilter, setNetworkFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'phone' | 'status' | 'occurrences'>('newest');
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, _setItemsPerPage] = useState(10);
   const [backendCounts, setBackendCounts] = useState<{
     total: number;
     pending: number;

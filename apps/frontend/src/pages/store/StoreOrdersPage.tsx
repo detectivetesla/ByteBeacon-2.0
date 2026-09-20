@@ -12,14 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
-  XCircle,
-  Phone,
-  Radio,
-  CreditCard,
-  DollarSign,
   RotateCcw,
 } from 'lucide-react';
 
