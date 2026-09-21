@@ -23,6 +23,10 @@ import {
   ApiResponse,
   AgentAccountStatus,
   AgentApplicationDto,
+  AgentWithdrawalPolicyDto,
+  UpdateAgentWithdrawalPolicyRequest,
+  MassAgentWithdrawalLimitsRequest,
+  MassAgentWithdrawalLimitsResult,
   LedgerAccountType,
   LedgerEntryType,
   Currency,
@@ -65,6 +69,19 @@ export async function adminAgentsRoutes(
       ? parseInt(String(customLimit), 10)
       : null;
 
+    const customMin = r.customMinWithdrawalPesewas ?? r.custom_min_withdrawal_pesewas;
+    const customMinWithdrawalPesewas = customMin !== undefined && customMin !== null
+      ? parseInt(String(customMin), 10)
+      : null;
+
+    const customDaily = r.customDailyLimitPesewas ?? r.custom_daily_limit_pesewas;
+    const customDailyLimitPesewas = customDaily !== undefined && customDaily !== null
+      ? parseInt(String(customDaily), 10)
+      : null;
+
+    const withdrawalsEnabled = r.withdrawalsEnabled ?? r.withdrawals_enabled ?? true;
+    const allowAnytimeWithdrawals = r.allowAnytimeWithdrawals ?? r.allow_anytime_withdrawals ?? false;
+
     return {
       id: agentId,
       userId: r.userId || r.user_id || agentId,
@@ -86,6 +103,10 @@ export async function adminAgentsRoutes(
       subAgentsCount: parseInt(r.subAgentsCount || r.sub_agents_count || '0', 10),
       agentTier: r.agentTier || r.agent_tier || 'STANDARD',
       customWithdrawalLimitPesewas,
+      customMinWithdrawalPesewas,
+      customDailyLimitPesewas,
+      withdrawalsEnabled: Boolean(withdrawalsEnabled),
+      allowAnytimeWithdrawals: Boolean(allowAnytimeWithdrawals),
       createdAt: safeIsoDate(r.createdAt || r.created_at) || new Date().toISOString(),
       lastActiveAt: safeIsoDate(r.lastActiveAt || r.last_active_at || r.lastLoginAt || r.last_login_at || r.updatedAt || r.updated_at),
     };
@@ -320,6 +341,10 @@ export async function adminAgentsRoutes(
           COALESCE(sub.sub_count, 0) as "subAgentsCount",
           COALESCE(a.agent_tier, 'STANDARD') as "agentTier",
           a.custom_withdrawal_limit_pesewas as "customWithdrawalLimitPesewas",
+          a.custom_min_withdrawal_pesewas as "customMinWithdrawalPesewas",
+          a.custom_daily_limit_pesewas as "customDailyLimitPesewas",
+          COALESCE(a.withdrawals_enabled, TRUE) as "withdrawalsEnabled",
+          COALESCE(a.allow_anytime_withdrawals, FALSE) as "allowAnytimeWithdrawals",
           COALESCE(a.created_at, u.created_at) as "createdAt",
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
         FROM users u
@@ -402,6 +427,10 @@ export async function adminAgentsRoutes(
           COALESCE(sub.sub_count, 0) as "subAgentsCount",
           COALESCE(a.agent_tier, 'STANDARD') as "agentTier",
           a.custom_withdrawal_limit_pesewas as "customWithdrawalLimitPesewas",
+          a.custom_min_withdrawal_pesewas as "customMinWithdrawalPesewas",
+          a.custom_daily_limit_pesewas as "customDailyLimitPesewas",
+          COALESCE(a.withdrawals_enabled, TRUE) as "withdrawalsEnabled",
+          COALESCE(a.allow_anytime_withdrawals, FALSE) as "allowAnytimeWithdrawals",
           COALESCE(a.created_at, u.created_at) as "createdAt",
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
         FROM users u
@@ -784,7 +813,20 @@ export async function adminAgentsRoutes(
     { preHandler: [authHooks.authenticateAdmin] },
     async (req, reply) => {
       const { id } = req.params;
-      const { fullName, phone, businessName, slug, agentTier, commissionRate, enableApiAccess, customWithdrawalLimitPesewas } = req.body || {};
+      const {
+        fullName,
+        phone,
+        businessName,
+        slug,
+        agentTier,
+        commissionRate,
+        enableApiAccess,
+        customWithdrawalLimitPesewas,
+        customMinWithdrawalPesewas,
+        customDailyLimitPesewas,
+        withdrawalsEnabled,
+        allowAnytimeWithdrawals,
+      } = req.body || {};
 
       const lookupRes = await db.query(
         `SELECT a.id as "agentId", u.id as "userId", a.slug, COALESCE(a.business_name, u.full_name) as "businessName"
@@ -837,6 +879,22 @@ export async function adminAgentsRoutes(
         ? null
         : (customWithdrawalLimitPesewas !== undefined ? parseInt(String(customWithdrawalLimitPesewas), 10) : null);
 
+      const hasCustomMin = customMinWithdrawalPesewas !== undefined;
+      const parsedCustomMin = customMinWithdrawalPesewas === null
+        ? null
+        : (customMinWithdrawalPesewas !== undefined ? parseInt(String(customMinWithdrawalPesewas), 10) : null);
+
+      const hasCustomDaily = customDailyLimitPesewas !== undefined;
+      const parsedCustomDaily = customDailyLimitPesewas === null
+        ? null
+        : (customDailyLimitPesewas !== undefined ? parseInt(String(customDailyLimitPesewas), 10) : null);
+
+      const hasWithdrawalsEnabled = withdrawalsEnabled !== undefined;
+      const parsedWithdrawalsEnabled = withdrawalsEnabled !== undefined ? Boolean(withdrawalsEnabled) : true;
+
+      const hasAllowAnytime = allowAnytimeWithdrawals !== undefined;
+      const parsedAllowAnytime = allowAnytimeWithdrawals !== undefined ? Boolean(allowAnytimeWithdrawals) : false;
+
       const updateAgentRes = await db.query(
         `UPDATE agents
          SET business_name = COALESCE($1, business_name),
@@ -845,11 +903,20 @@ export async function adminAgentsRoutes(
              commission_rate = COALESCE($4, commission_rate),
              api_access_enabled = COALESCE($5, api_access_enabled),
              custom_withdrawal_limit_pesewas = CASE WHEN $6 = TRUE THEN $7::bigint ELSE custom_withdrawal_limit_pesewas END,
+             custom_min_withdrawal_pesewas = CASE WHEN $8 = TRUE THEN $9::bigint ELSE custom_min_withdrawal_pesewas END,
+             custom_daily_limit_pesewas = CASE WHEN $10 = TRUE THEN $11::bigint ELSE custom_daily_limit_pesewas END,
+             withdrawals_enabled = CASE WHEN $12 = TRUE THEN $13::boolean ELSE withdrawals_enabled END,
+             allow_anytime_withdrawals = CASE WHEN $14 = TRUE THEN $15::boolean ELSE allow_anytime_withdrawals END,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $8
+         WHERE id = $16
          RETURNING id, user_id as "userId", business_name as "businessName", slug,
                    agent_tier as "agentTier", status, api_access_enabled as "apiAccessEnabled",
-                   commission_rate as "commissionRate", custom_withdrawal_limit_pesewas as "customWithdrawalLimitPesewas",
+                   commission_rate as "commissionRate",
+                   custom_withdrawal_limit_pesewas as "customWithdrawalLimitPesewas",
+                   custom_min_withdrawal_pesewas as "customMinWithdrawalPesewas",
+                   custom_daily_limit_pesewas as "customDailyLimitPesewas",
+                   withdrawals_enabled as "withdrawalsEnabled",
+                   allow_anytime_withdrawals as "allowAnytimeWithdrawals",
                    updated_at as "updatedAt"`,
         [
           businessName?.trim(),
@@ -859,6 +926,14 @@ export async function adminAgentsRoutes(
           enableApiAccess,
           hasCustomLimit,
           parsedCustomLimit,
+          hasCustomMin,
+          parsedCustomMin,
+          hasCustomDaily,
+          parsedCustomDaily,
+          hasWithdrawalsEnabled,
+          parsedWithdrawalsEnabled,
+          hasAllowAnytime,
+          parsedAllowAnytime,
           targetAgentId,
         ],
       );
@@ -871,7 +946,17 @@ export async function adminAgentsRoutes(
           action: 'ADMIN_UPDATE_AGENT',
           resourceType: 'agents',
           resourceId: targetAgentId,
-          metadata: { businessName, slug, agentTier, enableApiAccess, customWithdrawalLimitPesewas: parsedCustomLimit },
+          metadata: {
+            businessName,
+            slug,
+            agentTier,
+            enableApiAccess,
+            customWithdrawalLimitPesewas: parsedCustomLimit,
+            customMinWithdrawalPesewas: parsedCustomMin,
+            customDailyLimitPesewas: parsedCustomDaily,
+            withdrawalsEnabled: hasWithdrawalsEnabled ? parsedWithdrawalsEnabled : undefined,
+            allowAnytimeWithdrawals: hasAllowAnytime ? parsedAllowAnytime : undefined,
+          },
           ipAddress: req.ip,
         });
       }
@@ -1826,6 +1911,387 @@ export async function adminAgentsRoutes(
           configKey: 'agent_application_fee_pesewas',
         },
         message: `Agent application fee updated to GH₵ ${(newPesewas / 100).toFixed(2)}.`,
+      });
+    },
+  );
+
+  // Helper to fetch current agent withdrawal policy
+  const getAgentWithdrawalPolicyData = async (): Promise<AgentWithdrawalPolicyDto> => {
+    const configRes = await db.query<{ config_key: string; value: any }>(
+      `SELECT config_key, value
+       FROM system_configurations
+       WHERE config_key IN (
+         'agent_min_withdrawal_pesewas',
+         'agent_max_withdrawal_pesewas',
+         'daily_withdrawal_limit_pesewas',
+         'agent_withdrawal_schedule_enabled',
+         'agent_withdrawal_allowed_days',
+         'agent_withdrawal_start_time',
+         'agent_withdrawal_end_time',
+         'allow_agent_withdrawals'
+       )`
+    ).catch(() => ({ rows: [] }));
+
+    const configMap = new Map<string, any>();
+    for (const row of configRes.rows) {
+      configMap.set(row.config_key, row.value);
+    }
+
+    const minConfig = configMap.get('agent_min_withdrawal_pesewas');
+    const globalMinWithdrawalPesewas = minConfig !== undefined && !isNaN(Number(minConfig))
+      ? parseInt(String(minConfig), 10)
+      : 1000;
+
+    const maxConfig = configMap.get('agent_max_withdrawal_pesewas');
+    const globalMaxWithdrawalPesewas = maxConfig !== undefined && !isNaN(Number(maxConfig))
+      ? parseInt(String(maxConfig), 10)
+      : 500000;
+
+    const dailyConfig = configMap.get('daily_withdrawal_limit_pesewas');
+    const globalDailyLimitPesewas = dailyConfig !== undefined && !isNaN(Number(dailyConfig))
+      ? parseInt(String(dailyConfig), 10)
+      : 500000;
+
+    const scheduleEnabled = configMap.get('agent_withdrawal_schedule_enabled') === undefined ||
+      configMap.get('agent_withdrawal_schedule_enabled') === true ||
+      configMap.get('agent_withdrawal_schedule_enabled') === 'true';
+
+    let allowedDays: string[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const rawDays = configMap.get('agent_withdrawal_allowed_days');
+    if (Array.isArray(rawDays)) {
+      allowedDays = rawDays.map((d: any) => String(d).toUpperCase());
+    } else if (typeof rawDays === 'string') {
+      try {
+        const parsed = JSON.parse(rawDays);
+        if (Array.isArray(parsed)) allowedDays = parsed.map((d: any) => String(d).toUpperCase());
+      } catch {
+        allowedDays = rawDays.split(',').map((d: string) => d.trim().toUpperCase());
+      }
+    }
+
+    const rawStartTime = configMap.get('agent_withdrawal_start_time');
+    const startTime = (typeof rawStartTime === 'string' ? rawStartTime : '00:00').replace(/"/g, '').trim();
+
+    const rawEndTime = configMap.get('agent_withdrawal_end_time');
+    const endTime = (typeof rawEndTime === 'string' ? rawEndTime : '23:59').replace(/"/g, '').trim();
+
+    const allowAgentWithdrawals = configMap.get('allow_agent_withdrawals') === undefined ||
+      (configMap.get('allow_agent_withdrawals') !== false && configMap.get('allow_agent_withdrawals') !== 'false');
+
+    const now = new Date();
+    const DAYS_OF_WEEK = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const currentGmtDay = DAYS_OF_WEEK[now.getUTCDay()];
+    const currentHour = now.getUTCHours();
+    const currentMinute = now.getUTCMinutes();
+    const currentGmtTime = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
+    const currentMinutesFromMidnight = currentHour * 60 + currentMinute;
+
+    const [startH, startM] = startTime.split(':').map((n: string) => parseInt(n, 10) || 0);
+    const [endH, endM] = endTime.split(':').map((n: string) => parseInt(n, 10) || 0);
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+
+    let isWindowOpenNow = true;
+    if (!allowAgentWithdrawals) {
+      isWindowOpenNow = false;
+    } else if (scheduleEnabled) {
+      const isDayAllowed = allowedDays.includes(currentGmtDay);
+      const isTimeAllowed = currentMinutesFromMidnight >= startMinutes && currentMinutesFromMidnight <= endMinutes;
+      isWindowOpenNow = isDayAllowed && isTimeAllowed;
+    }
+
+    return {
+      globalMinWithdrawalPesewas,
+      globalMaxWithdrawalPesewas,
+      globalDailyLimitPesewas,
+      scheduleEnabled,
+      allowedDays,
+      startTime,
+      endTime,
+      allowAgentWithdrawals,
+      isWindowOpenNow,
+      currentGmtTime,
+      currentGmtDay,
+    };
+  };
+
+  // 7. GET AGENT WITHDRAWAL POLICY (/admin/agents/withdrawal-settings)
+  app.get(
+    '/admin/agents/withdrawal-settings',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (_req, reply) => {
+      const policy = await getAgentWithdrawalPolicyData();
+      return reply.send({
+        success: true,
+        data: policy,
+      });
+    },
+  );
+
+  // 8. UPDATE AGENT WITHDRAWAL POLICY (/admin/agents/withdrawal-settings)
+  app.put<{ Body: UpdateAgentWithdrawalPolicyRequest }>(
+    '/admin/agents/withdrawal-settings',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const {
+        globalMinWithdrawalPesewas,
+        globalMaxWithdrawalPesewas,
+        globalDailyLimitPesewas,
+        scheduleEnabled,
+        allowedDays,
+        startTime,
+        endTime,
+        allowAgentWithdrawals,
+        reason,
+      } = req.body || {};
+
+      if (globalMinWithdrawalPesewas !== undefined && (isNaN(Number(globalMinWithdrawalPesewas)) || Number(globalMinWithdrawalPesewas) < 0)) {
+        throw new BadRequestError('globalMinWithdrawalPesewas must be a non-negative number.');
+      }
+      if (globalMaxWithdrawalPesewas !== undefined && (isNaN(Number(globalMaxWithdrawalPesewas)) || Number(globalMaxWithdrawalPesewas) <= 0)) {
+        throw new BadRequestError('globalMaxWithdrawalPesewas must be a positive number.');
+      }
+      if (globalDailyLimitPesewas !== undefined && (isNaN(Number(globalDailyLimitPesewas)) || Number(globalDailyLimitPesewas) <= 0)) {
+        throw new BadRequestError('globalDailyLimitPesewas must be a positive number.');
+      }
+
+      if (startTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime.trim())) {
+        throw new BadRequestError('startTime must be in HH:MM format (24-hour).');
+      }
+      if (endTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime.trim())) {
+        throw new BadRequestError('endTime must be in HH:MM format (24-hour).');
+      }
+
+      const VALID_DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      if (allowedDays !== undefined) {
+        if (!Array.isArray(allowedDays) || allowedDays.length === 0) {
+          throw new BadRequestError('allowedDays must be a non-empty array of days (e.g. ["MON", "TUE", ...]).');
+        }
+        for (const day of allowedDays) {
+          if (!VALID_DAYS.includes(String(day).toUpperCase())) {
+            throw new BadRequestError(`Invalid day in allowedDays: '${day}'. Must be one of: ${VALID_DAYS.join(', ')}.`);
+          }
+        }
+      }
+
+      const actorId = req.user?.sub;
+      const isUuid = actorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actorId);
+
+      const upsertConfig = async (key: string, category: string, value: any, dataType: string, desc: string) => {
+        await db.query(
+          `INSERT INTO system_configurations (
+             scope, config_key, category, value, data_type, is_secret, risk_level, requires_step_up, description, version, last_modified_by, last_modified_at
+           )
+           VALUES (
+             'AGENTS', $1, $2, $3::jsonb, $4, false, 'HIGH', true, $5, 1, $6, CURRENT_TIMESTAMP
+           )
+           ON CONFLICT (config_key)
+           DO UPDATE SET
+             value = EXCLUDED.value,
+             version = system_configurations.version + 1,
+             last_modified_by = EXCLUDED.last_modified_by,
+             last_modified_at = CURRENT_TIMESTAMP`,
+          [key, category, JSON.stringify(value), dataType, desc, isUuid ? actorId : null],
+        );
+
+        await db.query(
+          `INSERT INTO configuration_versions (config_key, version, new_value, change_reason, changed_by, changed_by_name)
+           SELECT $1, version, value, $2, $3, $4
+           FROM system_configurations
+           WHERE config_key = $1`,
+          [key, reason || 'Updated agent withdrawal policy', isUuid ? actorId : null, req.user?.email || 'Admin'],
+        ).catch(() => {});
+      };
+
+      if (globalMinWithdrawalPesewas !== undefined) {
+        await upsertConfig('agent_min_withdrawal_pesewas', 'AGENTS', Math.round(Number(globalMinWithdrawalPesewas)), 'NUMBER', 'Minimum profit withdrawal amount per request in pesewas');
+      }
+      if (globalMaxWithdrawalPesewas !== undefined) {
+        await upsertConfig('agent_max_withdrawal_pesewas', 'AGENTS', Math.round(Number(globalMaxWithdrawalPesewas)), 'NUMBER', 'Maximum single profit withdrawal limit in pesewas');
+      }
+      if (globalDailyLimitPesewas !== undefined) {
+        await upsertConfig('daily_withdrawal_limit_pesewas', 'PAYMENTS', Math.round(Number(globalDailyLimitPesewas)), 'NUMBER', 'Daily aggregated profit withdrawal limit per agent in pesewas');
+      }
+      if (scheduleEnabled !== undefined) {
+        await upsertConfig('agent_withdrawal_schedule_enabled', 'AGENTS', Boolean(scheduleEnabled), 'BOOLEAN', 'Enforce time window and operating day restrictions on agent withdrawals');
+      }
+      if (allowedDays !== undefined) {
+        const cleanedDays = allowedDays.map((d: string) => d.toUpperCase());
+        await upsertConfig('agent_withdrawal_allowed_days', 'AGENTS', cleanedDays, 'JSON', 'Days of week when agent profit payouts are permitted');
+      }
+      if (startTime !== undefined) {
+        await upsertConfig('agent_withdrawal_start_time', 'AGENTS', startTime.trim(), 'STRING', 'Daily withdrawal opening time in GMT (HH:MM)');
+      }
+      if (endTime !== undefined) {
+        await upsertConfig('agent_withdrawal_end_time', 'AGENTS', endTime.trim(), 'STRING', 'Daily withdrawal closing time in GMT (HH:MM)');
+      }
+      if (allowAgentWithdrawals !== undefined) {
+        await upsertConfig('allow_agent_withdrawals', 'PAYMENTS', Boolean(allowAgentWithdrawals), 'BOOLEAN', 'Global switch to permit or pause agent profit withdrawals platform-wide');
+      }
+
+      if (auditService) {
+        await auditService.logEvent({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_AGENT_WITHDRAWAL_POLICY_UPDATED',
+          resourceType: 'system_configurations',
+          resourceId: 'agent_withdrawal_policy',
+          metadata: {
+            globalMinWithdrawalPesewas,
+            globalMaxWithdrawalPesewas,
+            globalDailyLimitPesewas,
+            scheduleEnabled,
+            allowedDays,
+            startTime,
+            endTime,
+            allowAgentWithdrawals,
+            reason,
+          },
+          ipAddress: req.ip,
+        }).catch(() => {});
+      }
+
+      const updatedPolicy = await getAgentWithdrawalPolicyData();
+      return reply.send({
+        success: true,
+        data: updatedPolicy,
+        message: 'Agent withdrawal policy and operating schedule updated successfully.',
+      });
+    },
+  );
+
+  // 9. MASS UPDATE AGENT WITHDRAWAL LIMITS (/admin/agents/mass-withdrawal-limits)
+  app.post<{ Body: MassAgentWithdrawalLimitsRequest }>(
+    '/admin/agents/mass-withdrawal-limits',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const {
+        target,
+        agentTier,
+        agentIds,
+        customMinWithdrawalPesewas,
+        customWithdrawalLimitPesewas,
+        customDailyLimitPesewas,
+        withdrawalsEnabled,
+        allowAnytimeWithdrawals,
+        resetToDefaults,
+        reason,
+      } = req.body || {};
+
+      if (!target || !['ALL', 'TIER', 'SELECTED'].includes(target)) {
+        throw new BadRequestError("target must be 'ALL', 'TIER', or 'SELECTED'.");
+      }
+
+      if (target === 'TIER' && !agentTier) {
+        throw new BadRequestError("agentTier is required when target is 'TIER'.");
+      }
+
+      if (target === 'SELECTED' && (!Array.isArray(agentIds) || agentIds.length === 0)) {
+        throw new BadRequestError("agentIds array is required and cannot be empty when target is 'SELECTED'.");
+      }
+
+      // Build dynamic UPDATE query
+      let updateSql = '';
+      const params: any[] = [];
+      let paramIdx = 1;
+
+      if (resetToDefaults) {
+        // Reset all custom overrides back to platform defaults
+        updateSql = `
+          UPDATE agents
+          SET custom_min_withdrawal_pesewas = NULL,
+              custom_withdrawal_limit_pesewas = NULL,
+              custom_daily_limit_pesewas = NULL,
+              withdrawals_enabled = TRUE,
+              allow_anytime_withdrawals = FALSE,
+              updated_at = CURRENT_TIMESTAMP
+        `;
+      } else {
+        const setClauses: string[] = ['updated_at = CURRENT_TIMESTAMP'];
+
+        if (customMinWithdrawalPesewas !== undefined) {
+          const val = customMinWithdrawalPesewas === null ? null : Math.round(Number(customMinWithdrawalPesewas));
+          params.push(val);
+          setClauses.push(`custom_min_withdrawal_pesewas = $${paramIdx++}::bigint`);
+        }
+
+        if (customWithdrawalLimitPesewas !== undefined) {
+          const val = customWithdrawalLimitPesewas === null ? null : Math.round(Number(customWithdrawalLimitPesewas));
+          params.push(val);
+          setClauses.push(`custom_withdrawal_limit_pesewas = $${paramIdx++}::bigint`);
+        }
+
+        if (customDailyLimitPesewas !== undefined) {
+          const val = customDailyLimitPesewas === null ? null : Math.round(Number(customDailyLimitPesewas));
+          params.push(val);
+          setClauses.push(`custom_daily_limit_pesewas = $${paramIdx++}::bigint`);
+        }
+
+        if (withdrawalsEnabled !== undefined) {
+          params.push(Boolean(withdrawalsEnabled));
+          setClauses.push(`withdrawals_enabled = $${paramIdx++}::boolean`);
+        }
+
+        if (allowAnytimeWithdrawals !== undefined) {
+          params.push(Boolean(allowAnytimeWithdrawals));
+          setClauses.push(`allow_anytime_withdrawals = $${paramIdx++}::boolean`);
+        }
+
+        if (setClauses.length === 1) {
+          throw new BadRequestError('At least one withdrawal limit, permission, or resetToDefaults must be provided.');
+        }
+
+        updateSql = `UPDATE agents SET ${setClauses.join(', ')}`;
+      }
+
+      // Append WHERE clause
+      if (target === 'TIER') {
+        params.push(agentTier!.toUpperCase());
+        updateSql += ` WHERE UPPER(agent_tier) = $${paramIdx++}`;
+      } else if (target === 'SELECTED') {
+        params.push(agentIds);
+        updateSql += ` WHERE id = ANY($${paramIdx++}::text[]) OR user_id = ANY($${paramIdx - 1}::text[])`;
+      }
+
+      const result = await db.query(updateSql, params);
+      const updatedCount = result.rowCount || 0;
+
+      if (auditService) {
+        await auditService.logEvent({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_AGENT_MASS_WITHDRAWAL_LIMITS_UPDATED',
+          resourceType: 'agents',
+          resourceId: target,
+          metadata: {
+            target,
+            agentTier,
+            agentIdsCount: agentIds?.length,
+            customMinWithdrawalPesewas,
+            customWithdrawalLimitPesewas,
+            customDailyLimitPesewas,
+            withdrawalsEnabled,
+            allowAnytimeWithdrawals,
+            resetToDefaults,
+            reason,
+            updatedCount,
+          },
+          ipAddress: req.ip,
+        }).catch(() => {});
+      }
+
+      const responseData: MassAgentWithdrawalLimitsResult = {
+        updatedCount,
+        target,
+        agentTier,
+      };
+
+      return reply.send({
+        success: true,
+        data: responseData,
+        message: `Successfully updated withdrawal limits for ${updatedCount} agent${updatedCount === 1 ? '' : 's'}.`,
       });
     },
   );

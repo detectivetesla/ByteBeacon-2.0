@@ -2275,7 +2275,16 @@ export async function agentRoutes(
     const configRes = await db.query<{ config_key: string; value: any }>(
       `SELECT config_key, value
        FROM system_configurations
-       WHERE config_key IN ('allow_agent_withdrawals', 'agent_min_withdrawal_pesewas', 'agent_max_withdrawal_pesewas', 'daily_withdrawal_limit_pesewas')`
+       WHERE config_key IN (
+         'allow_agent_withdrawals',
+         'agent_min_withdrawal_pesewas',
+         'agent_max_withdrawal_pesewas',
+         'daily_withdrawal_limit_pesewas',
+         'agent_withdrawal_schedule_enabled',
+         'agent_withdrawal_allowed_days',
+         'agent_withdrawal_start_time',
+         'agent_withdrawal_end_time'
+       )`
     ).catch(() => ({ rows: [] }));
 
     const configMap = new Map<string, any>();
@@ -2285,46 +2294,132 @@ export async function agentRoutes(
 
     const safety = safetyRes.rows[0];
 
-    // Check emergency switch / allow switch
+    // Check platform-wide emergency switch / allow switch
     const allowConfig = configMap.get('allow_agent_withdrawals');
-    const isPaused = Boolean(
+    const isGlobalPaused = Boolean(
       (safety && (safety.emergency_withdrawals_disabled || (safety as any).emergency_withdrawal_freeze)) ||
       (allowConfig === false || allowConfig === 'false')
     );
 
-    // Check per-agent custom limit override
+    // Check per-agent custom limit overrides and permissions
+    let customMinPesewas: number | null = null;
     let customLimitPesewas: number | null = null;
-    const agentCustomRes = await db.query<{ custom_withdrawal_limit_pesewas: string | null }>(
-      `SELECT custom_withdrawal_limit_pesewas
+    let customDailyPesewas: number | null = null;
+    let agentWithdrawalsEnabled = true;
+    let allowAnytime = false;
+
+    const agentCustomRes = await db.query<{
+      custom_min_withdrawal_pesewas: string | null;
+      custom_withdrawal_limit_pesewas: string | null;
+      custom_daily_limit_pesewas: string | null;
+      withdrawals_enabled: boolean | null;
+      allow_anytime_withdrawals: boolean | null;
+    }>(
+      `SELECT custom_min_withdrawal_pesewas, custom_withdrawal_limit_pesewas,
+              custom_daily_limit_pesewas, withdrawals_enabled, allow_anytime_withdrawals
        FROM agents
        WHERE user_id = $1 OR (id::text = $2 AND id IS NOT NULL)
        LIMIT 1`,
       [userId, agentId || null]
     ).catch(() => ({ rows: [] }));
 
-    if (agentCustomRes.rows[0]?.custom_withdrawal_limit_pesewas) {
-      customLimitPesewas = parseInt(agentCustomRes.rows[0].custom_withdrawal_limit_pesewas, 10);
+    const agentRow = agentCustomRes.rows[0];
+    if (agentRow) {
+      if (agentRow.custom_min_withdrawal_pesewas !== null && agentRow.custom_min_withdrawal_pesewas !== undefined) {
+        customMinPesewas = parseInt(String(agentRow.custom_min_withdrawal_pesewas), 10);
+      }
+      if (agentRow.custom_withdrawal_limit_pesewas !== null && agentRow.custom_withdrawal_limit_pesewas !== undefined) {
+        customLimitPesewas = parseInt(String(agentRow.custom_withdrawal_limit_pesewas), 10);
+      }
+      if (agentRow.custom_daily_limit_pesewas !== null && agentRow.custom_daily_limit_pesewas !== undefined) {
+        customDailyPesewas = parseInt(String(agentRow.custom_daily_limit_pesewas), 10);
+      }
+      if (agentRow.withdrawals_enabled !== null && agentRow.withdrawals_enabled !== undefined) {
+        agentWithdrawalsEnabled = Boolean(agentRow.withdrawals_enabled);
+      }
+      if (agentRow.allow_anytime_withdrawals !== null && agentRow.allow_anytime_withdrawals !== undefined) {
+        allowAnytime = Boolean(agentRow.allow_anytime_withdrawals);
+      }
+    }
+
+    const withdrawalsPaused = Boolean(isGlobalPaused || !agentWithdrawalsEnabled);
+    let withdrawalsPausedReason: string | undefined;
+    if (isGlobalPaused) {
+      withdrawalsPausedReason = 'Profit withdrawals are currently paused by platform administrators.';
+    } else if (!agentWithdrawalsEnabled) {
+      withdrawalsPausedReason = 'Profit withdrawals have been disabled for your agent account. Please contact support.';
     }
 
     // Min limit (pesewas)
     const minConfig = configMap.get('agent_min_withdrawal_pesewas');
-    const minWithdrawalPesewas = minConfig !== undefined && !isNaN(Number(minConfig))
+    const platformMinPesewas = minConfig !== undefined && !isNaN(Number(minConfig))
       ? parseInt(String(minConfig), 10)
       : (safety?.min_withdrawal_pesewas ? parseInt(safety.min_withdrawal_pesewas, 10) : 1000);
+    const minWithdrawalPesewas = customMinPesewas !== null ? customMinPesewas : platformMinPesewas;
 
-    // Max single limit (pesewas) - Agent custom limit takes precedence if configured
+    // Max single limit (pesewas)
     const maxConfig = configMap.get('agent_max_withdrawal_pesewas');
     const platformMaxPesewas = maxConfig !== undefined && !isNaN(Number(maxConfig))
       ? parseInt(String(maxConfig), 10)
       : (safety?.max_single_withdrawal_pesewas ? parseInt(safety.max_single_withdrawal_pesewas, 10) : 500000);
-
     const maxWithdrawalPesewas = customLimitPesewas !== null ? customLimitPesewas : platformMaxPesewas;
 
     // Daily limit (pesewas)
     const dailyConfig = configMap.get('daily_withdrawal_limit_pesewas');
-    const dailyLimitPesewas = dailyConfig !== undefined && !isNaN(Number(dailyConfig))
+    const platformDailyPesewas = dailyConfig !== undefined && !isNaN(Number(dailyConfig))
       ? parseInt(String(dailyConfig), 10)
-      : (safety?.max_daily_withdrawal_pesewas ? parseInt(safety.max_daily_withdrawal_pesewas, 10) : 2000000);
+      : (safety?.max_daily_withdrawal_pesewas ? parseInt(safety.max_daily_withdrawal_pesewas, 10) : 500000);
+    const dailyLimitPesewas = customDailyPesewas !== null ? customDailyPesewas : platformDailyPesewas;
+
+    // Schedule window evaluation (Ghana operates on GMT / UTC+0)
+    const scheduleEnabled = configMap.get('agent_withdrawal_schedule_enabled') === true || configMap.get('agent_withdrawal_schedule_enabled') === 'true';
+
+    let allowedDays: string[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const rawDays = configMap.get('agent_withdrawal_allowed_days');
+    if (Array.isArray(rawDays)) {
+      allowedDays = rawDays.map(d => String(d).toUpperCase());
+    } else if (typeof rawDays === 'string') {
+      try {
+        const parsed = JSON.parse(rawDays);
+        if (Array.isArray(parsed)) allowedDays = parsed.map(d => String(d).toUpperCase());
+      } catch {
+        allowedDays = rawDays.split(',').map(d => d.trim().toUpperCase());
+      }
+    }
+
+    const rawStartTime = configMap.get('agent_withdrawal_start_time');
+    const startTime = (typeof rawStartTime === 'string' ? rawStartTime : '00:00').replace(/"/g, '').trim();
+
+    const rawEndTime = configMap.get('agent_withdrawal_end_time');
+    const endTime = (typeof rawEndTime === 'string' ? rawEndTime : '23:59').replace(/"/g, '').trim();
+
+    const now = new Date();
+    const DAYS_OF_WEEK = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const currentDay = DAYS_OF_WEEK[now.getUTCDay()];
+    const currentHour = now.getUTCHours();
+    const currentMinute = now.getUTCMinutes();
+    const currentMinutesFromMidnight = currentHour * 60 + currentMinute;
+
+    const [startH, startM] = startTime.split(':').map(n => parseInt(n, 10) || 0);
+    const [endH, endM] = endTime.split(':').map(n => parseInt(n, 10) || 0);
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+
+    let isWindowOpen = true;
+    let windowMessage = 'Withdrawal window is open';
+
+    if (scheduleEnabled && !allowAnytime) {
+      const isDayAllowed = allowedDays.includes(currentDay);
+      const isTimeAllowed = currentMinutesFromMidnight >= startMinutes && currentMinutesFromMidnight <= endMinutes;
+
+      if (!isDayAllowed) {
+        isWindowOpen = false;
+        windowMessage = `Withdrawals are closed on ${currentDay}. Allowed days: ${allowedDays.join(', ')}.`;
+      } else if (!isTimeAllowed) {
+        isWindowOpen = false;
+        windowMessage = `Withdrawal hours are ${startTime} - ${endTime} GMT. Current time: ${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')} GMT.`;
+      }
+    }
 
     // Calculate total withdrawn in the last 24 hours
     const past24hRes = await db.query<{ today_withdrawn: string }>(
@@ -2340,13 +2435,25 @@ export async function agentRoutes(
     const remainingDailyLimitPesewas = Math.max(0, dailyLimitPesewas - dailyWithdrawnPesewas);
 
     return {
-      withdrawalsPaused: Boolean(isPaused),
+      withdrawalsPaused,
+      withdrawalsPausedReason,
       minWithdrawalPesewas,
       maxWithdrawalPesewas,
       dailyLimitPesewas,
       dailyWithdrawnPesewas,
       remainingDailyLimitPesewas,
-      isCustomLimit: customLimitPesewas !== null,
+      isCustomLimit: customLimitPesewas !== null || customMinPesewas !== null || customDailyPesewas !== null,
+      customMinWithdrawalPesewas: customMinPesewas,
+      customWithdrawalLimitPesewas: customLimitPesewas,
+      customDailyLimitPesewas: customDailyPesewas,
+      withdrawalsEnabled: agentWithdrawalsEnabled,
+      allowAnytimeWithdrawals: allowAnytime,
+      scheduleEnabled,
+      allowedDays,
+      startTime,
+      endTime,
+      isWindowOpen,
+      windowMessage,
     };
   };
 
@@ -2498,7 +2605,16 @@ export async function agentRoutes(
       );
 
       if (limits.withdrawalsPaused) {
-        throw new BadRequestError('Profit withdrawals are currently paused by platform administrators. Please check back later.');
+        throw new BadRequestError(
+          limits.withdrawalsPausedReason ||
+            'Profit withdrawals are currently paused by platform administrators. Please check back later.'
+        );
+      }
+
+      if (!limits.isWindowOpen) {
+        throw new BadRequestError(
+          limits.windowMessage || 'Profit withdrawals are currently closed according to the platform schedule.'
+        );
       }
 
       if (!amountPesewas || amountPesewas < limits.minWithdrawalPesewas) {

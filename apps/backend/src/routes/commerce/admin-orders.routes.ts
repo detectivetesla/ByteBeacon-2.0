@@ -22,6 +22,19 @@ export interface AdminOrdersRouteDependencies {
   financialLedgerService?: FinancialLedgerService;
 }
 
+export interface OrderFilterQueryParams {
+  search?: string;
+  lifecycle?: string;
+  paymentStatus?: string;
+  provider?: string;
+  network?: string;
+  source?: string;
+  period?: string;
+  startDate?: string;
+  endDate?: string;
+  operationalState?: string;
+}
+
 export async function adminOrdersRoutes(
   app: FastifyInstance,
   deps: AdminOrdersRouteDependencies,
@@ -55,12 +68,126 @@ export async function adminOrdersRoutes(
     return sanitized;
   };
 
-  // 1. GET /admin/orders/stats — Overview Statistics Counters
-  app.get(
+  function buildOrderFilterClause(query: OrderFilterQueryParams = {}, startIdx = 1) {
+    const whereConditions: string[] = [];
+    const params: any[] = [];
+    let idx = startIdx;
+
+    if (query.lifecycle && query.lifecycle !== 'ALL') {
+      if (query.lifecycle === 'COMPLETED') {
+        whereConditions.push(`(o.order_status IN ('COMPLETED', 'DELIVERED', 'FULFILLED') OR po.provider_status IN ('COMPLETED', 'FULFILLED'))`);
+      } else if (query.lifecycle === 'REFUNDED') {
+        whereConditions.push(`(o.order_status = 'REFUNDED' OR o.refund_status = 'COMPLETED')`);
+      } else {
+        whereConditions.push(`o.order_status = $${idx}`);
+        params.push(query.lifecycle);
+        idx++;
+      }
+    }
+
+    if (query.paymentStatus && query.paymentStatus !== 'ALL') {
+      if (query.paymentStatus === 'UNPAID') {
+        whereConditions.push(`o.payment_status IN ('PENDING', 'PROCESSING', 'UNPAID')`);
+      } else {
+        whereConditions.push(`o.payment_status = $${idx}`);
+        params.push(query.paymentStatus);
+        idx++;
+      }
+    }
+
+    if (query.network && query.network !== 'ALL') {
+      if (query.network === 'AIRTELTIGO' || query.network === 'AT') {
+        whereConditions.push(`o.network IN ('AIRTELTIGO', 'AT')`);
+      } else {
+        whereConditions.push(`o.network = $${idx}`);
+        params.push(query.network);
+        idx++;
+      }
+    }
+
+    if (query.provider && query.provider !== 'ALL') {
+      whereConditions.push(`po.provider_name = $${idx}`);
+      params.push(query.provider);
+      idx++;
+    }
+
+    if (query.source && query.source !== 'ALL') {
+      if (query.source === 'AGENT') {
+        whereConditions.push(`o.agent_id IS NOT NULL`);
+      } else if (query.source === 'CUSTOMER') {
+        whereConditions.push(`o.agent_id IS NULL`);
+      }
+    }
+
+    if (query.search && query.search.trim() !== '') {
+      const term = `%${query.search.trim().toLowerCase()}%`;
+      whereConditions.push(`(
+        o.id::text LIKE $${idx} OR
+        LOWER(COALESCE(o.recipient_phone, '')) LIKE $${idx} OR
+        LOWER(COALESCE(u.email, '')) LIKE $${idx} OR
+        LOWER(COALESCE(u.full_name, '')) LIKE $${idx} OR
+        LOWER(COALESCE(po.provider_order_id, '')) LIKE $${idx} OR
+        LOWER(COALESCE(po.provider_reference, '')) LIKE $${idx} OR
+        LOWER(COALESCE(p.provider_reference, '')) LIKE $${idx}
+      )`);
+      params.push(term);
+      idx++;
+    }
+
+    if (query.operationalState && query.operationalState !== 'ALL') {
+      if (query.operationalState === 'RECONCILIATION_REQUIRED') {
+        whereConditions.push(`(o.order_status = 'COMPLETED' AND (o.provider_status = 'FAILED' OR po.provider_status = 'FAILED'))`);
+      } else if (query.operationalState === 'AWAITING_APPROVAL') {
+        whereConditions.push(`o.order_status = 'AWAITING_APPROVAL'`);
+      } else if (query.operationalState === 'FAILED_QUEUE') {
+        whereConditions.push(`(o.order_status = 'FAILED' AND (po.provider_status IS NULL OR po.provider_status NOT IN ('COMPLETED', 'FULFILLED')))`);
+      } else if (query.operationalState === 'REFUND_PENDING') {
+        whereConditions.push(`o.refund_status = 'PENDING'`);
+      }
+    }
+
+    if (query.startDate) {
+      whereConditions.push(`o.created_at >= $${idx}::date`);
+      params.push(query.startDate);
+      idx++;
+    }
+
+    if (query.endDate) {
+      whereConditions.push(`o.created_at <= ($${idx}::date + INTERVAL '1 day')`);
+      params.push(query.endDate);
+      idx++;
+    }
+
+    if (query.period && query.period !== 'ALL') {
+      if (query.period === 'TODAY') {
+        whereConditions.push(`o.created_at >= CURRENT_DATE`);
+      } else if (query.period === 'YESTERDAY') {
+        whereConditions.push(`o.created_at >= CURRENT_DATE - INTERVAL '1 day' AND o.created_at < CURRENT_DATE`);
+      } else if (query.period === '7D') {
+        whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`);
+      } else if (query.period === '30D') {
+        whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`);
+      } else if (query.period === '90D') {
+        whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days'`);
+      } else if (query.period === 'MONTH') {
+        whereConditions.push(`o.created_at >= date_trunc('month', CURRENT_DATE)`);
+      }
+    }
+
+    const whereSql = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    return { whereConditions, params, whereSql, nextIdx: idx };
+  }
+
+  // 1. GET /admin/orders/stats — Overview Statistics Counters (Dynamically Filtered)
+  app.get<{
+    Querystring: OrderFilterQueryParams;
+  }>(
     '/admin/orders/stats',
     { preHandler: [authHooks.authenticateAdmin] },
-    async (_req: FastifyRequest, reply: FastifyReply) => {
-      const statsRes = await db.query(`
+    async (req: FastifyRequest<{ Querystring: OrderFilterQueryParams }>, reply: FastifyReply) => {
+      const { whereSql, params } = buildOrderFilterClause(req.query || {});
+
+      const statsSql = `
         SELECT 
           COUNT(DISTINCT o.id) as "totalOrders",
           COUNT(DISTINCT CASE WHEN o.order_status IN ('PROCESSING', 'PENDING', 'SUBMITTED') THEN o.id END) as "processing",
@@ -71,14 +198,19 @@ export async function adminOrdersRoutes(
           COUNT(DISTINCT CASE WHEN o.provider_status IN ('SYNC_FAILED', 'STALE', 'RECONCILIATION_REQUIRED') OR po.provider_status IN ('SYNC_FAILED', 'STALE', 'RECONCILIATION_REQUIRED') THEN o.id END) as "syncIssues",
           COUNT(DISTINCT CASE WHEN o.order_status = 'COMPLETED' AND (o.provider_status = 'FAILED' OR po.provider_status = 'FAILED') THEN o.id END) as "reconciliationRequired"
         FROM orders o
+        LEFT JOIN users u ON o.user_id = u.id
         LEFT JOIN LATERAL (
-          SELECT provider_status
+          SELECT provider_name, provider_order_id, provider_reference, provider_status
           FROM provider_orders
           WHERE order_id = o.id
           ORDER BY created_at DESC
           LIMIT 1
         ) po ON true
-      `).catch((err) => {
+        LEFT JOIN payment_transactions p ON o.id = p.order_id
+        ${whereSql}
+      `;
+
+      const statsRes = await db.query(statsSql, params).catch((err) => {
         app.log.error({ err }, '[ADMIN_ORDERS] Error calculating orders stats');
         return {
           rows: [{
@@ -106,19 +238,9 @@ export async function adminOrdersRoutes(
 
   // 2. GET /admin/orders — Search & Multi-Filtered Orders Directory
   app.get<{
-    Querystring: {
+    Querystring: OrderFilterQueryParams & {
       page?: string;
       limit?: string;
-      search?: string;
-      lifecycle?: string;
-      paymentStatus?: string;
-      provider?: string;
-      network?: string;
-      source?: string;
-      period?: string;
-      startDate?: string;
-      endDate?: string;
-      operationalState?: string;
     };
   }>(
     '/admin/orders',
@@ -127,114 +249,13 @@ export async function adminOrdersRoutes(
       const {
         page = '1',
         limit = '25',
-        search,
-        lifecycle,
-        paymentStatus,
-        provider,
-        network,
-        source,
-        period,
-        startDate,
-        endDate,
-        operationalState,
       } = req.query || {};
 
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
       const offset = (pageNum - 1) * limitNum;
 
-      const whereConditions: string[] = [];
-      const params: any[] = [];
-      let idx = 1;
-
-      if (lifecycle && lifecycle !== 'ALL') {
-        whereConditions.push(`o.order_status = $${idx}`);
-        params.push(lifecycle);
-        idx++;
-      }
-
-      if (paymentStatus && paymentStatus !== 'ALL') {
-        whereConditions.push(`o.payment_status = $${idx}`);
-        params.push(paymentStatus);
-        idx++;
-      }
-
-      if (network && network !== 'ALL') {
-        whereConditions.push(`o.network = $${idx}`);
-        params.push(network);
-        idx++;
-      }
-
-      if (provider && provider !== 'ALL') {
-        whereConditions.push(`po.provider_name = $${idx}`);
-        params.push(provider);
-        idx++;
-      }
-
-      if (source && source !== 'ALL') {
-        if (source === 'AGENT') {
-          whereConditions.push(`o.agent_id IS NOT NULL`);
-        } else if (source === 'CUSTOMER') {
-          whereConditions.push(`o.agent_id IS NULL`);
-        }
-      }
-
-      if (search && search.trim() !== '') {
-        const term = `%${search.trim().toLowerCase()}%`;
-        whereConditions.push(`(
-          o.id::text LIKE $${idx} OR
-          LOWER(COALESCE(o.recipient_phone, '')) LIKE $${idx} OR
-          LOWER(COALESCE(u.email, '')) LIKE $${idx} OR
-          LOWER(COALESCE(u.full_name, '')) LIKE $${idx} OR
-          LOWER(COALESCE(po.provider_order_id, '')) LIKE $${idx} OR
-          LOWER(COALESCE(po.provider_reference, '')) LIKE $${idx} OR
-          LOWER(COALESCE(p.provider_reference, '')) LIKE $${idx}
-        )`);
-        params.push(term);
-        idx++;
-      }
-
-      if (operationalState && operationalState !== 'ALL') {
-        if (operationalState === 'RECONCILIATION_REQUIRED') {
-          whereConditions.push(`(o.order_status = 'COMPLETED' AND o.provider_status = 'FAILED')`);
-        } else if (operationalState === 'AWAITING_APPROVAL') {
-          whereConditions.push(`o.order_status = 'AWAITING_APPROVAL'`);
-        } else if (operationalState === 'FAILED_QUEUE') {
-          whereConditions.push(`o.order_status = 'FAILED'`);
-        } else if (operationalState === 'REFUND_PENDING') {
-          whereConditions.push(`o.refund_status = 'PENDING'`);
-        }
-      }
-
-      if (startDate) {
-        whereConditions.push(`o.created_at >= $${idx}::date`);
-        params.push(startDate);
-        idx++;
-      }
-
-      if (endDate) {
-        whereConditions.push(`o.created_at <= ($${idx}::date + INTERVAL '1 day')`);
-        params.push(endDate);
-        idx++;
-      }
-
-      if (period && period !== 'ALL') {
-        if (period === 'TODAY') {
-          whereConditions.push(`o.created_at >= CURRENT_DATE`);
-        } else if (period === 'YESTERDAY') {
-          whereConditions.push(`o.created_at >= CURRENT_DATE - INTERVAL '1 day' AND o.created_at < CURRENT_DATE`);
-        } else if (period === '7D') {
-          whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`);
-        } else if (period === '30D') {
-          whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`);
-        } else if (period === '90D') {
-          whereConditions.push(`o.created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days'`);
-        } else if (period === 'MONTH') {
-          whereConditions.push(`o.created_at >= date_trunc('month', CURRENT_DATE)`);
-        }
-      }
-
-      const whereSql = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+      const { whereSql, params, nextIdx } = buildOrderFilterClause(req.query || {});
 
       const countSql = `
         SELECT COUNT(DISTINCT o.id) as total
@@ -277,7 +298,7 @@ export async function adminOrdersRoutes(
         LEFT JOIN payment_transactions p ON o.id = p.order_id
         ${whereSql}
         ORDER BY o.created_at DESC, o.id DESC
-        LIMIT $${idx} OFFSET $${idx + 1}
+        LIMIT $${nextIdx} OFFSET $${nextIdx + 1}
       `;
 
       const listRes = await db.query(listSql, [...params, limitNum, offset]).catch(() => ({ rows: [] }));

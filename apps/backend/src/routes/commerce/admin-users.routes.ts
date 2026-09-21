@@ -353,10 +353,34 @@ export async function adminUsersRoutes(
   );
 
   // 3. GET /admin/users/:id — Comprehensive Individual User Control Center Dossier (11.4)
-  app.get<{ Params: { id: string } }>(
+  app.get<{
+    Params: { id: string };
+    Querystring: {
+      period?: string;
+      startDate?: string;
+      endDate?: string;
+      network?: string;
+      status?: string;
+      type?: string;
+      sort?: string;
+      search?: string;
+    };
+  }>(
     '/admin/users/:id',
     { preHandler: [authHooks.authenticateAdmin] },
-    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (req: FastifyRequest<{
+      Params: { id: string };
+      Querystring: {
+        period?: string;
+        startDate?: string;
+        endDate?: string;
+        network?: string;
+        status?: string;
+        type?: string;
+        sort?: string;
+        search?: string;
+      };
+    }>, reply: FastifyReply) => {
       const userRes = await db.query(
         `SELECT id, email, phone,
                 COALESCE(full_name, email, 'User') as "fullName",
@@ -383,6 +407,137 @@ export async function adminUsersRoutes(
       const u = userRes.rows[0];
       const walletBalancePesewas = parseInt(u.walletBalancePesewas || '0', 10) || 0;
 
+      const {
+        period,
+        startDate,
+        endDate,
+        network,
+        status,
+        type,
+        sort,
+        search,
+      } = req.query || {};
+
+      const orderWhereConditions: string[] = ['user_id = $1'];
+      const orderQueryParams: any[] = [req.params.id];
+      let oIdx = 2;
+
+      if (network && network !== 'ALL') {
+        if (network === 'AIRTELTIGO' || network === 'AT') {
+          orderWhereConditions.push(`network IN ('AIRTELTIGO', 'AT')`);
+        } else {
+          orderWhereConditions.push(`network = $${oIdx}`);
+          orderQueryParams.push(network);
+          oIdx++;
+        }
+      }
+
+      if (status && status !== 'ALL') {
+        if (status === 'COMPLETED') {
+          orderWhereConditions.push(`order_status IN ('COMPLETED', 'DELIVERED', 'FULFILLED')`);
+        } else if (status === 'REFUNDED') {
+          orderWhereConditions.push(`(order_status = 'REFUNDED' OR refund_status = 'COMPLETED')`);
+        } else {
+          orderWhereConditions.push(`order_status = $${oIdx}`);
+          orderQueryParams.push(status);
+          oIdx++;
+        }
+      }
+
+      if (startDate) {
+        orderWhereConditions.push(`created_at >= $${oIdx}::date`);
+        orderQueryParams.push(startDate);
+        oIdx++;
+      }
+
+      if (endDate) {
+        orderWhereConditions.push(`created_at <= ($${oIdx}::date + INTERVAL '1 day')`);
+        orderQueryParams.push(endDate);
+        oIdx++;
+      }
+
+      const normPeriod = period?.toUpperCase();
+      if (normPeriod && normPeriod !== 'ALL') {
+        if (normPeriod === 'TODAY') {
+          orderWhereConditions.push(`created_at >= CURRENT_DATE`);
+        } else if (normPeriod === 'YESTERDAY') {
+          orderWhereConditions.push(`created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE`);
+        } else if (normPeriod === '7D') {
+          orderWhereConditions.push(`created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`);
+        } else if (normPeriod === '30D') {
+          orderWhereConditions.push(`created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`);
+        } else if (normPeriod === '90D') {
+          orderWhereConditions.push(`created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days'`);
+        } else if (normPeriod === 'MONTH') {
+          orderWhereConditions.push(`created_at >= date_trunc('month', CURRENT_DATE)`);
+        }
+      }
+
+      if (search && search.trim() !== '') {
+        const orderSearchTerm = `%${search.trim().toLowerCase()}%`;
+        orderWhereConditions.push(
+          `(LOWER(CAST(id AS TEXT)) LIKE $${oIdx} OR LOWER(COALESCE(public_id, '')) LIKE $${oIdx} OR LOWER(COALESCE(recipient_phone, '')) LIKE $${oIdx})`
+        );
+        orderQueryParams.push(orderSearchTerm);
+        oIdx++;
+      }
+
+      let orderSortClause = 'ORDER BY created_at DESC';
+      if (sort === 'DATE_ASC') {
+        orderSortClause = 'ORDER BY created_at ASC';
+      } else if (sort === 'AMOUNT_DESC') {
+        orderSortClause = 'ORDER BY amount_pesewas DESC';
+      } else if (sort === 'AMOUNT_ASC') {
+        orderSortClause = 'ORDER BY amount_pesewas ASC';
+      }
+
+      const ledgerWhereConditions: string[] = ['account_id = $1'];
+      const ledgerQueryParams: any[] = [req.params.id];
+      let lIdx = 2;
+
+      if (type && type !== 'ALL') {
+        ledgerWhereConditions.push(`entry_type = $${lIdx}`);
+        ledgerQueryParams.push(type);
+        lIdx++;
+      }
+
+      if (startDate) {
+        ledgerWhereConditions.push(`created_at >= $${lIdx}::date`);
+        ledgerQueryParams.push(startDate);
+        lIdx++;
+      }
+
+      if (endDate) {
+        ledgerWhereConditions.push(`created_at <= ($${lIdx}::date + INTERVAL '1 day')`);
+        ledgerQueryParams.push(endDate);
+        lIdx++;
+      }
+
+      if (normPeriod && normPeriod !== 'ALL') {
+        if (normPeriod === 'TODAY') {
+          ledgerWhereConditions.push(`created_at >= CURRENT_DATE`);
+        } else if (normPeriod === 'YESTERDAY') {
+          ledgerWhereConditions.push(`created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE`);
+        } else if (normPeriod === '7D') {
+          ledgerWhereConditions.push(`created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`);
+        } else if (normPeriod === '30D') {
+          ledgerWhereConditions.push(`created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`);
+        } else if (normPeriod === '90D') {
+          ledgerWhereConditions.push(`created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days'`);
+        } else if (normPeriod === 'MONTH') {
+          ledgerWhereConditions.push(`created_at >= date_trunc('month', CURRENT_DATE)`);
+        }
+      }
+
+      if (search && search.trim() !== '') {
+        const ledgerSearchTerm = `%${search.trim().toLowerCase()}%`;
+        ledgerWhereConditions.push(
+          `(LOWER(COALESCE(description, '')) LIKE $${lIdx} OR LOWER(COALESCE(reference_id, '')) LIKE $${lIdx} OR LOWER(COALESCE(reference_type, '')) LIKE $${lIdx})`
+        );
+        ledgerQueryParams.push(ledgerSearchTerm);
+        lIdx++;
+      }
+
       // Calculate Double-Entry Ledger Sum for account_id
       const ledgerSumRes = await db.query(
         `SELECT
@@ -392,6 +547,21 @@ export async function adminUsersRoutes(
         [req.params.id],
       ).catch(() => ({ rows: [{ ledgerDerivedBalance: '0' }] }));
       const ledgerDerivedBalancePesewas = parseInt(ledgerSumRes.rows[0]?.ledgerDerivedBalance || '0', 10);
+
+      // Period ledger net flow (credits vs debits)
+      const periodFlowRes = await db.query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as "periodNetFlowPesewas",
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE entry_type = 'CREDIT'), 0) as "periodCreditsPesewas",
+           COALESCE(SUM(amount_pesewas) FILTER (WHERE entry_type = 'DEBIT'), 0) as "periodDebitsPesewas"
+         FROM financial_ledger
+         WHERE ${ledgerWhereConditions.join(' AND ')}`,
+        ledgerQueryParams,
+      ).catch(() => ({ rows: [{}] }));
+      const pfRow = periodFlowRes.rows[0] || {};
+      const periodNetFlowPesewas = parseInt(pfRow.periodNetFlowPesewas || '0', 10);
+      const periodCreditsPesewas = parseInt(pfRow.periodCreditsPesewas || '0', 10);
+      const periodDebitsPesewas = parseInt(pfRow.periodDebitsPesewas || '0', 10);
 
       // Financial breakdown query
       const financialDetailsRes = await db.query(
@@ -421,8 +591,8 @@ export async function adminUsersRoutes(
            COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')) as "dailyOrders",
            COALESCE(SUM(amount_pesewas) FILTER (WHERE created_at >= CURRENT_DATE AND payment_status = 'PAID' AND order_status IN ('COMPLETED', 'DELIVERED') AND COALESCE(refund_status, 'NONE') NOT IN ('COMPLETED', 'REFUNDED')), 0) as "dailySpentPesewas"
          FROM orders
-         WHERE user_id = $1`,
-        [req.params.id],
+         WHERE ${orderWhereConditions.join(' AND ')}`,
+        orderQueryParams,
       ).catch(() => ({ rows: [{}] }));
       const obRow = ordersBreakdownRes.rows[0] || {};
 
@@ -455,6 +625,9 @@ export async function adminUsersRoutes(
         lifetimeValuePesewas: totalSpentPesewas + totalDepositsPesewas,
         reconciliationStatus,
         discrepancyPesewas,
+        periodNetFlowPesewas,
+        periodCreditsPesewas,
+        periodDebitsPesewas,
       };
 
       // Fetch recent orders with full status details
@@ -463,19 +636,28 @@ export async function adminUsersRoutes(
                 amount_pesewas as "amountPesewas", order_status as "orderStatus",
                 payment_status as "paymentStatus", provider_status as "providerStatus",
                 refund_status as "refundStatus", created_at as "createdAt", updated_at as "updatedAt"
-         FROM orders WHERE user_id = $1
-         ORDER BY created_at DESC LIMIT 50`,
-        [req.params.id],
+         FROM orders WHERE ${orderWhereConditions.join(' AND ')}
+         ${orderSortClause} LIMIT 50`,
+        orderQueryParams,
       ).catch(() => ({ rows: [] }));
 
       // Fetch financial ledger lines
+      let ledgerSortClause = 'ORDER BY created_at DESC';
+      if (sort === 'DATE_ASC') {
+        ledgerSortClause = 'ORDER BY created_at ASC';
+      } else if (sort === 'AMOUNT_DESC') {
+        ledgerSortClause = 'ORDER BY amount_pesewas DESC';
+      } else if (sort === 'AMOUNT_ASC') {
+        ledgerSortClause = 'ORDER BY amount_pesewas ASC';
+      }
+
       const ledgerRes = await db.query(
         `SELECT id, transaction_id as "transactionId", entry_type as "entryType", amount_pesewas as "amountPesewas",
                 account_type as "accountType", reference_type as "referenceType", reference_id as "referenceId",
                 description, created_at as "createdAt"
-         FROM financial_ledger WHERE account_id = $1
-         ORDER BY created_at DESC LIMIT 50`,
-        [req.params.id],
+         FROM financial_ledger WHERE ${ledgerWhereConditions.join(' AND ')}
+         ${ledgerSortClause} LIMIT 50`,
+        ledgerQueryParams,
       ).catch(() => ({ rows: [] }));
 
       // Fetch transactions stream (combined ledger & payments)

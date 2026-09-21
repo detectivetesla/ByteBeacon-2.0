@@ -312,6 +312,35 @@ describe('Phase 11.5: Order & Pending Approval Administration Suite', () => {
     expect(body.data.failed).toBe(5);
   });
 
+  it('GET /admin/orders/stats accepts query filters and applies WHERE conditions', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/orders/stats?network=MTN&lifecycle=COMPLETED&paymentStatus=PAID&source=AGENT&period=TODAY&operationalState=RECONCILIATION_REQUIRED',
+      headers: { authorization: 'Bearer mock_admin_token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.data.totalOrders).toBe(100);
+
+    // Verify db.query was invoked with the filters in WHERE clause
+    const statsCalls = (mockDb.query as any).mock.calls.filter((call: any[]) =>
+      call[0].includes('as "totalOrders"')
+    );
+    expect(statsCalls.length).toBeGreaterThan(0);
+    const lastCall = statsCalls[statsCalls.length - 1];
+    const querySql = lastCall[0];
+    const queryParams = lastCall[1];
+
+    expect(querySql).toContain('o.network = $');
+    expect(querySql).toContain('o.payment_status = $');
+    expect(querySql).toContain('o.agent_id IS NOT NULL');
+    expect(querySql).toContain('CURRENT_DATE');
+    expect(queryParams).toContain('MTN');
+    expect(queryParams).toContain('PAID');
+  });
+
   // 2. Orders Search & Filtering
   it('GET /admin/orders queries server-side orders with pagination and filtering', async () => {
     const res = await app.inject({

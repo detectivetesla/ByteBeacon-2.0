@@ -96,15 +96,25 @@ export const AdminOrdersPage: React.FC = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  // Fetch summary stats
+  // Fetch summary stats with active filters applied
   const fetchStats = useCallback(async () => {
     try {
-      const res = await adminApi.getOrderStats();
+      const res = await adminApi.getOrderStats({
+        search: searchQuery.trim() || undefined,
+        lifecycle: lifecycleFilter !== 'ALL' ? lifecycleFilter : undefined,
+        paymentStatus: paymentFilter !== 'ALL' ? paymentFilter : undefined,
+        network: networkFilter !== 'ALL' ? networkFilter : undefined,
+        source: sourceFilter !== 'ALL' ? sourceFilter : undefined,
+        period: periodFilter !== 'ALL' && periodFilter !== 'CUSTOM' ? periodFilter : undefined,
+        startDate: periodFilter === 'CUSTOM' && startDate ? startDate : undefined,
+        endDate: periodFilter === 'CUSTOM' && endDate ? endDate : undefined,
+        operationalState: operationalStateFilter !== 'ALL' ? operationalStateFilter : undefined,
+      });
       if (res) setStats(res);
     } catch {
       // Ignore
     }
-  }, []);
+  }, [searchQuery, lifecycleFilter, paymentFilter, networkFilter, sourceFilter, periodFilter, startDate, endDate, operationalStateFilter]);
 
   // Fetch orders list
   const fetchOrders = useCallback(async () => {
@@ -598,59 +608,59 @@ export const AdminOrdersPage: React.FC = () => {
       >
         <MetricCard
           title="Total Orders"
-          value={stats.totalOrders.toLocaleString()}
-          subvalue="Recorded in platform"
+          value={(stats.totalOrders || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered count" : "Recorded in platform"}
           accent="blue"
           icon={<TactileIcon icon={Package} color="orders" size="sm" />}
         />
         <MetricCard
           title="In-Flight Processing"
-          value={stats.processing.toLocaleString()}
-          subvalue="Awaiting telecom ACK"
+          value={(stats.processing || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered in-flight" : "Awaiting telecom ACK"}
           accent="cyan"
           icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
         />
         <MetricCard
           title="Completed Deliveries"
-          value={stats.completed.toLocaleString()}
-          subvalue="Authoritative fulfillment"
+          value={(stats.completed || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered completed" : "Authoritative fulfillment"}
           accent="green"
           icon={<TactileIcon icon={CheckCircle2} color="security" size="sm" />}
         />
         <MetricCard
           title="Failed Dispatches"
-          value={stats.failed.toLocaleString()}
-          subvalue="DLQ / Retry candidates"
+          value={(stats.failed || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered failed" : "DLQ / Retry candidates"}
           accent="red"
           icon={<TactileIcon icon={AlertOctagon} color="red" size="sm" />}
         />
         <MetricCard
           title="Resolved Refunds"
-          value={stats.refunded.toLocaleString()}
-          subvalue="Ledger reversed"
+          value={(stats.refunded || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered refunded" : "Ledger reversed"}
           accent="purple"
           icon={<TactileIcon icon={RotateCcw} color="orders" size="sm" />}
         />
         <MetricCard
           title="Awaiting MTN Approvals"
-          value={stats.awaitingApproval.toLocaleString()}
-          subvalue="Beneficiary validation"
+          value={(stats.awaitingApproval || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered approvals" : "Beneficiary validation"}
           accent="orange"
           icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
         />
         <MetricCard
           title="Sync Issues"
-          value={stats.syncIssues.toLocaleString()}
-          subvalue="Provider lag detected"
+          value={(stats.syncIssues || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered sync issues" : "Provider lag detected"}
           accent="orange"
           icon={<TactileIcon icon={Server} color="speed" size="sm" />}
         />
         <MetricCard
           title="Recon Required"
-          value={stats.reconciliationRequired.toLocaleString()}
-          subvalue="State divergence detected"
-          accent={stats.reconciliationRequired > 0 ? 'red' : 'green'}
-          icon={<TactileIcon icon={ShieldCheck} color={stats.reconciliationRequired > 0 ? 'red' : 'security'} size="sm" />}
+          value={(stats.reconciliationRequired || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered recon" : "State divergence detected"}
+          accent={(stats.reconciliationRequired || 0) > 0 ? 'red' : 'green'}
+          icon={<TactileIcon icon={ShieldCheck} color={(stats.reconciliationRequired || 0) > 0 ? 'red' : 'security'} size="sm" />}
         />
       </div>
 

@@ -16,6 +16,7 @@ import {
   CreateAgentAdminRequest,
   AgentCustomPricingItemDto,
   AgentAccountStatus,
+  AgentWithdrawalPolicyDto,
 } from '../../api/admin.api.js';
 import {
   Users,
@@ -38,6 +39,12 @@ import {
   ExternalLink,
   X,
   FileText,
+  CheckCircle2,
+  AlertTriangle,
+  Layers,
+  Calendar,
+  Check,
+  Ban,
 } from 'lucide-react';
 
 export const AdminAgentsPage: React.FC = () => {
@@ -129,12 +136,46 @@ export const AdminAgentsPage: React.FC = () => {
   const [customPriceEdits, setCustomPriceEdits] = useState<Record<string, string>>({});
   const [isSavingPricing, setIsSavingPricing] = useState<boolean>(false);
 
-  // Custom Withdrawal Limit Modal
+  // Custom Withdrawal Limit Modal (Individual Agent)
   const [isLimitModalOpen, setIsLimitModalOpen] = useState<boolean>(false);
   const [limitTargetAgent, setLimitTargetAgent] = useState<AdminAgentListItem | null>(null);
+  const [customMinGhsInput, setCustomMinGhsInput] = useState<string>('');
   const [customLimitGhsInput, setCustomLimitGhsInput] = useState<string>('');
+  const [customDailyGhsInput, setCustomDailyGhsInput] = useState<string>('');
+  const [customWithdrawalsEnabled, setCustomWithdrawalsEnabled] = useState<boolean>(true);
+  const [customAllowAnytime, setCustomAllowAnytime] = useState<boolean>(false);
   const [limitChangeReason, setLimitChangeReason] = useState<string>('');
   const [isUpdatingLimit, setIsUpdatingLimit] = useState<boolean>(false);
+
+  // Platform Withdrawal Policy & Schedule Modal (Mass & Global)
+  const [isPolicyModalOpen, setIsPolicyModalOpen] = useState<boolean>(false);
+  const [policyTab, setPolicyTab] = useState<'SCHEDULE' | 'MASS'>('SCHEDULE');
+  const [policyData, setPolicyData] = useState<AgentWithdrawalPolicyDto | null>(null);
+  const [isLoadingPolicy, setIsLoadingPolicy] = useState<boolean>(false);
+  const [isSavingPolicy, setIsSavingPolicy] = useState<boolean>(false);
+
+  // Policy Form
+  const [policyMinGhs, setPolicyMinGhs] = useState<string>('10.00');
+  const [policyMaxGhs, setPolicyMaxGhs] = useState<string>('5000.00');
+  const [policyDailyGhs, setPolicyDailyGhs] = useState<string>('5000.00');
+  const [policyScheduleEnabled, setPolicyScheduleEnabled] = useState<boolean>(true);
+  const [policyAllowedDays, setPolicyAllowedDays] = useState<string[]>(['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']);
+  const [policyStartTime, setPolicyStartTime] = useState<string>('00:00');
+  const [policyEndTime, setPolicyEndTime] = useState<string>('23:59');
+  const [policyAllowWithdrawals, setPolicyAllowWithdrawals] = useState<boolean>(true);
+  const [policyReason, setPolicyReason] = useState<string>('');
+
+  // Mass Form
+  const [massTarget, setMassTarget] = useState<'ALL' | 'TIER' | 'SELECTED'>('ALL');
+  const [massTier, setMassTier] = useState<string>('STANDARD');
+  const [massAction, setMassAction] = useState<'UPDATE' | 'RESET'>('UPDATE');
+  const [massMinGhs, setMassMinGhs] = useState<string>('');
+  const [massMaxGhs, setMassMaxGhs] = useState<string>('');
+  const [massDailyGhs, setMassDailyGhs] = useState<string>('');
+  const [massWithdrawalsEnabled, setMassWithdrawalsEnabled] = useState<boolean>(true);
+  const [massAllowAnytime, setMassAllowAnytime] = useState<boolean>(false);
+  const [massReason, setMassReason] = useState<string>('');
+  const [isSubmittingMass, setIsSubmittingMass] = useState<boolean>(false);
 
   // Common Button Styles
   const tactileButtonStyle: React.CSSProperties = {
@@ -529,45 +570,86 @@ export const AdminAgentsPage: React.FC = () => {
     }
   };
 
-  // Open Custom Withdrawal Limit Modal
+  // Open Custom Withdrawal Limit Modal (Individual Agent)
   const openLimitModal = (agent: AdminAgentListItem) => {
     setLimitTargetAgent(agent);
+    setCustomMinGhsInput(
+      agent.customMinWithdrawalPesewas !== null && agent.customMinWithdrawalPesewas !== undefined
+        ? (agent.customMinWithdrawalPesewas / 100).toString()
+        : ''
+    );
     setCustomLimitGhsInput(
       agent.customWithdrawalLimitPesewas !== null && agent.customWithdrawalLimitPesewas !== undefined
         ? (agent.customWithdrawalLimitPesewas / 100).toString()
         : ''
     );
+    setCustomDailyGhsInput(
+      agent.customDailyLimitPesewas !== null && agent.customDailyLimitPesewas !== undefined
+        ? (agent.customDailyLimitPesewas / 100).toString()
+        : ''
+    );
+    setCustomWithdrawalsEnabled(agent.withdrawalsEnabled !== false);
+    setCustomAllowAnytime(Boolean(agent.allowAnytimeWithdrawals));
     setLimitChangeReason('');
     setIsLimitModalOpen(true);
   };
 
-  // Handle Update Custom Withdrawal Limit
+  // Handle Update Custom Withdrawal Limit (Individual Agent)
   const handleUpdateWithdrawalLimit = async () => {
     if (!limitTargetAgent) return;
     setIsUpdatingLimit(true);
     try {
-      let customWithdrawalLimitPesewas: number | null = null;
-      const trimmed = customLimitGhsInput.trim();
-      if (trimmed !== '') {
-        const parsed = parseFloat(trimmed);
+      let customMinWithdrawalPesewas: number | null = null;
+      if (customMinGhsInput.trim() !== '') {
+        const parsed = parseFloat(customMinGhsInput.trim());
         if (isNaN(parsed) || parsed < 0) {
-          toastError('Invalid Limit', 'Please enter a valid non-negative amount in GH₵ or leave empty to revert to platform default.');
+          toastError('Invalid Limit', 'Please enter a valid non-negative amount for minimum withdrawal.');
+          setIsUpdatingLimit(false);
+          return;
+        }
+        customMinWithdrawalPesewas = Math.round(parsed * 100);
+      }
+
+      let customWithdrawalLimitPesewas: number | null = null;
+      if (customLimitGhsInput.trim() !== '') {
+        const parsed = parseFloat(customLimitGhsInput.trim());
+        if (isNaN(parsed) || parsed <= 0) {
+          toastError('Invalid Limit', 'Please enter a valid positive amount for max single withdrawal.');
           setIsUpdatingLimit(false);
           return;
         }
         customWithdrawalLimitPesewas = Math.round(parsed * 100);
       }
 
+      let customDailyLimitPesewas: number | null = null;
+      if (customDailyGhsInput.trim() !== '') {
+        const parsed = parseFloat(customDailyGhsInput.trim());
+        if (isNaN(parsed) || parsed <= 0) {
+          toastError('Invalid Limit', 'Please enter a valid positive amount for 24h daily limit.');
+          setIsUpdatingLimit(false);
+          return;
+        }
+        customDailyLimitPesewas = Math.round(parsed * 100);
+      }
+
+      if (customMinWithdrawalPesewas !== null && customWithdrawalLimitPesewas !== null && customMinWithdrawalPesewas > customWithdrawalLimitPesewas) {
+        toastError('Invalid Configuration', 'Custom minimum withdrawal cannot exceed custom max single withdrawal limit.');
+        setIsUpdatingLimit(false);
+        return;
+      }
+
       await adminApi.updateAgent(limitTargetAgent.id, {
+        customMinWithdrawalPesewas,
         customWithdrawalLimitPesewas,
-        reason: limitChangeReason.trim() || 'Updated agent profit withdrawal limit override',
+        customDailyLimitPesewas,
+        withdrawalsEnabled: customWithdrawalsEnabled,
+        allowAnytimeWithdrawals: customAllowAnytime,
+        reason: limitChangeReason.trim() || 'Updated agent profit withdrawal limits and controls',
       });
 
       toastSuccess(
-        'Limit Updated',
-        customWithdrawalLimitPesewas !== null
-          ? `Custom profit withdrawal limit set to GH₵ ${(customWithdrawalLimitPesewas / 100).toFixed(2)}.`
-          : `Custom profit withdrawal limit cleared. Platform default limits will apply.`
+        'Agent Controls Updated',
+        `Withdrawal rules successfully saved for ${limitTargetAgent.fullName || 'agent'}.`
       );
 
       setIsLimitModalOpen(false);
@@ -576,9 +658,158 @@ export const AdminAgentsPage: React.FC = () => {
         openAgentDossier(limitTargetAgent.id);
       }
     } catch (err: any) {
-      toastError('Update Failed', err.message || 'Could not update agent withdrawal limit');
+      toastError('Update Failed', err.message || 'Could not update agent withdrawal controls');
     } finally {
       setIsUpdatingLimit(false);
+    }
+  };
+
+  // Open Withdrawal Policy Modal
+  const openWithdrawalPolicyModal = async () => {
+    setIsPolicyModalOpen(true);
+    setIsLoadingPolicy(true);
+    try {
+      const policy = await adminApi.getAgentWithdrawalPolicy();
+      if (policy) {
+        setPolicyData(policy);
+        setPolicyMinGhs((policy.globalMinWithdrawalPesewas / 100).toFixed(2));
+        setPolicyMaxGhs((policy.globalMaxWithdrawalPesewas / 100).toFixed(2));
+        setPolicyDailyGhs((policy.globalDailyLimitPesewas / 100).toFixed(2));
+        setPolicyScheduleEnabled(Boolean(policy.scheduleEnabled));
+        setPolicyAllowedDays(policy.allowedDays || ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']);
+        setPolicyStartTime(policy.startTime || '00:00');
+        setPolicyEndTime(policy.endTime || '23:59');
+        setPolicyAllowWithdrawals(Boolean(policy.allowAgentWithdrawals));
+      }
+    } catch (err: any) {
+      toastError('Failed to Load Policy', err.message || 'Could not fetch platform withdrawal policy');
+    } finally {
+      setIsLoadingPolicy(false);
+    }
+  };
+
+  // Save Platform Withdrawal Policy & Operating Schedule
+  const handleSaveWithdrawalPolicy = async () => {
+    setIsSavingPolicy(true);
+    try {
+      const minPesewas = Math.round(parseFloat(policyMinGhs) * 100);
+      const maxPesewas = Math.round(parseFloat(policyMaxGhs) * 100);
+      const dailyPesewas = Math.round(parseFloat(policyDailyGhs) * 100);
+
+      if (isNaN(minPesewas) || minPesewas < 0) {
+        toastError('Invalid Minimum', 'Minimum withdrawal must be 0 or greater.');
+        setIsSavingPolicy(false);
+        return;
+      }
+      if (isNaN(maxPesewas) || maxPesewas <= 0) {
+        toastError('Invalid Maximum', 'Maximum single withdrawal must be greater than 0.');
+        setIsSavingPolicy(false);
+        return;
+      }
+      if (minPesewas > maxPesewas) {
+        toastError('Invalid Limits', 'Minimum withdrawal cannot exceed maximum single withdrawal.');
+        setIsSavingPolicy(false);
+        return;
+      }
+      if (isNaN(dailyPesewas) || dailyPesewas < maxPesewas) {
+        toastError('Invalid Daily Limit', '24h daily limit should be at least equal to the max single withdrawal.');
+        setIsSavingPolicy(false);
+        return;
+      }
+      if (!policyAllowedDays.length) {
+        toastError('Invalid Schedule', 'At least one operating day must be selected.');
+        setIsSavingPolicy(false);
+        return;
+      }
+
+      const updated = await adminApi.updateAgentWithdrawalPolicy({
+        globalMinWithdrawalPesewas: minPesewas,
+        globalMaxWithdrawalPesewas: maxPesewas,
+        globalDailyLimitPesewas: dailyPesewas,
+        scheduleEnabled: policyScheduleEnabled,
+        allowedDays: policyAllowedDays,
+        startTime: policyStartTime.trim(),
+        endTime: policyEndTime.trim(),
+        allowAgentWithdrawals: policyAllowWithdrawals,
+        reason: policyReason.trim() || 'Updated platform withdrawal policy & schedule',
+      });
+
+      setPolicyData(updated);
+      toastSuccess('Policy Updated', 'Global agent withdrawal policy & operating schedule saved.');
+      fetchAgents();
+    } catch (err: any) {
+      toastError('Failed to Save Policy', err.message || 'Could not update withdrawal policy');
+    } finally {
+      setIsSavingPolicy(false);
+    }
+  };
+
+  // Apply Mass / Batch Agent Withdrawal Limits
+  const handleApplyMassLimits = async () => {
+    setIsSubmittingMass(true);
+    try {
+      if (massAction === 'RESET') {
+        const res = await adminApi.massUpdateAgentWithdrawalLimits({
+          target: massTarget,
+          agentTier: massTarget === 'TIER' ? massTier : undefined,
+          resetToDefaults: true,
+          reason: massReason.trim() || 'Reset agents to global platform withdrawal defaults',
+        });
+        toastSuccess('Reset Completed', `Reverted withdrawal limits for ${res.updatedCount} agent(s) back to platform defaults.`);
+      } else {
+        let minPesewas: number | null | undefined = undefined;
+        if (massMinGhs.trim() !== '') {
+          const p = parseFloat(massMinGhs.trim());
+          if (isNaN(p) || p < 0) {
+            toastError('Invalid Limit', 'Please enter a valid min withdrawal or leave blank.');
+            setIsSubmittingMass(false);
+            return;
+          }
+          minPesewas = Math.round(p * 100);
+        }
+
+        let maxPesewas: number | null | undefined = undefined;
+        if (massMaxGhs.trim() !== '') {
+          const p = parseFloat(massMaxGhs.trim());
+          if (isNaN(p) || p <= 0) {
+            toastError('Invalid Limit', 'Please enter a valid max withdrawal or leave blank.');
+            setIsSubmittingMass(false);
+            return;
+          }
+          maxPesewas = Math.round(p * 100);
+        }
+
+        let dailyPesewas: number | null | undefined = undefined;
+        if (massDailyGhs.trim() !== '') {
+          const p = parseFloat(massDailyGhs.trim());
+          if (isNaN(p) || p <= 0) {
+            toastError('Invalid Limit', 'Please enter a valid daily limit or leave blank.');
+            setIsSubmittingMass(false);
+            return;
+          }
+          dailyPesewas = Math.round(p * 100);
+        }
+
+        const res = await adminApi.massUpdateAgentWithdrawalLimits({
+          target: massTarget,
+          agentTier: massTarget === 'TIER' ? massTier : undefined,
+          customMinWithdrawalPesewas: minPesewas,
+          customWithdrawalLimitPesewas: maxPesewas,
+          customDailyLimitPesewas: dailyPesewas,
+          withdrawalsEnabled: massWithdrawalsEnabled,
+          allowAnytimeWithdrawals: massAllowAnytime,
+          reason: massReason.trim() || 'Batch update of agent withdrawal limits',
+        });
+
+        toastSuccess('Batch Update Successful', `Applied withdrawal limits to ${res.updatedCount} agent(s).`);
+      }
+
+      setIsPolicyModalOpen(false);
+      fetchAgents();
+    } catch (err: any) {
+      toastError('Batch Update Failed', err.message || 'Could not apply mass withdrawal limits');
+    } finally {
+      setIsSubmittingMass(false);
     }
   };
 
@@ -726,6 +957,18 @@ export const AdminAgentsPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={openWithdrawalPolicyModal}
+            style={{
+              ...tactileButtonStyle,
+              borderColor: 'var(--color-primary-subtle)',
+            }}
+            title="Configure Platform Agent Withdrawal Limits, Operating Schedule & Mass Batch Controls"
+          >
+            <Clock size={14} color="var(--color-brand-primary)" />
+            <span>Withdrawal Policy & Schedule</span>
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -1548,12 +1791,18 @@ export const AdminAgentsPage: React.FC = () => {
                         style={{
                           ...tactileButtonStyle,
                           padding: '0.35rem 0.5rem',
-                          color: row.customWithdrawalLimitPesewas ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                          color: (row.customWithdrawalLimitPesewas != null || row.customMinWithdrawalPesewas != null || row.customDailyLimitPesewas != null || row.withdrawalsEnabled === false || row.allowAnytimeWithdrawals)
+                            ? 'var(--color-brand-primary)'
+                            : 'var(--color-text-muted)',
                         }}
                         title={
-                          row.customWithdrawalLimitPesewas
-                            ? `Profit Withdrawal Limit: GH₵ ${(row.customWithdrawalLimitPesewas / 100).toFixed(2)} (Custom Override)`
-                            : 'Profit Withdrawal Limit: Platform Default (Click to customize)'
+                          row.withdrawalsEnabled === false
+                            ? 'Profit Withdrawals Frozen for this reseller'
+                            : row.allowAnytimeWithdrawals
+                            ? '24/7 VIP Payouts Enabled (Bypasses operating schedule)'
+                            : (row.customWithdrawalLimitPesewas != null || row.customMinWithdrawalPesewas != null || row.customDailyLimitPesewas != null)
+                            ? 'Custom Profit Withdrawal Limits Active'
+                            : 'Profit Withdrawal Controls: Platform Default (Click to customize)'
                         }
                       >
                         <SlidersHorizontal size={13} />
@@ -1987,40 +2236,125 @@ export const AdminAgentsPage: React.FC = () => {
         </div>
       </Modal>
 
-      {/* AGENT CUSTOM PROFIT WITHDRAWAL LIMIT MODAL */}
+      {/* AGENT CUSTOM PROFIT WITHDRAWAL CONTROLS MODAL */}
       <Modal
         isOpen={isLimitModalOpen}
         onClose={() => setIsLimitModalOpen(false)}
-        title={`Set Profit Withdrawal Limit: ${limitTargetAgent?.fullName || 'Agent'}`}
-        maxWidth="540px"
+        title={`Profit Withdrawal Controls: ${limitTargetAgent?.fullName || 'Agent'}`}
+        maxWidth="580px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          {/* Current Status Overview */}
           <div style={{ background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Current Status:</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '4px' }}>
-              <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
-                {limitTargetAgent?.customWithdrawalLimitPesewas !== null && limitTargetAgent?.customWithdrawalLimitPesewas !== undefined
-                  ? `GH₵ ${(limitTargetAgent.customWithdrawalLimitPesewas / 100).toFixed(2)} (Custom Override)`
-                  : 'Platform Default (GH₵ 5,000.00)'}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Effective Status & Overrides
               </span>
+              <Badge variant={limitTargetAgent?.withdrawalsEnabled !== false ? 'success' : 'danger'} size="sm">
+                {limitTargetAgent?.withdrawalsEnabled !== false ? 'Withdrawals Permitted' : 'Withdrawals Frozen'}
+              </Badge>
             </div>
-            <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-              Sets a custom maximum single profit withdrawal limit for this specific reseller. Leave blank to revert to the platform-wide safety limit.
-            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginTop: '6px' }}>
+              <div style={{ background: 'var(--color-bg-surface)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block' }}>Min Single</span>
+                <span style={{ fontSize: '13px', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                  {limitTargetAgent?.customMinWithdrawalPesewas != null
+                    ? `GH₵ ${(limitTargetAgent.customMinWithdrawalPesewas / 100).toFixed(2)}`
+                    : 'Global Default'}
+                </span>
+              </div>
+              <div style={{ background: 'var(--color-bg-surface)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block' }}>Max Single</span>
+                <span style={{ fontSize: '13px', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                  {limitTargetAgent?.customWithdrawalLimitPesewas != null
+                    ? `GH₵ ${(limitTargetAgent.customWithdrawalLimitPesewas / 100).toFixed(2)}`
+                    : 'Global Default'}
+                </span>
+              </div>
+              <div style={{ background: 'var(--color-bg-surface)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block' }}>24h Daily</span>
+                <span style={{ fontSize: '13px', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                  {limitTargetAgent?.customDailyLimitPesewas != null
+                    ? `GH₵ ${(limitTargetAgent.customDailyLimitPesewas / 100).toFixed(2)}`
+                    : 'Global Default'}
+                </span>
+              </div>
+            </div>
+            {limitTargetAgent?.allowAnytimeWithdrawals && (
+              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--color-brand-primary)' }}>
+                <CheckCircle2 size={13} />
+                <span>24/7 VIP Bypass Active (Schedule window hours & day limits do not apply to this agent).</span>
+              </div>
+            )}
           </div>
 
-          <div>
-            <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-              Custom Single Withdrawal Limit in GH₵ (Empty = Platform Default)
+          {/* Limits Inputs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--space-3)' }}>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                Min Single (GH₵)
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={customMinGhsInput}
+                onChange={(e) => setCustomMinGhsInput(e.target.value)}
+                placeholder="Global default"
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                Max Single (GH₵)
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={customLimitGhsInput}
+                onChange={(e) => setCustomLimitGhsInput(e.target.value)}
+                placeholder="Global default"
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                24h Daily Limit (GH₵)
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={customDailyGhsInput}
+                onChange={(e) => setCustomDailyGhsInput(e.target.value)}
+                placeholder="Global default"
+              />
+            </div>
+          </div>
+          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '-8px' }}>
+            Leave limit fields empty to inherit global platform policy defaults.
+          </span>
+
+          {/* Permissions & Overrides */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '0.75rem', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={customWithdrawalsEnabled}
+                onChange={(e) => setCustomWithdrawalsEnabled(e.target.checked)}
+                style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: 'var(--color-brand-primary)' }}
+              />
+              <span>Allow Profit Withdrawals (Uncheck to freeze payout requests for this reseller)</span>
             </label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={customLimitGhsInput}
-              onChange={(e) => setCustomLimitGhsInput(e.target.value)}
-              placeholder="e.g. 10000.00 or leave empty for default"
-            />
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={customAllowAnytime}
+                onChange={(e) => setCustomAllowAnytime(e.target.checked)}
+                style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: 'var(--color-brand-primary)' }}
+              />
+              <span>24/7 VIP Bypass (Allow agent to withdraw anytime, ignoring operating schedule & allowed days)</span>
+            </label>
           </div>
 
           <div>
@@ -2030,26 +2364,481 @@ export const AdminAgentsPage: React.FC = () => {
             <Input
               value={limitChangeReason}
               onChange={(e) => setLimitChangeReason(e.target.value)}
-              placeholder="e.g. High-volume VIP agent approved for higher limit"
+              placeholder="e.g. Approved higher single volume and VIP anytime privileges"
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-4)' }}>
-            <button type="button" onClick={() => setIsLimitModalOpen(false)} style={tactileButtonStyle}>
-              Cancel
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-4)' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setCustomMinGhsInput('');
+                setCustomLimitGhsInput('');
+                setCustomDailyGhsInput('');
+                setCustomWithdrawalsEnabled(true);
+                setCustomAllowAnytime(false);
+              }}
+              style={{
+                ...tactileButtonStyle,
+                fontSize: '11px',
+                color: 'var(--color-text-muted)',
+              }}
+            >
+              Reset Fields to Defaults
+            </button>
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button type="button" onClick={() => setIsLimitModalOpen(false)} style={tactileButtonStyle}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateWithdrawalLimit}
+                disabled={isUpdatingLimit}
+                style={{
+                  ...primaryButtonStyle,
+                  opacity: isUpdatingLimit ? 0.6 : 1,
+                }}
+              >
+                {isUpdatingLimit ? 'Saving...' : 'Save Agent Controls'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* PLATFORM WITHDRAWAL POLICY & OPERATING SCHEDULE MODAL */}
+      <Modal
+        isOpen={isPolicyModalOpen}
+        onClose={() => setIsPolicyModalOpen(false)}
+        title="Agent Profit Withdrawal Policy & Operating Schedule"
+        maxWidth="680px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          {/* Tabs */}
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border-subtle)', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => setPolicyTab('SCHEDULE')}
+              style={{
+                padding: '0.6rem 1rem',
+                border: 'none',
+                background: 'none',
+                borderBottom: policyTab === 'SCHEDULE' ? '2px solid var(--color-brand-primary)' : '2px solid transparent',
+                color: policyTab === 'SCHEDULE' ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                fontWeight: 700,
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+              }}
+            >
+              <Clock size={14} />
+              <span>Platform Policy & Operating Window</span>
             </button>
             <button
               type="button"
-              onClick={handleUpdateWithdrawalLimit}
-              disabled={isUpdatingLimit}
+              onClick={() => setPolicyTab('MASS')}
               style={{
-                ...primaryButtonStyle,
-                opacity: isUpdatingLimit ? 0.6 : 1,
+                padding: '0.6rem 1rem',
+                border: 'none',
+                background: 'none',
+                borderBottom: policyTab === 'MASS' ? '2px solid var(--color-brand-primary)' : '2px solid transparent',
+                color: policyTab === 'MASS' ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                fontWeight: 700,
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
               }}
             >
-              {isUpdatingLimit ? 'Saving...' : 'Save Limit Rule'}
+              <Layers size={14} />
+              <span>Mass / Batch Agent Limits</span>
             </button>
           </div>
+
+          {isLoadingPolicy ? (
+            <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--color-text-muted)' }}>
+              Loading platform withdrawal policy...
+            </div>
+          ) : policyTab === 'SCHEDULE' ? (
+            /* TAB 1: SCHEDULE & PLATFORM POLICY */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              {/* Status Banner */}
+              <div
+                style={{
+                  padding: '0.75rem 1rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: policyData?.isWindowOpenNow ? 'rgba(34, 197, 94, 0.1)' : 'rgba(234, 179, 8, 0.12)',
+                  border: `1px solid ${policyData?.isWindowOpenNow ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.5rem',
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>
+                    Ghana System Time (GMT / UTC+0)
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                      {policyData?.currentGmtTime || '--:--'} GMT ({policyData?.currentGmtDay || '---'})
+                    </span>
+                  </div>
+                </div>
+                <Badge variant={policyData?.isWindowOpenNow ? 'success' : 'warning'} size="sm">
+                  {policyData?.isWindowOpenNow ? '● Payout Window Open' : '○ Payout Window Closed'}
+                </Badge>
+              </div>
+
+              {/* Master Platform Switch */}
+              <div style={{ padding: '0.75rem 1rem', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', color: 'var(--color-text-primary)' }}>
+                    Allow Agent Profit Withdrawals (Platform-Wide)
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                    Master emergency kill-switch. When disabled, no agents can request profit payouts.
+                  </span>
+                </div>
+                <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={policyAllowWithdrawals}
+                    onChange={(e) => setPolicyAllowWithdrawals(e.target.checked)}
+                    style={{ width: '18px', height: '18px', accentColor: 'var(--color-brand-primary)', cursor: 'pointer' }}
+                  />
+                </label>
+              </div>
+
+              {/* Global Limits */}
+              <div>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', display: 'block', marginBottom: '8px' }}>
+                  Default Platform Safety Limits
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                      Min Per Request (GH₵)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={policyMinGhs}
+                      onChange={(e) => setPolicyMinGhs(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                      Max Single Request (GH₵)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={policyMaxGhs}
+                      onChange={(e) => setPolicyMaxGhs(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                      24h Daily Limit (GH₵)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={policyDailyGhs}
+                      onChange={(e) => setPolicyDailyGhs(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Operating Schedule Window */}
+              <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <div>
+                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', display: 'block' }}>
+                      Operating Schedule Window
+                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                      Enforce specific hours and days of the week when payout requests are accepted.
+                    </span>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>
+                    <input
+                      type="checkbox"
+                      checked={policyScheduleEnabled}
+                      onChange={(e) => setPolicyScheduleEnabled(e.target.checked)}
+                      style={{ width: '16px', height: '16px', accentColor: 'var(--color-brand-primary)' }}
+                    />
+                    <span>Enforce Schedule</span>
+                  </label>
+                </div>
+
+                {policyScheduleEnabled && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--color-bg-subtle)', padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                    {/* Allowed Days */}
+                    <div>
+                      <span style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '6px' }}>
+                        Allowed Operating Days:
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                        {['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map((day) => {
+                          const isSelected = policyAllowedDays.includes(day);
+                          return (
+                            <button
+                              key={day}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  if (policyAllowedDays.length > 1) {
+                                    setPolicyAllowedDays(policyAllowedDays.filter((d) => d !== day));
+                                  }
+                                } else {
+                                  setPolicyAllowedDays([...policyAllowedDays, day]);
+                                }
+                              }}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                border: `1px solid ${isSelected ? 'var(--color-brand-primary)' : 'var(--color-border-subtle)'}`,
+                                backgroundColor: isSelected ? 'var(--color-brand-primary)' : 'var(--color-bg-surface)',
+                                color: isSelected ? '#fff' : 'var(--color-text-secondary)',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              {day}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Operating Hours */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                          Daily Opening Time (GMT, HH:MM)
+                        </label>
+                        <Input
+                          value={policyStartTime}
+                          onChange={(e) => setPolicyStartTime(e.target.value)}
+                          placeholder="08:00"
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                          Daily Closing Time (GMT, HH:MM)
+                        </label>
+                        <Input
+                          value={policyEndTime}
+                          onChange={(e) => setPolicyEndTime(e.target.value)}
+                          placeholder="18:00"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Policy Change Reason / Audit Note
+                </label>
+                <Input
+                  value={policyReason}
+                  onChange={(e) => setPolicyReason(e.target.value)}
+                  placeholder="e.g. Updated holiday payout schedule and increased daily cap"
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+                <button type="button" onClick={() => setIsPolicyModalOpen(false)} style={tactileButtonStyle}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveWithdrawalPolicy}
+                  disabled={isSavingPolicy}
+                  style={{
+                    ...primaryButtonStyle,
+                    opacity: isSavingPolicy ? 0.6 : 1,
+                  }}
+                >
+                  {isSavingPolicy ? 'Saving Policy...' : 'Save Policy & Schedule'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* TAB 2: MASS BATCH AGENT LIMITS */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              <div style={{ background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', display: 'block' }}>
+                  Mass Agent Limit Configuration
+                </span>
+                <p style={{ margin: '3px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                  Apply withdrawal limits, permissions, and 24/7 VIP schedules across multiple agents simultaneously, or reset them back to platform defaults.
+                </p>
+              </div>
+
+              {/* Target & Action Selection */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Target Audience:
+                  </label>
+                  <select
+                    value={massTarget}
+                    onChange={(e) => setMassTarget(e.target.value as any)}
+                    style={{ ...selectStyle, width: '100%' }}
+                  >
+                    <option value="ALL">All Agents (Platform-Wide)</option>
+                    <option value="TIER">By Agent Tier</option>
+                  </select>
+                </div>
+
+                {massTarget === 'TIER' && (
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                      Agent Tier:
+                    </label>
+                    <select
+                      value={massTier}
+                      onChange={(e) => setMassTier(e.target.value)}
+                      style={{ ...selectStyle, width: '100%' }}
+                    >
+                      <option value="STANDARD">STANDARD</option>
+                      <option value="PREMIUM">PREMIUM</option>
+                      <option value="VIP">VIP</option>
+                      <option value="GOLD">GOLD</option>
+                      <option value="ENTERPRISE">ENTERPRISE</option>
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                    Batch Operation:
+                  </label>
+                  <select
+                    value={massAction}
+                    onChange={(e) => setMassAction(e.target.value as any)}
+                    style={{ ...selectStyle, width: '100%' }}
+                  >
+                    <option value="UPDATE">Apply Custom Limits & Permissions</option>
+                    <option value="RESET">Reset to Platform Defaults (Clear Overrides)</option>
+                  </select>
+                </div>
+              </div>
+
+              {massAction === 'UPDATE' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)' }}>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                        Min Single (GH₵)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={massMinGhs}
+                        onChange={(e) => setMassMinGhs(e.target.value)}
+                        placeholder="Leave blank to keep"
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                        Max Single (GH₵)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={massMaxGhs}
+                        onChange={(e) => setMassMaxGhs(e.target.value)}
+                        placeholder="Leave blank to keep"
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                        24h Daily (GH₵)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={massDailyGhs}
+                        onChange={(e) => setMassDailyGhs(e.target.value)}
+                        placeholder="Leave blank to keep"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '0.75rem', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                      <input
+                        type="checkbox"
+                        checked={massWithdrawalsEnabled}
+                        onChange={(e) => setMassWithdrawalsEnabled(e.target.checked)}
+                        style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: 'var(--color-brand-primary)' }}
+                      />
+                      <span>Enable Withdrawals (Uncheck to batch freeze withdrawals)</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                      <input
+                        type="checkbox"
+                        checked={massAllowAnytime}
+                        onChange={(e) => setMassAllowAnytime(e.target.checked)}
+                        style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: 'var(--color-brand-primary)' }}
+                      />
+                      <span>Enable 24/7 VIP Schedule Bypass (Bypass platform operating window)</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  Batch Change Reason / Audit Note
+                </label>
+                <Input
+                  value={massReason}
+                  onChange={(e) => setMassReason(e.target.value)}
+                  placeholder="e.g. VIP agent tier withdrawal limit increase"
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-2)' }}>
+                <button type="button" onClick={() => setIsPolicyModalOpen(false)} style={tactileButtonStyle}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyMassLimits}
+                  disabled={isSubmittingMass}
+                  style={{
+                    ...primaryButtonStyle,
+                    backgroundColor: massAction === 'RESET' ? 'var(--color-danger, #ef4444)' : undefined,
+                    opacity: isSubmittingMass ? 0.6 : 1,
+                  }}
+                >
+                  {isSubmittingMass ? 'Applying...' : massAction === 'RESET' ? 'Reset Matching Agents to Defaults' : 'Apply Batch Overrides'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -2616,33 +3405,64 @@ export const AdminAgentsPage: React.FC = () => {
                       </div>
 
                       {/* Profit Withdrawal Limit Control Card */}
-                      <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-                        <div>
-                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                            Storefront Profit Payout Limit
-                          </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '3px' }}>
-                            <div style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: agentDetail.agent.customWithdrawalLimitPesewas ? 'var(--color-brand-primary)' : 'var(--color-text-primary)' }}>
-                              {agentDetail.agent.customWithdrawalLimitPesewas !== null && agentDetail.agent.customWithdrawalLimitPesewas !== undefined
-                                ? `GH₵ ${(agentDetail.agent.customWithdrawalLimitPesewas / 100).toFixed(2)}`
-                                : 'Platform Default (GH₵ 5,000.00)'}
+                      <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+                          <div>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              Storefront Profit Withdrawal Controls
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '3px', flexWrap: 'wrap' }}>
+                              <Badge variant={agentDetail.agent.withdrawalsEnabled !== false ? 'success' : 'danger'} size="sm">
+                                {agentDetail.agent.withdrawalsEnabled !== false ? 'Withdrawals Permitted' : 'Withdrawals Frozen'}
+                              </Badge>
+                              {agentDetail.agent.allowAnytimeWithdrawals && (
+                                <Badge variant="purple" size="sm">
+                                  24/7 VIP Anytime Access
+                                </Badge>
+                              )}
+                              {(agentDetail.agent.customWithdrawalLimitPesewas != null || agentDetail.agent.customMinWithdrawalPesewas != null || agentDetail.agent.customDailyLimitPesewas != null) && (
+                                <Badge variant="info" size="sm">
+                                  Custom Limits Active
+                                </Badge>
+                              )}
                             </div>
-                            <Badge variant={agentDetail.agent.customWithdrawalLimitPesewas ? 'info' : 'neutral'} size="sm">
-                              {agentDetail.agent.customWithdrawalLimitPesewas ? 'Custom Reseller Limit' : 'Global Default'}
-                            </Badge>
                           </div>
-                          <p style={{ margin: '3px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                            Maximum single withdrawal this agent can request from accumulated customer profit markups.
-                          </p>
+                          <button
+                            type="button"
+                            onClick={() => openLimitModal(agentDetail.agent)}
+                            style={tactileButtonStyle}
+                          >
+                            <SlidersHorizontal size={13} color="var(--color-brand-primary)" />
+                            <span>Edit Withdrawal Controls</span>
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => openLimitModal(agentDetail.agent)}
-                          style={tactileButtonStyle}
-                        >
-                          <SlidersHorizontal size={13} color="var(--color-brand-primary)" />
-                          <span>{agentDetail.agent.customWithdrawalLimitPesewas ? 'Edit Custom Limit' : 'Set Custom Limit'}</span>
-                        </button>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginTop: '4px' }}>
+                          <div style={{ background: 'var(--color-bg-subtle)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block' }}>Min Single</span>
+                            <span style={{ fontSize: '13px', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                              {agentDetail.agent.customMinWithdrawalPesewas != null
+                                ? `GH₵ ${(agentDetail.agent.customMinWithdrawalPesewas / 100).toFixed(2)}`
+                                : 'Global (GH₵ 10.00)'}
+                            </span>
+                          </div>
+                          <div style={{ background: 'var(--color-bg-subtle)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block' }}>Max Single</span>
+                            <span style={{ fontSize: '13px', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                              {agentDetail.agent.customWithdrawalLimitPesewas != null
+                                ? `GH₵ ${(agentDetail.agent.customWithdrawalLimitPesewas / 100).toFixed(2)}`
+                                : 'Global (GH₵ 5,000.00)'}
+                            </span>
+                          </div>
+                          <div style={{ background: 'var(--color-bg-subtle)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', display: 'block' }}>24h Daily</span>
+                            <span style={{ fontSize: '13px', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                              {agentDetail.agent.customDailyLimitPesewas != null
+                                ? `GH₵ ${(agentDetail.agent.customDailyLimitPesewas / 100).toFixed(2)}`
+                                : 'Global (GH₵ 5,000.00)'}
+                            </span>
+                          </div>
+                        </div>
                       </Card>
 
                       <button

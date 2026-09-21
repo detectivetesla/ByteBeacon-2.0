@@ -23,6 +23,8 @@ import {
   AlertTriangle,
   CheckCircle,
   RefreshCw,
+  RotateCcw,
+  Calendar,
   LogOut,
   PlusCircle,
   MinusCircle,
@@ -119,6 +121,51 @@ export const AdminUserDetailPage: React.FC = () => {
   const [exportFormat, setExportFormat] = useState<'CSV' | 'JSON'>('JSON');
   const [isExporting, setIsExporting] = useState(false);
 
+  // --- GLOBAL FILTERS: Dossier Snapshot & Historical Cards ---
+  const [globalPeriod, setGlobalPeriod] = useState<string>('ALL');
+  const [globalStartDate, setGlobalStartDate] = useState<string>('');
+  const [globalEndDate, setGlobalEndDate] = useState<string>('');
+  const [isGlobalCustomDateOpen, setIsGlobalCustomDateOpen] = useState<boolean>(false);
+  const [globalSort, setGlobalSort] = useState<string>('DATE_DESC');
+  const [globalNetwork, setGlobalNetwork] = useState<string>('ALL');
+  const [globalStatus, setGlobalStatus] = useState<string>('ALL');
+  const [globalLedgerType, setGlobalLedgerType] = useState<string>('ALL');
+  const [globalSearch, setGlobalSearch] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(globalSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [globalSearch]);
+
+  const activeGlobalFiltersCount = useMemo(() => {
+    let count = 0;
+    if (globalPeriod !== 'ALL') count++;
+    if (globalPeriod === 'CUSTOM' && (globalStartDate || globalEndDate)) count++;
+    if (globalSort !== 'DATE_DESC') count++;
+    if (globalNetwork !== 'ALL') count++;
+    if (globalStatus !== 'ALL') count++;
+    if (globalLedgerType !== 'ALL') count++;
+    if (globalSearch.trim()) count++;
+    return count;
+  }, [globalPeriod, globalStartDate, globalEndDate, globalSort, globalNetwork, globalStatus, globalLedgerType, globalSearch]);
+
+  const isGlobalFiltered = activeGlobalFiltersCount > 0;
+
+  const handleResetGlobalFilters = () => {
+    setGlobalPeriod('ALL');
+    setGlobalStartDate('');
+    setGlobalEndDate('');
+    setIsGlobalCustomDateOpen(false);
+    setGlobalSort('DATE_DESC');
+    setGlobalNetwork('ALL');
+    setGlobalStatus('ALL');
+    setGlobalLedgerType('ALL');
+    setGlobalSearch('');
+  };
+
   // --- FILTERS: Orders ---
   const [orderStatusFilter, setOrderStatusFilter] = useState('ALL');
   const [orderNetworkFilter, setOrderNetworkFilter] = useState('ALL');
@@ -161,7 +208,21 @@ export const AdminUserDetailPage: React.FC = () => {
     if (!id) return;
     setIsLoading(true);
     try {
-      const res = await adminApi.getUserDetails(id);
+      const params: any = {};
+      if (globalPeriod !== 'ALL' && globalPeriod !== 'CUSTOM') {
+        params.period = globalPeriod;
+      }
+      if (globalPeriod === 'CUSTOM') {
+        if (globalStartDate) params.startDate = globalStartDate;
+        if (globalEndDate) params.endDate = globalEndDate;
+      }
+      if (globalNetwork !== 'ALL') params.network = globalNetwork;
+      if (globalStatus !== 'ALL') params.status = globalStatus;
+      if (globalLedgerType !== 'ALL') params.type = globalLedgerType;
+      if (globalSort) params.sort = globalSort;
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
+
+      const res = await adminApi.getUserDetails(id, params);
       if (res?.user) {
         setUserDetail(res);
         setSelectedRole(res.user.role);
@@ -175,7 +236,7 @@ export const AdminUserDetailPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [id, toastError]);
+  }, [id, globalPeriod, globalStartDate, globalEndDate, globalNetwork, globalStatus, globalLedgerType, globalSort, debouncedSearch, toastError]);
 
   const fetchUserPricing = useCallback(async () => {
     if (!id) return;
@@ -529,9 +590,210 @@ export const AdminUserDetailPage: React.FC = () => {
     }
   };
 
-  // --- FILTERED DATA MEMOS ---
+  // --- SNAPSHOT METRICS & FILTERED DATA MEMOS ---
+  const snapshotMetrics = useMemo(() => {
+    const fin = userDetail?.financialSummary;
+    const ordSummary = userDetail?.orderSummary;
+
+    // Filter loaded orders & ledger lines based on global client criteria
+    let matchedOrders = [...(userDetail?.recentOrders || [])];
+    let matchedLedger = [...(userDetail?.recentLedgerLines || [])];
+
+    // Search filter across both orders and ledger lines
+    if (globalSearch.trim()) {
+      const q = globalSearch.toLowerCase().trim();
+      matchedOrders = matchedOrders.filter((o) => {
+        const matchPublic = o.publicId?.toLowerCase().includes(q);
+        const matchPhone = o.recipientPhone?.toLowerCase().includes(q);
+        const matchId = o.id?.toLowerCase().includes(q);
+        const matchNet = o.network?.toLowerCase().includes(q);
+        const matchStatus = o.orderStatus?.toLowerCase().includes(q);
+        return matchPublic || matchPhone || matchId || matchNet || matchStatus;
+      });
+
+      matchedLedger = matchedLedger.filter((l) => {
+        const desc = l.description?.toLowerCase() || '';
+        const refId = l.referenceId?.toLowerCase() || '';
+        const refType = l.referenceType?.toLowerCase() || '';
+        const entryType = l.entryType?.toLowerCase() || '';
+        return desc.includes(q) || refId.includes(q) || refType.includes(q) || entryType.includes(q);
+      });
+    }
+
+    // Network filter (affects orders)
+    if (globalNetwork !== 'ALL') {
+      const fNet = globalNetwork.toUpperCase();
+      matchedOrders = matchedOrders.filter((o) => {
+        const oNet = (o.network || '').toUpperCase();
+        const isAtMatch = (oNet === 'AT' || oNet === 'AIRTELTIGO') && (fNet === 'AT' || fNet === 'AIRTELTIGO');
+        return oNet === fNet || isAtMatch;
+      });
+    }
+
+    // Status filter (affects orders)
+    if (globalStatus !== 'ALL') {
+      matchedOrders = matchedOrders.filter((o) => {
+        if (globalStatus === 'COMPLETED') {
+          return ['COMPLETED', 'DELIVERED', 'FULFILLED'].includes(o.orderStatus);
+        }
+        if (globalStatus === 'PENDING') {
+          return ['PENDING', 'PENDING_APPROVAL', 'CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING'].includes(o.orderStatus);
+        }
+        if (globalStatus === 'FAILED') {
+          return o.orderStatus === 'FAILED';
+        }
+        if (globalStatus === 'REFUNDED') {
+          return o.orderStatus === 'REFUNDED' || o.refundStatus === 'COMPLETED';
+        }
+        return o.orderStatus === globalStatus;
+      });
+    }
+
+    // Ledger Type filter (affects ledger)
+    if (globalLedgerType !== 'ALL') {
+      matchedLedger = matchedLedger.filter((l) => l.entryType === globalLedgerType);
+    }
+
+    // Date Range filters
+    if (globalPeriod === 'CUSTOM') {
+      if (globalStartDate) {
+        matchedOrders = matchedOrders.filter((o) => {
+          try {
+            return new Date(o.createdAt).toISOString().slice(0, 10) >= globalStartDate;
+          } catch {
+            return true;
+          }
+        });
+        matchedLedger = matchedLedger.filter((l) => {
+          try {
+            return new Date(l.createdAt).toISOString().slice(0, 10) >= globalStartDate;
+          } catch {
+            return true;
+          }
+        });
+      }
+      if (globalEndDate) {
+        matchedOrders = matchedOrders.filter((o) => {
+          try {
+            return new Date(o.createdAt).toISOString().slice(0, 10) <= globalEndDate;
+          } catch {
+            return true;
+          }
+        });
+        matchedLedger = matchedLedger.filter((l) => {
+          try {
+            return new Date(l.createdAt).toISOString().slice(0, 10) <= globalEndDate;
+          } catch {
+            return true;
+          }
+        });
+      }
+    } else if (globalPeriod !== 'ALL') {
+      const now = new Date();
+      let cutoff: Date | null = null;
+      if (globalPeriod === 'TODAY') {
+        cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      } else if (globalPeriod === 'YESTERDAY') {
+        cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      } else if (globalPeriod === '7D') {
+        cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      } else if (globalPeriod === '30D') {
+        cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      } else if (globalPeriod === '90D') {
+        cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      } else if (globalPeriod === 'MONTH') {
+        cutoff = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      if (cutoff) {
+        matchedOrders = matchedOrders.filter((o) => {
+          try {
+            return new Date(o.createdAt) >= cutoff!;
+          } catch {
+            return true;
+          }
+        });
+        matchedLedger = matchedLedger.filter((l) => {
+          try {
+            return new Date(l.createdAt) >= cutoff!;
+          } catch {
+            return true;
+          }
+        });
+      }
+    }
+
+    // Sort order
+    if (globalSort === 'DATE_ASC') {
+      matchedOrders.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      matchedLedger.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    } else if (globalSort === 'DATE_DESC') {
+      matchedOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      matchedLedger.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } else if (globalSort === 'AMOUNT_DESC') {
+      matchedOrders.sort((a, b) => (Number(b.amountPesewas) || 0) - (Number(a.amountPesewas) || 0));
+      matchedLedger.sort((a, b) => (Number(b.amountPesewas) || 0) - (Number(a.amountPesewas) || 0));
+    } else if (globalSort === 'AMOUNT_ASC') {
+      matchedOrders.sort((a, b) => (Number(a.amountPesewas) || 0) - (Number(b.amountPesewas) || 0));
+      matchedLedger.sort((a, b) => (Number(a.amountPesewas) || 0) - (Number(b.amountPesewas) || 0));
+    }
+
+    // Calculate aggregated metrics
+    const totalOrdersCount = isGlobalFiltered
+      ? (ordSummary?.totalOrders ?? matchedOrders.length)
+      : (ordSummary?.totalOrders || userDetail?.metrics?.totalOrders || matchedOrders.length);
+
+    const completedOrdersCount = isGlobalFiltered
+      ? (ordSummary?.completed ?? matchedOrders.filter((o) => ['COMPLETED', 'DELIVERED', 'FULFILLED'].includes(o.orderStatus)).length)
+      : (ordSummary?.completed || 0);
+
+    const failedOrdersCount = isGlobalFiltered
+      ? (ordSummary?.failed ?? matchedOrders.filter((o) => o.orderStatus === 'FAILED').length)
+      : (ordSummary?.failed || 0);
+
+    const refundedOrdersCount = isGlobalFiltered
+      ? (ordSummary?.refunded ?? matchedOrders.filter((o) => o.orderStatus === 'REFUNDED' || o.refundStatus === 'COMPLETED').length)
+      : (ordSummary?.refunded || 0);
+
+    // Total Spending
+    const totalSpentPesewas = isGlobalFiltered
+      ? (fin?.totalSpentPesewas ?? matchedOrders.filter((o) => ['COMPLETED', 'DELIVERED'].includes(o.orderStatus) && o.paymentStatus === 'PAID').reduce((sum, o) => sum + (Number(o.amountPesewas) || 0), 0))
+      : (fin?.totalSpentPesewas || 0);
+
+    // Total Refunds
+    const totalRefundsPesewas = isGlobalFiltered
+      ? (fin?.totalRefundsPesewas ?? matchedOrders.filter((o) => o.orderStatus === 'REFUNDED' || o.refundStatus === 'COMPLETED' || o.paymentStatus === 'REFUNDED').reduce((sum, o) => sum + (Number(o.amountPesewas) || 0), 0))
+      : (fin?.totalRefundsPesewas || 0);
+
+    // Ledger flow (credits, debits, net flow)
+    let creditsPesewas = 0;
+    let debitsPesewas = 0;
+    for (const l of matchedLedger) {
+      const amt = Number(l.amountPesewas) || 0;
+      if (l.entryType === 'CREDIT') creditsPesewas += amt;
+      else if (l.entryType === 'DEBIT') debitsPesewas += amt;
+    }
+    const netFlowPesewas = fin?.periodNetFlowPesewas !== undefined
+      ? fin.periodNetFlowPesewas
+      : (creditsPesewas - debitsPesewas);
+
+    return {
+      matchedOrders,
+      matchedLedger,
+      totalOrdersCount,
+      completedOrdersCount,
+      failedOrdersCount,
+      refundedOrdersCount,
+      totalSpentPesewas,
+      totalRefundsPesewas,
+      creditsPesewas: fin?.periodCreditsPesewas ?? creditsPesewas,
+      debitsPesewas: fin?.periodDebitsPesewas ?? debitsPesewas,
+      netFlowPesewas,
+    };
+  }, [userDetail, isGlobalFiltered, globalSearch, globalNetwork, globalStatus, globalLedgerType, globalPeriod, globalStartDate, globalEndDate, globalSort]);
+
   const filteredOrders = useMemo(() => {
-    return (userDetail?.recentOrders || []).filter((o) => {
+    return (snapshotMetrics.matchedOrders || []).filter((o) => {
       if (orderStatusFilter !== 'ALL') {
         if (orderStatusFilter === 'PENDING_APPROVAL' || orderStatusFilter === 'PENDING') {
           const isPending = ['PENDING', 'PENDING_APPROVAL', 'CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED'].includes(o.orderStatus);
@@ -569,10 +831,10 @@ export const AdminUserDetailPage: React.FC = () => {
       if (amountGhs > orderMaxAmount) return false;
       return true;
     });
-  }, [userDetail?.recentOrders, orderStatusFilter, orderNetworkFilter, orderSearch, orderDateFrom, orderDateTo, orderMaxAmount]);
+  }, [snapshotMetrics.matchedOrders, orderStatusFilter, orderNetworkFilter, orderSearch, orderDateFrom, orderDateTo, orderMaxAmount]);
 
   const filteredLedgerLines = useMemo(() => {
-    return (userDetail?.recentLedgerLines || []).filter((l) => {
+    return (snapshotMetrics.matchedLedger || []).filter((l) => {
       if (ledgerTypeFilter !== 'ALL' && l.entryType !== ledgerTypeFilter) return false;
       if (ledgerSearch.trim()) {
         const q = ledgerSearch.toLowerCase();
@@ -597,7 +859,7 @@ export const AdminUserDetailPage: React.FC = () => {
       if (amountGhs > ledgerMaxAmount) return false;
       return true;
     });
-  }, [userDetail?.recentLedgerLines, ledgerTypeFilter, ledgerSearch, ledgerDateFrom, ledgerDateTo, ledgerMaxAmount]);
+  }, [snapshotMetrics.matchedLedger, ledgerTypeFilter, ledgerSearch, ledgerDateFrom, ledgerDateTo, ledgerMaxAmount]);
 
   const filteredTransactions = useMemo(() => {
     return (userDetail?.transactions || []).filter((t) => {
@@ -894,40 +1156,302 @@ export const AdminUserDetailPage: React.FC = () => {
         </div>
       </Card>
 
+      {/* 2.5 Operational & Ledger Snapshot Filter Suite */}
+      <Card
+        elevated
+        style={{
+          padding: 'var(--space-4)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {/* Header row: Title, badge count, reset button */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  color: 'var(--color-brand-primary)',
+                }}
+              >
+                <Sliders size={15} />
+              </div>
+              <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                Snapshot Metrics & Ledger Filters
+              </span>
+              {isGlobalFiltered ? (
+                <Badge variant="brand" size="sm">
+                  {activeGlobalFiltersCount} active {activeGlobalFiltersCount === 1 ? 'filter' : 'filters'}
+                </Badge>
+              ) : (
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                  All-time view
+                </span>
+              )}
+            </div>
+
+            {isGlobalFiltered && (
+              <button
+                type="button"
+                onClick={handleResetGlobalFilters}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.35rem 0.65rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                  border: '1px solid var(--color-border-subtle)',
+                  color: 'var(--color-text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all var(--transition-fast)',
+                }}
+              >
+                <RotateCcw size={12} />
+                <span>Reset Filters</span>
+              </button>
+            )}
+          </div>
+
+          {/* Controls Row: Search + Selects */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: '0.5rem',
+              alignItems: 'center',
+            }}
+          >
+            {/* Search Input */}
+            <div style={{ minWidth: '180px', gridColumn: 'span 2' }}>
+              <SearchInput
+                placeholder="Search orders, ledger reference, phone..."
+                value={globalSearch}
+                onChange={(e) => setGlobalSearch(e.target.value)}
+                onClear={() => setGlobalSearch('')}
+              />
+            </div>
+
+            {/* Period / Date Range */}
+            <div>
+              <Select
+                value={globalPeriod}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setGlobalPeriod(val);
+                  if (val === 'CUSTOM') {
+                    setIsGlobalCustomDateOpen(true);
+                  } else {
+                    setIsGlobalCustomDateOpen(false);
+                    setGlobalStartDate('');
+                    setGlobalEndDate('');
+                  }
+                }}
+                options={[
+                  { label: '📅 All Time', value: 'ALL' },
+                  { label: 'Today', value: 'TODAY' },
+                  { label: 'Yesterday', value: 'YESTERDAY' },
+                  { label: 'Last 7 Days', value: '7D' },
+                  { label: 'Last 30 Days', value: '30D' },
+                  { label: 'Last 90 Days', value: '90D' },
+                  { label: 'This Month', value: 'MONTH' },
+                  { label: 'Custom Range...', value: 'CUSTOM' },
+                ]}
+              />
+            </div>
+
+            {/* Sort Order */}
+            <div>
+              <Select
+                value={globalSort}
+                onChange={(e) => setGlobalSort(e.target.value)}
+                options={[
+                  { label: 'Sort: Newest First', value: 'DATE_DESC' },
+                  { label: 'Sort: Oldest First', value: 'DATE_ASC' },
+                  { label: 'Sort: Amount High-Low', value: 'AMOUNT_DESC' },
+                  { label: 'Sort: Amount Low-High', value: 'AMOUNT_ASC' },
+                ]}
+              />
+            </div>
+
+            {/* Network Filter */}
+            <div>
+              <Select
+                value={globalNetwork}
+                onChange={(e) => setGlobalNetwork(e.target.value)}
+                options={[
+                  { label: 'All Networks', value: 'ALL' },
+                  { label: 'MTN', value: 'MTN' },
+                  { label: 'Telecel', value: 'TELECEL' },
+                  { label: 'AT (AirtelTigo)', value: 'AT' },
+                ]}
+              />
+            </div>
+
+            {/* Status Filter */}
+            <div>
+              <Select
+                value={globalStatus}
+                onChange={(e) => setGlobalStatus(e.target.value)}
+                options={[
+                  { label: 'All Statuses', value: 'ALL' },
+                  { label: 'Completed', value: 'COMPLETED' },
+                  { label: 'Pending', value: 'PENDING' },
+                  { label: 'Failed', value: 'FAILED' },
+                  { label: 'Refunded', value: 'REFUNDED' },
+                ]}
+              />
+            </div>
+
+            {/* Ledger Type Filter */}
+            <div>
+              <Select
+                value={globalLedgerType}
+                onChange={(e) => setGlobalLedgerType(e.target.value)}
+                options={[
+                  { label: 'All Ledger Types', value: 'ALL' },
+                  { label: 'Credits (Inflow)', value: 'CREDIT' },
+                  { label: 'Debits (Outflow)', value: 'DEBIT' },
+                ]}
+              />
+            </div>
+          </div>
+
+          {/* Custom Date Range Picker Expandable Drawer */}
+          {isGlobalCustomDateOpen && (
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: '0.75rem',
+                paddingTop: '0.5rem',
+                borderTop: '1px dashed var(--color-border-subtle)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Calendar size={14} color="var(--color-text-muted)" />
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                  Custom Range:
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>From:</label>
+                <input
+                  type="date"
+                  value={globalStartDate}
+                  onChange={(e) => setGlobalStartDate(e.target.value)}
+                  style={{
+                    padding: '0.35rem 0.6rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    backgroundColor: 'var(--color-bg-surface-elevated)',
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-text-primary)',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>To:</label>
+                <input
+                  type="date"
+                  value={globalEndDate}
+                  onChange={(e) => setGlobalEndDate(e.target.value)}
+                  style={{
+                    padding: '0.35rem 0.6rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    backgroundColor: 'var(--color-bg-surface-elevated)',
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-text-primary)',
+                  }}
+                />
+              </div>
+
+              {(globalStartDate || globalEndDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGlobalStartDate('');
+                    setGlobalEndDate('');
+                  }}
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--color-text-muted)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Clear Dates
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* 3. Snapshot Overview Metric Cards (Standardized subtle surfaces without garish tint fills) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
-          title="Authoritative Wallet"
-          value={`GH₵ ${balanceGhs}`}
-          subvalue={fin?.reconciliationStatus === 'RECONCILED' ? 'Ledger verified' : `Discrepancy: GH₵ ${((fin?.discrepancyPesewas || 0)/100).toFixed(2)}`}
+          title={isGlobalFiltered ? "Authoritative Wallet (Flow)" : "Authoritative Wallet"}
+          value={
+            isGlobalFiltered
+              ? `GH₵ ${(snapshotMetrics.netFlowPesewas >= 0 ? '+' : '')}${(snapshotMetrics.netFlowPesewas / 100).toFixed(2)}`
+              : `GH₵ ${balanceGhs}`
+          }
+          subvalue={
+            isGlobalFiltered
+              ? `In: GH₵ ${(snapshotMetrics.creditsPesewas / 100).toFixed(2)} • Out: GH₵ ${(snapshotMetrics.debitsPesewas / 100).toFixed(2)} (Bal: GH₵ ${balanceGhs})`
+              : (fin?.reconciliationStatus === 'RECONCILED' ? 'Ledger verified' : `Discrepancy: GH₵ ${((fin?.discrepancyPesewas || 0)/100).toFixed(2)}`)
+          }
           icon={<TactileIcon icon={Wallet} color="security" size="sm" />}
           style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
-          title="Total Lifetime Orders"
-          value={(ordSummary?.totalOrders || userDetail?.metrics?.totalOrders || 0).toLocaleString()}
-          subvalue={`${ordSummary?.completed || 0} completed • ${ordSummary?.failed || 0} failed`}
+          title={isGlobalFiltered ? "Filtered Orders" : "Total Lifetime Orders"}
+          value={
+            (isGlobalFiltered
+              ? snapshotMetrics.totalOrdersCount
+              : (ordSummary?.totalOrders || userDetail?.metrics?.totalOrders || 0)
+            ).toLocaleString()
+          }
+          subvalue={`${snapshotMetrics.completedOrdersCount} completed • ${snapshotMetrics.failedOrdersCount} failed${snapshotMetrics.refundedOrdersCount > 0 ? ` • ${snapshotMetrics.refundedOrdersCount} refunded` : ''}`}
           icon={<TactileIcon icon={Package} color="orders" size="sm" />}
           style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
-          title="Total Spending"
-          value={`GH₵ ${totalSpentGhs}`}
-          subvalue="Lifetime purchase volume"
+          title={isGlobalFiltered ? "Filtered Spending" : "Total Spending"}
+          value={`GH₵ ${(snapshotMetrics.totalSpentPesewas / 100).toFixed(2)}`}
+          subvalue={isGlobalFiltered ? `Filtered volume (Lifetime: GH₵ ${totalSpentGhs})` : "Lifetime purchase volume"}
           icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
           style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
-          title="Resolved Refunds"
-          value={`GH₵ ${totalRefundsGhs}`}
-          subvalue={`${ordSummary?.refunded || 0} refunded orders`}
+          title={isGlobalFiltered ? "Filtered Refunds" : "Resolved Refunds"}
+          value={`GH₵ ${(snapshotMetrics.totalRefundsPesewas / 100).toFixed(2)}`}
+          subvalue={`${snapshotMetrics.refundedOrdersCount} refunded orders${isGlobalFiltered ? ` (Lifetime: GH₵ ${totalRefundsGhs})` : ''}`}
           icon={<TactileIcon icon={RefreshCw} color="api" size="sm" />}
           style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Reconciliation Audit"
           value={fin?.reconciliationStatus === 'RECONCILED' ? 'PASSED' : 'DISCREPANCY'}
-          subvalue="Double-entry ledger check"
+          subvalue={isGlobalFiltered ? "Filtered ledger check" : "Double-entry ledger check"}
           icon={<TactileIcon icon={ShieldCheck} color={fin?.reconciliationStatus === 'RECONCILED' ? 'emerald' : 'speed'} size="sm" />}
           style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />

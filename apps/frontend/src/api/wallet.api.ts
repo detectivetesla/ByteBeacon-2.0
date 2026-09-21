@@ -40,30 +40,36 @@ export interface WithdrawalSummaryDto {
   availableProfitPesewas: number;
   salesCount: number;
   salesVolumePesewas: number;
-  limits?: {
-    minWithdrawalPesewas: number;
-    maxWithdrawalPesewas: number;
-    dailyLimitPesewas: number;
-    dailyWithdrawnPesewas: number;
-    remainingDailyLimitPesewas: number;
-    isCustomLimit?: boolean;
-    withdrawalsPaused?: boolean;
-  };
+  limits?: AgentWithdrawalLimitsDto;
+}
+
+export interface AgentWithdrawalLimitsDto {
+  minWithdrawalPesewas: number;
+  maxWithdrawalPesewas: number;
+  dailyLimitPesewas: number;
+  dailyWithdrawnPesewas: number;
+  remainingDailyLimitPesewas: number;
+  isCustomLimit?: boolean;
+  withdrawalsPaused?: boolean;
+  withdrawalsPausedReason?: string;
+  customMinWithdrawalPesewas?: number | null;
+  customWithdrawalLimitPesewas?: number | null;
+  customDailyLimitPesewas?: number | null;
+  withdrawalsEnabled?: boolean;
+  allowAnytimeWithdrawals?: boolean;
+  scheduleEnabled?: boolean;
+  allowedDays?: string[];
+  startTime?: string;
+  endTime?: string;
+  isWindowOpen?: boolean;
+  windowMessage?: string;
 }
 
 export interface WithdrawalsResponseDto {
   withdrawals: any[];
   ledger?: any[];
   summary?: WithdrawalSummaryDto;
-  limits?: {
-    minWithdrawalPesewas: number;
-    maxWithdrawalPesewas: number;
-    dailyLimitPesewas: number;
-    dailyWithdrawnPesewas: number;
-    remainingDailyLimitPesewas: number;
-    isCustomLimit?: boolean;
-    withdrawalsPaused?: boolean;
-  };
+  limits?: AgentWithdrawalLimitsDto;
 }
 
 export const walletApi = {

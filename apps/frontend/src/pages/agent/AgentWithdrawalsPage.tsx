@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpDown,
+  Clock,
 } from 'lucide-react';
 
 export const GHANA_BANKS = [
@@ -181,8 +182,11 @@ export const AgentWithdrawalsPage: React.FC = () => {
   // Authoritative Administrator Configured Profit Withdrawal Limits
   const minLimitGhs = (withdrawalLimits?.minWithdrawalPesewas ?? 1000) / 100;
   const maxLimitGhs = (withdrawalLimits?.maxWithdrawalPesewas ?? 500000) / 100;
-  const dailyRemainingGhs = (withdrawalLimits?.remainingDailyLimitPesewas ?? 2000000) / 100;
+  const dailyRemainingGhs = (withdrawalLimits?.remainingDailyLimitPesewas ?? 500000) / 100;
   const isWithdrawalsPaused = Boolean(withdrawalLimits?.withdrawalsPaused);
+  const isWindowOpen = withdrawalLimits?.isWindowOpen ?? true;
+  const allowAnytime = Boolean(withdrawalLimits?.allowAnytimeWithdrawals);
+  const isWithdrawalAllowedNow = !isWithdrawalsPaused && (isWindowOpen || allowAnytime);
 
   const parsedWithdrawAmount = parseFloat(withdrawAmountGhs) || 0;
   const withdrawalFeeGhs = 0.00; // Zero fee for reseller payouts
@@ -439,6 +443,15 @@ export const AgentWithdrawalsPage: React.FC = () => {
                 Custom Reseller Limit Active
               </Badge>
             )}
+            {allowAnytime ? (
+              <Badge variant="success" size="sm">
+                ⭐ 24/7 VIP Access
+              </Badge>
+            ) : (
+              <Badge variant={isWindowOpen ? 'success' : 'neutral'} size="sm">
+                {isWindowOpen ? '● Operating Window Open' : '○ Window Closed'}
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -447,16 +460,62 @@ export const AgentWithdrawalsPage: React.FC = () => {
             Refresh ↻
           </Button>
           <Button
-            variant={isWithdrawalsPaused || isMaintenanceMode ? 'secondary' : 'primary'}
+            variant={!isWithdrawalAllowedNow || isMaintenanceMode ? 'secondary' : 'primary'}
             size="sm"
             onClick={() => setIsWithdrawPanelOpen(true)}
-            disabled={isWithdrawalsPaused || isMaintenanceMode}
+            disabled={!isWithdrawalAllowedNow || isMaintenanceMode}
             leftIcon={<ArrowDownToLine size={14} />}
           >
-            {isWithdrawalsPaused ? 'Withdrawals Paused' : 'Withdraw Profit →'}
+            {isWithdrawalsPaused
+              ? 'Withdrawals Paused'
+              : !isWindowOpen && !allowAnytime
+              ? 'Payout Window Closed'
+              : 'Withdraw Profit →'}
           </Button>
         </div>
       </div>
+
+      {(!isWithdrawalAllowedNow || isWithdrawalsPaused) && (
+        <div
+          style={{
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-xl)',
+            backgroundColor: isWithdrawalsPaused ? 'rgba(239, 68, 68, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+            border: `1px solid ${isWithdrawalsPaused ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.85rem',
+          }}
+        >
+          <div
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              backgroundColor: isWithdrawalsPaused ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: isWithdrawalsPaused ? 'var(--color-danger)' : 'var(--color-warning)',
+              flexShrink: 0,
+            }}
+          >
+            <AlertCircle size={20} />
+          </div>
+          <div>
+            <h4 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+              {isWithdrawalsPaused
+                ? (withdrawalLimits?.pausedReason || 'Profit withdrawals are currently suspended by administration.')
+                : 'Profit Payout Window is Currently Closed'}
+            </h4>
+            <p style={{ margin: '0.2rem 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              {isWithdrawalsPaused
+                ? 'Your earned profits remain safely held in your wallet balance until restrictions are lifted.'
+                : 'Withdrawals are processed during designated operating banking hours. You can request payouts as soon as the operating window opens.'}
+            </p>
+          </div>
+        </div>
+      )}
 
             {/* Weekly Settlement Notification Banner */}
       <div
@@ -861,7 +920,7 @@ export const AgentWithdrawalsPage: React.FC = () => {
                   Cancel
                 </Button>
                 <Button
-                  variant={isMaintenanceMode || isWithdrawalsPaused ? 'secondary' : 'primary'}
+                  variant={isMaintenanceMode || !isWithdrawalAllowedNow ? 'secondary' : 'primary'}
                   size="md"
                   type="submit"
                   isLoading={isSubmittingWithdrawal}
@@ -871,13 +930,15 @@ export const AgentWithdrawalsPage: React.FC = () => {
                     parsedWithdrawAmount > maxLimitGhs ||
                     parsedWithdrawAmount > dailyRemainingGhs ||
                     isMaintenanceMode ||
-                    isWithdrawalsPaused
+                    !isWithdrawalAllowedNow
                   }
                 >
                   {isMaintenanceMode
                     ? 'Platform in Maintenance'
                     : isWithdrawalsPaused
-                    ? 'Withdrawals Suspended'
+                    ? (withdrawalLimits?.pausedReason ? `Suspended: ${withdrawalLimits.pausedReason}` : 'Withdrawals Suspended')
+                    : !isWindowOpen && !allowAnytime
+                    ? 'Operating Window Closed'
                     : 'Confirm Withdrawal'}
                 </Button>
               </div>

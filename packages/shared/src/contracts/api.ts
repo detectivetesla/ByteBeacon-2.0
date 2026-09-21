@@ -926,6 +926,10 @@ export interface AdminAgentListItem {
   subAgentsCount: number;
   agentTier: string;
   customWithdrawalLimitPesewas?: number | null;
+  customMinWithdrawalPesewas?: number | null;
+  customDailyLimitPesewas?: number | null;
+  withdrawalsEnabled?: boolean;
+  allowAnytimeWithdrawals?: boolean;
   createdAt: string;
   lastActiveAt?: string;
 }
@@ -1077,6 +1081,55 @@ export interface UpdateAgentAdminRequest {
   commissionRate?: number;
   enableApiAccess?: boolean;
   customWithdrawalLimitPesewas?: number | null;
+  customMinWithdrawalPesewas?: number | null;
+  customDailyLimitPesewas?: number | null;
+  withdrawalsEnabled?: boolean;
+  allowAnytimeWithdrawals?: boolean;
+}
+
+export interface AgentWithdrawalPolicyDto {
+  globalMinWithdrawalPesewas: number;
+  globalMaxWithdrawalPesewas: number;
+  globalDailyLimitPesewas: number;
+  scheduleEnabled: boolean;
+  allowedDays: string[];
+  startTime: string;
+  endTime: string;
+  allowAgentWithdrawals: boolean;
+  isWindowOpenNow: boolean;
+  currentGmtTime: string;
+  currentGmtDay: string;
+}
+
+export interface UpdateAgentWithdrawalPolicyRequest {
+  globalMinWithdrawalPesewas?: number;
+  globalMaxWithdrawalPesewas?: number;
+  globalDailyLimitPesewas?: number;
+  scheduleEnabled?: boolean;
+  allowedDays?: string[];
+  startTime?: string;
+  endTime?: string;
+  allowAgentWithdrawals?: boolean;
+  reason?: string;
+}
+
+export interface MassAgentWithdrawalLimitsRequest {
+  target: 'ALL' | 'TIER' | 'SELECTED';
+  agentTier?: string;
+  agentIds?: string[];
+  customMinWithdrawalPesewas?: number | null;
+  customWithdrawalLimitPesewas?: number | null;
+  customDailyLimitPesewas?: number | null;
+  withdrawalsEnabled?: boolean;
+  allowAnytimeWithdrawals?: boolean;
+  resetToDefaults?: boolean;
+  reason?: string;
+}
+
+export interface MassAgentWithdrawalLimitsResult {
+  updatedCount: number;
+  target: 'ALL' | 'TIER' | 'SELECTED';
+  agentTier?: string;
 }
 
 export interface UpdateAgentStatusRequest {

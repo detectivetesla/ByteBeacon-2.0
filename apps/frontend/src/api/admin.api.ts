@@ -20,6 +20,10 @@ import {
   CreateAgentAdminRequest,
   UpdateAgentAdminRequest,
   UpdateAgentStatusRequest,
+  AgentWithdrawalPolicyDto,
+  UpdateAgentWithdrawalPolicyRequest,
+  MassAgentWithdrawalLimitsRequest,
+  MassAgentWithdrawalLimitsResult,
   AgentCustomPricingItemDto,
   UpdateAgentPricingRequest,
   UserCustomPricingItemDto,
@@ -418,6 +422,9 @@ export interface AdminUserDetail {
     lifetimeValuePesewas: number;
     reconciliationStatus: 'RECONCILED' | 'DISCREPANCY_DETECTED';
     discrepancyPesewas: number;
+    periodNetFlowPesewas?: number;
+    periodCreditsPesewas?: number;
+    periodDebitsPesewas?: number;
   };
   orderSummary?: {
     totalOrders: number;
@@ -837,8 +844,20 @@ export const adminApi = {
     return apiClient.post<{ user: AdminUserListItem }>('/admin/users', data);
   },
 
-  getUserDetails: async (id: string) => {
-    return apiClient.get<AdminUserDetail>(`/admin/users/${id}`);
+  getUserDetails: async (
+    id: string,
+    params?: {
+      period?: string;
+      startDate?: string;
+      endDate?: string;
+      network?: string;
+      status?: string;
+      type?: string;
+      sort?: string;
+      search?: string;
+    },
+  ) => {
+    return apiClient.get<AdminUserDetail>(`/admin/users/${id}`, { params });
   },
 
   updateUserProfile: async (id: string, data: { fullName?: string; phone?: string; phoneVerified?: boolean; emailVerified?: boolean }) => {
@@ -952,8 +971,19 @@ export const adminApi = {
   },
 
   // Orders Control Plane (Phase 11.5)
-  getOrderStats: async () => {
-    return apiClient.get<AdminOrderStats>('/admin/orders/stats');
+  getOrderStats: async (params?: {
+    search?: string;
+    lifecycle?: string;
+    paymentStatus?: string;
+    provider?: string;
+    network?: string;
+    source?: string;
+    period?: string;
+    startDate?: string;
+    endDate?: string;
+    operationalState?: string;
+  }) => {
+    return apiClient.get<AdminOrderStats>('/admin/orders/stats', { params });
   },
 
   getOrders: async (params: {
@@ -2147,6 +2177,21 @@ export const adminApi = {
 
   updateAgentApplicationFee: async (data: { applicationFeeGhs?: number; applicationFeePesewas?: number; reason?: string }): Promise<{ applicationFeePesewas: number; applicationFeeGhs: number; configKey: string }> => {
     return apiClient.put('/admin/agents/settings/application-fee', data);
+  },
+
+  getAgentWithdrawalPolicy: async (): Promise<AgentWithdrawalPolicyDto> => {
+    const res = await apiClient.get<any>('/admin/agents/withdrawal-settings');
+    return res?.data ?? res;
+  },
+
+  updateAgentWithdrawalPolicy: async (data: UpdateAgentWithdrawalPolicyRequest): Promise<AgentWithdrawalPolicyDto> => {
+    const res = await apiClient.put<any>('/admin/agents/withdrawal-settings', data);
+    return res?.data ?? res;
+  },
+
+  massUpdateAgentWithdrawalLimits: async (data: MassAgentWithdrawalLimitsRequest): Promise<MassAgentWithdrawalLimitsResult> => {
+    const res = await apiClient.post<any>('/admin/agents/mass-withdrawal-limits', data);
+    return res?.data ?? res;
   },
 };
 
