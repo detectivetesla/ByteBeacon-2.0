@@ -362,7 +362,7 @@ export const storesApi = {
   },
 
   getPublicStore: async (slug: string): Promise<PublicStoreData> => {
-    return apiClient.get<PublicStoreData>(`/stores/public/${encodeURIComponent(slug)}`, { skipAuth: true });
+    return apiClient.get<PublicStoreData>(`/stores/public/${encodeURIComponent(slug)}`);
   },
 
   publicCheckout: async (payload: PublicCheckoutRequest): Promise<PublicCheckoutResponse> => {

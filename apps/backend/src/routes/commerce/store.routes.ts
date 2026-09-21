@@ -449,8 +449,8 @@ export async function storeRoutes(
     const updateQueryStr = `UPDATE stores
        SET store_name = COALESCE($1::VARCHAR, store_name),
            slug = $2::VARCHAR,
-           tagline = COALESCE($3::TEXT, tagline),
-           description = COALESCE($4::TEXT, description),
+           tagline = CASE WHEN $3::TEXT IS NOT NULL THEN $3::TEXT ELSE tagline END,
+           description = CASE WHEN $4::TEXT IS NOT NULL THEN $4::TEXT ELSE description END,
            contact_phone = COALESCE($5::VARCHAR, contact_phone),
            contact_email = COALESCE($6::VARCHAR, contact_email),
            contact_whatsapp = COALESCE($7::VARCHAR, contact_whatsapp),
@@ -1285,6 +1285,20 @@ export async function storeRoutes(
       const { slug } = req.params;
       const cleanSlug = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
+      // Check if authenticated merchant is previewing their own store
+      let currentUserId: string | null = null;
+      try {
+        const authHeader = req.headers.authorization;
+        if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+          const decoded = tokenService.verifyAccessToken(authHeader.slice(7).trim());
+          if (decoded && decoded.sub) {
+            currentUserId = decoded.sub;
+          }
+        }
+      } catch {
+        // Public guest
+      }
+
       let storeRes = await db.query(
         `SELECT id, agent_id as "agentId", user_id as "userId", store_name as "storeName",
                 slug, tagline, description,
@@ -1294,8 +1308,12 @@ export async function storeRoutes(
                 contact_whatsapp as "contactWhatsapp",
                 store_status as "storeStatus", approval_status as "approvalStatus"
          FROM stores
-         WHERE (LOWER(slug) = $1 OR slug = $1) AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
-        [cleanSlug],
+         WHERE (LOWER(slug) = $1 OR slug = $1)
+           AND (
+             (store_status = 'ACTIVE' AND approval_status = 'APPROVED')
+             OR ($2::UUID IS NOT NULL AND (user_id = $2::UUID OR agent_id = $2::UUID OR agent_id IN (SELECT id FROM agents WHERE user_id = $2::UUID)))
+           )`,
+        [cleanSlug, currentUserId],
       );
 
       if (storeRes.rows.length === 0) {
@@ -1444,13 +1462,26 @@ export async function storeRoutes(
       const { slug } = req.params;
       const cleanSlug = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
+      let currentUserId: string | null = null;
+      try {
+        const authHeader = req.headers.authorization;
+        if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+          const decoded = tokenService.verifyAccessToken(authHeader.slice(7).trim());
+          if (decoded && decoded.sub) currentUserId = decoded.sub;
+        }
+      } catch {}
+
       const storeRes = await db.query(
         `SELECT id, store_name as "storeName", slug, tagline, description,
                 logo_url as "logoUrl", banner_url as "bannerUrl",
                 primary_color as "primaryColor", accent_color as "accentColor"
          FROM stores
-         WHERE (LOWER(slug) = $1 OR slug = $1) AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
-        [cleanSlug],
+         WHERE (LOWER(slug) = $1 OR slug = $1)
+           AND (
+             (store_status = 'ACTIVE' AND approval_status = 'APPROVED')
+             OR ($2::UUID IS NOT NULL AND (user_id = $2::UUID OR agent_id = $2::UUID OR agent_id IN (SELECT id FROM agents WHERE user_id = $2::UUID)))
+           )`,
+        [cleanSlug, currentUserId],
       );
 
       const store = storeRes.rows[0];
@@ -1474,11 +1505,24 @@ export async function storeRoutes(
       const { slug } = req.params;
       const cleanSlug = (slug || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
+      let currentUserId: string | null = null;
+      try {
+        const authHeader = req.headers.authorization;
+        if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+          const decoded = tokenService.verifyAccessToken(authHeader.slice(7).trim());
+          if (decoded && decoded.sub) currentUserId = decoded.sub;
+        }
+      } catch {}
+
       const storeRes = await db.query(
         `SELECT id, store_name as "storeName", slug, logo_url as "logoUrl", primary_color as "primaryColor"
          FROM stores
-         WHERE (LOWER(slug) = $1 OR slug = $1) AND store_status = 'ACTIVE' AND approval_status = 'APPROVED'`,
-        [cleanSlug],
+         WHERE (LOWER(slug) = $1 OR slug = $1)
+           AND (
+             (store_status = 'ACTIVE' AND approval_status = 'APPROVED')
+             OR ($2::UUID IS NOT NULL AND (user_id = $2::UUID OR agent_id = $2::UUID OR agent_id IN (SELECT id FROM agents WHERE user_id = $2::UUID)))
+           )`,
+        [cleanSlug, currentUserId],
       );
 
       const store = storeRes.rows[0];

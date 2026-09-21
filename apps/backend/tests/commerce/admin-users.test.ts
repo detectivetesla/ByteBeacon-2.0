@@ -347,6 +347,80 @@ describe('Admin Users Directory & Dossier Control Plane', () => {
     );
   });
 
+  it('4b. POST /admin/users/:id/adjust-wallet with OVERRIDE should increase balance and credit user ledger', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users/usr_cust_123/adjust-wallet',
+      headers: { authorization: 'Bearer superadmin_token' },
+      payload: {
+        targetBalancePesewas: 75000,
+        type: 'OVERRIDE',
+        reason: 'Administrative balance override after reconciliation check',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.newBalancePesewas).toBe(75000);
+    expect(body.data.type).toBe('OVERRIDE');
+
+    expect(mockLedgerService.recordJournalEntries).toHaveBeenCalledWith(
+      mockClient,
+      expect.arrayContaining([
+        expect.objectContaining({
+          entryType: LedgerEntryType.DEBIT,
+          accountType: LedgerAccountType.PLATFORM_ESCROW,
+          accountId: '00000000-0000-0000-0000-000000000000',
+          amountPesewas: 25000,
+        }),
+        expect.objectContaining({
+          entryType: LedgerEntryType.CREDIT,
+          accountType: LedgerAccountType.CUSTOMER_WALLET,
+          accountId: 'usr_cust_123',
+          amountPesewas: 25000,
+        }),
+      ]),
+    );
+  });
+
+  it('4c. POST /admin/users/:id/adjust-wallet with OVERRIDE should allow setting 0 balance and debit user ledger', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users/usr_cust_123/adjust-wallet',
+      headers: { authorization: 'Bearer superadmin_token' },
+      payload: {
+        targetBalancePesewas: 0,
+        type: 'OVERRIDE',
+        reason: 'Administrative balance reset to zero',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.newBalancePesewas).toBe(0);
+    expect(body.data.type).toBe('OVERRIDE');
+
+    expect(mockLedgerService.recordJournalEntries).toHaveBeenCalledWith(
+      mockClient,
+      expect.arrayContaining([
+        expect.objectContaining({
+          entryType: LedgerEntryType.DEBIT,
+          accountType: LedgerAccountType.CUSTOMER_WALLET,
+          accountId: 'usr_cust_123',
+          amountPesewas: 50000,
+        }),
+        expect.objectContaining({
+          entryType: LedgerEntryType.CREDIT,
+          accountType: LedgerAccountType.PLATFORM_ESCROW,
+          accountId: '00000000-0000-0000-0000-000000000000',
+          amountPesewas: 50000,
+        }),
+      ]),
+    );
+  });
+
   it('5. GET /admin/users/:id/pricing should return catalog products with user custom price overrides', async () => {
     const res = await app.inject({
       method: 'GET',

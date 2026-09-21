@@ -1088,26 +1088,43 @@ export async function adminUsersRoutes(
   // 12. POST /admin/users/:id/adjust-wallet — Safe Financial Ledger Adjustment
   app.post<{
     Params: { id: string };
-    Body: { amountPesewas: number; type: 'CREDIT' | 'DEBIT'; reason: string };
+    Body: {
+      amountPesewas?: number;
+      targetBalancePesewas?: number;
+      type: 'CREDIT' | 'DEBIT' | 'OVERRIDE';
+      reason: string;
+    };
   }>(
     '/admin/users/:id/adjust-wallet',
     { preHandler: [authHooks.authenticateAdmin] },
     async (req: FastifyRequest<{
       Params: { id: string };
-      Body: { amountPesewas: number; type: 'CREDIT' | 'DEBIT'; reason: string };
+      Body: {
+        amountPesewas?: number;
+        targetBalancePesewas?: number;
+        type: 'CREDIT' | 'DEBIT' | 'OVERRIDE';
+        reason: string;
+      };
     }>, reply: FastifyReply) => {
-      const { amountPesewas, type, reason } = req.body || {};
+      const { amountPesewas, targetBalancePesewas, type, reason } = req.body || {};
 
-      if (!amountPesewas || !Number.isInteger(amountPesewas) || amountPesewas <= 0) {
-        throw new BadRequestError('Adjustment amount must be a positive integer in pesewas.');
-      }
-
-      if (!type || (type !== 'CREDIT' && type !== 'DEBIT')) {
-        throw new BadRequestError('Adjustment type must be CREDIT or DEBIT.');
+      if (!type || (type !== 'CREDIT' && type !== 'DEBIT' && type !== 'OVERRIDE')) {
+        throw new BadRequestError('Adjustment type must be CREDIT, DEBIT, or OVERRIDE.');
       }
 
       if (!reason || reason.trim().length < 5) {
         throw new BadRequestError('A detailed reason (minimum 5 characters) is mandatory for financial adjustments.');
+      }
+
+      if (type === 'CREDIT' || type === 'DEBIT') {
+        if (amountPesewas === undefined || !Number.isInteger(amountPesewas) || amountPesewas <= 0) {
+          throw new BadRequestError('Adjustment amount must be a positive integer in pesewas.');
+        }
+      } else if (type === 'OVERRIDE') {
+        const target = targetBalancePesewas !== undefined ? targetBalancePesewas : amountPesewas;
+        if (target === undefined || !Number.isInteger(target) || target < 0) {
+          throw new BadRequestError('Override target balance must be a non-negative integer in pesewas (>= 0).');
+        }
       }
 
       const client = await db.connect();
@@ -1128,57 +1145,92 @@ export async function adminUsersRoutes(
         const user = userRes.rows[0];
         const currentBalance = parseInt(user.currentBalance || '0', 10);
 
-        if (type === 'DEBIT' && currentBalance < amountPesewas) {
-          throw new BadRequestError(
-            `Insufficient balance: user has ${(currentBalance / 100).toFixed(2)} GHS, cannot debit ${(amountPesewas / 100).toFixed(2)} GHS.`,
-          );
+        let newBalance = currentBalance;
+        let deltaPesewas = 0;
+        let ledgerDirection: 'CREDIT' | 'DEBIT' | 'NONE' = 'NONE';
+
+        if (type === 'CREDIT') {
+          deltaPesewas = amountPesewas!;
+          newBalance = currentBalance + deltaPesewas;
+          ledgerDirection = 'CREDIT';
+        } else if (type === 'DEBIT') {
+          deltaPesewas = amountPesewas!;
+          if (currentBalance < deltaPesewas) {
+            throw new BadRequestError(
+              `Insufficient balance: user has ${(currentBalance / 100).toFixed(2)} GHS, cannot debit ${(deltaPesewas / 100).toFixed(2)} GHS.`,
+            );
+          }
+          newBalance = currentBalance - deltaPesewas;
+          ledgerDirection = 'DEBIT';
+        } else if (type === 'OVERRIDE') {
+          const target = targetBalancePesewas !== undefined ? targetBalancePesewas : amountPesewas!;
+          newBalance = target;
+          const diff = target - currentBalance;
+          if (diff > 0) {
+            deltaPesewas = diff;
+            ledgerDirection = 'CREDIT';
+          } else if (diff < 0) {
+            deltaPesewas = Math.abs(diff);
+            ledgerDirection = 'DEBIT';
+          } else {
+            deltaPesewas = 0;
+            ledgerDirection = 'NONE';
+          }
         }
 
-        const newBalance = type === 'CREDIT' ? currentBalance + amountPesewas : currentBalance - amountPesewas;
         const platformReserveId = '00000000-0000-0000-0000-000000000000';
+        const referenceType = type === 'OVERRIDE' ? 'ADMIN_WALLET_OVERRIDE' : 'ADMIN_WALLET_ADJUSTMENT';
 
         // Post balanced double-entry voucher
-        if (ledgerService) {
-          if (type === 'CREDIT') {
+        if (ledgerService && deltaPesewas > 0) {
+          if (ledgerDirection === 'CREDIT') {
             await ledgerService.recordJournalEntries(client, [
               {
                 entryType: LedgerEntryType.DEBIT,
                 accountType: LedgerAccountType.PLATFORM_ESCROW,
                 accountId: platformReserveId,
-                amountPesewas,
-                referenceType: 'ADMIN_WALLET_ADJUSTMENT',
+                amountPesewas: deltaPesewas,
+                referenceType,
                 referenceId: req.params.id,
-                description: `Admin credit adjustment: ${reason}`,
+                description: type === 'OVERRIDE'
+                  ? `Admin wallet override credit (${(currentBalance / 100).toFixed(2)} -> ${(newBalance / 100).toFixed(2)} GHS): ${reason}`
+                  : `Admin credit adjustment: ${reason}`,
               },
               {
                 entryType: LedgerEntryType.CREDIT,
                 accountType: LedgerAccountType.CUSTOMER_WALLET,
                 accountId: req.params.id,
-                amountPesewas,
-                referenceType: 'ADMIN_WALLET_ADJUSTMENT',
+                amountPesewas: deltaPesewas,
+                referenceType,
                 referenceId: req.params.id,
-                description: `Admin credit adjustment: ${reason}`,
+                description: type === 'OVERRIDE'
+                  ? `Admin wallet override credit (${(currentBalance / 100).toFixed(2)} -> ${(newBalance / 100).toFixed(2)} GHS): ${reason}`
+                  : `Admin credit adjustment: ${reason}`,
               },
             ]);
-          } else {
+          } else if (ledgerDirection === 'DEBIT') {
             await ledgerService.recordJournalEntries(client, [
               {
                 entryType: LedgerEntryType.DEBIT,
                 accountType: LedgerAccountType.CUSTOMER_WALLET,
                 accountId: req.params.id,
-                amountPesewas,
-                referenceType: 'ADMIN_WALLET_ADJUSTMENT',
+                amountPesewas: deltaPesewas,
+                referenceType,
                 referenceId: req.params.id,
-                description: `Admin debit adjustment: ${reason}`,
+                description: type === 'OVERRIDE'
+                  ? `Admin wallet override debit (${(currentBalance / 100).toFixed(2)} -> ${(newBalance / 100).toFixed(2)} GHS): ${reason}`
+                  : `Admin debit adjustment: ${reason}`,
               },
               {
                 entryType: LedgerEntryType.CREDIT,
                 accountType: LedgerAccountType.PLATFORM_ESCROW,
                 accountId: platformReserveId,
-                amountPesewas,
-                referenceType: 'ADMIN_WALLET_ADJUSTMENT',
+                amountPesewas: deltaPesewas,
+                referenceType,
                 referenceId: req.params.id,
-                description: `Admin debit adjustment: ${reason}`,
+                description: type === 'OVERRIDE'
+                  ? `Admin wallet override debit (${(currentBalance / 100).toFixed(2)} -> ${(newBalance / 100).toFixed(2)} GHS): ${reason}`
+                  : `Admin debit adjustment: ${reason}`,
               },
             ]);
           }
@@ -1197,13 +1249,13 @@ export async function adminUsersRoutes(
             correlationId: req.id,
             actorId: req.user!.sub,
             actorType: 'ADMIN',
-            action: 'ADMIN_WALLET_ADJUSTMENT',
+            action: type === 'OVERRIDE' ? 'ADMIN_WALLET_OVERRIDE' : 'ADMIN_WALLET_ADJUSTMENT',
             resourceType: 'users',
             resourceId: req.params.id,
             metadata: {
               adjustmentType: type,
-              amountPesewas,
-              amountGhs: amountPesewas / 100,
+              amountPesewas: deltaPesewas,
+              amountGhs: deltaPesewas / 100,
               beforeBalancePesewas: currentBalance,
               afterBalancePesewas: newBalance,
               reason,
@@ -1212,16 +1264,20 @@ export async function adminUsersRoutes(
           });
         }
 
+        const successMessage = type === 'OVERRIDE'
+          ? `Wallet balance successfully overridden from ${(currentBalance / 100).toFixed(2)} GHS to ${(newBalance / 100).toFixed(2)} GHS.`
+          : `Wallet successfully ${type === 'CREDIT' ? 'credited' : 'debited'} with ${(deltaPesewas / 100).toFixed(2)} GHS.`;
+
         return reply.send({
           success: true,
           data: {
             userId: req.params.id,
             previousBalancePesewas: currentBalance,
             newBalancePesewas: newBalance,
-            adjustmentPesewas: amountPesewas,
+            adjustmentPesewas: deltaPesewas,
             type,
           },
-          message: `Wallet successfully ${type === 'CREDIT' ? 'credited' : 'debited'} with ${(amountPesewas / 100).toFixed(2)} GHS.`,
+          message: successMessage,
         });
       } catch (err: any) {
         await client.query('ROLLBACK');

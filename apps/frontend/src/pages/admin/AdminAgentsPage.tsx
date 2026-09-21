@@ -118,7 +118,7 @@ export const AdminAgentsPage: React.FC = () => {
   const [isWalletModalOpen, setIsWalletModalOpen] = useState<boolean>(false);
   const [walletTargetAgent, setWalletTargetAgent] = useState<AdminAgentListItem | null>(null);
   const [adjAmountGhs, setAdjAmountGhs] = useState<string>('');
-  const [adjDirection, setAdjDirection] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
+  const [adjDirection, setAdjDirection] = useState<'CREDIT' | 'DEBIT' | 'OVERRIDE'>('CREDIT');
   const [adjReason, setAdjReason] = useState<string>('');
   const [isAdjustingWallet, setIsAdjustingWallet] = useState<boolean>(false);
 
@@ -427,9 +427,16 @@ export const AdminAgentsPage: React.FC = () => {
   // Handle Wallet Adjustment
   const handleAdjustWallet = async () => {
     const amount = parseFloat(adjAmountGhs);
-    if (isNaN(amount) || amount <= 0) {
-      toastError('Invalid Amount', 'Please enter a valid positive amount in GHS.');
-      return;
+    if (adjDirection === 'OVERRIDE') {
+      if (isNaN(amount) || amount < 0) {
+        toastError('Invalid Amount', 'Please enter a valid non-negative amount in GHS (0 or greater).');
+        return;
+      }
+    } else {
+      if (isNaN(amount) || amount <= 0) {
+        toastError('Invalid Amount', 'Please enter a valid positive amount in GHS.');
+        return;
+      }
     }
     if (!adjReason || adjReason.trim().length < 5) {
       toastError('Reason Required', 'Please provide a mandatory audit reason (min 5 characters).');
@@ -440,12 +447,21 @@ export const AdminAgentsPage: React.FC = () => {
 
     setIsAdjustingWallet(true);
     try {
-      await adminApi.adjustAgentWallet(walletTargetAgent!.id, {
-        amountPesewas,
-        direction: adjDirection,
-        reason: adjReason.trim(),
-      });
-      toastSuccess('Wallet Adjusted', `Agent wallet successfully ${adjDirection.toLowerCase()}ed by GH₵ ${amount.toFixed(2)}.`);
+      if (adjDirection === 'OVERRIDE') {
+        await adminApi.adjustAgentWallet(walletTargetAgent!.id, {
+          targetBalancePesewas: amountPesewas,
+          direction: 'OVERRIDE',
+          reason: adjReason.trim(),
+        });
+        toastSuccess('Wallet Overridden', `Agent float balance successfully overridden to GH₵ ${amount.toFixed(2)}.`);
+      } else {
+        await adminApi.adjustAgentWallet(walletTargetAgent!.id, {
+          amountPesewas,
+          direction: adjDirection,
+          reason: adjReason.trim(),
+        });
+        toastSuccess('Wallet Adjusted', `Agent wallet successfully ${adjDirection.toLowerCase()}ed by GH₵ ${amount.toFixed(2)}.`);
+      }
       setIsWalletModalOpen(false);
       setAdjAmountGhs('');
       setAdjReason('');
@@ -1796,19 +1812,77 @@ export const AdminAgentsPage: React.FC = () => {
               >
                 <option value="CREDIT">CREDIT (Increase Float)</option>
                 <option value="DEBIT">DEBIT (Decrease Float)</option>
+                <option value="OVERRIDE">OVERRIDE (Set Exact Float Balance)</option>
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Amount in GHS *</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                {adjDirection === 'OVERRIDE' ? 'Target Float Balance in GHS *' : 'Amount in GHS *'}
+              </label>
               <Input
                 type="number"
                 step="0.01"
+                min={adjDirection === 'OVERRIDE' ? '0' : '0.01'}
                 value={adjAmountGhs}
                 onChange={(e) => setAdjAmountGhs(e.target.value)}
-                placeholder="50.00"
+                placeholder={adjDirection === 'OVERRIDE' ? '0.00' : '50.00'}
               />
             </div>
           </div>
+
+          {adjDirection === 'OVERRIDE' && adjAmountGhs !== '' && !isNaN(parseFloat(adjAmountGhs)) && (() => {
+            const target = parseFloat(adjAmountGhs);
+            const current = (walletTargetAgent?.walletBalancePesewas || 0) / 100;
+            const diff = target - current;
+            if (diff > 0) {
+              return (
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--color-success)',
+                    fontWeight: 700,
+                    padding: '0.4rem 0.6rem',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                  }}
+                >
+                  🟢 Net Credit to Float: +GH₵ {diff.toFixed(2)} (Ledger Escrow Debit)
+                </div>
+              );
+            }
+            if (diff < 0) {
+              return (
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--color-danger)',
+                    fontWeight: 700,
+                    padding: '0.4rem 0.6rem',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                  }}
+                >
+                  🔴 Net Debit from Float: -GH₵ {Math.abs(diff).toFixed(2)} (Ledger Escrow Credit)
+                </div>
+              );
+            }
+            return (
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: 'var(--color-text-muted)',
+                  fontWeight: 600,
+                  padding: '0.4rem 0.6rem',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                ⚪ No change in float balance (GH₵ 0.00)
+              </div>
+            );
+          })()}
 
           <div>
             <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Mandatory Audit Reason * (min 5 chars)</label>
@@ -1836,7 +1910,7 @@ export const AdminAgentsPage: React.FC = () => {
                 opacity: isAdjustingWallet ? 0.6 : 1,
               }}
             >
-              {isAdjustingWallet ? 'Posting Voucher...' : 'Execute Balanced Adjustment'}
+              {isAdjustingWallet ? 'Posting Voucher...' : adjDirection === 'OVERRIDE' ? 'Execute Balance Override' : 'Execute Balanced Adjustment'}
             </button>
           </div>
         </div>

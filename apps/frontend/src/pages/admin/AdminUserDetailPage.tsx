@@ -47,6 +47,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Sliders,
 } from 'lucide-react';
 
 export const AdminUserDetailPage: React.FC = () => {
@@ -83,7 +84,7 @@ export const AdminUserDetailPage: React.FC = () => {
 
   // Wallet adjustment modal
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
-  const [adjustType, setAdjustType] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
+  const [adjustType, setAdjustType] = useState<'CREDIT' | 'DEBIT' | 'OVERRIDE'>('CREDIT');
   const [adjustAmountGhs, setAdjustAmountGhs] = useState('');
   const [adjustReason, setAdjustReason] = useState('');
   const [isAdjusting, setIsAdjusting] = useState(false);
@@ -317,9 +318,16 @@ export const AdminUserDetailPage: React.FC = () => {
     if (!id) return;
 
     const amountGhs = parseFloat(adjustAmountGhs);
-    if (isNaN(amountGhs) || amountGhs <= 0) {
-      toastError('Invalid Amount', 'Please enter a valid positive number in GHS.');
-      return;
+    if (adjustType === 'OVERRIDE') {
+      if (isNaN(amountGhs) || amountGhs < 0) {
+        toastError('Invalid Amount', 'Please enter a valid non-negative number in GHS (0 or greater).');
+        return;
+      }
+    } else {
+      if (isNaN(amountGhs) || amountGhs <= 0) {
+        toastError('Invalid Amount', 'Please enter a valid positive number in GHS.');
+        return;
+      }
     }
 
     if (!adjustReason || adjustReason.trim().length < 5) {
@@ -331,12 +339,21 @@ export const AdminUserDetailPage: React.FC = () => {
     setIsAdjusting(true);
 
     try {
-      await adminApi.adjustUserWallet(id, {
-        amountPesewas,
-        type: adjustType,
-        reason: adjustReason.trim(),
-      });
-      toastSuccess('Wallet Adjusted', `Successfully ${adjustType === 'CREDIT' ? 'credited' : 'debited'} GH₵ ${amountGhs.toFixed(2)} via double-entry voucher.`);
+      if (adjustType === 'OVERRIDE') {
+        await adminApi.adjustUserWallet(id, {
+          targetBalancePesewas: amountPesewas,
+          type: 'OVERRIDE',
+          reason: adjustReason.trim(),
+        });
+        toastSuccess('Wallet Overridden', `Successfully set wallet balance to GH₵ ${amountGhs.toFixed(2)}.`);
+      } else {
+        await adminApi.adjustUserWallet(id, {
+          amountPesewas,
+          type: adjustType,
+          reason: adjustReason.trim(),
+        });
+        toastSuccess('Wallet Adjusted', `Successfully ${adjustType === 'CREDIT' ? 'credited' : 'debited'} GH₵ ${amountGhs.toFixed(2)} via double-entry voucher.`);
+      }
       setIsAdjustModalOpen(false);
       setAdjustAmountGhs('');
       setAdjustReason('');
@@ -2864,10 +2881,10 @@ export const AdminUserDetailPage: React.FC = () => {
           onClose={() => setIsAdjustModalOpen(false)}
           title="Double-Entry Wallet Adjustment"
           subtitle="Posts balanced journal voucher to financial_ledger paired against PLATFORM_RESERVE."
-          maxWidth="460px"
+          maxWidth="480px"
         >
           <form onSubmit={handleAdjustWallet} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
               <Button
                 type="button"
                 variant={adjustType === 'CREDIT' ? 'primary' : 'secondary'}
@@ -2876,7 +2893,7 @@ export const AdminUserDetailPage: React.FC = () => {
                 onClick={() => setAdjustType('CREDIT')}
                 leftIcon={<PlusCircle size={14} />}
               >
-                Credit Wallet
+                Credit
               </Button>
               <Button
                 type="button"
@@ -2886,26 +2903,117 @@ export const AdminUserDetailPage: React.FC = () => {
                 onClick={() => setAdjustType('DEBIT')}
                 leftIcon={<MinusCircle size={14} />}
               >
-                Debit Wallet
+                Debit
+              </Button>
+              <Button
+                type="button"
+                variant={adjustType === 'OVERRIDE' ? 'primary' : 'secondary'}
+                size="sm"
+                fullWidth
+                onClick={() => setAdjustType('OVERRIDE')}
+                leftIcon={<Sliders size={14} />}
+              >
+                Override
               </Button>
             </div>
 
+            <div
+              style={{
+                backgroundColor: 'var(--color-bg-subtle)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                padding: '0.65rem 0.85rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                Current Authoritative Balance:
+              </span>
+              <strong style={{ fontSize: '14px', fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)' }}>
+                GH₵ {balanceGhs}
+              </strong>
+            </div>
+
             <Input
-              label="Amount (GH₵)"
+              label={
+                adjustType === 'OVERRIDE'
+                  ? 'Target Wallet Balance (GH₵) *'
+                  : `Amount to ${adjustType === 'CREDIT' ? 'Credit' : 'Debit'} (GH₵) *`
+              }
               type="number"
               step="0.01"
-              min="0.01"
+              min={adjustType === 'OVERRIDE' ? '0' : '0.01'}
               value={adjustAmountGhs}
               onChange={(e) => setAdjustAmountGhs(e.target.value)}
               placeholder="0.00"
               required
             />
 
+            {adjustType === 'OVERRIDE' && adjustAmountGhs !== '' && !isNaN(parseFloat(adjustAmountGhs)) && (() => {
+              const target = parseFloat(adjustAmountGhs);
+              const current = parseFloat(balanceGhs) || 0;
+              const diff = target - current;
+              if (diff > 0) {
+                return (
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--color-success)',
+                      fontWeight: 700,
+                      padding: '0.4rem 0.6rem',
+                      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                    }}
+                  >
+                    🟢 Net Credit to Wallet: +GH₵ {diff.toFixed(2)} (Ledger Escrow Debit)
+                  </div>
+                );
+              }
+              if (diff < 0) {
+                return (
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--color-danger)',
+                      fontWeight: 700,
+                      padding: '0.4rem 0.6rem',
+                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                    }}
+                  >
+                    🔴 Net Debit from Wallet: -GH₵ {Math.abs(diff).toFixed(2)} (Ledger Escrow Credit)
+                  </div>
+                );
+              }
+              return (
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--color-text-muted)',
+                    fontWeight: 600,
+                    padding: '0.4rem 0.6rem',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-sm)',
+                  }}
+                >
+                  ⚪ No change in balance (GH₵ 0.00)
+                </div>
+              );
+            })()}
+
             <Input
-              label="Mandatory Audit Reason (min 5 chars)"
+              label="Mandatory Audit Reason (min 5 chars) *"
               value={adjustReason}
               onChange={(e) => setAdjustReason(e.target.value)}
-              placeholder="e.g. Manual MoMo deposit resolution"
+              placeholder={
+                adjustType === 'OVERRIDE'
+                  ? 'e.g. Account balance correction following audit'
+                  : 'e.g. Manual MoMo deposit resolution'
+              }
               required
             />
 
@@ -2913,8 +3021,13 @@ export const AdminUserDetailPage: React.FC = () => {
               <Button type="button" variant="secondary" size="sm" onClick={() => setIsAdjustModalOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" variant={adjustType === 'CREDIT' ? 'primary' : 'danger'} size="sm" isLoading={isAdjusting}>
-                Confirm {adjustType}
+              <Button
+                type="submit"
+                variant={adjustType === 'DEBIT' ? 'danger' : 'primary'}
+                size="sm"
+                isLoading={isAdjusting}
+              >
+                {adjustType === 'OVERRIDE' ? 'Confirm Override' : `Confirm ${adjustType}`}
               </Button>
             </div>
           </form>

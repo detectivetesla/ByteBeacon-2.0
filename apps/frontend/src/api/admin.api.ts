@@ -858,8 +858,22 @@ export const adminApi = {
     return apiClient.post(`/admin/users/${id}/role`, { role, reason });
   },
 
-  adjustUserWallet: async (id: string, data: { amountPesewas: number; type: 'CREDIT' | 'DEBIT'; reason: string }) => {
-    return apiClient.post<{ userId: string; previousBalancePesewas: number; newBalancePesewas: number }>(`/admin/users/${id}/adjust-wallet`, data);
+  adjustUserWallet: async (
+    id: string,
+    data: {
+      amountPesewas?: number;
+      targetBalancePesewas?: number;
+      type: 'CREDIT' | 'DEBIT' | 'OVERRIDE';
+      reason: string;
+    },
+  ) => {
+    return apiClient.post<{
+      userId: string;
+      previousBalancePesewas: number;
+      newBalancePesewas: number;
+      adjustmentPesewas: number;
+      type: 'CREDIT' | 'DEBIT' | 'OVERRIDE';
+    }>(`/admin/users/${id}/adjust-wallet`, data);
   },
 
   reconcileUserWallet: async (id: string) => {
@@ -1335,8 +1349,24 @@ export const adminApi = {
     return apiClient.patch<{ id: string; status: string; reason: string }>(`/admin/agents/${id}/status`, data);
   },
 
-  adjustAgentWallet: async (id: string, data: { amountPesewas: number; direction: 'CREDIT' | 'DEBIT'; reason: string; idempotencyKey?: string }) => {
-    return apiClient.post(`/admin/agents/${id}/wallet/adjust`, data);
+  adjustAgentWallet: async (
+    id: string,
+    data: {
+      amountPesewas?: number;
+      targetBalancePesewas?: number;
+      direction: 'CREDIT' | 'DEBIT' | 'OVERRIDE';
+      reason: string;
+      idempotencyKey?: string;
+    },
+  ) => {
+    return apiClient.post<{
+      agentId: string;
+      previousBalancePesewas: number;
+      newBalancePesewas: number;
+      amountPesewas: number;
+      direction: 'CREDIT' | 'DEBIT' | 'OVERRIDE';
+      reason: string;
+    }>(`/admin/agents/${id}/wallet/adjust`, data);
   },
 
   getAgentCustomPricing: async (id: string): Promise<AgentCustomPricingItemDto[]> => {

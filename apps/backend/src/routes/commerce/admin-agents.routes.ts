@@ -964,8 +964,9 @@ export async function adminAgentsRoutes(
   app.post<{
     Params: { id: string };
     Body: {
-      amountPesewas: number;
-      direction: 'CREDIT' | 'DEBIT';
+      amountPesewas?: number;
+      targetBalancePesewas?: number;
+      direction: 'CREDIT' | 'DEBIT' | 'OVERRIDE';
       reason: string;
       idempotencyKey?: string;
     };
@@ -974,10 +975,25 @@ export async function adminAgentsRoutes(
     { preHandler: [authHooks.authenticateAdmin] },
     async (req, reply) => {
       const { id } = req.params;
-      const { amountPesewas, direction, reason, idempotencyKey } = req.body || {};
+      const { amountPesewas, targetBalancePesewas, direction, reason, idempotencyKey } = req.body || {};
 
-      if (!amountPesewas || amountPesewas <= 0 || !direction || !reason || reason.trim().length < 5) {
-        throw new BadRequestError('Positive amount in pesewas, direction (CREDIT/DEBIT), and mandatory reason (min 5 chars) are required.');
+      if (!direction || (direction !== 'CREDIT' && direction !== 'DEBIT' && direction !== 'OVERRIDE')) {
+        throw new BadRequestError('Adjustment direction must be CREDIT, DEBIT, or OVERRIDE.');
+      }
+
+      if (!reason || reason.trim().length < 5) {
+        throw new BadRequestError('A detailed reason (minimum 5 characters) is mandatory.');
+      }
+
+      if (direction === 'CREDIT' || direction === 'DEBIT') {
+        if (!amountPesewas || !Number.isInteger(amountPesewas) || amountPesewas <= 0) {
+          throw new BadRequestError('Positive integer amount in pesewas is required.');
+        }
+      } else if (direction === 'OVERRIDE') {
+        const target = targetBalancePesewas !== undefined ? targetBalancePesewas : amountPesewas;
+        if (target === undefined || !Number.isInteger(target) || target < 0) {
+          throw new BadRequestError('Override target balance must be a non-negative integer in pesewas (>= 0).');
+        }
       }
 
       const lookupRes = await db.query(
@@ -993,6 +1009,40 @@ export async function adminAgentsRoutes(
 
       const agent = lookupRes.rows[0];
       const userId = agent.userId;
+      const currentBalance = parseInt(agent.walletBalancePesewas || '0', 10);
+
+      let newBalance = currentBalance;
+      let deltaPesewas = 0;
+      let effectiveDirection: 'CREDIT' | 'DEBIT' | 'NONE' = 'NONE';
+
+      if (direction === 'CREDIT') {
+        deltaPesewas = amountPesewas!;
+        newBalance = currentBalance + deltaPesewas;
+        effectiveDirection = 'CREDIT';
+      } else if (direction === 'DEBIT') {
+        deltaPesewas = amountPesewas!;
+        if (currentBalance < deltaPesewas) {
+          throw new BadRequestError(
+            `Insufficient float balance: agent has ${(currentBalance / 100).toFixed(2)} GHS, cannot debit ${(deltaPesewas / 100).toFixed(2)} GHS.`,
+          );
+        }
+        newBalance = currentBalance - deltaPesewas;
+        effectiveDirection = 'DEBIT';
+      } else if (direction === 'OVERRIDE') {
+        const target = targetBalancePesewas !== undefined ? targetBalancePesewas : amountPesewas!;
+        newBalance = target;
+        const diff = target - currentBalance;
+        if (diff > 0) {
+          deltaPesewas = diff;
+          effectiveDirection = 'CREDIT';
+        } else if (diff < 0) {
+          deltaPesewas = Math.abs(diff);
+          effectiveDirection = 'DEBIT';
+        } else {
+          deltaPesewas = 0;
+          effectiveDirection = 'NONE';
+        }
+      }
 
       // Post balanced double-entry voucher
       if (financialLedgerService) {
@@ -1002,62 +1052,73 @@ export async function adminAgentsRoutes(
 
           const platformAccountId = '00000000-0000-0000-0000-000000000000';
           const refId = idempotencyKey || id;
-          const entries = direction === 'CREDIT'
-            ? [
-                {
-                  accountType: LedgerAccountType.PLATFORM_ESCROW,
-                  accountId: platformAccountId,
-                  entryType: LedgerEntryType.DEBIT,
-                  amountPesewas,
-                  currency: Currency.GHS,
-                  referenceType: 'MANUAL_ADJUSTMENT',
-                  referenceId: refId,
-                  description: `Admin Float Adjustment Debit: ${reason}`,
-                },
-                {
-                  accountType: LedgerAccountType.CUSTOMER_WALLET,
-                  accountId: userId,
-                  entryType: LedgerEntryType.CREDIT,
-                  amountPesewas,
-                  currency: Currency.GHS,
-                  referenceType: 'MANUAL_ADJUSTMENT',
-                  referenceId: refId,
-                  description: `Admin Float Adjustment Credit: ${reason}`,
-                },
-              ]
-            : [
-                {
-                  accountType: LedgerAccountType.CUSTOMER_WALLET,
-                  accountId: userId,
-                  entryType: LedgerEntryType.DEBIT,
-                  amountPesewas,
-                  currency: Currency.GHS,
-                  referenceType: 'MANUAL_ADJUSTMENT',
-                  referenceId: refId,
-                  description: `Admin Float Adjustment Debit: ${reason}`,
-                },
-                {
-                  accountType: LedgerAccountType.PLATFORM_ESCROW,
-                  accountId: platformAccountId,
-                  entryType: LedgerEntryType.CREDIT,
-                  amountPesewas,
-                  currency: Currency.GHS,
-                  referenceType: 'MANUAL_ADJUSTMENT',
-                  referenceId: refId,
-                  description: `Admin Float Adjustment Credit: ${reason}`,
-                },
-              ];
+          const refType = direction === 'OVERRIDE' ? 'MANUAL_OVERRIDE' : 'MANUAL_ADJUSTMENT';
 
-          await financialLedgerService.recordJournalEntries(client, entries);
+          if (deltaPesewas > 0) {
+            const entries = effectiveDirection === 'CREDIT'
+              ? [
+                  {
+                    accountType: LedgerAccountType.PLATFORM_ESCROW,
+                    accountId: platformAccountId,
+                    entryType: LedgerEntryType.DEBIT,
+                    amountPesewas: deltaPesewas,
+                    currency: Currency.GHS,
+                    referenceType: refType,
+                    referenceId: refId,
+                    description: direction === 'OVERRIDE'
+                      ? `Admin Float Adjustment Override Credit (${(currentBalance / 100).toFixed(2)} -> ${(newBalance / 100).toFixed(2)} GHS): ${reason}`
+                      : `Admin Float Adjustment Credit: ${reason}`,
+                  },
+                  {
+                    accountType: LedgerAccountType.CUSTOMER_WALLET,
+                    accountId: userId,
+                    entryType: LedgerEntryType.CREDIT,
+                    amountPesewas: deltaPesewas,
+                    currency: Currency.GHS,
+                    referenceType: refType,
+                    referenceId: refId,
+                    description: direction === 'OVERRIDE'
+                      ? `Admin Float Adjustment Override Credit (${(currentBalance / 100).toFixed(2)} -> ${(newBalance / 100).toFixed(2)} GHS): ${reason}`
+                      : `Admin Float Adjustment Credit: ${reason}`,
+                  },
+                ]
+              : [
+                  {
+                    accountType: LedgerAccountType.CUSTOMER_WALLET,
+                    accountId: userId,
+                    entryType: LedgerEntryType.DEBIT,
+                    amountPesewas: deltaPesewas,
+                    currency: Currency.GHS,
+                    referenceType: refType,
+                    referenceId: refId,
+                    description: direction === 'OVERRIDE'
+                      ? `Admin Float Adjustment Override Debit (${(currentBalance / 100).toFixed(2)} -> ${(newBalance / 100).toFixed(2)} GHS): ${reason}`
+                      : `Admin Float Adjustment Debit: ${reason}`,
+                  },
+                  {
+                    accountType: LedgerAccountType.PLATFORM_ESCROW,
+                    accountId: platformAccountId,
+                    entryType: LedgerEntryType.CREDIT,
+                    amountPesewas: deltaPesewas,
+                    currency: Currency.GHS,
+                    referenceType: refType,
+                    referenceId: refId,
+                    description: direction === 'OVERRIDE'
+                      ? `Admin Float Adjustment Override Debit (${(currentBalance / 100).toFixed(2)} -> ${(newBalance / 100).toFixed(2)} GHS): ${reason}`
+                      : `Admin Float Adjustment Debit: ${reason}`,
+                  },
+                ];
+
+            await financialLedgerService.recordJournalEntries(client, entries);
+          }
 
           // Update user wallet projection
-          const deltaPesewas = direction === 'CREDIT' ? amountPesewas : -amountPesewas;
           await client.query(
             `UPDATE users
-             SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+             SET wallet_balance_pesewas = $1,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $2`,
-            [deltaPesewas, userId],
+            [newBalance, userId],
           );
 
           await client.query('COMMIT');
@@ -1074,18 +1135,36 @@ export async function adminAgentsRoutes(
           correlationId: req.id,
           actorId: req.user!.sub,
           actorType: 'ADMIN',
-          action: 'ADMIN_ADJUST_AGENT_WALLET',
+          action: direction === 'OVERRIDE' ? 'ADMIN_OVERRIDE_AGENT_WALLET' : 'ADMIN_ADJUST_AGENT_WALLET',
           resourceType: 'agents',
           resourceId: id,
-          metadata: { amountPesewas, direction, reason, userId },
+          metadata: {
+            direction,
+            amountPesewas: deltaPesewas,
+            beforeBalancePesewas: currentBalance,
+            afterBalancePesewas: newBalance,
+            reason,
+            userId,
+          },
           ipAddress: req.ip,
         });
       }
 
+      const successMsg = direction === 'OVERRIDE'
+        ? `Agent float balance successfully overridden from GH₵ ${(currentBalance / 100).toFixed(2)} to GH₵ ${(newBalance / 100).toFixed(2)}.`
+        : `Agent wallet ${direction.toLowerCase()}ed by GH₵ ${(deltaPesewas / 100).toFixed(2)} with balanced double-entry ledger voucher.`;
+
       return reply.send({
         success: true,
-        data: { agentId: id, amountPesewas, direction, reason },
-        message: `Agent wallet ${direction.toLowerCase()}ed by GH₵ ${(amountPesewas / 100).toFixed(2)} with balanced double-entry ledger voucher.`,
+        data: {
+          agentId: id,
+          previousBalancePesewas: currentBalance,
+          newBalancePesewas: newBalance,
+          amountPesewas: deltaPesewas,
+          direction,
+          reason,
+        },
+        message: successMsg,
       });
     },
   );

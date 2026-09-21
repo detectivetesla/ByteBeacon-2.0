@@ -240,4 +240,104 @@ describe('AdminUserDetailPage — Custom Data Bundle Pricing & Wallet Adjustment
       );
     });
   });
+
+  it('5. opens Adjust Wallet modal, switches to Override mode, verifies dynamic delta indicator, and submits balance override', async () => {
+    (adminApi.adjustUserWallet as any).mockResolvedValue({ success: true, balancePesewas: 75000 });
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Kwame Mensah' })).toBeInTheDocument();
+    });
+
+    // Open Adjust Wallet modal
+    const adjustWalletBtn = screen.getByRole('button', { name: /Adjust Wallet/i });
+    fireEvent.click(adjustWalletBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Double-Entry Wallet Adjustment/i)).toBeInTheDocument();
+    });
+
+    // Switch to Override mode
+    const overrideModeBtn = screen.getByRole('button', { name: /^Override$/i });
+    fireEvent.click(overrideModeBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Target Wallet Balance/i)).toBeInTheDocument();
+    });
+
+    // Enter target balance: 750.00 GHS (Current is 500.00 GHS, so +250.00 Net Credit)
+    const amountInput = screen.getByPlaceholderText('0.00');
+    fireEvent.change(amountInput, { target: { value: '750.00' } });
+
+    // Verify dynamic badge calculation
+    await waitFor(() => {
+      expect(screen.getByText(/Net Credit to Wallet: \+GH₵ 250\.00/i)).toBeInTheDocument();
+    });
+
+    // Fill in mandatory audit reason
+    const reasonInput = screen.getByPlaceholderText(/e\.g\. Account balance correction following audit/i);
+    fireEvent.change(reasonInput, { target: { value: 'Annual audit balance reconciliation adjustment' } });
+
+    // Submit override
+    const confirmBtn = screen.getByRole('button', { name: /Confirm Override/i });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(adminApi.adjustUserWallet).toHaveBeenCalledWith('usr_cust_123', {
+        targetBalancePesewas: 75000,
+        type: 'OVERRIDE',
+        reason: 'Annual audit balance reconciliation adjustment',
+      });
+      expect(mockToastSuccess).toHaveBeenCalledWith(
+        'Wallet Overridden',
+        expect.stringContaining('GH₵ 750.00'),
+      );
+    });
+  });
+
+  it('6. supports overriding wallet balance to 0.00 GH₵', async () => {
+    (adminApi.adjustUserWallet as any).mockResolvedValue({ success: true, balancePesewas: 0 });
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Kwame Mensah' })).toBeInTheDocument();
+    });
+
+    // Open Adjust Wallet modal
+    const adjustWalletBtn = screen.getByRole('button', { name: /Adjust Wallet/i });
+    fireEvent.click(adjustWalletBtn);
+
+    // Switch to Override mode
+    const overrideModeBtn = screen.getByRole('button', { name: /^Override$/i });
+    fireEvent.click(overrideModeBtn);
+
+    // Enter target balance: 0.00 GHS (Current is 500.00 GHS, so -500.00 Net Debit)
+    const amountInput = screen.getByPlaceholderText('0.00');
+    fireEvent.change(amountInput, { target: { value: '0.00' } });
+
+    // Verify dynamic badge calculation
+    await waitFor(() => {
+      expect(screen.getByText(/Net Debit from Wallet: -GH₵ 500\.00/i)).toBeInTheDocument();
+    });
+
+    // Fill in mandatory audit reason
+    const reasonInput = screen.getByPlaceholderText(/e\.g\. Account balance correction following audit/i);
+    fireEvent.change(reasonInput, { target: { value: 'Balance reset due to fraud investigation' } });
+
+    // Submit override
+    const confirmBtn = screen.getByRole('button', { name: /Confirm Override/i });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(adminApi.adjustUserWallet).toHaveBeenCalledWith('usr_cust_123', {
+        targetBalancePesewas: 0,
+        type: 'OVERRIDE',
+        reason: 'Balance reset due to fraud investigation',
+      });
+      expect(mockToastSuccess).toHaveBeenCalledWith(
+        'Wallet Overridden',
+        expect.stringContaining('GH₵ 0.00'),
+      );
+    });
+  });
 });

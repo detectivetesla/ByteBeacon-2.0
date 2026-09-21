@@ -106,7 +106,16 @@ const formatDataAmountWithSpace = (dataAmountMb: number): string => {
 
 type StorefrontNavPage = 'home' | 'buy' | 'track' | 'info';
 
-const RECENT_ORDERS_STORAGE_KEY = 'bb_customer_recent_orders';
+function getContrastTextColor(hexColor?: string): string {
+  if (!hexColor || typeof hexColor !== 'string') return '#FFFFFF';
+  const cleanHex = hexColor.replace('#', '').trim();
+  if (cleanHex.length !== 6 && cleanHex.length !== 3) return '#FFFFFF';
+  const r = cleanHex.length === 3 ? parseInt(cleanHex[0] + cleanHex[0], 16) : parseInt(cleanHex.slice(0, 2), 16);
+  const g = cleanHex.length === 3 ? parseInt(cleanHex[1] + cleanHex[1], 16) : parseInt(cleanHex.slice(2, 4), 16);
+  const b = cleanHex.length === 3 ? parseInt(cleanHex[2] + cleanHex[2], 16) : parseInt(cleanHex.slice(4, 6), 16);
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  return brightness > 155 ? '#000000' : '#FFFFFF';
+}
 
 export const PublicStorefrontPage: React.FC = () => {
   const { slug, page } = useParams<{ slug?: string; page?: string }>();
@@ -195,7 +204,29 @@ export const PublicStorefrontPage: React.FC = () => {
     return () => window.removeEventListener('popstate', onPopState);
   }, [determineActivePage]);
 
-  // Color theme tokens matching screenshots
+  // Real store data state
+  const [store, setStore] = useState<StoreProfileDto | null>(null);
+  const [products, setProducts] = useState<PublicStoreProductDto[]>([]);
+  const [isLoadingStore, setIsLoadingStore] = useState(true);
+  const [storeNotFound, setStoreNotFound] = useState(false);
+  const [notFoundSearch, setNotFoundSearch] = useState('');
+  const [logoImgError, setLogoImgError] = useState(false);
+
+  useEffect(() => {
+    setLogoImgError(false);
+  }, [store?.logoUrl]);
+
+  // Derived merchant branding tokens
+  const brandPrimary = store?.primaryColor && /^#[0-9A-Fa-f]{6}$/.test(store.primaryColor)
+    ? store.primaryColor
+    : '#10B981';
+  const brandAccent = store?.accentColor && /^#[0-9A-Fa-f]{6}$/.test(store.accentColor)
+    ? store.accentColor
+    : '#A3E635';
+  const brandPrimaryContrast = getContrastTextColor(brandPrimary);
+  const brandAccentContrast = getContrastTextColor(brandAccent);
+
+  // Color theme tokens matching merchant branding & theme mode
   const t = useMemo(() => ({
     isDark,
     bgPage: isDark ? '#0A0C10' : '#F8FAFC',
@@ -205,16 +236,16 @@ export const PublicStorefrontPage: React.FC = () => {
     bgHeader: isDark ? '#0D0F14' : '#FFFFFF',
     borderHeader: isDark ? 'rgba(255, 255, 255, 0.07)' : '#E2E8F0',
     logoContainerBg: isDark ? '#1E293B' : '#0F172A',
-    logoContainerBorder: isDark ? 'rgba(59, 130, 246, 0.25)' : '#CBD5E1',
-    logoColor: '#60A5FA',
+    logoContainerBorder: `${brandPrimary}40`,
+    logoColor: brandPrimary,
     storeNameColor: isDark ? '#FFFFFF' : '#0F172A',
     storeSubColor: isDark ? '#64748B' : '#94A3B8',
 
     // Nav Pills
     navContainerBg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#F1F5F9',
     navContainerBorder: isDark ? 'rgba(255, 255, 255, 0.06)' : '#E2E8F0',
-    navActiveBg: '#A3E635', // Electric Lime Green from design
-    navActiveColor: '#000000',
+    navActiveBg: brandAccent,
+    navActiveColor: brandAccentContrast,
     navInactiveColor: isDark ? '#94A3B8' : '#64748B',
 
     // Utility Pills (Instant Delivery, Theme Toggle)
@@ -233,7 +264,11 @@ export const PublicStorefrontPage: React.FC = () => {
     heading: isDark ? '#FFFFFF' : '#0F172A',
     subText: isDark ? '#64748B' : '#94A3B8',
     bodyText: isDark ? '#94A3B8' : '#475569',
-    limeText: '#A3E635',
+    limeText: brandAccent,
+    brandPrimary,
+    brandAccent,
+    brandPrimaryContrast,
+    brandAccentContrast,
 
     // Inputs
     inputBg: isDark ? '#0C0E14' : '#FFFFFF',
@@ -248,14 +283,7 @@ export const PublicStorefrontPage: React.FC = () => {
     footerBg: isDark ? '#0A0C10' : '#F8FAFC',
     footerBorder: isDark ? 'rgba(255, 255, 255, 0.07)' : '#E2E8F0',
     footerText: isDark ? '#64748B' : '#94A3B8',
-  }), [isDark]);
-
-  // Real store data state
-  const [store, setStore] = useState<StoreProfileDto | null>(null);
-  const [products, setProducts] = useState<PublicStoreProductDto[]>([]);
-  const [isLoadingStore, setIsLoadingStore] = useState(true);
-  const [storeNotFound, setStoreNotFound] = useState(false);
-  const [notFoundSearch, setNotFoundSearch] = useState('');
+  }), [isDark, brandPrimary, brandAccent, brandPrimaryContrast, brandAccentContrast]);
 
   // Network filter state for Buy Data view
   const [activeNetworkFilter, setActiveNetworkFilter] = useState<'ALL' | NetworkProvider>('ALL');
@@ -1191,11 +1219,10 @@ function loadPaystackInlineScript(): Promise<boolean> {
           position: relative;
           overflow: hidden;
           width: 100%;
-          background: linear-gradient(145deg, #052e16 0%, #064e3b 50%, #047857 100%);
           color: #FFFFFF;
-          border-bottom: 1px solid rgba(163, 230, 53, 0.25);
+          border-bottom: 1px solid ${brandAccent}40;
           padding: 3.75rem 1.5rem;
-          box-shadow: 0 16px 36px rgba(5, 46, 22, 0.35);
+          box-shadow: 0 16px 36px ${brandPrimary}30;
         }
         .storefront-hero-btn-group {
           display: flex;
@@ -1294,8 +1321,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
             border-left: none !important;
             border-right: none !important;
             border-top: none !important;
-            border-bottom: 1px solid rgba(163, 230, 53, 0.25) !important;
-            box-shadow: 0 10px 25px rgba(5, 46, 22, 0.35) !important;
+            border-bottom: 1px solid ${brandAccent}40 !important;
+            box-shadow: 0 10px 25px ${brandPrimary}30 !important;
           }
 
           .storefront-hero-btn-group {
@@ -1456,17 +1483,15 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 boxShadow: isDark ? '0 4px 14px rgba(0, 0, 0, 0.4)' : '0 2px 6px rgba(0, 0, 0, 0.06)',
               }}
             >
-              {store?.logoUrl ? (
+              {store?.logoUrl && !logoImgError ? (
                 <img
                   src={store.logoUrl}
                   alt={storeName}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLElement).style.display = 'none';
-                  }}
+                  onError={() => setLogoImgError(true)}
                 />
               ) : (
-                <Store size={20} />
+                <Store size={20} color={brandPrimary} />
               )}
             </div>
             <div style={{ minWidth: 0, overflow: 'hidden' }}>
@@ -1623,7 +1648,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   color: t.utilityPillColor,
                 }}
               >
-                <Zap size={12} color="#A3E635" fill="#A3E635" />
+                <Zap size={12} color={brandAccent} fill={brandAccent} />
                 <span>Instant Delivery</span>
               </div>
 
@@ -1850,7 +1875,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     minHeight: '40px',
                   }}
                 >
-                  <Zap size={13} color="#A3E635" fill="#A3E635" />
+                  <Zap size={13} color={brandAccent} fill={brandAccent} />
                   <span>Instant Delivery</span>
                 </div>
 
@@ -1919,23 +1944,22 @@ function loadPaystackInlineScript(): Promise<boolean> {
       {/* ==================================================================== */}
       {/* 2. FULL-BLEED HERO SECTION (Home tab only - Spans 100% of Screen) */}
       {/* ==================================================================== */}
-      {/* ==================================================================== */}
-      {/* 2. FULL-BLEED HERO SECTION (Home tab only - Spans 100% of Screen) */}
-      {/* ==================================================================== */}
       {activeNav === 'home' && (
         <section
           className="storefront-hero-section"
           style={
             store?.bannerUrl
               ? {
-                  backgroundImage: `linear-gradient(rgba(5, 46, 22, 0.75), rgba(5, 46, 22, 0.9)), url(${store.bannerUrl})`,
+                  backgroundImage: `linear-gradient(rgba(11, 15, 25, 0.78), rgba(11, 15, 25, 0.92)), url(${store.bannerUrl})`,
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
                 }
-              : undefined
+              : {
+                  background: `linear-gradient(135deg, ${brandPrimary} 0%, #060913 100%)`,
+                }
           }
         >
-          {/* Subtle ambient green glow lighting */}
+          {/* Subtle ambient brand glow lighting */}
           <div
             style={{
               position: 'absolute',
@@ -1944,7 +1968,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               width: '320px',
               height: '320px',
               borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(163, 230, 53, 0.15) 0%, transparent 70%)',
+              background: `radial-gradient(circle, ${brandAccent}35 0%, transparent 70%)`,
               pointerEvents: 'none',
               zIndex: 0,
             }}
@@ -1957,7 +1981,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               width: '280px',
               height: '280px',
               borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(16, 185, 129, 0.2) 0%, transparent 70%)',
+              background: `radial-gradient(circle, ${brandPrimary}40 0%, transparent 70%)`,
               pointerEvents: 'none',
               zIndex: 0,
             }}
@@ -1983,9 +2007,9 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '0.35rem',
-                  backgroundColor: 'rgba(163, 230, 53, 0.16)',
-                  border: '1px solid rgba(163, 230, 53, 0.4)',
-                  color: '#A3E635',
+                  backgroundColor: `${brandAccent}25`,
+                  border: `1px solid ${brandAccent}60`,
+                  color: brandAccent,
                   fontSize: '11px',
                   fontWeight: 800,
                   padding: '4px 12px',
@@ -2009,8 +2033,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 }}
               >
                 Buy Data Bundles
-                <span style={{ display: 'block', color: '#A3E635' }}>
-                  At Unbeatable Prices
+                <span style={{ display: 'block', color: brandAccent }}>
+                  {store?.tagline || 'At Unbeatable Prices'}
                 </span>
               </h1>
 
@@ -2031,8 +2055,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   type="button"
                   onClick={() => handleNavClick('buy')}
                   style={{
-                    backgroundColor: '#A3E635',
-                    color: '#000000',
+                    backgroundColor: brandAccent,
+                    color: brandAccentContrast,
                     border: 'none',
                     padding: '0.75rem 1.5rem',
                     borderRadius: '12px',
@@ -2043,11 +2067,11 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    boxShadow: '0 4px 16px rgba(163, 230, 53, 0.35)',
+                    boxShadow: `0 4px 16px ${brandAccent}40`,
                     transition: 'transform 100ms ease, box-shadow 100ms ease',
                   }}
                 >
-                  <ShoppingCart size={16} color="#000000" />
+                  <ShoppingCart size={16} color={brandAccentContrast} />
                   <span>Buy Data Now</span>
                   <ArrowRight size={16} strokeWidth={2.5} />
                 </button>
@@ -2110,7 +2134,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.25rem' }}>
-                <Clock size={16} color="#A3E635" />
+                <Clock size={16} color={brandAccent} />
                 <h3 style={{ fontSize: '15px', fontWeight: 900, color: t.heading, margin: 0 }}>
                   Live Order Tracker
                 </h3>
@@ -2133,7 +2157,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   <div style={{ maxWidth: '480px', margin: '0 auto', textAlign: 'left' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                       <span style={{ fontSize: '12px', color: t.bodyText }}>Order ID:</span>
-                      <strong style={{ fontSize: '13px', color: '#A3E635', fontFamily: 'monospace' }}>
+                      <strong style={{ fontSize: '13px', color: brandAccent, fontFamily: 'monospace' }}>
                         {activeCustomerOrder.orderId}
                       </strong>
                     </div>
@@ -2165,8 +2189,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                           handleNavClick('track');
                         }}
                         style={{
-                          backgroundColor: '#A3E635',
-                          color: '#000000',
+                          backgroundColor: brandAccent,
+                          color: brandAccentContrast,
                           border: 'none',
                           padding: '0.5rem 1.25rem',
                           borderRadius: '8px',
@@ -2194,8 +2218,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                       type="button"
                       onClick={() => handleNavClick('buy')}
                       style={{
-                        backgroundColor: '#A3E635',
-                        color: '#000000',
+                        backgroundColor: brandAccent,
+                        color: brandAccentContrast,
                         border: 'none',
                         padding: '0.55rem 1.25rem',
                         borderRadius: '8px',
@@ -2207,7 +2231,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                         gap: '0.4rem',
                       }}
                     >
-                      <ShoppingCart size={14} color="#000000" />
+                      <ShoppingCart size={14} color={brandAccentContrast} />
                       <span>Buy Data Now</span>
                     </button>
                   </>
@@ -2634,7 +2658,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   padding: '1.25rem',
                 }}
               >
-                <Zap size={20} color="#A3E635" style={{ marginBottom: '0.5rem' }} />
+                <Zap size={20} color={brandAccent} style={{ marginBottom: '0.5rem' }} />
                 <strong style={{ fontSize: '13px', fontWeight: 900, color: t.heading, display: 'block', marginBottom: '0.2rem' }}>
                   Instant Fulfillment
                 </strong>
@@ -2702,13 +2726,13 @@ function loadPaystackInlineScript(): Promise<boolean> {
                       padding: '0.45rem 1.25rem',
                       borderRadius: '100px',
                       border: isActive ? 'none' : `1px solid ${t.cardBorder}`,
-                      backgroundColor: isActive ? '#A3E635' : (isDark ? '#1C212D' : '#F1F5F9'),
-                      color: isActive ? '#000000' : t.bodyText,
+                      backgroundColor: isActive ? brandAccent : (isDark ? '#1C212D' : '#F1F5F9'),
+                      color: isActive ? brandAccentContrast : t.bodyText,
                       fontSize: '11px',
                       fontWeight: 900,
                       cursor: 'pointer',
                       transition: 'all 120ms ease',
-                      boxShadow: isActive ? '0 4px 14px rgba(163, 230, 53, 0.3)' : 'none',
+                      boxShadow: isActive ? `0 4px 14px ${brandAccent}4d` : 'none',
                     }}
                   >
                     {tab.label}
@@ -2857,7 +2881,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
-                <FileText size={22} color="#A3E635" />
+                <FileText size={22} color={brandAccent} />
                 <h2 style={{ fontSize: '20px', fontWeight: 900, color: t.heading, margin: 0 }}>
                   Track Order Status
                 </h2>
@@ -2907,8 +2931,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     aria-label="Search - Track Order"
                     disabled={isTrackPageSearching}
                     style={{
-                      backgroundColor: '#A3E635',
-                      color: '#000000',
+                      backgroundColor: brandAccent,
+                      color: brandAccentContrast,
                       border: 'none',
                       borderRadius: '8px',
                       padding: '0.65rem 1.25rem',
@@ -2940,7 +2964,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: t.subText }}>Order ID:</span>
-                    <strong style={{ color: '#A3E635', fontFamily: 'monospace' }}>
+                    <strong style={{ color: brandAccent, fontFamily: 'monospace' }}>
                       {trackPageOrder.orderId}
                     </strong>
                   </div>
@@ -3000,7 +3024,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
-                <Info size={22} color="#A3E635" />
+                <Info size={22} color={brandAccent} />
                 <h2 style={{ fontSize: '20px', fontWeight: 900, color: t.heading, margin: 0 }}>
                   Store Information
                 </h2>
@@ -3096,7 +3120,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     style={{
                       fontSize: '15px',
                       fontWeight: 900,
-                      color: '#A3E635',
+                      color: brandAccent,
                       textDecoration: 'none',
                       display: 'inline-block',
                       marginTop: '0.25rem',
@@ -3386,8 +3410,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     style={{
                       padding: '0.55rem',
                       borderRadius: '10px',
-                      border: selectedChannel === 'mobile_money' ? '2px solid #A3E635' : `1px solid ${t.inputBorder}`,
-                      backgroundColor: selectedChannel === 'mobile_money' ? (isDark ? 'rgba(163, 230, 53, 0.15)' : '#FEF9C3') : t.inputBg,
+                      border: selectedChannel === 'mobile_money' ? `2px solid ${brandAccent}` : `1px solid ${t.inputBorder}`,
+                      backgroundColor: selectedChannel === 'mobile_money' ? `${brandAccent}20` : t.inputBg,
                       color: t.heading,
                       fontSize: '11px',
                       fontWeight: 800,
@@ -3398,7 +3422,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                       gap: '0.35rem',
                     }}
                   >
-                    <Smartphone size={14} color="#A3E635" />
+                    <Smartphone size={14} color={selectedChannel === 'mobile_money' ? brandAccent : t.subText} />
                     <span>Mobile Money</span>
                   </button>
 
@@ -3408,8 +3432,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     style={{
                       padding: '0.55rem',
                       borderRadius: '10px',
-                      border: selectedChannel === 'card' ? '2px solid #A3E635' : `1px solid ${t.inputBorder}`,
-                      backgroundColor: selectedChannel === 'card' ? (isDark ? 'rgba(163, 230, 53, 0.15)' : '#FEF9C3') : t.inputBg,
+                      border: selectedChannel === 'card' ? `2px solid ${brandAccent}` : `1px solid ${t.inputBorder}`,
+                      backgroundColor: selectedChannel === 'card' ? `${brandAccent}20` : t.inputBg,
                       color: t.heading,
                       fontSize: '11px',
                       fontWeight: 800,
@@ -3420,7 +3444,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                       gap: '0.35rem',
                     }}
                   >
-                    <CreditCard size={14} color="#A3E635" />
+                    <CreditCard size={14} color={selectedChannel === 'card' ? brandAccent : t.subText} />
                     <span>Debit Card</span>
                   </button>
                 </div>
@@ -3434,8 +3458,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     width: '100%',
                     padding: '0.75rem',
                     borderRadius: '12px',
-                    backgroundColor: isMaintenanceMode ? '#334155' : '#A3E635',
-                    color: '#000000',
+                    backgroundColor: isMaintenanceMode ? '#334155' : brandAccent,
+                    color: isMaintenanceMode ? '#FFFFFF' : brandAccentContrast,
                     border: 'none',
                     fontSize: '13px',
                     fontWeight: 900,
@@ -3445,7 +3469,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    boxShadow: !isMaintenanceMode ? '0 4px 16px rgba(163, 230, 53, 0.35)' : 'none',
+                    boxShadow: !isMaintenanceMode ? `0 4px 16px ${brandAccent}40` : 'none',
                   }}
                 >
                   <Lock size={15} />
@@ -3514,7 +3538,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               Bundle Dispatched!
             </h3>
             <p style={{ fontSize: '12px', color: t.bodyText, marginTop: '0.35rem', lineHeight: 1.5 }}>
-              Your order <strong style={{ color: '#A3E635', fontFamily: 'monospace' }}>{confirmedOrder.orderId}</strong> has been confirmed and queued for direct telecom delivery to <strong style={{ color: t.heading, fontFamily: 'monospace' }}>{confirmedOrder.recipientPhone}</strong>.
+              Your order <strong style={{ color: brandAccent, fontFamily: 'monospace' }}>{confirmedOrder.orderId}</strong> has been confirmed and queued for direct telecom delivery to <strong style={{ color: t.heading, fontFamily: 'monospace' }}>{confirmedOrder.recipientPhone}</strong>.
             </p>
 
             <div
@@ -3555,8 +3579,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 width: '100%',
                 padding: '0.7rem',
                 borderRadius: '10px',
-                backgroundColor: '#A3E635',
-                color: '#000000',
+                backgroundColor: brandAccent,
+                color: brandAccentContrast,
                 border: 'none',
                 fontSize: '12px',
                 fontWeight: 900,
@@ -3599,7 +3623,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <div>
-                <span style={{ fontSize: '10px', color: '#A3E635', fontWeight: 900, textTransform: 'uppercase' }}>
+                <span style={{ fontSize: '10px', color: brandAccent, fontWeight: 900, textTransform: 'uppercase' }}>
                   Live Order Tracker
                 </span>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: t.heading }}>
@@ -3635,8 +3659,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 style={{
                   padding: '0.65rem 1.25rem',
                   borderRadius: '10px',
-                  backgroundColor: '#A3E635',
-                  color: '#000000',
+                  backgroundColor: brandAccent,
+                  color: brandAccentContrast,
                   border: 'none',
                   fontSize: '12px',
                   fontWeight: 900,
@@ -3662,7 +3686,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: t.subText }}>Order ID:</span>
-                  <strong style={{ color: '#A3E635', fontFamily: 'monospace' }}>
+                  <strong style={{ color: brandAccent, fontFamily: 'monospace' }}>
                     {modalTrackedOrder.orderId}
                   </strong>
                 </div>

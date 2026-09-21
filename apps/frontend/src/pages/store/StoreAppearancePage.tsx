@@ -140,8 +140,10 @@ export const StoreAppearancePage: React.FC = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await storesApi.saveStoreConfig({
+      const cleanSlug = slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      const savedStore = await storesApi.saveStoreConfig({
         storeName: storeName.trim(),
+        slug: cleanSlug || undefined,
         tagline: tagline.trim(),
         description: description.trim(),
         primaryColor: primaryColor.trim(),
@@ -149,6 +151,17 @@ export const StoreAppearancePage: React.FC = () => {
         logoUrl: logoUrl.trim(),
         bannerUrl: bannerUrl.trim(),
       });
+
+      if (savedStore) {
+        if (savedStore.storeName) setStoreName(savedStore.storeName);
+        if (savedStore.slug) setSlug(savedStore.slug);
+        if (savedStore.tagline !== undefined) setTagline(savedStore.tagline || '');
+        if (savedStore.description !== undefined) setDescription(savedStore.description || '');
+        if (savedStore.primaryColor) setPrimaryColor(savedStore.primaryColor);
+        if (savedStore.accentColor) setAccentColor(savedStore.accentColor);
+        if (savedStore.logoUrl !== undefined) setLogoUrl(savedStore.logoUrl || '');
+        if (savedStore.bannerUrl !== undefined) setBannerUrl(savedStore.bannerUrl || '');
+      }
 
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('bytebeacon:store-updated'));
@@ -161,7 +174,11 @@ export const StoreAppearancePage: React.FC = () => {
     }
   };
 
-  const liveStoreUrl = slug ? STOREFRONT_CONFIG.getStoreUrl(slug) : '/';
+  const liveStoreUrl = slug
+    ? (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? STOREFRONT_CONFIG.getRelativeStorePath(slug)
+        : STOREFRONT_CONFIG.getStoreUrl(slug))
+    : '/';
 
   const isDarkPreview = previewTheme === 'dark';
   const previewBg = isDarkPreview ? '#0B0F19' : '#F8FAFC';
@@ -443,6 +460,41 @@ export const StoreAppearancePage: React.FC = () => {
                   onChange={(e) => setStoreName(e.target.value)}
                   placeholder="e.g. FastData Reseller Hub"
                 />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: '0.35rem' }}>
+                  Custom Storefront URL Slug
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span
+                    style={{
+                      padding: '0 0.75rem',
+                      height: '42px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border-default)',
+                      borderRight: 'none',
+                      borderRadius: 'var(--radius-md) 0 0 var(--radius-md)',
+                      fontSize: 'var(--font-size-xs)',
+                      color: 'var(--color-text-muted)',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    /store/
+                  </span>
+                  <Input
+                    type="text"
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                    placeholder="my-store-name"
+                    style={{ borderRadius: '0 var(--radius-md) var(--radius-md) 0' }}
+                  />
+                </div>
+                <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                  Your live customer storefront link: {liveStoreUrl}
+                </span>
               </div>
 
               <div>

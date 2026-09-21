@@ -82,7 +82,8 @@ const getBaseUrl = (): string => {
     }
   }
   if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    if (isStorefrontHostname(window.location.hostname)) {
+    const host = window.location.hostname.toLowerCase();
+    if (isStorefrontHostname(host)) {
       return `${window.location.origin}/store`;
     }
   }
@@ -131,7 +132,7 @@ export const STOREFRONT_CONFIG = {
   getStoreUrl: (slug: string): string => {
     const cleanSlug = (slug || '').toLowerCase().trim().replace(/[^a-z0-9-]/g, '-');
     const base = getBaseUrl();
-    return cleanSlug ? `${base}/${cleanSlug}` : `${base}`;
+    return cleanSlug ? `${base}/${cleanSlug}` : base;
   },
 
   /**

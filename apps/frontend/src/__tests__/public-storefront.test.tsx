@@ -118,7 +118,7 @@ describe('Public Customer Storefront Integration Tests', () => {
     // Verify merchant branding loads
     expect(await screen.findByText('DataHub Express')).toBeInTheDocument();
     expect(screen.getByText('Verified Merchant')).toBeInTheDocument();
-    expect(screen.getByText('Instant Automated Telecom Data Bundles 24/7')).toBeInTheDocument();
+    expect(screen.getAllByText('Instant Automated Telecom Data Bundles 24/7')[0]).toBeInTheDocument();
     expect(screen.getByText('10 GB')).toBeInTheDocument();
     expect(screen.getByText('GH₵ 48.00')).toBeInTheDocument();
     expect(screen.getByText('Non-Expiry')).toBeInTheDocument();
