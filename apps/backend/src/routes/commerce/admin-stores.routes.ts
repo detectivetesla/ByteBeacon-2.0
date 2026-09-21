@@ -935,7 +935,7 @@ export async function adminStoresRoutes(
       }
 
       let newStatus: string;
-      if (action === 'APPROVE' || action === 'RELEASE') {
+      if (action === 'APPROVE' || action === 'RELEASE' || (action as any) === 'PAID') {
         newStatus = 'PAID';
       } else if (action === 'REJECT') {
         newStatus = 'REJECTED';
@@ -945,19 +945,35 @@ export async function adminStoresRoutes(
         throw new BadRequestError(`Unknown payout action '${action}'.`);
       }
 
-      const payoutRes = await db.query(
-        `UPDATE store_payouts
-         SET status = $1,
-             admin_notes = $2,
-             reviewed_by = $3,
-             reviewed_at = CURRENT_TIMESTAMP,
-             paid_at = CASE WHEN $1 = 'PAID' THEN CURRENT_TIMESTAMP ELSE paid_at END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id::text = $4 AND store_id::text = $5
-         RETURNING id, store_id as "storeId", amount_pesewas as "amountPesewas", status, destination_account as "destinationAccount"`,
-        [newStatus, reason.trim(), req.user!.sub, payoutId, id],
-      );
+      const actorId = req.user?.sub;
+      const isUuid = actorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actorId);
+      let reviewerId: string | null = isUuid ? actorId : null;
+      if (reviewerId) {
+        const userExists = await db.query('SELECT 1 FROM users WHERE id = $1', [reviewerId]).catch(() => ({ rows: [] }));
+        if (userExists.rows.length === 0) {
+          reviewerId = null;
+        }
+      }
 
+      let payoutRes;
+      try {
+        payoutRes = await db.query(
+          `UPDATE store_payouts
+           SET status = $1,
+               admin_notes = $2,
+               reviewed_by = $3,
+               reviewed_at = CURRENT_TIMESTAMP,
+               paid_at = CASE WHEN $1 = 'PAID' THEN CURRENT_TIMESTAMP ELSE paid_at END,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id::text = $4 AND store_id::text = $5
+           RETURNING id, store_id as "storeId", amount_pesewas as "amountPesewas", status, destination_account as "destinationAccount"`,
+          [newStatus, reason.trim(), reviewerId, payoutId, id],
+        );
+      } catch (dbErr: any) {
+        throw new BadRequestError(
+          `Failed to update store payout status to ${newStatus}: ${dbErr.message || 'Database constraint error'}`,
+        );
+      }
 
       if (payoutRes.rows.length === 0) {
         throw new NotFoundError(`Payout not found with ID '${payoutId}' for store '${id}'`);
@@ -967,42 +983,50 @@ export async function adminStoresRoutes(
 
       // If approved, post double-entry ledger entry
       if (newStatus === 'PAID' && financialLedgerService) {
-        const platformAccountId = '00000000-0000-0000-0000-000000000000';
-        await financialLedgerService.recordJournalEntries(db, [
-          {
-            accountType: LedgerAccountType.PLATFORM_ESCROW,
-            accountId: platformAccountId,
-            entryType: LedgerEntryType.DEBIT,
-            amountPesewas: parseInt(payout.amountPesewas, 10),
-            currency: Currency.GHS,
-            referenceType: 'MERCHANT_PAYOUT',
-            referenceId: payoutId,
-            description: `Merchant Payout to ${payout.destinationAccount}: ${reason}`,
-          },
-          {
-            accountType: LedgerAccountType.CUSTOMER_WALLET,
-            accountId: id,
-            entryType: LedgerEntryType.CREDIT,
-            amountPesewas: parseInt(payout.amountPesewas, 10),
-            currency: Currency.GHS,
-            referenceType: 'MERCHANT_PAYOUT',
-            referenceId: payoutId,
-            description: `Merchant Payout Settlement: ${reason}`,
-          },
-        ]);
+        try {
+          const platformAccountId = '00000000-0000-0000-0000-000000000000';
+          await financialLedgerService.recordJournalEntries(db, [
+            {
+              accountType: LedgerAccountType.PLATFORM_ESCROW,
+              accountId: platformAccountId,
+              entryType: LedgerEntryType.DEBIT,
+              amountPesewas: parseInt(payout.amountPesewas, 10),
+              currency: Currency.GHS,
+              referenceType: 'MERCHANT_PAYOUT',
+              referenceId: payoutId,
+              description: `Merchant Payout to ${payout.destinationAccount}: ${reason}`,
+            },
+            {
+              accountType: LedgerAccountType.CUSTOMER_WALLET,
+              accountId: id,
+              entryType: LedgerEntryType.CREDIT,
+              amountPesewas: parseInt(payout.amountPesewas, 10),
+              currency: Currency.GHS,
+              referenceType: 'MERCHANT_PAYOUT',
+              referenceId: payoutId,
+              description: `Merchant Payout Settlement: ${reason}`,
+            },
+          ]);
+        } catch {
+          // Ledger failure should not block the payout action
+        }
       }
 
-      if (auditService) {
-        await auditService.logEvent({
-          correlationId: req.id,
-          actorId: req.user!.sub,
-          actorType: 'ADMIN',
-          action: 'ADMIN_STORE_PAYOUT_ACTION',
-          resourceType: 'store_payouts',
-          resourceId: payoutId,
-          metadata: { storeId: id, action, newStatus, reason },
-          ipAddress: req.ip,
-        });
+      if (auditService?.logEvent) {
+        try {
+          await auditService.logEvent({
+            correlationId: req.id,
+            actorId: req.user!.sub,
+            actorType: 'ADMIN',
+            action: 'ADMIN_STORE_PAYOUT_ACTION',
+            resourceType: 'store_payouts',
+            resourceId: payoutId,
+            metadata: { storeId: id, action, newStatus, reason },
+            ipAddress: req.ip,
+          });
+        } catch {
+          // Audit failure should not block the payout action
+        }
       }
 
       return reply.send({

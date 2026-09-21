@@ -284,6 +284,9 @@ describe('Agent Storefront Profit Withdrawals & Admin Payout Tracking Suite', ()
             rows: [
               {
                 id: 'payout_123',
+                storeId: 'store_1',
+                agentId: 'agent_1',
+                amountPesewas: '5000',
                 status: params[0],
                 destinationAccount: '0241234567',
                 destinationProvider: 'MTN_MOMO',
@@ -301,8 +304,8 @@ describe('Agent Storefront Profit Withdrawals & Admin Payout Tracking Suite', ()
       tokenService: mockTokenService,
       apiKeyService: mockApiKeyService,
       rbacService: mockRbacService,
-      auditService: {} as any,
-      ledgerService: {} as any,
+      auditService: { logEvent: vi.fn().mockResolvedValue(undefined) } as any,
+      financialLedgerService: { recordJournalEntries: vi.fn().mockResolvedValue(undefined) } as any,
     });
 
     const listRes = await app.inject({

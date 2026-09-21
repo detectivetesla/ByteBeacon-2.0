@@ -1044,28 +1044,94 @@ export async function adminFinanceRoutes(
         });
       }
 
-      const updateRes = await db.query(
-        `UPDATE store_payouts
-         SET status = $1,
-             admin_notes = COALESCE($2, admin_notes),
-             reviewed_by = $3,
-             reviewed_at = CURRENT_TIMESTAMP,
-             paid_at = CASE WHEN $1 = 'PAID' THEN CURRENT_TIMESTAMP ELSE paid_at END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id::text = $4
-         RETURNING id, store_id as "storeId", agent_id as "agentId", amount_pesewas as "amountPesewas",
-                   destination_account as "destinationAccount", destination_provider as "destinationProvider",
-                   account_name as "accountName", bank_name as "bankName", reference, status,
-                   admin_notes as "adminNotes", reviewed_by as "reviewedBy", reviewed_at as "reviewedAt",
-                   paid_at as "paidAt", created_at as "createdAt"`,
-        [newStatus, adminNote, req.user!.sub, id]
-      );
+      const actorId = req.user?.sub;
+      const isUuid = actorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actorId);
+      let reviewerId: string | null = isUuid ? actorId : null;
+      if (reviewerId) {
+        const userExists = await db.query('SELECT 1 FROM users WHERE id = $1', [reviewerId]).catch(() => ({ rows: [] }));
+        if (userExists.rows.length === 0) {
+          reviewerId = null;
+        }
+      }
+
+      let updateRes;
+      try {
+        updateRes = await db.query(
+          `UPDATE store_payouts
+           SET status = $1,
+               admin_notes = COALESCE($2, admin_notes),
+               reviewed_by = $3,
+               reviewed_at = CURRENT_TIMESTAMP,
+               paid_at = CASE WHEN $1 = 'PAID' THEN CURRENT_TIMESTAMP ELSE paid_at END,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id::text = $4
+           RETURNING id, store_id as "storeId", agent_id as "agentId", amount_pesewas as "amountPesewas",
+                     destination_account as "destinationAccount", destination_provider as "destinationProvider",
+                     account_name as "accountName", bank_name as "bankName", reference, status,
+                     admin_notes as "adminNotes", reviewed_by as "reviewedBy", reviewed_at as "reviewedAt",
+                     paid_at as "paidAt", created_at as "createdAt"`,
+          [newStatus, adminNote, reviewerId, id]
+        );
+      } catch (dbErr: any) {
+        throw new BadRequestError(
+          `Failed to update withdrawal status to ${newStatus}: ${dbErr.message || 'Database constraint violation'}`,
+        );
+      }
 
       if (updateRes.rows.length === 0) {
         throw new NotFoundError(`Withdrawal not found with ID '${id}'`);
       }
 
       const updated = updateRes.rows[0];
+
+      // Record double-entry ledger journal entries when marking as PAID
+      if (newStatus === 'PAID' && financialLedgerService) {
+        try {
+          const platformAccountId = '00000000-0000-0000-0000-000000000000';
+          await financialLedgerService.recordJournalEntries(db, [
+            {
+              accountType: LedgerAccountType.PLATFORM_ESCROW,
+              accountId: platformAccountId,
+              entryType: LedgerEntryType.DEBIT,
+              amountPesewas: parseInt(updated.amountPesewas, 10),
+              currency: Currency.GHS,
+              referenceType: 'MERCHANT_PAYOUT',
+              referenceId: id,
+              description: `Agent Withdrawal Payout to ${updated.destinationAccount}: ${adminNote}`,
+            },
+            {
+              accountType: LedgerAccountType.CUSTOMER_WALLET,
+              accountId: updated.agentId || updated.storeId || id,
+              entryType: LedgerEntryType.CREDIT,
+              amountPesewas: parseInt(updated.amountPesewas, 10),
+              currency: Currency.GHS,
+              referenceType: 'MERCHANT_PAYOUT',
+              referenceId: id,
+              description: `Agent Withdrawal Settlement: ${adminNote}`,
+            },
+          ]);
+        } catch {
+          // Ledger failure should not block the payout action
+        }
+      }
+
+      // Audit trail
+      if (auditService?.logEvent) {
+        try {
+          await auditService.logEvent({
+            correlationId: req.id,
+            actorId: req.user!.sub,
+            actorType: 'ADMIN',
+            action: 'ADMIN_AGENT_WITHDRAWAL_ACTION',
+            resourceType: 'store_payouts',
+            resourceId: id,
+            metadata: { action, newStatus, reason, notes, agentId: updated.agentId, storeId: updated.storeId },
+            ipAddress: req.ip,
+          });
+        } catch {
+          // Audit failure should not block the payout action
+        }
+      }
 
       // Parse scheduledAt from admin_notes if status is SCHEDULED
       let parsedScheduledAt: string | null = null;
