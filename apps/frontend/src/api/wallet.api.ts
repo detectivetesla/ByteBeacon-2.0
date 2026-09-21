@@ -40,12 +40,30 @@ export interface WithdrawalSummaryDto {
   availableProfitPesewas: number;
   salesCount: number;
   salesVolumePesewas: number;
+  limits?: {
+    minWithdrawalPesewas: number;
+    maxWithdrawalPesewas: number;
+    dailyLimitPesewas: number;
+    dailyWithdrawnPesewas: number;
+    remainingDailyLimitPesewas: number;
+    isCustomLimit?: boolean;
+    withdrawalsPaused?: boolean;
+  };
 }
 
 export interface WithdrawalsResponseDto {
   withdrawals: any[];
   ledger?: any[];
   summary?: WithdrawalSummaryDto;
+  limits?: {
+    minWithdrawalPesewas: number;
+    maxWithdrawalPesewas: number;
+    dailyLimitPesewas: number;
+    dailyWithdrawnPesewas: number;
+    remainingDailyLimitPesewas: number;
+    isCustomLimit?: boolean;
+    withdrawalsPaused?: boolean;
+  };
 }
 
 export const walletApi = {

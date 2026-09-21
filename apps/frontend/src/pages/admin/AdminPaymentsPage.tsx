@@ -1939,7 +1939,54 @@ export const AdminPaymentsPage: React.FC = () => {
 
                   <div>
                     <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-                      Max Daily Withdrawal Per Agent (GH₵)
+                      Min Profit Withdrawal Per Request (GH₵)
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={String((safety.minWithdrawalPesewas || 1000) / 100)}
+                      onChange={(e) => setSafety({ ...safety, minWithdrawalPesewas: Math.round(parseFloat(e.target.value || '10') * 100) })}
+                      style={{
+                        width: '100%',
+                        padding: '0.45rem 0.65rem',
+                        fontSize: '11px',
+                        fontFamily: 'var(--font-mono)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border-subtle)',
+                        backgroundColor: 'var(--color-bg-surface)',
+                        color: 'var(--color-text-primary)',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                      Max Single Profit Withdrawal Per Request (GH₵)
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={String((safety.maxSingleWithdrawalPesewas || 500000) / 100)}
+                      onChange={(e) => setSafety({ ...safety, maxSingleWithdrawalPesewas: Math.round(parseFloat(e.target.value || '5000') * 100) })}
+                      style={{
+                        width: '100%',
+                        padding: '0.45rem 0.65rem',
+                        fontSize: '11px',
+                        fontFamily: 'var(--font-mono)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border-subtle)',
+                        backgroundColor: 'var(--color-bg-surface)',
+                        color: 'var(--color-text-primary)',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                      Max Daily Profit Withdrawal Per Agent (GH₵)
                     </label>
                     <input
                       type="number"

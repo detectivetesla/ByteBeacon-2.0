@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
-import { walletApi } from '../../api/wallet.api.js';
+import { walletApi, AgentWithdrawalLimitsDto } from '../../api/wallet.api.js';
 import {
   Calendar,
   ArrowDownToLine,
@@ -104,6 +104,7 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const [availableProfitPesewas, setAvailableProfitPesewas] = useState<number>(0);
   const [totalProfitEarnedPesewas, setTotalProfitEarnedPesewas] = useState<number>(0);
   const [totalWithdrawnPesewas, setTotalWithdrawnPesewas] = useState<number>(0);
+  const [withdrawalLimits, setWithdrawalLimits] = useState<AgentWithdrawalLimitsDto | null>(null);
   const [hasStore, setHasStore] = useState<boolean>(true);
   const [_storeName, setStoreName] = useState<string>('');
 
@@ -145,6 +146,11 @@ export const AgentWithdrawalsPage: React.FC = () => {
         if (Array.isArray(res.ledger)) {
           setLedger(res.ledger);
         }
+        if (res.limits) {
+          setWithdrawalLimits(res.limits);
+        } else if (res.summary?.limits) {
+          setWithdrawalLimits(res.summary.limits);
+        }
         if (res.summary) {
           setAvailableProfitPesewas(res.summary.availableProfitPesewas || 0);
           setTotalProfitEarnedPesewas(res.summary.totalProfitEarnedPesewas || 0);
@@ -171,6 +177,12 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const availableProfitGhs = availableProfitPesewas / 100;
   const totalProfitEarnedGhs = totalProfitEarnedPesewas / 100;
   const totalWithdrawnGhs = totalWithdrawnPesewas / 100;
+
+  // Authoritative Administrator Configured Profit Withdrawal Limits
+  const minLimitGhs = (withdrawalLimits?.minWithdrawalPesewas ?? 1000) / 100;
+  const maxLimitGhs = (withdrawalLimits?.maxWithdrawalPesewas ?? 500000) / 100;
+  const dailyRemainingGhs = (withdrawalLimits?.remainingDailyLimitPesewas ?? 2000000) / 100;
+  const isWithdrawalsPaused = Boolean(withdrawalLimits?.withdrawalsPaused);
 
   const parsedWithdrawAmount = parseFloat(withdrawAmountGhs) || 0;
   const withdrawalFeeGhs = 0.00; // Zero fee for reseller payouts
@@ -260,8 +272,13 @@ export const AgentWithdrawalsPage: React.FC = () => {
   const handleConfirmWithdrawal = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isMaintenanceMode) {
-      toastError('Maintenance in Progress', 'Withdrawals and payouts are temporarily paused during scheduled maintenance.');
+    if (isMaintenanceMode || isWithdrawalsPaused) {
+      toastError(
+        'Withdrawals Paused',
+        isMaintenanceMode
+          ? 'Withdrawals and payouts are temporarily paused during scheduled maintenance.'
+          : 'Agent profit withdrawals are temporarily suspended by platform administration.'
+      );
       return;
     }
 
@@ -270,13 +287,23 @@ export const AgentWithdrawalsPage: React.FC = () => {
       return;
     }
 
-    if (parsedWithdrawAmount < 10) {
-      toastError('Minimum Required', 'Minimum profit withdrawal amount is GHS 10.00.');
+    if (parsedWithdrawAmount < minLimitGhs) {
+      toastError('Minimum Required', `Minimum profit withdrawal amount is GH₵ ${minLimitGhs.toFixed(2)}.`);
+      return;
+    }
+
+    if (parsedWithdrawAmount > maxLimitGhs) {
+      toastError('Limit Exceeded', `Maximum single profit withdrawal limit is GH₵ ${maxLimitGhs.toFixed(2)}.`);
+      return;
+    }
+
+    if (parsedWithdrawAmount > dailyRemainingGhs) {
+      toastError('Daily Limit Exceeded', `Requested amount exceeds your remaining 24h daily withdrawal limit of GH₵ ${dailyRemainingGhs.toFixed(2)}.`);
       return;
     }
 
     if (parsedWithdrawAmount > availableProfitGhs) {
-      toastError('Insufficient Profit', `Requested amount exceeds available profit of GHS ${availableProfitGhs.toFixed(2)}.`);
+      toastError('Insufficient Profit', `Requested amount exceeds available profit of GH₵ ${availableProfitGhs.toFixed(2)}.`);
       return;
     }
 
@@ -335,7 +362,7 @@ export const AgentWithdrawalsPage: React.FC = () => {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Maintenance In-Page Alert Banner */}
-      {isMaintenanceMode && (
+      {isMaintenanceMode ? (
         <div
           role="alert"
           style={{
@@ -359,7 +386,31 @@ export const AgentWithdrawalsPage: React.FC = () => {
             </span>
           </div>
         </div>
-      )}
+      ) : isWithdrawalsPaused ? (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-xl)',
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.85rem',
+            color: '#F87171',
+          }}
+        >
+          <span style={{ fontSize: '1.25rem' }}>🛑</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800 }}>
+              Agent Profit Withdrawals Temporarily Suspended
+            </strong>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              Platform administration has temporarily paused agent profit payouts for security review. Payouts will resume shortly.
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {/* 1. Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
@@ -373,6 +424,22 @@ export const AgentWithdrawalsPage: React.FC = () => {
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
             Manage your reseller profit, available earnings, and payout history.
           </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+            <Badge variant="neutral" size="sm">
+              Min: GH₵ {minLimitGhs.toFixed(2)}
+            </Badge>
+            <Badge variant="neutral" size="sm">
+              Max Single: GH₵ {maxLimitGhs.toFixed(2)}
+            </Badge>
+            <Badge variant={dailyRemainingGhs > 0 ? 'success' : 'danger'} size="sm">
+              24h Remaining: GH₵ {dailyRemainingGhs.toFixed(2)}
+            </Badge>
+            {withdrawalLimits?.isCustomLimit && (
+              <Badge variant="info" size="sm">
+                Custom Reseller Limit Active
+              </Badge>
+            )}
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -380,12 +447,13 @@ export const AgentWithdrawalsPage: React.FC = () => {
             Refresh ↻
           </Button>
           <Button
-            variant="primary"
+            variant={isWithdrawalsPaused || isMaintenanceMode ? 'secondary' : 'primary'}
             size="sm"
             onClick={() => setIsWithdrawPanelOpen(true)}
+            disabled={isWithdrawalsPaused || isMaintenanceMode}
             leftIcon={<ArrowDownToLine size={14} />}
           >
-            Withdraw Profit →
+            {isWithdrawalsPaused ? 'Withdrawals Paused' : 'Withdraw Profit →'}
           </Button>
         </div>
       </div>
@@ -648,6 +716,34 @@ export const AgentWithdrawalsPage: React.FC = () => {
                 </strong>
               </div>
 
+              {/* Admin Configured Operational Limits Banner */}
+              <div
+                style={{
+                  padding: '0.6rem 0.85rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  border: '1px solid var(--color-border-subtle)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.5rem',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              >
+                <div>
+                  <span style={{ color: 'var(--color-text-secondary)', fontWeight: 600 }}>Withdrawal Limits:</span>
+                  <div style={{ display: 'flex', gap: '0.75rem', marginTop: '2px', color: 'var(--color-text-primary)', flexWrap: 'wrap', fontSize: '11px' }}>
+                    <span>Min: <strong>GH₵ {minLimitGhs.toFixed(2)}</strong></span>
+                    <span>Max Single: <strong>GH₵ {maxLimitGhs.toFixed(2)}</strong></span>
+                    <span>24h Remaining: <strong>GH₵ {dailyRemainingGhs.toFixed(2)}</strong></span>
+                  </div>
+                </div>
+                {withdrawalLimits?.isCustomLimit && (
+                  <Badge variant="info" size="xs">Custom Reseller Override</Badge>
+                )}
+              </div>
+
               {/* Payout Method Selector */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                 <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
@@ -730,12 +826,12 @@ export const AgentWithdrawalsPage: React.FC = () => {
               {/* Amount to Withdraw */}
               <AmountInput
                 label="Withdrawal Amount"
-                placeholder="10.00"
+                placeholder={minLimitGhs.toFixed(2)}
                 value={withdrawAmountGhs}
                 onChange={(e) => setWithdrawAmountGhs(e.target.value)}
-                min={10}
-                max={availableProfitGhs}
-                quickAmounts={[20, 50, 100, 200, 500]}
+                min={minLimitGhs}
+                max={Math.min(availableProfitGhs, maxLimitGhs)}
+                quickAmounts={[20, 50, 100, 200, 500].filter((q) => q >= minLimitGhs && q <= Math.min(availableProfitGhs, maxLimitGhs))}
                 required
               />
 
@@ -765,13 +861,24 @@ export const AgentWithdrawalsPage: React.FC = () => {
                   Cancel
                 </Button>
                 <Button
-                  variant={isMaintenanceMode ? 'secondary' : 'primary'}
+                  variant={isMaintenanceMode || isWithdrawalsPaused ? 'secondary' : 'primary'}
                   size="md"
                   type="submit"
                   isLoading={isSubmittingWithdrawal}
-                  disabled={parsedWithdrawAmount <= 0 || parsedWithdrawAmount > availableProfitGhs || isMaintenanceMode}
+                  disabled={
+                    parsedWithdrawAmount < minLimitGhs ||
+                    parsedWithdrawAmount > availableProfitGhs ||
+                    parsedWithdrawAmount > maxLimitGhs ||
+                    parsedWithdrawAmount > dailyRemainingGhs ||
+                    isMaintenanceMode ||
+                    isWithdrawalsPaused
+                  }
                 >
-                  {isMaintenanceMode ? 'Platform in Maintenance' : 'Confirm Withdrawal'}
+                  {isMaintenanceMode
+                    ? 'Platform in Maintenance'
+                    : isWithdrawalsPaused
+                    ? 'Withdrawals Suspended'
+                    : 'Confirm Withdrawal'}
                 </Button>
               </div>
             </form>

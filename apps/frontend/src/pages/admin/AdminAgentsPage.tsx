@@ -34,6 +34,7 @@ import {
   UserCheck,
   UserX,
   Sliders,
+  SlidersHorizontal,
   ExternalLink,
   X,
   FileText,
@@ -127,6 +128,13 @@ export const AdminAgentsPage: React.FC = () => {
   const [customPricingList, setCustomPricingList] = useState<AgentCustomPricingItemDto[]>([]);
   const [customPriceEdits, setCustomPriceEdits] = useState<Record<string, string>>({});
   const [isSavingPricing, setIsSavingPricing] = useState<boolean>(false);
+
+  // Custom Withdrawal Limit Modal
+  const [isLimitModalOpen, setIsLimitModalOpen] = useState<boolean>(false);
+  const [limitTargetAgent, setLimitTargetAgent] = useState<AdminAgentListItem | null>(null);
+  const [customLimitGhsInput, setCustomLimitGhsInput] = useState<string>('');
+  const [limitChangeReason, setLimitChangeReason] = useState<string>('');
+  const [isUpdatingLimit, setIsUpdatingLimit] = useState<boolean>(false);
 
   // Common Button Styles
   const tactileButtonStyle: React.CSSProperties = {
@@ -502,6 +510,59 @@ export const AdminAgentsPage: React.FC = () => {
       toastError('Failed to save pricing', err.message || 'Could not update pricing');
     } finally {
       setIsSavingPricing(false);
+    }
+  };
+
+  // Open Custom Withdrawal Limit Modal
+  const openLimitModal = (agent: AdminAgentListItem) => {
+    setLimitTargetAgent(agent);
+    setCustomLimitGhsInput(
+      agent.customWithdrawalLimitPesewas !== null && agent.customWithdrawalLimitPesewas !== undefined
+        ? (agent.customWithdrawalLimitPesewas / 100).toString()
+        : ''
+    );
+    setLimitChangeReason('');
+    setIsLimitModalOpen(true);
+  };
+
+  // Handle Update Custom Withdrawal Limit
+  const handleUpdateWithdrawalLimit = async () => {
+    if (!limitTargetAgent) return;
+    setIsUpdatingLimit(true);
+    try {
+      let customWithdrawalLimitPesewas: number | null = null;
+      const trimmed = customLimitGhsInput.trim();
+      if (trimmed !== '') {
+        const parsed = parseFloat(trimmed);
+        if (isNaN(parsed) || parsed < 0) {
+          toastError('Invalid Limit', 'Please enter a valid non-negative amount in GH₵ or leave empty to revert to platform default.');
+          setIsUpdatingLimit(false);
+          return;
+        }
+        customWithdrawalLimitPesewas = Math.round(parsed * 100);
+      }
+
+      await adminApi.updateAgent(limitTargetAgent.id, {
+        customWithdrawalLimitPesewas,
+        reason: limitChangeReason.trim() || 'Updated agent profit withdrawal limit override',
+      });
+
+      toastSuccess(
+        'Limit Updated',
+        customWithdrawalLimitPesewas !== null
+          ? `Custom profit withdrawal limit set to GH₵ ${(customWithdrawalLimitPesewas / 100).toFixed(2)}.`
+          : `Custom profit withdrawal limit cleared. Platform default limits will apply.`
+      );
+
+      setIsLimitModalOpen(false);
+      fetchAgents();
+      if (selectedAgentId === limitTargetAgent.id) {
+        openAgentDossier(limitTargetAgent.id);
+      }
+    } catch (err: any) {
+      toastError('Update Failed', err.message || 'Could not update agent withdrawal limit');
+    } finally {
+      setIsUpdatingLimit(false);
     }
   };
 
@@ -1467,6 +1528,23 @@ export const AdminAgentsPage: React.FC = () => {
 
                       <button
                         type="button"
+                        onClick={() => openLimitModal(row)}
+                        style={{
+                          ...tactileButtonStyle,
+                          padding: '0.35rem 0.5rem',
+                          color: row.customWithdrawalLimitPesewas ? 'var(--color-brand-primary)' : 'var(--color-text-muted)',
+                        }}
+                        title={
+                          row.customWithdrawalLimitPesewas
+                            ? `Profit Withdrawal Limit: GH₵ ${(row.customWithdrawalLimitPesewas / 100).toFixed(2)} (Custom Override)`
+                            : 'Profit Withdrawal Limit: Platform Default (Click to customize)'
+                        }
+                      >
+                        <SlidersHorizontal size={13} />
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => {
                           setStatusTargetAgent(row);
                           setNewStatus(row.status as any);
@@ -1830,6 +1908,72 @@ export const AdminAgentsPage: React.FC = () => {
               }}
             >
               {isSavingPricing ? 'Saving...' : 'Save Wholesale Rules'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* AGENT CUSTOM PROFIT WITHDRAWAL LIMIT MODAL */}
+      <Modal
+        isOpen={isLimitModalOpen}
+        onClose={() => setIsLimitModalOpen(false)}
+        title={`Set Profit Withdrawal Limit: ${limitTargetAgent?.fullName || 'Agent'}`}
+        maxWidth="540px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
+          <div style={{ background: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Current Status:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '4px' }}>
+              <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
+                {limitTargetAgent?.customWithdrawalLimitPesewas !== null && limitTargetAgent?.customWithdrawalLimitPesewas !== undefined
+                  ? `GH₵ ${(limitTargetAgent.customWithdrawalLimitPesewas / 100).toFixed(2)} (Custom Override)`
+                  : 'Platform Default (GH₵ 5,000.00)'}
+              </span>
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+              Sets a custom maximum single profit withdrawal limit for this specific reseller. Leave blank to revert to the platform-wide safety limit.
+            </p>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Custom Single Withdrawal Limit in GH₵ (Empty = Platform Default)
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={customLimitGhsInput}
+              onChange={(e) => setCustomLimitGhsInput(e.target.value)}
+              placeholder="e.g. 10000.00 or leave empty for default"
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Reason / Audit Notes (Optional)
+            </label>
+            <Input
+              value={limitChangeReason}
+              onChange={(e) => setLimitChangeReason(e.target.value)}
+              placeholder="e.g. High-volume VIP agent approved for higher limit"
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: 'var(--space-4)' }}>
+            <button type="button" onClick={() => setIsLimitModalOpen(false)} style={tactileButtonStyle}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleUpdateWithdrawalLimit}
+              disabled={isUpdatingLimit}
+              style={{
+                ...primaryButtonStyle,
+                opacity: isUpdatingLimit ? 0.6 : 1,
+              }}
+            >
+              {isUpdatingLimit ? 'Saving...' : 'Save Limit Rule'}
             </button>
           </div>
         </div>
@@ -2303,6 +2447,14 @@ export const AdminAgentsPage: React.FC = () => {
                             <Shield size={13} color="var(--color-text-muted)" />
                             <span>Change Status</span>
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => openLimitModal(agentDetail.agent)}
+                            style={tactileButtonStyle}
+                          >
+                            <SlidersHorizontal size={13} color="var(--color-brand-primary)" />
+                            <span>Withdrawal Limit</span>
+                          </button>
                         </div>
                       </Card>
 
@@ -2388,6 +2540,36 @@ export const AdminAgentsPage: React.FC = () => {
                           <div style={{ fontWeight: 700, fontSize: '13px', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>GH₵ {((agentDetail.wallet.totalRefundsPesewas || 0) / 100).toFixed(2)}</div>
                         </Card>
                       </div>
+
+                      {/* Profit Withdrawal Limit Control Card */}
+                      <Card elevated style={{ padding: 'var(--space-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Storefront Profit Payout Limit
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '3px' }}>
+                            <div style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: agentDetail.agent.customWithdrawalLimitPesewas ? 'var(--color-brand-primary)' : 'var(--color-text-primary)' }}>
+                              {agentDetail.agent.customWithdrawalLimitPesewas !== null && agentDetail.agent.customWithdrawalLimitPesewas !== undefined
+                                ? `GH₵ ${(agentDetail.agent.customWithdrawalLimitPesewas / 100).toFixed(2)}`
+                                : 'Platform Default (GH₵ 5,000.00)'}
+                            </div>
+                            <Badge variant={agentDetail.agent.customWithdrawalLimitPesewas ? 'info' : 'neutral'} size="sm">
+                              {agentDetail.agent.customWithdrawalLimitPesewas ? 'Custom Reseller Limit' : 'Global Default'}
+                            </Badge>
+                          </div>
+                          <p style={{ margin: '3px 0 0', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                            Maximum single withdrawal this agent can request from accumulated customer profit markups.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openLimitModal(agentDetail.agent)}
+                          style={tactileButtonStyle}
+                        >
+                          <SlidersHorizontal size={13} color="var(--color-brand-primary)" />
+                          <span>{agentDetail.agent.customWithdrawalLimitPesewas ? 'Edit Custom Limit' : 'Set Custom Limit'}</span>
+                        </button>
+                      </Card>
 
                       <button
                         type="button"

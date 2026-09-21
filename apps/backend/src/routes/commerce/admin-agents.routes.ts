@@ -60,6 +60,11 @@ export async function adminAgentsRoutes(
     const agentId = r.id || r.userId || r.user_id;
     const fallbackSlug = `agent-${String(agentId || '').slice(0, 8)}`;
 
+    const customLimit = r.customWithdrawalLimitPesewas ?? r.custom_withdrawal_limit_pesewas;
+    const customWithdrawalLimitPesewas = customLimit !== undefined && customLimit !== null
+      ? parseInt(String(customLimit), 10)
+      : null;
+
     return {
       id: agentId,
       userId: r.userId || r.user_id || agentId,
@@ -80,6 +85,7 @@ export async function adminAgentsRoutes(
       revenuePesewas: parseInt(r.revenuePesewas || r.revenue_pesewas || '0', 10),
       subAgentsCount: parseInt(r.subAgentsCount || r.sub_agents_count || '0', 10),
       agentTier: r.agentTier || r.agent_tier || 'STANDARD',
+      customWithdrawalLimitPesewas,
       createdAt: safeIsoDate(r.createdAt || r.created_at) || new Date().toISOString(),
       lastActiveAt: safeIsoDate(r.lastActiveAt || r.last_active_at || r.lastLoginAt || r.last_login_at || r.updatedAt || r.updated_at),
     };
@@ -313,6 +319,7 @@ export async function adminAgentsRoutes(
           COALESCE(o.revenue_pesewas, 0) as "revenuePesewas",
           COALESCE(sub.sub_count, 0) as "subAgentsCount",
           COALESCE(a.agent_tier, 'STANDARD') as "agentTier",
+          a.custom_withdrawal_limit_pesewas as "customWithdrawalLimitPesewas",
           COALESCE(a.created_at, u.created_at) as "createdAt",
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
         FROM users u
@@ -394,6 +401,7 @@ export async function adminAgentsRoutes(
           COALESCE(o.revenue_pesewas, 0) as "revenuePesewas",
           COALESCE(sub.sub_count, 0) as "subAgentsCount",
           COALESCE(a.agent_tier, 'STANDARD') as "agentTier",
+          a.custom_withdrawal_limit_pesewas as "customWithdrawalLimitPesewas",
           COALESCE(a.created_at, u.created_at) as "createdAt",
           COALESCE(u.last_login_at, u.updated_at, u.created_at) as "lastActiveAt"
         FROM users u
@@ -776,7 +784,7 @@ export async function adminAgentsRoutes(
     { preHandler: [authHooks.authenticateAdmin] },
     async (req, reply) => {
       const { id } = req.params;
-      const { fullName, phone, businessName, slug, agentTier, commissionRate, enableApiAccess } = req.body || {};
+      const { fullName, phone, businessName, slug, agentTier, commissionRate, enableApiAccess, customWithdrawalLimitPesewas } = req.body || {};
 
       const lookupRes = await db.query(
         `SELECT a.id as "agentId", u.id as "userId", a.slug, COALESCE(a.business_name, u.full_name) as "businessName"
@@ -824,6 +832,11 @@ export async function adminAgentsRoutes(
         );
       }
 
+      const hasCustomLimit = customWithdrawalLimitPesewas !== undefined;
+      const parsedCustomLimit = customWithdrawalLimitPesewas === null
+        ? null
+        : (customWithdrawalLimitPesewas !== undefined ? parseInt(String(customWithdrawalLimitPesewas), 10) : null);
+
       const updateAgentRes = await db.query(
         `UPDATE agents
          SET business_name = COALESCE($1, business_name),
@@ -831,17 +844,21 @@ export async function adminAgentsRoutes(
              agent_tier = COALESCE($3, agent_tier),
              commission_rate = COALESCE($4, commission_rate),
              api_access_enabled = COALESCE($5, api_access_enabled),
+             custom_withdrawal_limit_pesewas = CASE WHEN $6 = TRUE THEN $7::bigint ELSE custom_withdrawal_limit_pesewas END,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $6
+         WHERE id = $8
          RETURNING id, user_id as "userId", business_name as "businessName", slug,
                    agent_tier as "agentTier", status, api_access_enabled as "apiAccessEnabled",
-                   commission_rate as "commissionRate", updated_at as "updatedAt"`,
+                   commission_rate as "commissionRate", custom_withdrawal_limit_pesewas as "customWithdrawalLimitPesewas",
+                   updated_at as "updatedAt"`,
         [
           businessName?.trim(),
           slug ? slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-') : undefined,
           agentTier,
           commissionRate,
           enableApiAccess,
+          hasCustomLimit,
+          parsedCustomLimit,
           targetAgentId,
         ],
       );
@@ -854,7 +871,7 @@ export async function adminAgentsRoutes(
           action: 'ADMIN_UPDATE_AGENT',
           resourceType: 'agents',
           resourceId: targetAgentId,
-          metadata: { businessName, slug, agentTier, enableApiAccess },
+          metadata: { businessName, slug, agentTier, enableApiAccess, customWithdrawalLimitPesewas: parsedCustomLimit },
           ipAddress: req.ip,
         });
       }

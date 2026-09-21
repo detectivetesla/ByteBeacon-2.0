@@ -925,6 +925,7 @@ export interface AdminAgentListItem {
   revenuePesewas: number;
   subAgentsCount: number;
   agentTier: string;
+  customWithdrawalLimitPesewas?: number | null;
   createdAt: string;
   lastActiveAt?: string;
 }
@@ -1075,6 +1076,7 @@ export interface UpdateAgentAdminRequest {
   agentTier?: string;
   commissionRate?: number;
   enableApiAccess?: boolean;
+  customWithdrawalLimitPesewas?: number | null;
 }
 
 export interface UpdateAgentStatusRequest {
@@ -1453,6 +1455,8 @@ export interface FinancialSafetySettingsDto {
     gmpl: boolean;
   };
   maxSingleTransactionPesewas: number;
+  minWithdrawalPesewas?: number;
+  maxSingleWithdrawalPesewas?: number;
   maxDailyWithdrawalPesewas: number;
   maxDailyDepositPesewas: number;
   suspiciousVelocityThreshold: number;

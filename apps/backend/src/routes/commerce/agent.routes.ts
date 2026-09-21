@@ -2257,6 +2257,99 @@ export async function agentRoutes(
     handleVerifyTopup,
   );
 
+  // 7. HELPER: Fetch Effective Profit Withdrawal Limits (Configured by Platform Admin)
+  const getAgentWithdrawalLimits = async (userId: string, agentId?: string | null, storeId?: string | null) => {
+    // 1. Check safety controls & system configurations
+    const safetyRes = await db.query<{
+      emergency_withdrawals_disabled: boolean;
+      min_withdrawal_pesewas: string | null;
+      max_single_withdrawal_pesewas: string | null;
+      max_daily_withdrawal_pesewas: string | null;
+    }>(
+      `SELECT emergency_withdrawals_disabled, min_withdrawal_pesewas,
+              max_single_withdrawal_pesewas, max_daily_withdrawal_pesewas
+       FROM financial_safety_settings
+       LIMIT 1`
+    ).catch(() => ({ rows: [] }));
+
+    const configRes = await db.query<{ config_key: string; value: any }>(
+      `SELECT config_key, value
+       FROM system_configurations
+       WHERE config_key IN ('allow_agent_withdrawals', 'agent_min_withdrawal_pesewas', 'agent_max_withdrawal_pesewas', 'daily_withdrawal_limit_pesewas')`
+    ).catch(() => ({ rows: [] }));
+
+    const configMap = new Map<string, any>();
+    for (const row of configRes.rows) {
+      configMap.set(row.config_key, row.value);
+    }
+
+    const safety = safetyRes.rows[0];
+
+    // Check emergency switch / allow switch
+    const allowConfig = configMap.get('allow_agent_withdrawals');
+    const isPaused = Boolean(
+      (safety && (safety.emergency_withdrawals_disabled || (safety as any).emergency_withdrawal_freeze)) ||
+      (allowConfig === false || allowConfig === 'false')
+    );
+
+    // Check per-agent custom limit override
+    let customLimitPesewas: number | null = null;
+    const agentCustomRes = await db.query<{ custom_withdrawal_limit_pesewas: string | null }>(
+      `SELECT custom_withdrawal_limit_pesewas
+       FROM agents
+       WHERE user_id = $1 OR (id::text = $2 AND id IS NOT NULL)
+       LIMIT 1`,
+      [userId, agentId || null]
+    ).catch(() => ({ rows: [] }));
+
+    if (agentCustomRes.rows[0]?.custom_withdrawal_limit_pesewas) {
+      customLimitPesewas = parseInt(agentCustomRes.rows[0].custom_withdrawal_limit_pesewas, 10);
+    }
+
+    // Min limit (pesewas)
+    const minConfig = configMap.get('agent_min_withdrawal_pesewas');
+    const minWithdrawalPesewas = minConfig !== undefined && !isNaN(Number(minConfig))
+      ? parseInt(String(minConfig), 10)
+      : (safety?.min_withdrawal_pesewas ? parseInt(safety.min_withdrawal_pesewas, 10) : 1000);
+
+    // Max single limit (pesewas) - Agent custom limit takes precedence if configured
+    const maxConfig = configMap.get('agent_max_withdrawal_pesewas');
+    const platformMaxPesewas = maxConfig !== undefined && !isNaN(Number(maxConfig))
+      ? parseInt(String(maxConfig), 10)
+      : (safety?.max_single_withdrawal_pesewas ? parseInt(safety.max_single_withdrawal_pesewas, 10) : 500000);
+
+    const maxWithdrawalPesewas = customLimitPesewas !== null ? customLimitPesewas : platformMaxPesewas;
+
+    // Daily limit (pesewas)
+    const dailyConfig = configMap.get('daily_withdrawal_limit_pesewas');
+    const dailyLimitPesewas = dailyConfig !== undefined && !isNaN(Number(dailyConfig))
+      ? parseInt(String(dailyConfig), 10)
+      : (safety?.max_daily_withdrawal_pesewas ? parseInt(safety.max_daily_withdrawal_pesewas, 10) : 2000000);
+
+    // Calculate total withdrawn in the last 24 hours
+    const past24hRes = await db.query<{ today_withdrawn: string }>(
+      `SELECT COALESCE(SUM(amount_pesewas), 0) as today_withdrawn
+       FROM store_payouts
+       WHERE (store_id::text = $1 OR agent_id::text = $2)
+         AND status IN ('PENDING', 'PROCESSING', 'PAID', 'SCHEDULED')
+         AND created_at >= NOW() - INTERVAL '24 hours'`,
+      [storeId || null, agentId || null]
+    ).catch(() => ({ rows: [{ today_withdrawn: '0' }] }));
+
+    const dailyWithdrawnPesewas = parseInt(past24hRes.rows[0]?.today_withdrawn || '0', 10);
+    const remainingDailyLimitPesewas = Math.max(0, dailyLimitPesewas - dailyWithdrawnPesewas);
+
+    return {
+      withdrawalsPaused: Boolean(isPaused),
+      minWithdrawalPesewas,
+      maxWithdrawalPesewas,
+      dailyLimitPesewas,
+      dailyWithdrawnPesewas,
+      remainingDailyLimitPesewas,
+      isCustomLimit: customLimitPesewas !== null,
+    };
+  };
+
   // 7. HELPER: Calculate Agent Storefront Sales Profit & Payout Balances
   const getAgentStorefrontProfit = async (userId: string) => {
     // 1. Resolve agent's storefront
@@ -2275,6 +2368,7 @@ export async function agentRoutes(
     );
 
     const store = storeRes.rows[0] || null;
+    const limits = await getAgentWithdrawalLimits(userId, store?.agent_id, store?.id);
 
     if (!store) {
       return {
@@ -2287,6 +2381,7 @@ export async function agentRoutes(
         availableProfitPesewas: 0,
         salesCount: 0,
         salesVolumePesewas: 0,
+        limits,
       };
     }
 
@@ -2358,6 +2453,7 @@ export async function agentRoutes(
       availableProfitPesewas,
       salesCount,
       salesVolumePesewas,
+      limits,
     };
   };
 
@@ -2384,9 +2480,6 @@ export async function agentRoutes(
     }>, reply: FastifyReply) => {
       const { amountPesewas, payoutMethod, accountNumber, accountName, bankName } = req.body || {};
 
-      if (!amountPesewas || amountPesewas < 1000) {
-        throw new BadRequestError('Minimum withdrawal amount is GH₵ 10.00 (1000 pesewas)');
-      }
       if (!accountNumber || !accountName || !payoutMethod) {
         throw new BadRequestError('Payout method, destination account number, and account holder name are required');
       }
@@ -2395,6 +2488,35 @@ export async function agentRoutes(
       const profitData = await getAgentStorefrontProfit(req.user!.sub);
       if (!profitData.hasStore || !profitData.store) {
         throw new BadRequestError('You must have an active agent storefront to earn and withdraw reseller profits.');
+      }
+
+      // Check authoritative admin withdrawal limits
+      const limits = await getAgentWithdrawalLimits(
+        req.user!.sub,
+        profitData.store.agentId,
+        profitData.store.id,
+      );
+
+      if (limits.withdrawalsPaused) {
+        throw new BadRequestError('Profit withdrawals are currently paused by platform administrators. Please check back later.');
+      }
+
+      if (!amountPesewas || amountPesewas < limits.minWithdrawalPesewas) {
+        throw new BadRequestError(
+          `Minimum withdrawal amount is GH₵ ${(limits.minWithdrawalPesewas / 100).toFixed(2)} (${limits.minWithdrawalPesewas} pesewas).`
+        );
+      }
+
+      if (amountPesewas > limits.maxWithdrawalPesewas) {
+        throw new BadRequestError(
+          `Requested amount exceeds the maximum allowed single withdrawal limit of GH₵ ${(limits.maxWithdrawalPesewas / 100).toFixed(2)}.`
+        );
+      }
+
+      if (limits.dailyWithdrawnPesewas + amountPesewas > limits.dailyLimitPesewas) {
+        throw new BadRequestError(
+          `24-hour daily withdrawal limit of GH₵ ${(limits.dailyLimitPesewas / 100).toFixed(2)} reached. You have already requested GH₵ ${(limits.dailyWithdrawnPesewas / 100).toFixed(2)} and can withdraw up to GH₵ ${(limits.remainingDailyLimitPesewas / 100).toFixed(2)} more today.`
+        );
       }
 
       if (profitData.availableProfitPesewas < amountPesewas) {
@@ -2482,6 +2604,7 @@ export async function agentRoutes(
           status: 'PENDING',
           createdAt: created.created_at,
           availableProfitPesewas: Math.max(0, profitData.availableProfitPesewas - amountPesewas),
+          limits,
         },
       });
     },
@@ -2610,6 +2733,7 @@ export async function agentRoutes(
           data: {
             withdrawals,
             ledger,
+            limits: profitData.limits,
             summary: {
               hasStore: profitData.hasStore,
               storeName: profitData.store?.storeName || null,
@@ -2621,20 +2745,24 @@ export async function agentRoutes(
               availableProfitPesewas: profitData.availableProfitPesewas,
               salesCount: profitData.salesCount,
               salesVolumePesewas: profitData.salesVolumePesewas,
+              limits: profitData.limits,
             },
           },
         });
       } catch (err: any) {
+        const fallbackLimits = await getAgentWithdrawalLimits(req.user!.sub).catch(() => undefined);
         return reply.send({
           success: true,
           data: {
             withdrawals: [],
             ledger: [],
+            limits: fallbackLimits,
             summary: {
               hasStore: false,
               totalProfitEarnedPesewas: 0,
               totalWithdrawnPesewas: 0,
               availableProfitPesewas: 0,
+              limits: fallbackLimits,
             },
           },
         });

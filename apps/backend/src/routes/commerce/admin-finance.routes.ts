@@ -1326,6 +1326,8 @@ export async function adminFinanceRoutes(
           global_maintenance_mode as "globalMaintenanceMode",
           provider_disabled as "providerDisabled",
           max_single_transaction_pesewas as "maxSingleTransactionPesewas",
+          min_withdrawal_pesewas as "minWithdrawalPesewas",
+          max_single_withdrawal_pesewas as "maxSingleWithdrawalPesewas",
           max_daily_withdrawal_pesewas as "maxDailyWithdrawalPesewas",
           max_daily_deposit_pesewas as "maxDailyDepositPesewas",
           suspicious_velocity_threshold as "suspiciousVelocityThreshold",
@@ -1334,19 +1336,22 @@ export async function adminFinanceRoutes(
         LIMIT 1
       `);
 
-      const settings: FinancialSafetySettingsDto = res.rows[0] || {
-        emergencyPaymentsDisabled: false,
-        emergencyWithdrawalsDisabled: false,
-        emergencyRefundsDisabled: false,
-        walletOperationsFrozen: false,
-        agentPurchasesFrozen: false,
-        globalMaintenanceMode: false,
-        providerDisabled: { datahouse: false, paystack: false, gmpl: false },
-        maxSingleTransactionPesewas: 500000,
-        maxDailyWithdrawalPesewas: 2000000,
-        maxDailyDepositPesewas: 5000000,
-        suspiciousVelocityThreshold: 10,
-        updatedAt: new Date().toISOString(),
+      const row = res.rows[0] || {};
+      const settings: FinancialSafetySettingsDto = {
+        emergencyPaymentsDisabled: Boolean(row.emergencyPaymentsDisabled),
+        emergencyWithdrawalsDisabled: Boolean(row.emergencyWithdrawalsDisabled),
+        emergencyRefundsDisabled: Boolean(row.emergencyRefundsDisabled),
+        walletOperationsFrozen: Boolean(row.walletOperationsFrozen),
+        agentPurchasesFrozen: Boolean(row.agentPurchasesFrozen),
+        globalMaintenanceMode: Boolean(row.globalMaintenanceMode),
+        providerDisabled: row.providerDisabled || { datahouse: false, paystack: false, gmpl: false },
+        maxSingleTransactionPesewas: parseInt(row.maxSingleTransactionPesewas || '500000', 10),
+        minWithdrawalPesewas: parseInt(row.minWithdrawalPesewas || '1000', 10),
+        maxSingleWithdrawalPesewas: parseInt(row.maxSingleWithdrawalPesewas || '500000', 10),
+        maxDailyWithdrawalPesewas: parseInt(row.maxDailyWithdrawalPesewas || '2000000', 10),
+        maxDailyDepositPesewas: parseInt(row.maxDailyDepositPesewas || '5000000', 10),
+        suspiciousVelocityThreshold: parseInt(row.suspiciousVelocityThreshold || '10', 10),
+        updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : new Date().toISOString(),
       };
 
       return reply.send({
@@ -1381,7 +1386,9 @@ export async function adminFinanceRoutes(
           max_daily_withdrawal_pesewas = COALESCE($9, max_daily_withdrawal_pesewas),
           max_daily_deposit_pesewas = COALESCE($10, max_daily_deposit_pesewas),
           suspicious_velocity_threshold = COALESCE($11, suspicious_velocity_threshold),
-          updated_by = $12,
+          min_withdrawal_pesewas = COALESCE($12, min_withdrawal_pesewas),
+          max_single_withdrawal_pesewas = COALESCE($13, max_single_withdrawal_pesewas),
+          updated_by = $14,
           updated_at = CURRENT_TIMESTAMP`,
         [
           settings.emergencyPaymentsDisabled,
@@ -1395,9 +1402,46 @@ export async function adminFinanceRoutes(
           settings.maxDailyWithdrawalPesewas,
           settings.maxDailyDepositPesewas,
           settings.suspiciousVelocityThreshold,
+          settings.minWithdrawalPesewas,
+          settings.maxSingleWithdrawalPesewas,
           req.user!.sub,
         ],
       );
+
+      // Keep system_configurations in sync
+      if (settings.minWithdrawalPesewas !== undefined) {
+        await db.query(
+          `INSERT INTO system_configurations (scope, config_key, category, value, data_type, is_secret, risk_level, requires_step_up, description, version, last_modified_by, last_modified_at)
+           VALUES ('AGENTS', 'agent_min_withdrawal_pesewas', 'AGENTS', $1, 'NUMBER', false, 'MEDIUM', false, 'Minimum profit withdrawal amount per request in pesewas', 1, $2, CURRENT_TIMESTAMP)
+           ON CONFLICT (config_key) DO UPDATE SET value = $1, last_modified_by = $2, last_modified_at = CURRENT_TIMESTAMP`,
+          [JSON.stringify(Number(settings.minWithdrawalPesewas)), req.user!.sub],
+        ).catch(() => {});
+      }
+      if (settings.maxSingleWithdrawalPesewas !== undefined) {
+        await db.query(
+          `INSERT INTO system_configurations (scope, config_key, category, value, data_type, is_secret, risk_level, requires_step_up, description, version, last_modified_by, last_modified_at)
+           VALUES ('AGENTS', 'agent_max_withdrawal_pesewas', 'AGENTS', $1, 'NUMBER', false, 'HIGH', true, 'Maximum single profit withdrawal limit in pesewas', 1, $2, CURRENT_TIMESTAMP)
+           ON CONFLICT (config_key) DO UPDATE SET value = $1, last_modified_by = $2, last_modified_at = CURRENT_TIMESTAMP`,
+          [JSON.stringify(Number(settings.maxSingleWithdrawalPesewas)), req.user!.sub],
+        ).catch(() => {});
+      }
+      if (settings.maxDailyWithdrawalPesewas !== undefined) {
+        await db.query(
+          `INSERT INTO system_configurations (scope, config_key, category, value, data_type, is_secret, risk_level, requires_step_up, description, version, last_modified_by, last_modified_at)
+           VALUES ('PAYMENTS', 'daily_withdrawal_limit_pesewas', 'PAYMENTS', $1, 'NUMBER', false, 'HIGH', true, 'Daily aggregated profit withdrawal limit per agent in pesewas', 1, $2, CURRENT_TIMESTAMP)
+           ON CONFLICT (config_key) DO UPDATE SET value = $1, last_modified_by = $2, last_modified_at = CURRENT_TIMESTAMP`,
+          [JSON.stringify(Number(settings.maxDailyWithdrawalPesewas)), req.user!.sub],
+        ).catch(() => {});
+      }
+      if (settings.emergencyWithdrawalsDisabled !== undefined) {
+        const isAllowed = !settings.emergencyWithdrawalsDisabled;
+        await db.query(
+          `UPDATE system_configurations
+           SET value = $1, last_modified_by = $2, last_modified_at = CURRENT_TIMESTAMP
+           WHERE config_key = 'allow_agent_withdrawals'`,
+          [JSON.stringify(isAllowed), req.user!.sub],
+        ).catch(() => {});
+      }
 
       if (settings.globalMaintenanceMode !== undefined) {
         const isEnabled = Boolean(settings.globalMaintenanceMode);

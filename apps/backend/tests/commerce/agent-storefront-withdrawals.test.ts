@@ -332,4 +332,155 @@ describe('Agent Storefront Profit Withdrawals & Admin Payout Tracking Suite', ()
     expect(actionBody.success).toBe(true);
     expect(actionBody.data.status).toBe('PAID');
   });
+
+  it('5. POST /agents/withdrawals enforces min, max, and daily limits configured by admin', async () => {
+    mockDb = {
+      query: vi.fn().mockImplementation(async (sql: string, params: any[]) => {
+        if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
+          return {
+            rows: [{ id: 'agent_user_1', role: UserRole.AGENT, status: 'ACTIVE', wallet_balance_pesewas: 5000 }],
+          };
+        }
+        if (sql.includes('FROM stores')) {
+          return { rows: [{ id: 'store_1', store_name: 'FastData Gh', slug: 'fastdata', store_status: 'ACTIVE' }] };
+        }
+        if (sql.includes('FROM agents')) {
+          // Custom limit of 10,000 pesewas (GH₵ 100)
+          return { rows: [{ id: 'agent_1', user_id: 'agent_user_1', custom_withdrawal_limit_pesewas: 10000 }] };
+        }
+        if (sql.includes('FROM orders o') && sql.includes('o.store_id = $1')) {
+          return { rows: [{ total_profit_pesewas: '500000', sales_count: '50', sales_volume_pesewas: '2000000' }] }; // GH₵ 5,000 profit
+        }
+        if (sql.includes('FROM store_payouts') && sql.includes('status NOT IN')) {
+          // Daily withdrawn so far: 0
+          return { rows: [{ daily_withdrawn_pesewas: '0' }] };
+        }
+        if (sql.includes('FROM store_payouts')) {
+          return { rows: [{ total_withdrawn_pesewas: '0', pending_withdrawn_pesewas: '0', settled_withdrawn_pesewas: '0' }] };
+        }
+        if (sql.includes('FROM financial_safety_settings')) {
+          return {
+            rows: [
+              {
+                min_withdrawal_pesewas: 2000, // min GH₵ 20.00
+                max_single_withdrawal_pesewas: 50000, // default max GH₵ 500.00
+                max_daily_withdrawal_pesewas: 200000,
+                emergency_withdrawal_freeze: false,
+              },
+            ],
+          };
+        }
+        if (sql.includes('FROM system_configurations')) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
+
+    await agentRoutes(app, {
+      db: mockDb,
+      tokenService: mockTokenService,
+      apiKeyService: mockApiKeyService,
+      rbacService: mockRbacService,
+      ledgerService: {} as any,
+      paymentProvider: {} as any,
+      orderService: {} as any,
+      stateMachine: {} as any,
+      webhookDispatcher: {} as any,
+    });
+
+    // Test 5a: Amount below min (1,500 < 2,000 pesewas)
+    const minRes = await app.inject({
+      method: 'POST',
+      url: '/agents/withdrawals',
+      headers: { authorization: 'Bearer agent_token' },
+      payload: {
+        amountPesewas: 1500,
+        payoutMethod: 'MTN_MOMO',
+        accountNumber: '0241234567',
+        accountName: 'Agent Kwesi',
+      },
+    });
+    expect(minRes.statusCode).toBe(400);
+    expect(JSON.parse(minRes.payload).message).toContain('Minimum withdrawal amount');
+
+    // Test 5b: Amount exceeding custom override (15,000 > 10,000 pesewas)
+    const maxRes = await app.inject({
+      method: 'POST',
+      url: '/agents/withdrawals',
+      headers: { authorization: 'Bearer agent_token' },
+      payload: {
+        amountPesewas: 15000,
+        payoutMethod: 'MTN_MOMO',
+        accountNumber: '0241234567',
+        accountName: 'Agent Kwesi',
+      },
+    });
+    expect(maxRes.statusCode).toBe(400);
+    expect(JSON.parse(maxRes.payload).message).toContain('maximum allowed single withdrawal limit');
+  });
+
+  it('6. POST /agents/withdrawals rejects request when admin has paused withdrawals', async () => {
+    mockDb = {
+      query: vi.fn().mockImplementation(async (sql: string) => {
+        if (sql.includes('FROM users WHERE uuid = $1') || sql.includes('FROM users WHERE id = $1')) {
+          return {
+            rows: [{ id: 'agent_user_1', role: UserRole.AGENT, status: 'ACTIVE', wallet_balance_pesewas: 5000 }],
+          };
+        }
+        if (sql.includes('FROM stores')) {
+          return { rows: [{ id: 'store_1', store_name: 'FastData Gh', slug: 'fastdata', store_status: 'ACTIVE' }] };
+        }
+        if (sql.includes('FROM agents WHERE user_id = $1')) {
+          return { rows: [{ id: 'agent_1', user_id: 'agent_user_1', custom_withdrawal_limit_pesewas: null }] };
+        }
+        if (sql.includes('FROM orders o') && sql.includes('o.store_id = $1')) {
+          return { rows: [{ total_profit_pesewas: '50000', sales_count: '5', sales_volume_pesewas: '200000' }] };
+        }
+        if (sql.includes('FROM store_payouts')) {
+          return { rows: [{ total_withdrawn_pesewas: '0', pending_withdrawn_pesewas: '0', settled_withdrawn_pesewas: '0' }] };
+        }
+        if (sql.includes('FROM financial_safety_settings')) {
+          return {
+            rows: [
+              {
+                min_withdrawal_pesewas: 1000,
+                max_single_withdrawal_pesewas: 500000,
+                max_daily_withdrawal_pesewas: 2000000,
+                emergency_withdrawal_freeze: true, // ADMIN FREEZE ACTIVE
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+
+    await agentRoutes(app, {
+      db: mockDb,
+      tokenService: mockTokenService,
+      apiKeyService: mockApiKeyService,
+      rbacService: mockRbacService,
+      ledgerService: {} as any,
+      paymentProvider: {} as any,
+      orderService: {} as any,
+      stateMachine: {} as any,
+      webhookDispatcher: {} as any,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/agents/withdrawals',
+      headers: { authorization: 'Bearer agent_token' },
+      payload: {
+        amountPesewas: 5000,
+        payoutMethod: 'MTN_MOMO',
+        accountNumber: '0241234567',
+        accountName: 'Agent Kwesi',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.payload).message).toContain('currently paused');
+  });
 });
