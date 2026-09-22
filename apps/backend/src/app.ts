@@ -21,6 +21,7 @@ import { RateLimiterService } from './core/security/rate-limiter.service.js';
 import { ApiUsageTelemetryService } from './core/security/api-usage-telemetry.service.js';
 import { auditPlugin } from './plugins/audit.plugin.js';
 import { EmailService, getEmailService } from './infrastructure/email/email.service.js';
+import { NotificationService } from './core/notifications/notification.service.js';
 import { customerAuthRoutes } from './routes/auth/customer-auth.routes.js';
 import { adminAuthRoutes } from './routes/auth/admin-auth.routes.js';
 import { developerApiKeyRoutes } from './routes/auth/developer-api-key.routes.js';
@@ -556,6 +557,9 @@ export function createApp(options: AppOptions = {}) {
   app.decorate('featureFlagService', featureFlagService);
   app.decorate('emailService', emailService);
 
+  const notificationService = new NotificationService(dbPool!, emailService);
+  app.decorate('notificationService', notificationService);
+
   // 5. Register Swagger / OpenAPI Documentation & Prometheus Telemetry
   app.register(registerSwagger);
   app.register(metricsPlugin);
@@ -592,6 +596,7 @@ export function createApp(options: AppOptions = {}) {
         rbacService,
         featureFlagService,
         emailService,
+        notificationService,
       });
     },
     { prefix: '/api/v1/auth' },
@@ -758,6 +763,7 @@ export function createApp(options: AppOptions = {}) {
         rbacService,
         auditService,
         financialLedgerService: ledgerService,
+        notificationService,
       });
       await adminFinanceRoutes(commerceSubApp, {
         db: dbPool!,
@@ -766,6 +772,7 @@ export function createApp(options: AppOptions = {}) {
         rbacService,
         auditService,
         financialLedgerService: ledgerService,
+        notificationService,
       });
       await adminReconciliationRoutes(commerceSubApp, {
         db: dbPool!,

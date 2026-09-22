@@ -23,6 +23,7 @@ import {
 import crypto from 'node:crypto';
 import type { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { EmailService, getEmailService } from '../../infrastructure/email/email.service.js';
+import { NotificationService } from '../../core/notifications/notification.service.js';
 import {
   SecurityDomain,
   UserRole,
@@ -59,6 +60,7 @@ export interface CustomerAuthRouteDependencies {
   rbacService: RbacService;
   featureFlagService?: FeatureFlagService;
   emailService?: EmailService;
+  notificationService?: NotificationService;
 }
 
 export async function customerAuthRoutes(
@@ -67,6 +69,7 @@ export async function customerAuthRoutes(
 ) {
   const { db, hasher, tokenService, sessionService, auditService, rateLimiter, featureFlagService } = deps;
   const emailService = deps.emailService ?? getEmailService();
+  const notificationService = deps.notificationService ?? new NotificationService(db, emailService);
   const authHooks = createAuthHooks(tokenService, deps.apiKeyService, deps.rbacService, db, featureFlagService);
   const strictRateLimit = createRateLimitHook(rateLimiter, { limit: 20, windowSeconds: 60 });
 
@@ -200,6 +203,26 @@ export async function customerAuthRoutes(
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
+
+      // Automated welcome notification & transactional email for new customer
+      notificationService.sendWelcomeCustomer({
+        userId: user.id,
+        email: user.email,
+        fullName: user.fullName,
+      }).catch((notifErr: any) => {
+        logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_REGISTER] Failed to dispatch welcome notification');
+      });
+
+      // Automated "Become an Agent" prompt for customer
+      if (user.role === UserRole.CUSTOMER) {
+        notificationService.sendAgentOpportunityPrompt({
+          userId: user.id,
+          email: user.email,
+          fullName: user.fullName,
+        }).catch((notifErr: any) => {
+          logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_REGISTER] Failed to dispatch agent opportunity prompt');
+        });
+      }
 
       const userSummary: UserSummaryDto = {
         id: user.id,
@@ -395,6 +418,16 @@ export async function customerAuthRoutes(
         resourceId: agentId,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
+      });
+
+      // Automated welcome notification & transactional email for new agent
+      notificationService.sendWelcomeAgent({
+        userId: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        businessName: resolvedBusinessName,
+      }).catch((notifErr: any) => {
+        logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_REGISTER_AGENT] Failed to dispatch agent welcome notification');
       });
 
       const userSummary: UserSummaryDto = {

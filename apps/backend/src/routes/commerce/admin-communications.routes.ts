@@ -272,33 +272,72 @@ export async function adminCommunicationsRoutes(
       }
 
       // Resolve audience recipients
-      let targetUsers: Array<{ id: string; full_name?: string; email: string; phone?: string; role: string }> = [];
+      let targetUsers: Array<{ id: string | null; full_name?: string; email: string; phone?: string; role: string }> = [];
 
-      if (targetType === CommunicationTargetType.INDIVIDUAL) {
+      if (targetType === CommunicationTargetType.INDIVIDUAL || targetType === CommunicationTargetType.CUSTOM_GROUP) {
+        const rawTokens: string[] = [];
         if (recipientIds && recipientIds.length > 0) {
-          const res = await db.query(
-            'SELECT id, full_name, email, phone, role FROM users WHERE id = $1',
-            [recipientIds[0]],
-          );
-          targetUsers = res.rows;
-        } else if (recipientEmails && recipientEmails.length > 0) {
-          const res = await db.query(
+          for (const id of recipientIds) {
+            if (typeof id === 'string') {
+              rawTokens.push(...id.split(/[,\s;]+/).map((t) => t.trim()).filter(Boolean));
+            }
+          }
+        }
+        if (recipientEmails && recipientEmails.length > 0) {
+          for (const em of recipientEmails) {
+            if (typeof em === 'string') {
+              rawTokens.push(...em.split(/[,\s;]+/).map((t) => t.trim()).filter(Boolean));
+            }
+          }
+        }
+
+        if (rawTokens.length === 0) {
+          throw new BadRequestError('Recipient identifier (Email, Phone, or User ID) is required for targeted delivery.');
+        }
+
+        const emailTokens = rawTokens.filter((t) => t.includes('@')).map((t) => t.toLowerCase());
+        const otherTokens = rawTokens.filter((t) => !t.includes('@'));
+
+        let res: any;
+        if (emailTokens.length === 1 && otherTokens.length === 0) {
+          res = await db.query(
             'SELECT id, full_name, email, phone, role FROM users WHERE email = $1',
-            [recipientEmails[0].trim().toLowerCase()],
+            [emailTokens[0]],
           );
-          targetUsers = res.rows;
+        } else if (otherTokens.length === 1 && emailTokens.length === 0) {
+          res = await db.query(
+            'SELECT id, full_name, email, phone, role FROM users WHERE id::text = $1 OR phone = $1',
+            [otherTokens[0]],
+          );
         } else {
-          throw new BadRequestError('Recipient ID or Email is required for INDIVIDUAL target.');
+          res = await db.query(
+            `SELECT id, full_name, email, phone, role
+             FROM users
+             WHERE LOWER(email) = ANY($1)
+                OR phone = ANY($2)
+                OR id::text = ANY($2)`,
+            [emailTokens, otherTokens],
+          );
         }
-      } else if (targetType === CommunicationTargetType.CUSTOM_GROUP) {
-        if (!recipientIds || recipientIds.length === 0) {
-          throw new BadRequestError('Recipient IDs list is required for CUSTOM_GROUP target.');
-        }
-        const res = await db.query(
-          'SELECT id, full_name, email, phone, role FROM users WHERE id = ANY($1)',
-          [recipientIds],
-        );
         targetUsers = res.rows;
+
+        // If any email token was not found in users table, and EMAIL channel is selected,
+        // create external recipient entries so emails still get delivered to the actual destination!
+        if (channels.includes(CommunicationChannel.EMAIL)) {
+          const foundEmails = new Set(targetUsers.filter((u) => u.email).map((u) => u.email.toLowerCase()));
+          for (const em of emailTokens) {
+            if (!foundEmails.has(em)) {
+              targetUsers.push({
+                id: null,
+                full_name: em.split('@')[0],
+                email: em,
+                phone: undefined,
+                role: 'external',
+              });
+              foundEmails.add(em);
+            }
+          }
+        }
       } else if (targetType === CommunicationTargetType.ROLE) {
         const roleFilter = recipientRole || UserRole.CUSTOMER;
         const res = await db.query(
@@ -340,7 +379,7 @@ export async function adminCommunicationsRoutes(
       // Insert delivery logs and notifications for each resolved recipient
       for (const u of targetUsers) {
         for (const ch of channels) {
-          const idempotencyKey = `deliv_${messageId}_${u.id}_${ch}`;
+          const idempotencyKey = `deliv_${messageId}_${u.id || u.email}_${ch}`;
           await db.query(
             `INSERT INTO communication_delivery_logs (
                message_id, recipient_user_id, recipient_email, recipient_phone,
@@ -349,9 +388,9 @@ export async function adminCommunicationsRoutes(
              ON CONFLICT (idempotency_key) DO NOTHING`,
             [
               messageId,
-              u.id,
+              u.id || null,
               u.email,
-              u.phone,
+              u.phone || null,
               ch,
               priority,
               subject.trim(),
@@ -360,11 +399,11 @@ export async function adminCommunicationsRoutes(
             ],
           ).catch(() => null);
 
-          // Also insert in user notifications table
-          if (ch === CommunicationChannel.IN_APP) {
+          // Also insert in user notifications table (requires user id)
+          if (ch === CommunicationChannel.IN_APP && u.id) {
             await db.query(
-              `INSERT INTO notifications (user_id, title, message, channel, is_read, created_at)
-               VALUES ($1, $2, $3, 'IN_APP', false, CURRENT_TIMESTAMP)`,
+              `INSERT INTO notifications (user_id, type, severity, title, body, message, channel, is_read, created_at, updated_at)
+               VALUES ($1, 'ADMIN_BROADCAST', 'INFO', $2, $3, $3, 'IN_APP', false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
               [u.id, subject.trim(), body.trim()],
             ).catch(() => null);
           }

@@ -443,8 +443,8 @@ export const AdminCommunicationsPage: React.FC = () => {
       toastError('Validation Error', 'Subject and body are required.');
       return;
     }
-    if (composeTarget === CommunicationTargetType.INDIVIDUAL && !composeRecipientEmail.includes('@')) {
-      toastError('Validation Error', 'A valid recipient email address is required.');
+    if (composeTarget === CommunicationTargetType.INDIVIDUAL && !composeRecipientEmail.trim()) {
+      toastError('Validation Error', 'A recipient email address, phone number, or User ID is required.');
       return;
     }
     if (
@@ -457,10 +457,12 @@ export const AdminCommunicationsPage: React.FC = () => {
 
     setIsSending(true);
     try {
+      const trimmedRecipient = composeRecipientEmail.trim();
       await adminApi.sendCommunication({
-        channels: composeChannels,
+        channels: composeChannels.length > 0 ? composeChannels : [CommunicationChannel.IN_APP],
         targetType: composeTarget,
-        recipientEmails: composeTarget === CommunicationTargetType.INDIVIDUAL ? [composeRecipientEmail.trim()] : undefined,
+        recipientEmails: composeTarget === CommunicationTargetType.INDIVIDUAL ? [trimmedRecipient] : undefined,
+        recipientIds: composeTarget === CommunicationTargetType.INDIVIDUAL && !trimmedRecipient.includes('@') ? [trimmedRecipient] : undefined,
         recipientRole: composeTarget === CommunicationTargetType.ROLE ? (composeRole as any) : undefined,
         segment: composeSegment,
         subject: composeSubject.trim(),
@@ -1300,6 +1302,22 @@ export const AdminCommunicationsPage: React.FC = () => {
                       { value: 'ALL_AGENTS', label: 'All Active Agents' },
                       { value: 'AGENTS_WITH_STORE', label: 'Agents with Approved Active Storefronts' },
                       { value: 'AGENTS_WITHOUT_STORE', label: 'Agents without Storefronts' },
+                    ]}
+                  />
+                </div>
+              )}
+
+              {composeTarget === CommunicationTargetType.CUSTOMER_SEGMENT && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.4rem' }}>
+                    Customer Segment Filter
+                  </label>
+                  <Select
+                    value={composeSegment}
+                    onChange={(e) => setComposeSegment(e.target.value)}
+                    options={[
+                      { value: 'ALL_CUSTOMERS', label: 'All Active Customers' },
+                      { value: 'RECENT_ORDER_CUSTOMERS', label: 'Customers with Orders in Last 30 Days' },
                     ]}
                   />
                 </div>
@@ -3591,53 +3609,171 @@ export const AdminCommunicationsPage: React.FC = () => {
         maxWidth="680px"
       >
         <form onSubmit={handleSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {/* Delivery Channels Selectable Pills */}
           <div>
             <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
-              Target Audience
+              Delivery Channels
             </label>
-            <Select
-              value={composeTarget}
-              onChange={(e) => setComposeTarget(e.target.value as CommunicationTargetType)}
-              options={[
-                { value: CommunicationTargetType.ROLE, label: 'Target by Role' },
-                { value: CommunicationTargetType.AGENT_SEGMENT, label: 'Agent Segment' },
-                { value: CommunicationTargetType.CUSTOMER_SEGMENT, label: 'Customer Segment' },
-                { value: CommunicationTargetType.INDIVIDUAL, label: 'Single Recipient (Unicast)' },
-                { value: CommunicationTargetType.BROADCAST, label: 'Platform Broadcast (Elevated)' },
-              ]}
-            />
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (composeChannels.includes(CommunicationChannel.IN_APP)) {
+                    setComposeChannels(composeChannels.filter((c) => c !== CommunicationChannel.IN_APP));
+                  } else {
+                    setComposeChannels([...composeChannels, CommunicationChannel.IN_APP]);
+                  }
+                }}
+                style={{
+                  ...tactileButtonStyle,
+                  backgroundColor: composeChannels.includes(CommunicationChannel.IN_APP) ? 'rgba(59, 130, 246, 0.15)' : 'var(--color-bg-subtle)',
+                  borderColor: composeChannels.includes(CommunicationChannel.IN_APP) ? 'var(--color-brand-bright)' : 'var(--color-border-subtle)',
+                  color: composeChannels.includes(CommunicationChannel.IN_APP) ? 'var(--color-brand-bright)' : 'var(--color-text-muted)',
+                }}
+              >
+                <Radio size={13} />
+                In-App Notification
+                {composeChannels.includes(CommunicationChannel.IN_APP) && <Check size={12} />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (composeChannels.includes(CommunicationChannel.EMAIL)) {
+                    setComposeChannels(composeChannels.filter((c) => c !== CommunicationChannel.EMAIL));
+                  } else {
+                    setComposeChannels([...composeChannels, CommunicationChannel.EMAIL]);
+                  }
+                }}
+                style={{
+                  ...tactileButtonStyle,
+                  backgroundColor: composeChannels.includes(CommunicationChannel.EMAIL) ? 'rgba(34, 197, 94, 0.15)' : 'var(--color-bg-subtle)',
+                  borderColor: composeChannels.includes(CommunicationChannel.EMAIL) ? 'var(--color-success)' : 'var(--color-border-subtle)',
+                  color: composeChannels.includes(CommunicationChannel.EMAIL) ? 'var(--color-success)' : 'var(--color-text-muted)',
+                }}
+              >
+                <Mail size={13} />
+                Transactional Email
+                {composeChannels.includes(CommunicationChannel.EMAIL) && <Check size={12} />}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
+                Target Audience
+              </label>
+              <Select
+                value={composeTarget}
+                onChange={(e) => setComposeTarget(e.target.value as CommunicationTargetType)}
+                options={[
+                  { value: CommunicationTargetType.ROLE, label: 'Target by Role (Multicast)' },
+                  { value: CommunicationTargetType.AGENT_SEGMENT, label: 'Agent Segment (Anycast)' },
+                  { value: CommunicationTargetType.CUSTOMER_SEGMENT, label: 'Customer Segment (Anycast)' },
+                  { value: CommunicationTargetType.INDIVIDUAL, label: 'Single Recipient (Unicast)' },
+                  { value: CommunicationTargetType.BROADCAST, label: 'Platform Broadcast (All Users)' },
+                ]}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
+                Priority Level
+              </label>
+              <Select
+                value={composePriority}
+                onChange={(e) => setComposePriority(e.target.value as CommunicationPriority)}
+                options={[
+                  { value: CommunicationPriority.LOW, label: 'LOW — Informational' },
+                  { value: CommunicationPriority.NORMAL, label: 'NORMAL — Standard Alert' },
+                  { value: CommunicationPriority.HIGH, label: 'HIGH — Important Notice' },
+                  { value: CommunicationPriority.CRITICAL, label: 'CRITICAL — Emergency' },
+                ]}
+              />
+            </div>
           </div>
 
           {composeTarget === CommunicationTargetType.INDIVIDUAL && (
             <div>
               <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
-                Recipient Email
+                Recipient Target (Email, Phone, or User ID) *
               </label>
               <Input
-                type="email"
                 value={composeRecipientEmail}
                 onChange={(e) => setComposeRecipientEmail(e.target.value)}
-                placeholder="user@example.com"
+                placeholder="e.g. user@example.com, 0244123456, or UUID"
                 required
+              />
+            </div>
+          )}
+
+          {composeTarget === CommunicationTargetType.ROLE && (
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
+                Recipient Role Group
+              </label>
+              <Select
+                value={composeRole}
+                onChange={(e) => setComposeRole(e.target.value)}
+                options={[
+                  { value: 'customer', label: 'All Customers' },
+                  { value: 'agent', label: 'All Agents & Super Agents' },
+                  { value: 'admin', label: 'All Operations & Finance Admins' },
+                  { value: 'super_admin', label: 'Super Administrators Only' },
+                ]}
+              />
+            </div>
+          )}
+
+          {composeTarget === CommunicationTargetType.AGENT_SEGMENT && (
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
+                Agent Segment Filter
+              </label>
+              <Select
+                value={composeSegment}
+                onChange={(e) => setComposeSegment(e.target.value)}
+                options={[
+                  { value: 'ALL_AGENTS', label: 'All Active Agents' },
+                  { value: 'AGENTS_WITH_STORE', label: 'Agents with Approved Active Storefronts' },
+                  { value: 'AGENTS_WITHOUT_STORE', label: 'Agents without Storefronts' },
+                ]}
+              />
+            </div>
+          )}
+
+          {composeTarget === CommunicationTargetType.CUSTOMER_SEGMENT && (
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
+                Customer Segment Filter
+              </label>
+              <Select
+                value={composeSegment}
+                onChange={(e) => setComposeSegment(e.target.value)}
+                options={[
+                  { value: 'ALL_CUSTOMERS', label: 'All Active Customers' },
+                  { value: 'RECENT_ORDER_CUSTOMERS', label: 'Customers with Orders in Last 30 Days' },
+                ]}
               />
             </div>
           )}
 
           <div>
             <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
-              Subject Line
+              Subject Line *
             </label>
             <Input
               value={composeSubject}
               onChange={(e) => setComposeSubject(e.target.value)}
-              placeholder="Message Subject"
+              placeholder="e.g. Important Notification from ByteBeacon"
               required
             />
           </div>
 
           <div>
             <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: '0.35rem' }}>
-              Message Body
+              Message Body *
             </label>
             <textarea
               value={composeBody}
@@ -3655,10 +3791,24 @@ export const AdminCommunicationsPage: React.FC = () => {
                 boxSizing: 'border-box',
                 outline: 'none',
               }}
-              placeholder="Enter message text..."
+              placeholder="Enter your message here..."
               required
             />
           </div>
+
+          {(composePriority === CommunicationPriority.CRITICAL || composeTarget === CommunicationTargetType.BROADCAST) && (
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-warning)', marginBottom: '0.35rem' }}>
+                Mandatory Operational Justification *
+              </label>
+              <Input
+                value={composeJustification}
+                onChange={(e) => setComposeJustification(e.target.value)}
+                placeholder="Explain why this elevated broadcast / critical dispatch is necessary..."
+                required
+              />
+            </div>
+          )}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
             <button type="button" onClick={() => setIsComposeModalOpen(false)} style={tactileButtonStyle}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Table, Pagination } from '../../components/ui/Table/Table.js';
@@ -30,6 +30,8 @@ import {
   X,
   Check,
   Zap,
+  Clock,
+  RotateCcw,
 } from 'lucide-react';
 import {
   adminApi,
@@ -63,6 +65,92 @@ const QUICK_CATEGORY_PILLS = [
   { label: 'Providers', value: AuditCategory.PROVIDERS },
   { label: 'Notifications', value: AuditCategory.NOTIFICATIONS },
 ];
+
+// Standardized Tactile Button & Input Styles
+const tactileButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '0.45rem',
+  padding: '0.45rem 0.85rem',
+  borderRadius: 'var(--radius-md)',
+  backgroundColor: 'var(--color-bg-surface)',
+  border: '1px solid var(--color-border-subtle)',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 700,
+  color: 'var(--color-text-primary)',
+  cursor: 'pointer',
+  transition: 'all var(--transition-fast)',
+  boxShadow: 'var(--shadow-tactile-sm)',
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  ...tactileButtonStyle,
+  background: 'linear-gradient(180deg, var(--color-primary-bright, #22C55E) 0%, var(--color-primary, #16A34A) 100%)',
+  backgroundColor: 'var(--color-brand, #16A34A)',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255, 255, 255, 0.25)',
+  boxShadow: 'var(--shadow-tactile-btn, 0 4px 14px rgba(22, 163, 74, 0.35))',
+  fontWeight: 700,
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  ...tactileButtonStyle,
+  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+  color: 'var(--color-danger, #EF4444)',
+  border: '1px solid rgba(239, 68, 68, 0.25)',
+  fontWeight: 700,
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: '0.45rem 0.75rem',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border-subtle)',
+  backgroundColor: 'var(--color-bg-surface)',
+  color: 'var(--color-text-primary)',
+  fontSize: '11px',
+  fontWeight: 600,
+  cursor: 'pointer',
+  outline: 'none',
+  minWidth: '135px',
+  boxShadow: 'var(--shadow-tactile-sm)',
+};
+
+const inputStyle: React.CSSProperties = {
+  padding: '0.45rem 0.75rem',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border-subtle)',
+  backgroundColor: 'var(--color-bg-surface)',
+  color: 'var(--color-text-primary)',
+  fontSize: '12px',
+  fontWeight: 500,
+  outline: 'none',
+  boxShadow: 'var(--shadow-tactile-sm)',
+};
+
+const formatActionName = (action: string): string => {
+  if (!action) return 'Unknown Action';
+  return action
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
+const getActionCategoryInfo = (action: string, _category?: string) => {
+  const act = (action || '').toUpperCase();
+  if (act.includes('DELETE') || act.includes('REVOKE') || act.includes('PURGE') || act.includes('KILL')) {
+    return { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.12)', border: 'rgba(239, 68, 68, 0.25)' };
+  }
+  if (act.includes('CREATE') || act.includes('INSERT') || act.includes('ADD') || act.includes('APPROVE') || act.includes('SUCCESS')) {
+    return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.25)' };
+  }
+  if (act.includes('UPDATE') || act.includes('MODIFY') || act.includes('TOGGLE') || act.includes('EDIT')) {
+    return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.25)' };
+  }
+  if (act.includes('LOGIN') || act.includes('AUTH') || act.includes('TOKEN')) {
+    return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.12)', border: 'rgba(59, 130, 246, 0.25)' };
+  }
+  return { color: 'var(--color-text-secondary)', bg: 'var(--color-bg-subtle)', border: 'var(--color-border-subtle)' };
+};
 
 export const AdminAuditPage: React.FC = () => {
   const navigate = useNavigate();
@@ -619,15 +707,55 @@ export const AdminAuditPage: React.FC = () => {
     setPage(1);
   };
 
+  // Active filter chips for Audit Stream
+  const activeFilters = useMemo(() => {
+    const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
+    if (searchQuery.trim()) {
+      chips.push({ id: 'search', label: `Search: "${searchQuery}"`, onRemove: () => { setSearchQuery(''); setPage(1); } });
+    }
+    if (categoryFilter !== 'ALL') {
+      const pill = QUICK_CATEGORY_PILLS.find((p) => p.value === categoryFilter);
+      chips.push({ id: 'category', label: `Category: ${pill?.label || categoryFilter}`, onRemove: () => { setCategoryFilter('ALL'); setPage(1); } });
+    }
+    if (roleFilter !== 'ALL') {
+      chips.push({ id: 'role', label: `Role: ${roleFilter}`, onRemove: () => { setRoleFilter('ALL'); setPage(1); } });
+    }
+    if (resultFilter !== 'ALL') {
+      chips.push({ id: 'result', label: `Result: ${resultFilter}`, onRemove: () => { setResultFilter('ALL'); setPage(1); } });
+    }
+    if (severityFilter !== 'ALL') {
+      chips.push({ id: 'severity', label: `Severity: ${severityFilter}`, onRemove: () => { setSeverityFilter('ALL'); setPage(1); } });
+    }
+    if (sourceFilter !== 'ALL') {
+      chips.push({ id: 'source', label: `Source: ${sourceFilter}`, onRemove: () => { setSourceFilter('ALL'); setPage(1); } });
+    }
+    if (actorFilter.trim()) {
+      chips.push({ id: 'actor', label: `Actor: "${actorFilter}"`, onRemove: () => { setActorFilter(''); setPage(1); } });
+    }
+    if (actionFilter.trim()) {
+      chips.push({ id: 'action', label: `Action: "${actionFilter}"`, onRemove: () => { setActionFilter(''); setPage(1); } });
+    }
+    if (resourceFilter.trim()) {
+      chips.push({ id: 'resource', label: `Resource: "${resourceFilter}"`, onRemove: () => { setResourceFilter(''); setPage(1); } });
+    }
+    if (startDateFilter) {
+      chips.push({ id: 'startDate', label: `From: ${startDateFilter}`, onRemove: () => { setStartDateFilter(''); setPage(1); } });
+    }
+    if (endDateFilter) {
+      chips.push({ id: 'endDate', label: `To: ${endDateFilter}`, onRemove: () => { setEndDateFilter(''); setPage(1); } });
+    }
+    return chips;
+  }, [searchQuery, categoryFilter, roleFilter, resultFilter, severityFilter, sourceFilter, actorFilter, actionFilter, resourceFilter, startDateFilter, endDateFilter]);
+
   return (
     <div style={{ maxWidth: '1440px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* Header */}
+      {/* Header (Standardized with Tactile Buttons) */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <TactileIcon icon={ShieldCheck} color="api" size="lg" />
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-api-bright)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.15rem' }}>
+              <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-brand-bright)' }}>
                 Security & Activity Control Center
               </span>
               <Badge variant={stats.tamperEvidenceStatus === 'VERIFIED' ? 'success' : 'danger'} size="sm">
@@ -637,24 +765,25 @@ export const AdminAuditPage: React.FC = () => {
             <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Activity & Audit
             </h1>
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
               Authoritative forensics engine capturing who did what, when, from where, to what, what changed, and resulting state. Total: {stats.totalEvents.toLocaleString()} records.
             </p>
           </div>
         </div>
 
         {/* Verification Status & Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           {/* Live Sync Status & Frequency Selector */}
           <div
             style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '0.4rem',
-              background: 'var(--color-surface-hover)',
-              padding: '0.35rem 0.65rem',
-              borderRadius: '8px',
+              gap: '0.45rem',
+              backgroundColor: 'var(--color-bg-surface)',
+              padding: '0.45rem 0.75rem',
+              borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
+              boxShadow: 'var(--shadow-tactile-sm)',
             }}
             title="Real-time Live Sync status and refresh frequency"
           >
@@ -669,7 +798,7 @@ export const AdminAuditPage: React.FC = () => {
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: autoRefreshInterval > 0 ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: autoRefreshInterval > 0 ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>
               {autoRefreshInterval > 0 ? 'Live' : 'Paused'}
             </span>
             <select
@@ -679,10 +808,11 @@ export const AdminAuditPage: React.FC = () => {
                 background: 'transparent',
                 border: 'none',
                 color: 'var(--color-text-secondary)',
-                fontSize: '0.75rem',
+                fontSize: '11px',
                 cursor: 'pointer',
-                fontWeight: 600,
+                fontWeight: 700,
                 outline: 'none',
+                padding: 0,
               }}
             >
               <option value={5}>5s</option>
@@ -691,64 +821,67 @@ export const AdminAuditPage: React.FC = () => {
               <option value={0}>Off</option>
             </select>
             {lastUpdated && (
-              <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', borderLeft: '1px solid var(--color-border-subtle)', paddingLeft: '0.4rem' }}>
+              <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', borderLeft: '1px solid var(--color-border-subtle)', paddingLeft: '0.4rem', fontFamily: 'monospace' }}>
                 {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
             )}
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={handleEmitTestEvent}
             disabled={isEmittingTest}
+            style={tactileButtonStyle}
             title="Emit an authoritative cryptographic test event to verify live real-time ingestion"
           >
-            <Zap size={14} className={isEmittingTest ? 'animate-spin' : ''} style={{ marginRight: '0.35rem', color: '#f59e0b' }} />
-            {isEmittingTest ? 'Emitting...' : 'Emit Test Event'}
-          </Button>
+            <Zap size={14} className={isEmittingTest ? 'animate-spin' : ''} style={{ color: '#f59e0b' }} />
+            <span>{isEmittingTest ? 'Emitting...' : 'Emit Test Event'}</span>
+          </button>
 
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={handleRunIntegrityCheck}
             disabled={isVerifying}
+            style={tactileButtonStyle}
+            title="Verify full SHA-256 cryptographic hash-chain"
           >
-            <ShieldCheck size={14} className={isVerifying ? 'animate-spin' : ''} style={{ marginRight: '0.35rem', color: '#10b981' }} />
-            {isVerifying ? 'Verifying Chain...' : 'Verify Cryptographic Chain'}
-          </Button>
+            <ShieldCheck size={14} className={isVerifying ? 'animate-spin' : ''} style={{ color: '#10b981' }} />
+            <span>{isVerifying ? 'Verifying Chain...' : 'Verify Chain'}</span>
+          </button>
 
-          <Button
-            variant="secondary"
-            size="sm"
+          <button
+            type="button"
             onClick={() => setIsQuickExportOpen(true)}
+            style={tactileButtonStyle}
+            title="Export filtered records"
           >
-            <Download size={14} style={{ marginRight: '0.35rem' }} />
-            Export
-          </Button>
+            <Download size={14} />
+            <span>Export</span>
+          </button>
 
-          <Button
-            variant="primary"
-            size="sm"
+          <button
+            type="button"
             onClick={() => setIsCreateIncidentOpen(true)}
+            style={primaryButtonStyle}
+            title="Open new security incident"
           >
-            <Plus size={14} style={{ marginRight: '0.35rem' }} />
-            Open Incident
-          </Button>
+            <Plus size={14} />
+            <span>Open Incident</span>
+          </button>
 
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
             onClick={() => {
               fetchOverview();
               if (activeTab === 'stream') fetchAuditLogs();
               if (activeTab === 'incidents') fetchIncidents();
             }}
             disabled={isLoading}
+            style={{ ...tactileButtonStyle, padding: '0.45rem 0.65rem' }}
             title="Refresh logs & telemetry"
           >
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -792,28 +925,35 @@ export const AdminAuditPage: React.FC = () => {
         </div>
       )}
 
-      {/* 7 Top Metric Cards: Today's Metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 'var(--space-4)' }}>
+      {/* 8 Top Metric Cards: Balanced 4x2 Responsive KPI Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Activities Today"
           value={(stats.activitiesToday ?? stats.totalEvents).toLocaleString()}
           subvalue={`${stats.totalEvents.toLocaleString()} total historical`}
-          accent="purple"
-          icon={<TactileIcon icon={Activity} color="api" size="sm" />}
+          accent="green"
+          icon={<TactileIcon icon={Activity} color="speed" size="sm" />}
         />
         <MetricCard
-          title="Active Users"
+          title="Active Actors"
           value={(stats.activeUsersCount ?? 0).toLocaleString()}
           subvalue="Unique actors recorded"
           accent="blue"
           icon={<TactileIcon icon={Users} color="analytics" size="sm" />}
         />
         <MetricCard
-          title="Failed Activities"
-          value={(stats.failedActivitiesCount ?? 0).toLocaleString()}
-          subvalue="Non-success / denied"
-          accent={(stats.failedActivitiesCount ?? 0) > 0 ? 'red' : 'green'}
-          icon={<TactileIcon icon={AlertOctagon} color={(stats.failedActivitiesCount ?? 0) > 0 ? 'red' : 'security'} size="sm" />}
+          title="Financial Events"
+          value={(stats.financialEventsCount ?? 0).toLocaleString()}
+          subvalue="Wallets, payouts & ledger"
+          accent="green"
+          icon={<TactileIcon icon={CreditCard} color="security" size="sm" />}
+        />
+        <MetricCard
+          title="Cryptographic Chain"
+          value={stats.tamperEvidenceStatus === 'VERIFIED' ? 'Verified' : 'Review'}
+          subvalue={`${(stats.verifiedBlocksCount || stats.totalEvents).toLocaleString()} blocks chained (SHA-256)`}
+          accent={stats.tamperEvidenceStatus === 'VERIFIED' ? 'green' : 'red'}
+          icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
         />
         <MetricCard
           title="Security Events"
@@ -830,23 +970,34 @@ export const AdminAuditPage: React.FC = () => {
           icon={<TactileIcon icon={Shield} color="speed" size="sm" />}
         />
         <MetricCard
-          title="API Events"
+          title="API Integrations"
           value={(stats.apiEventsCount ?? 0).toLocaleString()}
           subvalue="Partner & developer calls"
           accent="cyan"
           icon={<TactileIcon icon={Key} color="api" size="sm" />}
         />
         <MetricCard
-          title="Financial Events"
-          value={(stats.financialEventsCount ?? 0).toLocaleString()}
-          subvalue="Wallets, refunds, ledger"
-          accent="green"
-          icon={<TactileIcon icon={CreditCard} color="security" size="sm" />}
+          title="Failed Activities"
+          value={(stats.failedActivitiesCount ?? 0).toLocaleString()}
+          subvalue="Non-success / denied"
+          accent={(stats.failedActivitiesCount ?? 0) > 0 ? 'red' : 'green'}
+          icon={<TactileIcon icon={AlertOctagon} color={(stats.failedActivitiesCount ?? 0) > 0 ? 'red' : 'security'} size="sm" />}
         />
       </div>
 
-      {/* Tab Navigation */}
-      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '0.5rem', overflowX: 'auto' }}>
+      {/* Tab Navigation (Segmented Tactile Switcher) */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.35rem',
+          padding: '0.25rem',
+          backgroundColor: 'var(--color-bg-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-border-subtle)',
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
+        }}
+      >
         {[
           { key: 'stream', label: 'Activity & Audit Trail', icon: Activity, count: totalLogs },
           { key: 'incidents', label: 'Security Health & Incidents', icon: ShieldAlert, count: stats.securityIncidentsCount },
@@ -860,33 +1011,37 @@ export const AdminAuditPage: React.FC = () => {
           return (
             <button
               key={tab.key}
+              type="button"
               onClick={() => setActiveTab(tab.key as ActiveTab)}
               style={{
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.625rem 1rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: isActive ? 'var(--color-surface-hover)' : 'transparent',
-                color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
-                fontWeight: isActive ? 600 : 500,
-                fontSize: 'var(--font-size-sm)',
+                gap: '0.45rem',
+                padding: '0.45rem 0.85rem',
+                borderRadius: 'var(--radius-md)',
+                border: isActive ? '1px solid var(--color-border-subtle)' : '1px solid transparent',
+                backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
+                color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                fontWeight: isActive ? 700 : 500,
+                fontSize: 'var(--font-size-xs)',
                 cursor: 'pointer',
-                transition: 'all 0.15s ease',
                 whiteSpace: 'nowrap',
+                boxShadow: isActive ? 'var(--shadow-tactile-sm)' : 'none',
+                transition: 'all var(--transition-fast)',
               }}
             >
-              <Icon size={16} style={{ color: isActive ? 'var(--color-api-bright)' : 'inherit' }} />
-              {tab.label}
+              <Icon size={14} style={{ color: isActive ? 'var(--color-primary-bright)' : 'var(--color-text-muted)' }} />
+              <span>{tab.label}</span>
               {tab.count !== undefined && (
                 <span
                   style={{
-                    padding: '0.125rem 0.375rem',
-                    borderRadius: '999px',
-                    fontSize: '0.75rem',
-                    background: isActive ? 'var(--color-primary-subtle)' : 'var(--color-surface-muted)',
-                    color: isActive ? 'var(--color-primary-bright)' : 'inherit',
+                    display: 'inline-block',
+                    padding: '0.1rem 0.45rem',
+                    borderRadius: 'var(--radius-full)',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    backgroundColor: isActive ? 'var(--color-bg-subtle)' : 'rgba(255,255,255,0.06)',
+                    color: isActive ? 'var(--color-primary-bright)' : 'var(--color-text-muted)',
                   }}
                 >
                   {tab.count}
@@ -900,18 +1055,18 @@ export const AdminAuditPage: React.FC = () => {
       {/* TAB 1: Live Activity & Audit Stream */}
       {activeTab === 'stream' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {/* Quick Filter Pills */}
+          {/* Quick Category Pills */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '0.5rem',
+              gap: '0.4rem',
               overflowX: 'auto',
               paddingBottom: '0.25rem',
               scrollbarWidth: 'thin',
             }}
           >
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
               <Filter size={12} />
               Category:
             </span>
@@ -920,21 +1075,23 @@ export const AdminAuditPage: React.FC = () => {
               return (
                 <button
                   key={pill.value}
+                  type="button"
                   onClick={() => {
                     setCategoryFilter(pill.value);
                     setPage(1);
                   }}
                   style={{
-                    padding: '0.35rem 0.75rem',
-                    borderRadius: '999px',
+                    padding: '0.3rem 0.7rem',
+                    borderRadius: 'var(--radius-full)',
                     border: isSelected ? '1px solid var(--color-primary-bright)' : '1px solid var(--color-border-subtle)',
-                    background: isSelected ? 'var(--color-primary-subtle)' : 'var(--color-surface-hover)',
+                    background: isSelected ? 'rgba(34, 197, 94, 0.12)' : 'var(--color-bg-surface)',
                     color: isSelected ? 'var(--color-primary-bright)' : 'var(--color-text-secondary)',
-                    fontSize: '0.75rem',
+                    fontSize: '11px',
                     fontWeight: isSelected ? 700 : 500,
                     cursor: 'pointer',
                     whiteSpace: 'nowrap',
-                    transition: 'all 0.15s ease',
+                    boxShadow: isSelected ? 'var(--shadow-tactile-sm)' : 'none',
+                    transition: 'all var(--transition-fast)',
                   }}
                 >
                   {pill.label}
@@ -944,212 +1101,273 @@ export const AdminAuditPage: React.FC = () => {
           </div>
 
           {/* Compact Multi-Column Filter Toolbar */}
-          <Card accentColor="blue">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {/* Top Row: Search & Principal Inputs */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', alignItems: 'center' }}>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <SearchInput
-                    placeholder="Search activity, actor, IP, correlation ID, endpoint..."
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setPage(1);
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Actor name or email..."
-                    value={actorFilter}
-                    onChange={(e) => {
-                      setActorFilter(e.target.value);
-                      setPage(1);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--color-border-subtle)',
-                      background: 'var(--color-surface-hover)',
-                      color: 'var(--color-text-primary)',
-                      fontSize: '0.8125rem',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Action (e.g. ORDER_REFUND)..."
-                    value={actionFilter}
-                    onChange={(e) => {
-                      setActionFilter(e.target.value);
-                      setPage(1);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--color-border-subtle)',
-                      background: 'var(--color-surface-hover)',
-                      color: 'var(--color-text-primary)',
-                      fontSize: '0.8125rem',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Resource (orders, plan_id...)..."
-                    value={resourceFilter}
-                    onChange={(e) => {
-                      setResourceFilter(e.target.value);
-                      setPage(1);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--color-border-subtle)',
-                      background: 'var(--color-surface-hover)',
-                      color: 'var(--color-text-primary)',
-                      fontSize: '0.8125rem',
-                    }}
-                  />
-                </div>
+          <Card
+            elevated
+            style={{
+              padding: 'var(--space-3) var(--space-4)',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-3)',
+            }}
+          >
+            {/* Top Row: Search & Specific Text Filters */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.6rem', alignItems: 'center' }}>
+              <div style={{ gridColumn: 'span 2' }}>
+                <SearchInput
+                  placeholder="Search activity, actor, IP, correlation ID, endpoint..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setPage(1);
+                  }}
+                />
               </div>
 
-              {/* Bottom Row: Dropdown Selects, Date Range & Actions */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', alignItems: 'center' }}>
-                <Select
+              <div>
+                <input
+                  type="text"
+                  placeholder="Actor name or email..."
+                  value={actorFilter}
+                  onChange={(e) => {
+                    setActorFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  style={{
+                    ...inputStyle,
+                    width: '100%',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div>
+                <input
+                  type="text"
+                  placeholder="Action (e.g. ORDER_REFUND)..."
+                  value={actionFilter}
+                  onChange={(e) => {
+                    setActionFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  style={{
+                    ...inputStyle,
+                    width: '100%',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div>
+                <input
+                  type="text"
+                  placeholder="Resource ID or type..."
+                  value={resourceFilter}
+                  onChange={(e) => {
+                    setResourceFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  style={{
+                    ...inputStyle,
+                    width: '100%',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Bottom Row: Dropdown Selects, Date Range & Actions */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', alignItems: 'center' }}>
+                <select
                   value={roleFilter}
-                  onChange={(e) => {
-                    setRoleFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  options={[
-                    { label: 'All Roles', value: 'ALL' },
-                    { label: 'Super Admin', value: 'SUPER_ADMIN' },
-                    { label: 'Operations Admin', value: 'OPERATIONS_ADMIN' },
-                    { label: 'Finance Admin', value: 'FINANCE_ADMIN' },
-                    { label: 'Support Admin', value: 'SUPPORT_ADMIN' },
-                    { label: 'Developer Admin', value: 'DEVELOPER_ADMIN' },
-                    { label: 'Agent', value: 'AGENT' },
-                    { label: 'Customer', value: 'CUSTOMER' },
-                    { label: 'System / Worker', value: 'SYSTEM' },
-                    { label: 'External Provider', value: 'PROVIDER' },
-                  ]}
-                />
+                  onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Role"
+                >
+                  <option value="ALL">All Roles</option>
+                  <option value="SUPER_ADMIN">Super Admin</option>
+                  <option value="OPERATIONS_ADMIN">Operations Admin</option>
+                  <option value="FINANCE_ADMIN">Finance Admin</option>
+                  <option value="SUPPORT_ADMIN">Support Admin</option>
+                  <option value="DEVELOPER_ADMIN">Developer Admin</option>
+                  <option value="AGENT">Agent</option>
+                  <option value="CUSTOMER">Customer</option>
+                  <option value="SYSTEM">System / Worker</option>
+                  <option value="PROVIDER">External Provider</option>
+                </select>
 
-                <Select
+                <select
                   value={resultFilter}
-                  onChange={(e) => {
-                    setResultFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  options={[
-                    { label: 'All Results', value: 'ALL' },
-                    { label: 'Success', value: AuditResult.SUCCESS },
-                    { label: 'Failure', value: AuditResult.FAILURE },
-                    { label: 'Denied', value: AuditResult.DENIED },
-                    { label: 'Challenged', value: AuditResult.CHALLENGED },
-                  ]}
-                />
+                  onChange={(e) => { setResultFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Result"
+                >
+                  <option value="ALL">All Results</option>
+                  <option value={AuditResult.SUCCESS}>Success</option>
+                  <option value={AuditResult.FAILURE}>Failure</option>
+                  <option value={AuditResult.DENIED}>Denied</option>
+                  <option value={AuditResult.CHALLENGED}>Challenged</option>
+                </select>
 
-                <Select
+                <select
                   value={severityFilter}
-                  onChange={(e) => {
-                    setSeverityFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  options={[
-                    { label: 'All Severities', value: 'ALL' },
-                    { label: 'Critical', value: AuditSeverity.CRITICAL },
-                    { label: 'High', value: AuditSeverity.HIGH },
-                    { label: 'Warning', value: AuditSeverity.WARNING },
-                    { label: 'Notice', value: AuditSeverity.NOTICE },
-                    { label: 'Info', value: AuditSeverity.INFO },
-                  ]}
-                />
+                  onChange={(e) => { setSeverityFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Severity"
+                >
+                  <option value="ALL">All Severities</option>
+                  <option value={AuditSeverity.CRITICAL}>Critical</option>
+                  <option value={AuditSeverity.HIGH}>High</option>
+                  <option value={AuditSeverity.WARNING}>Warning</option>
+                  <option value={AuditSeverity.NOTICE}>Notice</option>
+                  <option value={AuditSeverity.INFO}>Info</option>
+                </select>
 
-                <Select
+                <select
                   value={sourceFilter}
-                  onChange={(e) => {
-                    setSourceFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  options={[
-                    { label: 'All Sources', value: 'ALL' },
-                    { label: 'Web (Console)', value: 'WEB' },
-                    { label: 'API (Client)', value: 'API' },
-                    { label: 'Worker', value: 'WORKER' },
-                    { label: 'Webhook', value: 'WEBHOOK' },
-                    { label: 'System', value: 'SYSTEM' },
-                    { label: 'CLI', value: 'CLI' },
-                  ]}
-                />
+                  onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }}
+                  style={selectStyle}
+                  aria-label="Filter by Source"
+                >
+                  <option value="ALL">All Sources</option>
+                  <option value="WEB">Web (Console)</option>
+                  <option value="API">API (Client)</option>
+                  <option value="WORKER">Worker</option>
+                  <option value="WEBHOOK">Webhook</option>
+                  <option value="SYSTEM">System</option>
+                  <option value="CLI">CLI</option>
+                </select>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>From:</span>
                   <input
                     type="date"
                     value={startDateFilter}
-                    onChange={(e) => {
-                      setStartDateFilter(e.target.value);
-                      setPage(1);
-                    }}
+                    onChange={(e) => { setStartDateFilter(e.target.value); setPage(1); }}
+                    style={{ ...inputStyle, padding: '0.4rem 0.55rem', fontSize: '11px' }}
                     title="Start Date"
-                    style={{
-                      width: '100%',
-                      padding: '0.5rem 0.5rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--color-border-subtle)',
-                      background: 'var(--color-surface-hover)',
-                      color: 'var(--color-text-primary)',
-                      fontSize: '0.75rem',
-                    }}
                   />
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>To:</span>
                   <input
                     type="date"
                     value={endDateFilter}
-                    onChange={(e) => {
-                      setEndDateFilter(e.target.value);
-                      setPage(1);
-                    }}
+                    onChange={(e) => { setEndDateFilter(e.target.value); setPage(1); }}
+                    style={{ ...inputStyle, padding: '0.4rem 0.55rem', fontSize: '11px' }}
                     title="End Date"
-                    style={{
-                      width: '100%',
-                      padding: '0.5rem 0.5rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--color-border-subtle)',
-                      background: 'var(--color-surface-hover)',
-                      color: 'var(--color-text-primary)',
-                      fontSize: '0.75rem',
-                    }}
                   />
                 </div>
+              </div>
 
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <Button variant="outline" size="sm" onClick={resetFilters} title="Reset all filters">
-                    Reset
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={() => setIsQuickExportOpen(true)}>
-                    <Download size={13} style={{ marginRight: '0.25rem' }} />
-                    Export
-                  </Button>
-                </div>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  style={{ ...tactileButtonStyle, padding: '0.45rem 0.75rem' }}
+                  title="Reset all filters"
+                >
+                  <RotateCcw size={12} />
+                  <span>Reset</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsQuickExportOpen(true)}
+                  style={{ ...tactileButtonStyle, padding: '0.45rem 0.75rem' }}
+                  title="Export filtered records"
+                >
+                  <Download size={12} />
+                  <span>Export</span>
+                </button>
               </div>
             </div>
+
+            {/* Active Filters Pill Bar */}
+            {activeFilters.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '0.4rem',
+                  alignItems: 'center',
+                  paddingTop: '0.5rem',
+                  borderTop: '1px solid var(--color-border-subtle)',
+                }}
+              >
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', marginRight: '0.25rem' }}>
+                  Active Filters ({activeFilters.length}):
+                </span>
+                {activeFilters.map((chip) => (
+                  <span
+                    key={chip.id}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border-subtle)',
+                      borderRadius: 'var(--radius-full)',
+                      padding: '0.2rem 0.55rem',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-primary)',
+                      boxShadow: 'var(--shadow-tactile-sm)',
+                    }}
+                  >
+                    {chip.label}
+                    <button
+                      type="button"
+                      onClick={chip.onRemove}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--color-text-muted)',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      title={`Remove filter: ${chip.label}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-primary-bright)',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    padding: '0.2rem 0.4rem',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
           </Card>
 
           {/* Activity Table Card */}
-          <Card accentColor="purple">
+          <Card
+            elevated
+            style={{
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              overflow: 'hidden',
+              padding: 0,
+            }}
+          >
             {auditLogs.length === 0 && !isLoading ? (
               <div
                 style={{
@@ -1191,13 +1409,13 @@ export const AdminAuditPage: React.FC = () => {
                   No records match your active search or filter criteria. Real database telemetry is active—no simulated or mock entries are displayed. You can emit a live test event below to verify instant cryptographic ingestion.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                  <Button variant="primary" size="sm" onClick={handleEmitTestEvent} disabled={isEmittingTest}>
-                    <Zap size={14} style={{ marginRight: '0.35rem' }} />
-                    {isEmittingTest ? 'Emitting...' : 'Emit Live Test Event'}
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={resetFilters}>
-                    Reset Filters
-                  </Button>
+                  <button type="button" onClick={handleEmitTestEvent} disabled={isEmittingTest} style={primaryButtonStyle}>
+                    <Zap size={14} />
+                    <span>{isEmittingTest ? 'Emitting...' : 'Emit Live Test Event'}</span>
+                  </button>
+                  <button type="button" onClick={resetFilters} style={tactileButtonStyle}>
+                    <span>Reset Filters</span>
+                  </button>
                 </div>
               </div>
             ) : (
@@ -1207,11 +1425,22 @@ export const AdminAuditPage: React.FC = () => {
                     {
                       header: 'Time',
                       render: (row: AdminAuditListItemDto) => (
-                        <div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
                           <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                             {formatRelativeTime(row.timestamp)}
                           </div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }} title={row.timestamp}>
+                          <div
+                            style={{
+                              fontSize: '0.6875rem',
+                              color: 'var(--color-text-muted)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              fontFamily: 'monospace',
+                            }}
+                            title={row.timestamp}
+                          >
+                            <Clock size={10} />
                             {new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                           </div>
                         </div>
@@ -1219,90 +1448,182 @@ export const AdminAuditPage: React.FC = () => {
                     },
                     {
                       header: 'Actor',
-                      render: (row: AdminAuditListItemDto) => (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <div
-                            style={{
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '50%',
-                              background: 'var(--color-surface-muted)',
-                              border: '1px solid var(--color-border-subtle)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '0.6875rem',
-                              fontWeight: 700,
-                              color: 'var(--color-text-secondary)',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {(row.actorName || 'U').charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <span>{row.actorName}</span>
-                              <Badge variant={getRoleBadgeVariant(row.actorRole)} size="sm">
-                                {row.actorRole || 'user'}
-                              </Badge>
+                      render: (row: AdminAuditListItemDto) => {
+                        const role = (row.actorRole || 'user').toLowerCase();
+                        let avatarBg = 'rgba(59, 130, 246, 0.12)';
+                        let avatarColor = '#3b82f6';
+                        if (role.includes('super_admin')) {
+                          avatarBg = 'rgba(239, 68, 68, 0.15)';
+                          avatarColor = '#ef4444';
+                        } else if (role.includes('admin')) {
+                          avatarBg = 'rgba(245, 158, 11, 0.15)';
+                          avatarColor = '#f59e0b';
+                        } else if (role.includes('agent')) {
+                          avatarBg = 'rgba(16, 185, 129, 0.15)';
+                          avatarColor = '#10b981';
+                        } else if (role.includes('customer')) {
+                          avatarBg = 'rgba(14, 165, 233, 0.15)';
+                          avatarColor = '#0ea5e9';
+                        }
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            <div
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: 'var(--radius-md, 8px)',
+                                backgroundColor: avatarBg,
+                                color: avatarColor,
+                                border: `1px solid ${avatarColor}33`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                flexShrink: 0,
+                                boxShadow: 'var(--shadow-tactile-sm)',
+                              }}
+                            >
+                              {(row.actorName || 'U').charAt(0).toUpperCase()}
                             </div>
-                            {row.actorEmail && (
-                              <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                                {row.actorEmail}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                                  {row.actorName}
+                                </span>
+                                <Badge variant={getRoleBadgeVariant(row.actorRole)} size="sm">
+                                  {row.actorRole || 'user'}
+                                </Badge>
                               </div>
-                            )}
+                              {row.actorEmail && (
+                                <div
+                                  style={{
+                                    fontSize: '0.7rem',
+                                    color: 'var(--color-text-muted)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                  }}
+                                >
+                                  <span>{row.actorEmail}</span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      copyToClipboard(row.actorEmail!, `email_${row.id}`);
+                                    }}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center' }}
+                                    title="Copy Actor Email"
+                                  >
+                                    {copiedKey === `email_${row.id}` ? <Check size={10} color="#10b981" /> : <Copy size={10} />}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ),
+                        );
+                      },
                     },
                     {
                       header: 'Action',
-                      render: (row: AdminAuditListItemDto) => (
-                        <div>
-                          <div style={{ fontSize: '0.8125rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary-bright)' }}>
-                            {row.action}
+                      render: (row: AdminAuditListItemDto) => {
+                        const styleInfo = getActionCategoryInfo(row.action, row.category);
+                        const friendlyName = formatActionName(row.action);
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                                {friendlyName}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: '0.625rem',
+                                  fontFamily: 'monospace',
+                                  fontWeight: 700,
+                                  padding: '0.1rem 0.35rem',
+                                  borderRadius: 'var(--radius-xs, 4px)',
+                                  backgroundColor: styleInfo.bg,
+                                  color: styleInfo.color,
+                                  border: `1px solid ${styleInfo.border}`,
+                                }}
+                              >
+                                {row.action}
+                              </span>
+                            </div>
+                            {row.description ? (
+                              <div
+                                style={{
+                                  fontSize: '0.725rem',
+                                  color: 'var(--color-text-secondary)',
+                                  maxWidth: '320px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={row.description}
+                              >
+                                {row.description}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                                Category: {row.category}
+                              </div>
+                            )}
                           </div>
-                          {row.description ? (
-                            <div style={{ fontSize: '0.725rem', color: 'var(--color-text-secondary)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description}>
-                              {row.description}
-                            </div>
-                          ) : (
-                            <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                              {row.category}
-                            </div>
-                          )}
-                        </div>
-                      ),
+                        );
+                      },
                     },
                     {
                       header: 'Resource',
                       render: (row: AdminAuditListItemDto) => (
-                        <div style={{ fontSize: '0.8125rem' }}>
-                          <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{row.resourceType}</span>
-                          {row.resourceId && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.1rem' }}>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
-                                {row.resourceId.length > 14 ? `${row.resourceId.slice(0, 14)}...` : row.resourceId}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            {row.resourceType}
+                          </span>
+                          {row.resourceId ? (
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <span
+                                style={{
+                                  fontSize: '0.7rem',
+                                  fontFamily: 'monospace',
+                                  color: 'var(--color-text-muted)',
+                                  backgroundColor: 'var(--color-bg-subtle)',
+                                  padding: '0.1rem 0.4rem',
+                                  borderRadius: 'var(--radius-xs, 4px)',
+                                  border: '1px solid var(--color-border-subtle)',
+                                }}
+                                title={row.resourceId}
+                              >
+                                {row.resourceId.length > 16 ? `${row.resourceId.slice(0, 16)}...` : row.resourceId}
                               </span>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   copyToClipboard(row.resourceId!, `res_${row.id}`);
                                 }}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-text-muted)' }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                  color: 'var(--color-text-muted)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                }}
                                 title="Copy Resource ID"
                               >
                                 {copiedKey === `res_${row.id}` ? <Check size={11} color="#10b981" /> : <Copy size={11} />}
                               </button>
                             </div>
+                          ) : (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>—</span>
                           )}
                         </div>
                       ),
                     },
                     {
-                      header: 'Status / Severity',
+                      header: 'Status & Severity',
                       render: (row: AdminAuditListItemDto) => (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                           <Badge variant={getResultBadgeVariant(row.result)} size="sm">
                             {row.result}
                           </Badge>
@@ -1313,18 +1634,27 @@ export const AdminAuditPage: React.FC = () => {
                       ),
                     },
                     {
-                      header: 'Source / IP',
+                      header: 'Source & IP',
                       render: (row: AdminAuditListItemDto) => (
-                        <div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                             {getSourceBadge(row.source)}
                             {row.latencyMs !== undefined && (
-                              <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                              <span
+                                style={{
+                                  fontSize: '0.6875rem',
+                                  color: 'var(--color-text-muted)',
+                                  fontFamily: 'monospace',
+                                  backgroundColor: 'var(--color-bg-subtle)',
+                                  padding: '0.05rem 0.3rem',
+                                  borderRadius: '3px',
+                                }}
+                              >
                                 {row.latencyMs}ms
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '0.15rem' }}>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
                             {row.ipAddress || '—'}
                           </div>
                         </div>
@@ -1333,14 +1663,19 @@ export const AdminAuditPage: React.FC = () => {
                     {
                       header: 'Inspect',
                       render: (row: AdminAuditListItemDto) => (
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                        <button
+                          type="button"
                           onClick={() => handleInspectLog(row)}
+                          style={{
+                            ...tactileButtonStyle,
+                            padding: '0.35rem 0.65rem',
+                            color: 'var(--color-text-secondary)',
+                          }}
                           title="Inspect Activity Dossier"
                         >
-                          <Eye size={14} style={{ color: 'var(--color-api-bright)' }} />
-                        </Button>
+                          <Eye size={13} style={{ color: 'var(--color-primary-bright)' }} />
+                          <span>Inspect</span>
+                        </button>
                       ),
                     },
                   ]}
@@ -1350,7 +1685,22 @@ export const AdminAuditPage: React.FC = () => {
                 />
 
                 {totalPages > 1 && (
-                  <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '1rem',
+                      padding: 'var(--space-3) var(--space-4)',
+                      borderTop: '1px solid var(--color-border-subtle)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                    }}
+                  >
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                      Showing page <strong style={{ color: 'var(--color-text-primary)' }}>{page}</strong> of{' '}
+                      <strong style={{ color: 'var(--color-text-primary)' }}>{totalPages}</strong> ({totalLogs.toLocaleString()} total entries)
+                    </div>
                     <Pagination
                       currentPage={page}
                       totalPages={totalPages}
@@ -1365,12 +1715,13 @@ export const AdminAuditPage: React.FC = () => {
       )}
 
       {/* Tabs 2 - 6: Incidents, Integrity, Classification, Emergency, Export */}
+      {/* TAB 2: Security Incidents */}
       {activeTab === 'incidents' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <Card accentColor="red">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+          <Card elevation="sm">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--color-text-primary)' }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, margin: 0, color: 'var(--color-text-primary)' }}>
                   Security Incident Tracker
                 </h3>
                 <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
@@ -1391,21 +1742,46 @@ export const AdminAuditPage: React.FC = () => {
                     { label: 'False Positive', value: SecurityIncidentStatus.FALSE_POSITIVE },
                   ]}
                 />
-                <Button variant="primary" size="sm" onClick={() => setIsCreateIncidentOpen(true)}>
+                <button
+                  style={primaryButtonStyle}
+                  onClick={() => setIsCreateIncidentOpen(true)}
+                >
                   <Plus size={14} style={{ marginRight: '0.25rem' }} />
                   New Incident
-                </Button>
+                </button>
               </div>
             </div>
 
             {incidents.length === 0 ? (
-              <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                <ShieldCheck size={48} style={{ color: 'var(--color-green-400)', margin: '0 auto 1rem auto' }} />
-                <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+              <div
+                style={{
+                  padding: '3.5rem 2rem',
+                  textAlign: 'center',
+                  background: 'var(--color-bg-subtle)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px dashed var(--color-border-subtle)',
+                }}
+              >
+                <div
+                  style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '50%',
+                    background: 'rgba(34, 197, 94, 0.1)',
+                    color: 'var(--color-success)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 1rem auto',
+                  }}
+                >
+                  <ShieldCheck size={28} />
+                </div>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                   Zero Open Security Incidents
                 </div>
-                <div style={{ fontSize: '0.875rem' }}>
-                  All systems operating normally without unresolved security alerts or breaches.
+                <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                  All systems operating normally without unresolved security alerts or active breaches.
                 </div>
               </div>
             ) : (
@@ -1415,9 +1791,10 @@ export const AdminAuditPage: React.FC = () => {
                     key={inc.id}
                     style={{
                       padding: '1.25rem',
-                      borderRadius: '8px',
-                      background: 'var(--color-surface-hover)',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--color-bg-surface)',
                       border: '1px solid var(--color-border-subtle)',
+                      boxShadow: 'var(--shadow-tactile-sm)',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '0.75rem',
@@ -1426,7 +1803,18 @@ export const AdminAuditPage: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.75rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary-bright)' }}>
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              fontFamily: 'monospace',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: 'var(--color-bg-subtle)',
+                              border: '1px solid var(--color-border-subtle)',
+                              color: 'var(--color-primary-bright)',
+                            }}
+                          >
                             {inc.incidentNumber}
                           </span>
                           <Badge variant={getSeverityBadgeVariant(inc.severity)} size="sm">
@@ -1452,9 +1840,8 @@ export const AdminAuditPage: React.FC = () => {
                         </h4>
                       </div>
 
-                      <Button
-                        variant="outline"
-                        size="sm"
+                      <button
+                        style={tactileButtonStyle}
                         onClick={() => {
                           setSelectedIncidentForUpdate(inc);
                           setUpdateIncidentStatus(inc.status);
@@ -1462,7 +1849,7 @@ export const AdminAuditPage: React.FC = () => {
                         }}
                       >
                         Manage Incident
-                      </Button>
+                      </button>
                     </div>
 
                     <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', margin: 0 }}>
@@ -1471,10 +1858,10 @@ export const AdminAuditPage: React.FC = () => {
 
                     {/* Timeline & Metadata */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', fontSize: '0.75rem', color: 'var(--color-text-muted)', borderTop: '1px solid var(--color-border-subtle)', paddingTop: '0.5rem' }}>
-                      <div>Assigned: <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{inc.assignedAdminName}</span></div>
-                      {inc.affectedUserEmail && <div>Affected User: <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{inc.affectedUserEmail}</span></div>}
+                      <div>Assigned: <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{inc.assignedAdminName}</span></div>
+                      {inc.affectedUserEmail && <div>Affected User: <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{inc.affectedUserEmail}</span></div>}
                       <div>Opened: <span style={{ color: 'var(--color-text-primary)' }}>{new Date(inc.createdAt).toLocaleString()}</span></div>
-                      {inc.resolvedAt && <div>Resolved: <span style={{ color: '#4ade80' }}>{new Date(inc.resolvedAt).toLocaleString()}</span></div>}
+                      {inc.resolvedAt && <div>Resolved: <span style={{ color: '#4ade80', fontWeight: 600 }}>{new Date(inc.resolvedAt).toLocaleString()}</span></div>}
                     </div>
                   </div>
                 ))}
@@ -1487,7 +1874,7 @@ export const AdminAuditPage: React.FC = () => {
       {/* TAB 3: Audit Integrity & Chaining */}
       {activeTab === 'integrity' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <Card accentColor="green">
+          <Card elevation="sm">
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
               <TactileIcon icon={ShieldCheck} color="security" size="md" />
               <div>
@@ -1507,14 +1894,14 @@ export const AdminAuditPage: React.FC = () => {
                 gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                 gap: '1rem',
                 padding: '1.25rem',
-                background: 'var(--color-surface-hover)',
-                borderRadius: '8px',
+                background: 'var(--color-bg-subtle)',
+                borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--color-border-subtle)',
                 marginBottom: '1.5rem',
               }}
             >
               <div>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-api-bright)', marginBottom: '0.25rem' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-primary)', marginBottom: '0.25rem' }}>
                   1. Append-Only Persistence
                 </div>
                 <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', margin: 0 }}>
@@ -1530,11 +1917,11 @@ export const AdminAuditPage: React.FC = () => {
                 </p>
               </div>
               <div>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-green-400)', marginBottom: '0.25rem' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#4ade80', marginBottom: '0.25rem' }}>
                   3. Zero-Credential Guarantee
                 </div>
                 <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', margin: 0 }}>
-                  Passwords, API secrets, MFA keys, and Paystack credentials are automatically sanitized before hashing or storage.
+                  Passwords, API secrets, MFA keys, and payment credentials are automatically sanitized before hashing or storage.
                 </p>
               </div>
             </div>
@@ -1543,8 +1930,8 @@ export const AdminAuditPage: React.FC = () => {
             <div
               style={{
                 padding: '1.5rem',
-                borderRadius: '8px',
-                background: integrityResult && !integrityResult.isTamperEvident ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                borderRadius: 'var(--radius-md)',
+                background: integrityResult && !integrityResult.isTamperEvident ? 'rgba(239, 68, 68, 0.08)' : 'rgba(34, 197, 94, 0.08)',
                 border: `1px solid ${integrityResult && !integrityResult.isTamperEvident ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -1569,7 +1956,10 @@ export const AdminAuditPage: React.FC = () => {
                   </span>
                 </div>
                 <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                  Latest Head Hash: <code style={{ color: 'var(--color-text-primary)' }}>{stats.lastChainedHash}</code>
+                  Latest Head Hash:{' '}
+                  <code style={{ color: 'var(--color-text-primary)', background: 'var(--color-bg-subtle)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--color-border-subtle)' }}>
+                    {stats.lastChainedHash}
+                  </code>
                 </div>
                 {integrityResult && (
                   <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
@@ -1578,14 +1968,14 @@ export const AdminAuditPage: React.FC = () => {
                 )}
               </div>
 
-              <Button
-                variant="primary"
+              <button
+                style={primaryButtonStyle}
                 onClick={handleRunIntegrityCheck}
                 disabled={isVerifying}
               >
-                <ShieldCheck size={16} style={{ marginRight: '0.4rem' }} />
+                <ShieldCheck size={16} />
                 {isVerifying ? 'Running Tamper Scan...' : 'Re-verify Entire Chain'}
-              </Button>
+              </button>
             </div>
           </Card>
         </div>
@@ -1593,7 +1983,7 @@ export const AdminAuditPage: React.FC = () => {
 
       {/* TAB 4: Event Classification Taxonomy */}
       {activeTab === 'classification' && (
-        <Card accentColor="purple">
+        <Card elevation="sm">
           <h3 style={{ fontSize: '1.125rem', fontWeight: 700, margin: '0 0 0.5rem 0', color: 'var(--color-text-primary)' }}>
             Security & Operational Event Classification Catalog
           </h3>
@@ -1677,8 +2067,8 @@ export const AdminAuditPage: React.FC = () => {
 
       {/* TAB 5: Emergency Switchboard */}
       {activeTab === 'emergency' && (
-        <Card accentColor="red">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+        <Card elevation="sm">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
             <TactileIcon icon={Flame} color="red" size="md" />
             <div>
               <h3 style={{ fontSize: '1.125rem', fontWeight: 700, margin: 0, color: 'var(--color-text-primary)' }}>
@@ -1696,9 +2086,10 @@ export const AdminAuditPage: React.FC = () => {
                 key={ctrl.key}
                 style={{
                   padding: '1.25rem',
-                  borderRadius: '8px',
-                  background: 'var(--color-surface-hover)',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--color-bg-surface)',
                   border: '1px solid var(--color-border-subtle)',
+                  boxShadow: 'var(--shadow-tactile-sm)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
@@ -1725,13 +2116,12 @@ export const AdminAuditPage: React.FC = () => {
                   )}
                 </div>
 
-                <Button
-                  variant={ctrl.status ? 'secondary' : 'primary'}
-                  size="sm"
+                <button
+                  style={ctrl.status ? tactileButtonStyle : dangerButtonStyle}
                   onClick={() => openEmergencyModal(ctrl.key, ctrl.name, ctrl.status)}
                 >
                   {ctrl.status ? 'Deactivate Control' : 'Activate Emergency Kill Switch'}
-                </Button>
+                </button>
               </div>
             ))}
           </div>
@@ -1740,7 +2130,7 @@ export const AdminAuditPage: React.FC = () => {
 
       {/* TAB 6: Export & Compliance */}
       {activeTab === 'export' && (
-        <Card accentColor="cyan">
+        <Card elevation="sm">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
             <TactileIcon icon={Download} color="analytics" size="md" />
             <div>
@@ -1754,7 +2144,7 @@ export const AdminAuditPage: React.FC = () => {
           </div>
 
           {exportSuccessMsg && (
-            <div style={{ padding: '0.75rem 1rem', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', color: '#4ade80', fontSize: '0.875rem', marginBottom: '1rem' }}>
+            <div style={{ padding: '0.75rem 1rem', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 'var(--radius-md)', color: '#4ade80', fontSize: '0.875rem', marginBottom: '1rem' }}>
               {exportSuccessMsg}
             </div>
           )}
@@ -1807,22 +2197,20 @@ export const AdminAuditPage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ padding: '1rem', background: 'var(--color-surface-hover)', borderRadius: '8px', border: '1px solid var(--color-border-subtle)', marginBottom: '1.5rem', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+          <div style={{ padding: '1rem', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)', marginBottom: '1.5rem', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
             <strong>Regulatory Audit Notice:</strong> Exporting audit logs generates an immutable <code>AUDIT_DATA_EXPORTED</code> record attributable to your account and IP address. Sensitive authentication secrets and raw payment credentials remain permanently redacted in exported datasets.
           </div>
 
-          <Button
-            variant="primary"
+          <button
+            style={primaryButtonStyle}
             onClick={handleExport}
             disabled={isExporting}
           >
-            <Download size={16} style={{ marginRight: '0.4rem' }} />
+            <Download size={16} />
             {isExporting ? 'Generating Export File...' : `Export Filtered Records (${exportFormat})`}
-          </Button>
+          </button>
         </Card>
       )}
-
-      
 
       {/* Slide-Over Activity Detail Drawer */}
       {selectedLogDetail && (

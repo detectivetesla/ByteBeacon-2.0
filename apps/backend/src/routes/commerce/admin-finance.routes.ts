@@ -7,6 +7,8 @@ import { AuditService } from '../../core/security/audit.service.js';
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../../core/errors/app-error.js';
+import { logger } from '../../core/logging/logger.js';
+import { NotificationService } from '../../core/notifications/notification.service.js';
 import {
   AdminFinanceStats,
   AdminTransactionDetailDto,
@@ -30,6 +32,7 @@ export interface AdminFinanceRouteDependencies {
   rbacService: RbacService;
   auditService: AuditService;
   financialLedgerService?: FinancialLedgerService;
+  notificationService?: NotificationService;
 }
 
 export async function adminFinanceRoutes(
@@ -37,6 +40,7 @@ export async function adminFinanceRoutes(
   deps: AdminFinanceRouteDependencies,
 ) {
   const { db, tokenService, apiKeyService, rbacService, auditService, financialLedgerService } = deps;
+  const notificationService = deps.notificationService ?? new NotificationService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
 
   // Helper: check if user is Super Admin
@@ -1143,6 +1147,57 @@ export async function adminFinanceRoutes(
         } catch {
           // Not JSON, ignore
         }
+      }
+
+      // Automated in-app & transactional email notification for withdrawal status change
+      try {
+        let targetUserId: string | null = updated.agentId || null;
+        if (updated.agentId) {
+          const agRes = await db.query<{ user_id: string }>(
+            'SELECT user_id FROM agents WHERE id = $1',
+            [updated.agentId],
+          ).catch(() => ({ rows: [] }));
+          if (agRes.rows.length > 0 && agRes.rows[0].user_id) {
+            targetUserId = agRes.rows[0].user_id;
+          }
+        }
+        if (!targetUserId && updated.storeId) {
+          const stRes = await db.query<{ user_id: string }>(
+            'SELECT user_id FROM stores WHERE id = $1',
+            [updated.storeId],
+          ).catch(() => ({ rows: [] }));
+          if (stRes.rows.length > 0 && stRes.rows[0].user_id) {
+            targetUserId = stRes.rows[0].user_id;
+          }
+        }
+
+        if (targetUserId) {
+          const uRes = await db.query<{ id: string; email: string; full_name?: string; name?: string }>(
+            'SELECT id, email, full_name, name FROM users WHERE id = $1',
+            [targetUserId],
+          ).catch(() => ({ rows: [] }));
+
+          if (uRes.rows.length > 0) {
+            const u = uRes.rows[0];
+            notificationService.sendWithdrawalNotification({
+              userId: u.id,
+              email: u.email,
+              fullName: u.full_name || u.name,
+              amountPesewas: updated.amountPesewas,
+              destinationAccount: updated.destinationAccount,
+              destinationProvider: updated.destinationProvider,
+              bankName: updated.bankName,
+              status: newStatus as any,
+              adminNote: notes || reason || undefined,
+              disbursementReference: notes || reason || undefined,
+              scheduledAt: parsedScheduledAt,
+            }).catch((err: any) => {
+              logger.warn({ err: err?.message, withdrawalId: id }, '[ADMIN_FINANCE] Failed to dispatch withdrawal notification');
+            });
+          }
+        }
+      } catch (notifErr: any) {
+        logger.warn({ err: notifErr?.message, withdrawalId: id }, '[ADMIN_FINANCE] Error during withdrawal notification resolution');
       }
 
       return reply.send({

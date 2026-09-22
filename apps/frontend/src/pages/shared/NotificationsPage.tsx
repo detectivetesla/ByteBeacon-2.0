@@ -43,7 +43,10 @@ export const NotificationsPage: React.FC = () => {
           if (
             n.type.toLowerCase().includes('wallet') ||
             n.type.toLowerCase().includes('payment') ||
-            n.type.toLowerCase().includes('deposit')
+            n.type.toLowerCase().includes('deposit') ||
+            n.type.toLowerCase().includes('withdrawal') ||
+            n.type.toLowerCase().includes('payout') ||
+            n.type.toLowerCase().includes('disbursement')
           ) {
             category = 'payments';
           } else if (

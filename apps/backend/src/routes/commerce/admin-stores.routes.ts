@@ -7,6 +7,8 @@ import { AuditService } from '../../core/security/audit.service.js';
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { BadRequestError, NotFoundError } from '../../core/errors/app-error.js';
+import { logger } from '../../core/logging/logger.js';
+import { NotificationService } from '../../core/notifications/notification.service.js';
 import {
   AdminStoreStats,
   AdminStoreListItem,
@@ -30,6 +32,7 @@ export interface AdminStoresRouteDependencies {
   rbacService: RbacService;
   auditService: AuditService;
   financialLedgerService?: FinancialLedgerService;
+  notificationService?: NotificationService;
 }
 
 export async function adminStoresRoutes(
@@ -37,6 +40,7 @@ export async function adminStoresRoutes(
   deps: AdminStoresRouteDependencies,
 ) {
   const { db, tokenService, apiKeyService, rbacService, auditService, financialLedgerService } = deps;
+  const notificationService = deps.notificationService ?? new NotificationService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
 
   // Helper to map DB row to AdminStoreListItem
@@ -967,7 +971,7 @@ export async function adminStoresRoutes(
                paid_at = ${paidAtExpr},
                updated_at = CURRENT_TIMESTAMP
            WHERE id::text = $4 AND store_id::text = $5
-           RETURNING id, store_id as "storeId", amount_pesewas as "amountPesewas", status, destination_account as "destinationAccount"`,
+            RETURNING id, store_id as "storeId", agent_id as "agentId", amount_pesewas as "amountPesewas", status, destination_account as "destinationAccount", destination_provider as "destinationProvider"`,
           [newStatus, reason.trim(), reviewerId, payoutId, id],
         );
       } catch (dbErr: any) {
@@ -1028,6 +1032,39 @@ export async function adminStoresRoutes(
         } catch {
           // Audit failure should not block the payout action
         }
+      }
+
+      // Automated in-app & transactional email notification for store payout action
+      try {
+        const storeRes = await db.query<{ user_id: string; contact_email?: string; store_name?: string }>(
+          'SELECT user_id, contact_email, store_name FROM stores WHERE id = $1',
+          [id],
+        ).catch(() => ({ rows: [] }));
+
+        if (storeRes.rows.length > 0) {
+          const st = storeRes.rows[0];
+          const userRes = await db.query<{ id: string; email: string; full_name?: string; name?: string }>(
+            'SELECT id, email, full_name, name FROM users WHERE id = $1',
+            [st.user_id],
+          ).catch(() => ({ rows: [] }));
+
+          const u = userRes.rows[0];
+          notificationService.sendWithdrawalNotification({
+            userId: st.user_id,
+            email: u?.email || st.contact_email,
+            fullName: u?.full_name || u?.name || st.store_name,
+            amountPesewas: payout.amountPesewas,
+            destinationAccount: payout.destinationAccount,
+            destinationProvider: payout.destinationProvider,
+            status: newStatus as any,
+            adminNote: reason.trim() || undefined,
+            disbursementReference: reason.trim() || undefined,
+          }).catch((err: any) => {
+            logger.warn({ err: err?.message, payoutId }, '[ADMIN_STORES] Failed to dispatch payout notification');
+          });
+        }
+      } catch (notifErr: any) {
+        logger.warn({ err: notifErr?.message, payoutId }, '[ADMIN_STORES] Error resolving store owner for payout notification');
       }
 
       return reply.send({

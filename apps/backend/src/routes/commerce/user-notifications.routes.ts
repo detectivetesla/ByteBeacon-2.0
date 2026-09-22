@@ -89,7 +89,7 @@ export async function userNotificationsRoutes(
       try {
         const [itemsRes, countRes] = await Promise.all([
           db.query<any>(
-            `SELECT id, type, severity, title, body, action_url, is_read, channel, created_at
+            `SELECT id, type, severity, title, COALESCE(NULLIF(body, ''), message, '') as body, action_url, is_read, channel, created_at
              FROM notifications
              ${whereClause}
              ORDER BY created_at DESC
@@ -107,7 +107,7 @@ export async function userNotificationsRoutes(
           type: (row.type ?? NotificationType.EMERGENCY_BROADCAST) as NotificationType,
           severity: (row.severity ?? NotificationSeverity.INFO) as NotificationSeverity,
           title: row.title,
-          body: row.body,
+          body: row.body || '',
           actionUrl: row.action_url ?? undefined,
           isRead: Boolean(row.is_read),
           channel: (row.channel ?? CommunicationChannel.IN_APP) as CommunicationChannel,
