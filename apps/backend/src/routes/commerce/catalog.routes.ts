@@ -49,19 +49,22 @@ export async function catalogRoutes(
   };
 
   const handleListProducts = async (
-    req: FastifyRequest<{ Querystring: { network?: string; channel?: string; userId?: string } }>,
+    req: FastifyRequest<{ Querystring: { network?: string; channel?: string; userId?: string; isPublic?: string } }>,
     reply: FastifyReply,
   ) => {
-    const auth = await extractAuthContext(req);
-    const effectiveUserId = auth.userId || req.query.userId;
+    const isPublic = req.query.isPublic === 'true';
+    const auth = isPublic ? { userId: undefined, role: undefined } : await extractAuthContext(req);
+    const effectiveUserId = isPublic ? undefined : (auth.userId || req.query.userId);
     const network = req.query.network as NetworkProvider | undefined;
-    const channel = req.query.channel as 'CUSTOMER' | 'AGENT' | 'STORE' | 'API' | undefined;
+    const requestedChannel = req.query.channel as 'CUSTOMER' | 'AGENT' | 'STORE' | 'API' | undefined;
+    const channel = isPublic ? 'CUSTOMER' : (requestedChannel || (auth.role === 'agent' ? 'AGENT' : 'CUSTOMER'));
 
     const products = await catalogService.listActiveProducts({
       network: network && network !== ('ALL' as any) ? network : undefined,
-      channel: channel || (auth.role === 'agent' ? 'AGENT' : 'CUSTOMER'),
+      channel,
       userId: effectiveUserId,
-      role: auth.role,
+      role: isPublic || channel === 'CUSTOMER' ? undefined : auth.role,
+      isPublic,
     });
 
     const response: ApiResponse<CatalogProductDto[]> = {
@@ -73,14 +76,19 @@ export async function catalogRoutes(
   };
 
   const handleGetProductById = async (
-    req: FastifyRequest<{ Params: { id: string }; Querystring: { userId?: string } }>,
+    req: FastifyRequest<{ Params: { id: string }; Querystring: { userId?: string; channel?: string; isPublic?: string } }>,
     reply: FastifyReply,
   ) => {
-    const auth = await extractAuthContext(req);
-    const effectiveUserId = auth.userId || req.query.userId;
+    const isPublic = req.query.isPublic === 'true';
+    const auth = isPublic ? { userId: undefined, role: undefined } : await extractAuthContext(req);
+    const effectiveUserId = isPublic ? undefined : (auth.userId || req.query.userId);
+    const channel = req.query.channel;
+
     const product = await catalogService.getProductById(req.params.id, {
       userId: effectiveUserId,
-      role: auth.role,
+      role: isPublic || channel === 'CUSTOMER' ? undefined : auth.role,
+      channel,
+      isPublic,
     });
 
     const response: ApiResponse<CatalogProductDto> = {
@@ -92,12 +100,12 @@ export async function catalogRoutes(
   };
 
   // 1. LIST CATALOG PRODUCTS & BUNDLES (Supports both aliases)
-  app.get<{ Querystring: { network?: string; channel?: string; userId?: string } }>(
+  app.get<{ Querystring: { network?: string; channel?: string; userId?: string; isPublic?: string } }>(
     '/catalog/products',
     handleListProducts,
   );
 
-  app.get<{ Querystring: { network?: string; channel?: string; userId?: string } }>(
+  app.get<{ Querystring: { network?: string; channel?: string; userId?: string; isPublic?: string } }>(
     '/catalog/bundles',
     handleListProducts,
   );
@@ -169,12 +177,12 @@ export async function catalogRoutes(
   });
 
   // 2. GET PRODUCT / BUNDLE BY ID
-  app.get<{ Params: { id: string }; Querystring: { userId?: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { userId?: string; channel?: string; isPublic?: string } }>(
     '/catalog/products/:id',
     handleGetProductById,
   );
 
-  app.get<{ Params: { id: string }; Querystring: { userId?: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { userId?: string; channel?: string; isPublic?: string } }>(
     '/catalog/bundles/:id',
     handleGetProductById,
   );

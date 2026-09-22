@@ -22,7 +22,16 @@ function getCurrentUserId(): string | undefined {
   return undefined;
 }
 
-function getCacheKey(channel: string, network?: string, userId?: string): string {
+export interface GetBundlesOptions {
+  forceRefresh?: boolean;
+  userId?: string;
+  isPublic?: boolean;
+}
+
+function getCacheKey(channel: string, network?: string, userId?: string, isPublic?: boolean): string {
+  if (isPublic) {
+    return `public:${channel}:${network || 'ALL'}`;
+  }
   const uid = userId || getCurrentUserId() || 'anon';
   return `${uid}:${channel}:${network || 'ALL'}`;
 }
@@ -31,11 +40,13 @@ export const catalogApi = {
   getBundles: async (
     network?: NetworkProvider,
     channel: 'CUSTOMER' | 'AGENT' | 'STORE' | 'API' = 'CUSTOMER',
-    options: { forceRefresh?: boolean; userId?: string } = {},
+    options: GetBundlesOptions = {},
   ): Promise<CatalogProductDto[]> => {
-    const activeUserId = options.userId || getCurrentUserId();
-    const key = getCacheKey(channel, network, activeUserId);
-    const allKey = getCacheKey(channel, undefined, activeUserId);
+    const isPublic = Boolean(options.isPublic);
+    const activeUserId = isPublic ? undefined : (options.userId || getCurrentUserId());
+    const effectiveChannel = isPublic ? 'CUSTOMER' : channel;
+    const key = getCacheKey(effectiveChannel, network, activeUserId, isPublic);
+    const allKey = getCacheKey(effectiveChannel, undefined, activeUserId, isPublic);
     const now = Date.now();
 
     // 1. Check if specific network can be served from ALL-bundles cache
@@ -59,14 +70,24 @@ export const catalogApi = {
       return inFlightRequests.get(key)!;
     }
 
+    const fetchParams: Record<string, any> = {
+      network: network && network !== ('ALL' as any) ? network : undefined,
+      channel: effectiveChannel,
+      userId: activeUserId,
+    };
+    if (isPublic) {
+      fetchParams.isPublic = 'true';
+    }
+
+    const requestOptions: any = {
+      params: fetchParams,
+    };
+    if (isPublic) {
+      requestOptions.skipAuth = true;
+    }
+
     const fetchPromise = apiClient
-      .get<CatalogProductDto[]>('/catalog/bundles', {
-        params: {
-          network: network && network !== ('ALL' as any) ? network : undefined,
-          channel,
-          userId: activeUserId,
-        },
-      })
+      .get<CatalogProductDto[]>('/catalog/bundles', requestOptions)
       .then((items) => {
         const productList = Array.isArray(items) ? items : [];
         catalogCache.set(key, { data: productList, timestamp: Date.now() });
@@ -75,7 +96,7 @@ export const catalogApi = {
         if (!network || network === ('ALL' as any)) {
           const networks = [NetworkProvider.MTN, NetworkProvider.TELECEL, NetworkProvider.AIRTELTIGO];
           networks.forEach((net) => {
-            const netKey = getCacheKey(channel, net, activeUserId);
+            const netKey = getCacheKey(effectiveChannel, net, activeUserId, isPublic);
             const netItems = productList.filter((p) => p.network === net);
             catalogCache.set(netKey, { data: netItems, timestamp: Date.now() });
           });
@@ -93,16 +114,29 @@ export const catalogApi = {
 
   getAllBundles: async (
     channel: 'CUSTOMER' | 'AGENT' | 'STORE' | 'API' = 'CUSTOMER',
-    options: { forceRefresh?: boolean; userId?: string } = {},
+    options: GetBundlesOptions = {},
   ): Promise<CatalogProductDto[]> => {
     return catalogApi.getBundles(undefined, channel, options);
   },
 
-  getProduct: async (id: string, options: { userId?: string } = {}): Promise<CatalogProductDto> => {
-    const activeUserId = options.userId || getCurrentUserId();
-    return apiClient.get<CatalogProductDto>(`/catalog/bundles/${id}`, {
-      params: { userId: activeUserId },
-    });
+  getProduct: async (
+    id: string,
+    options: { userId?: string; channel?: string; isPublic?: boolean } = {},
+  ): Promise<CatalogProductDto> => {
+    const isPublic = Boolean(options.isPublic);
+    const activeUserId = isPublic ? undefined : (options.userId || getCurrentUserId());
+    const fetchParams: Record<string, any> = {
+      userId: activeUserId,
+      channel: isPublic ? 'CUSTOMER' : options.channel,
+    };
+    if (isPublic) {
+      fetchParams.isPublic = 'true';
+    }
+    const requestOptions: any = { params: fetchParams };
+    if (isPublic) {
+      requestOptions.skipAuth = true;
+    }
+    return apiClient.get<CatalogProductDto>(`/catalog/bundles/${id}`, requestOptions);
   },
 
   clearCache: () => {

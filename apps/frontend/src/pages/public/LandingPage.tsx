@@ -278,6 +278,8 @@ export const LandingPage: React.FC = () => {
       <section style={{ maxWidth: 'var(--container-xl)', margin: '0 auto', padding: '0 var(--space-page-x, var(--space-6)) var(--space-16)' }}>
         <BundleSelector
           network={selectedNetwork}
+          channel="CUSTOMER"
+          isPublic={true}
           selectedBundleId={selectedBundle?.id}
           onSelect={(b) => {
             setSelectedBundle(b);
@@ -313,6 +315,7 @@ export const LandingPage: React.FC = () => {
         initialNetwork={selectedNetwork}
         initialBundleId={selectedBundle?.id}
         isGuestPurchase={true}
+        channel="CUSTOMER"
       />
 
       {/* Floating WhatsApp Community Button */}

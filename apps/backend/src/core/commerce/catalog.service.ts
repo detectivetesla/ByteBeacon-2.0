@@ -14,6 +14,7 @@ export interface ListCatalogProductsOptions {
   status?: CatalogPlanStatus;
   userId?: string;
   role?: string;
+  isPublic?: boolean;
 }
 
 export class CatalogService {
@@ -28,19 +29,22 @@ export class CatalogService {
     this.cache.clear();
   }
 
-  private mapRowToDto(r: any, options?: { channel?: string; role?: string }): CatalogProductDto {
+  private mapRowToDto(r: any, options?: { channel?: string; role?: string; isPublic?: boolean }): CatalogProductDto {
     let basePrice = parseInt(r.basePricePesewas || r.base_price_pesewas || '0', 10);
     let agentPrice = r.agentPricePesewas || r.agent_price_pesewas ? parseInt(r.agentPricePesewas || r.agent_price_pesewas, 10) : null;
 
-    const userCustomPrice = r.userCustomPricePesewas !== undefined && r.userCustomPricePesewas !== null
+    const isPublic = Boolean(options?.isPublic);
+    // Agent wholesale pricing is strictly scoped to AGENT channel when not in public customer view
+    const isAgent = !isPublic && options?.channel === 'AGENT';
+
+    const userCustomPrice = !isPublic && r.userCustomPricePesewas !== undefined && r.userCustomPricePesewas !== null
       ? parseInt(r.userCustomPricePesewas, 10)
       : null;
-    const agentCustomPrice = r.agentCustomPricePesewas !== undefined && r.agentCustomPricePesewas !== null
+    const agentCustomPrice = !isPublic && isAgent && r.agentCustomPricePesewas !== undefined && r.agentCustomPricePesewas !== null
       ? parseInt(r.agentCustomPricePesewas, 10)
       : null;
 
-    const customPrice = userCustomPrice ?? agentCustomPrice ?? null;
-    const isAgent = options?.channel === 'AGENT' || options?.role === 'agent';
+    const customPrice = isAgent ? (agentCustomPrice ?? userCustomPrice ?? null) : (userCustomPrice ?? null);
 
     let effectivePrice = basePrice;
     if (customPrice !== null && customPrice > 0) {
@@ -99,6 +103,7 @@ export class CatalogService {
     let status: CatalogPlanStatus | undefined;
     let userId: string | undefined;
     let role: string | undefined;
+    let isPublic: boolean | undefined;
 
     if (typeof optionsOrNetwork === 'string') {
       network = optionsOrNetwork;
@@ -106,11 +111,17 @@ export class CatalogService {
       network = optionsOrNetwork.network;
       channel = optionsOrNetwork.channel;
       status = optionsOrNetwork.status;
-      userId = optionsOrNetwork.userId;
-      role = optionsOrNetwork.role;
+      userId = optionsOrNetwork.isPublic ? undefined : optionsOrNetwork.userId;
+      role = optionsOrNetwork.isPublic || optionsOrNetwork.channel === 'CUSTOMER' ? undefined : optionsOrNetwork.role;
+      isPublic = optionsOrNetwork.isPublic;
     }
 
-    const cacheKey = `${network || 'ALL'}:${channel || 'ALL'}:${status || 'ALL'}`;
+    if (isPublic) {
+      channel = 'CUSTOMER';
+    }
+
+    const effectiveRole = isPublic ? 'public' : (channel === 'AGENT' ? 'agent' : 'customer');
+    const cacheKey = `${effectiveRole}:${network || 'ALL'}:${channel || 'ALL'}:${status || 'ALL'}`;
     if (!userId) {
       const cached = this.cache.get(cacheKey);
       if (cached && Date.now() < cached.expiresAt) {
@@ -196,7 +207,7 @@ export class CatalogService {
 
     try {
       const result = await this.db.query(query, params);
-      const products = (result?.rows || []).map((r) => this.mapRowToDto(r, { channel, role }));
+      const products = (result?.rows || []).map((r) => this.mapRowToDto(r, { channel, role, isPublic }));
       if (!userId) {
         this.cache.set(cacheKey, { data: products, expiresAt: Date.now() + 60000 });
       }
@@ -205,7 +216,7 @@ export class CatalogService {
       // Fallback query if joins fail on un-migrated tables
       const fallbackQuery = `SELECT * FROM catalog_products WHERE is_active = TRUE ORDER BY network ASC, data_amount_mb ASC`;
       const fallbackRes = await this.db.query(fallbackQuery).catch(() => ({ rows: [] }));
-      const products = (fallbackRes?.rows || []).map((r) => this.mapRowToDto(r, { channel, role }));
+      const products = (fallbackRes?.rows || []).map((r) => this.mapRowToDto(r, { channel, role, isPublic }));
       if (!userId) {
         this.cache.set(cacheKey, { data: products, expiresAt: Date.now() + 60000 });
       }
@@ -215,18 +226,20 @@ export class CatalogService {
 
   public async getProductById(
     productId: string,
-    options?: { userId?: string; role?: string; channel?: string },
+    options?: { userId?: string; role?: string; channel?: string; isPublic?: boolean },
   ): Promise<CatalogProductDto> {
     const params: unknown[] = [productId];
     let userPricingJoin = '';
     let agentPricingJoin = '';
     let customPriceCols = 'NULL as "userCustomPricePesewas", NULL as "agentCustomPricePesewas"';
 
-    if (options?.userId) {
+    const isPublic = Boolean(options?.isPublic);
+    const effectiveUserId = isPublic ? undefined : options?.userId;
+    if (effectiveUserId) {
       userPricingJoin = `LEFT JOIN user_pricing up ON up.product_id = cp.id AND up.user_id = $2 AND up.is_active = TRUE`;
       agentPricingJoin = `LEFT JOIN agent_pricing ap ON ap.product_id = cp.id AND (ap.agent_id = $2 OR ap.agent_id IN (SELECT a.id FROM agents a WHERE a.user_id = $2)) AND ap.is_active = TRUE`;
       customPriceCols = 'up.custom_price_pesewas as "userCustomPricePesewas", ap.custom_price_pesewas as "agentCustomPricePesewas"';
-      params.push(options.userId);
+      params.push(effectiveUserId);
     }
 
     const query = `

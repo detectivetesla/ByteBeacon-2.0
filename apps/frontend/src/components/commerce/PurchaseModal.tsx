@@ -219,13 +219,13 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
     };
   }, [step, completedOrder?.id, isBulk, refreshWalletBalance]);
 
-  // Determine active channel: explicitly passed, or inferred from authenticated user role
-  const isAgentRole = user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin';
-  const activeChannel = channel || (isAgentRole ? 'AGENT' : 'CUSTOMER');
-
   // Determine if this is guest checkout:
   // If isGuestPurchase is explicitly passed, respect it; otherwise if user is authenticated, it's not a guest.
   const effectiveIsGuest = isGuestPurchase !== undefined ? isGuestPurchase : !isAuthenticated;
+
+  // Determine active channel: explicitly passed, or inferred from authenticated user role
+  const isAgentRole = user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin';
+  const activeChannel = channel || (effectiveIsGuest ? 'CUSTOMER' : isAgentRole ? 'AGENT' : 'CUSTOMER');
   const effectiveWalletBalance =
     walletBalanceGhs !== undefined ? walletBalanceGhs : isAuthenticated ? liveBalanceGhs : 0;
 
@@ -259,12 +259,14 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       let isMounted = true;
       const targetNet = initialNetwork || network || NetworkProvider.MTN;
       catalogApi
-        .getBundles(targetNet, activeChannel)
+        .getBundles(targetNet, activeChannel, { isPublic: effectiveIsGuest })
         .then((items) => {
           if (!isMounted || !Array.isArray(items) || items.length === 0) return;
-          const isAgent = activeChannel === 'AGENT';
+          const isAgent = activeChannel === 'AGENT' && !effectiveIsGuest;
           const mapped: BundleItem[] = items.map((p) => {
-            const price = p.effectivePricePesewas ?? (isAgent && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas);
+            const price = isAgent
+              ? (p.agentPricePesewas ?? p.effectivePricePesewas ?? p.basePricePesewas)
+              : (effectiveIsGuest ? p.basePricePesewas : (p.effectivePricePesewas ?? p.basePricePesewas));
             return {
               id: p.id,
               sku: p.sku,
@@ -297,6 +299,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
     customRecipientSummary,
     isOpen,
     activeChannel,
+    effectiveIsGuest,
     isBulk,
   ]);
 

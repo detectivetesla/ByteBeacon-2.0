@@ -68,6 +68,7 @@ export interface BundleSelectorProps {
   network: NetworkProvider;
   bundles?: BundleItem[];
   channel?: 'CUSTOMER' | 'AGENT' | 'STORE' | 'API';
+  isPublic?: boolean;
   selectedBundleId?: string;
   onSelectBundle?: (bundle: BundleItem) => void;
   onSelect?: (bundle: BundleItem) => void;
@@ -80,6 +81,7 @@ export const BundleSelector: React.FC<BundleSelectorProps> = ({
   network,
   bundles,
   channel = 'CUSTOMER',
+  isPublic = false,
   selectedBundleId,
   onSelectBundle,
   onSelect,
@@ -97,13 +99,15 @@ export const BundleSelector: React.FC<BundleSelectorProps> = ({
     let isMounted = true;
     setInternalLoading(true);
     catalogApi
-      .getBundles(network, channel)
+      .getBundles(network, channel, { isPublic })
       .then((items) => {
         const productList = Array.isArray(items) ? items : [];
         if (isMounted && productList.length > 0) {
-          const isAgent = channel === 'AGENT';
+          const isAgent = channel === 'AGENT' && !isPublic;
           const mapped: BundleItem[] = productList.map((p) => {
-            const price = p.effectivePricePesewas ?? (isAgent && p.agentPricePesewas ? p.agentPricePesewas : p.basePricePesewas);
+            const price = isAgent
+              ? (p.agentPricePesewas ?? p.effectivePricePesewas ?? p.basePricePesewas)
+              : (isPublic ? p.basePricePesewas : (p.effectivePricePesewas ?? p.basePricePesewas));
             return {
               id: p.id,
               sku: p.sku,
@@ -130,7 +134,7 @@ export const BundleSelector: React.FC<BundleSelectorProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [network, channel, bundles]);
+  }, [network, channel, isPublic, bundles]);
 
   const allBundles =
     bundles && bundles.length > 0
