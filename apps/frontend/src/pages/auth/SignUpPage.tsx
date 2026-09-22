@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { AuthLayout } from '../../components/auth/AuthLayout.js';
 import { SocialAuthButton } from '../../components/auth/SocialAuthButton.js';
 import { Input, PhoneInput, PasswordInput, Button } from '../../components/ui/index.js';
@@ -219,20 +219,6 @@ export const SignUpPage: React.FC = () => {
         >
           {isMaintenanceMode ? 'Registration Paused' : 'Create Account'}
         </Button>
-
-        <div
-          style={{
-            textAlign: 'center',
-            marginTop: '1.25rem',
-            fontSize: '0.8125rem',
-            color: 'var(--color-text-muted)',
-          }}
-        >
-          Want to resell data and earn commissions?{' '}
-          <Link to="/agent/signup" style={{ color: 'var(--color-agent)', fontWeight: 700, textDecoration: 'none' }}>
-            Register as an Agent
-          </Link>
-        </div>
       </form>
     </AuthLayout>
   );
