@@ -340,4 +340,35 @@ describe('AdminUserDetailPage — Custom Data Bundle Pricing & Wallet Adjustment
       );
     });
   });
+
+  it('7. displays active discrepancy callout in Adjust Wallet modal when in Override mode', async () => {
+    const detailWithDiscrepancy = {
+      ...mockUserDetail,
+      financialSummary: {
+        ...mockUserDetail.financialSummary,
+        ledgerDerivedBalancePesewas: -5000,
+        discrepancyPesewas: 55000,
+        reconciliationStatus: 'DISCREPANCY_DETECTED',
+      },
+    };
+    (adminApi.getUserDetails as any).mockResolvedValue(detailWithDiscrepancy);
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Kwame Mensah' })).toBeInTheDocument();
+    });
+
+    // Open Adjust Wallet modal
+    const adjustWalletBtn = screen.getByRole('button', { name: /Adjust Wallet/i });
+    fireEvent.click(adjustWalletBtn);
+
+    // Switch to Override mode
+    const overrideModeBtn = screen.getByRole('button', { name: /^Override$/i });
+    fireEvent.click(overrideModeBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Active Discrepancy: GH₵ 550\.00/i)).toBeInTheDocument();
+    });
+  });
 });
+

@@ -775,7 +775,7 @@ export async function adminFinanceRoutes(
 
           // Update user wallet projection
           await client.query(
-            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2), updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
             [amountPesewas, refund.user_id],
           );
 
@@ -1333,7 +1333,7 @@ export async function adminFinanceRoutes(
           // Update user wallet balance projection
           const deltaPesewas = adj.direction === 'CREDIT' ? amountPesewas : -amountPesewas;
           await client.query(
-            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            `UPDATE users SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1, wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2), updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
             [deltaPesewas, userId],
           );
 

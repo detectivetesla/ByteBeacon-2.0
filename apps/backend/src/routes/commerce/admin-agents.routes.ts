@@ -1135,6 +1135,30 @@ export async function adminAgentsRoutes(
         try {
           await client.query('BEGIN');
 
+          if (direction === 'OVERRIDE') {
+            let currentLedgerBalance = currentBalance;
+            const ledgerSumRes = await client.query(
+              `SELECT COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as "currentLedgerBalance"
+               FROM financial_ledger WHERE account_id = $1`,
+              [userId],
+            );
+            if (ledgerSumRes.rows.length > 0 && ledgerSumRes.rows[0]?.currentLedgerBalance !== undefined) {
+              currentLedgerBalance = parseInt(String(ledgerSumRes.rows[0].currentLedgerBalance), 10);
+            }
+            const target = targetBalancePesewas !== undefined ? targetBalancePesewas : amountPesewas!;
+            const diff = target - currentLedgerBalance;
+            if (diff > 0) {
+              deltaPesewas = diff;
+              effectiveDirection = 'CREDIT';
+            } else if (diff < 0) {
+              deltaPesewas = Math.abs(diff);
+              effectiveDirection = 'DEBIT';
+            } else {
+              deltaPesewas = 0;
+              effectiveDirection = 'NONE';
+            }
+          }
+
           const platformAccountId = '00000000-0000-0000-0000-000000000000';
           const refId = idempotencyKey || id;
           const refType = direction === 'OVERRIDE' ? 'MANUAL_OVERRIDE' : 'MANUAL_ADJUSTMENT';
@@ -1201,6 +1225,7 @@ export async function adminAgentsRoutes(
           await client.query(
             `UPDATE users
              SET wallet_balance_pesewas = $1,
+                 wallet_balance = ROUND($1 / 100.0, 2),
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $2`,
             [newBalance, userId],

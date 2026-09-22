@@ -390,7 +390,7 @@ export async function adminUsersRoutes(
                 COALESCE(phone_verified, false) as "phoneVerified",
                 COALESCE(phone_verified, false) as "emailVerified",
                 COALESCE(mfa_enabled, false) as "mfaEnabled",
-                COALESCE(wallet_balance_pesewas, 0) as "walletBalancePesewas",
+                COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0) * 100)) as "walletBalancePesewas",
                 COALESCE(failed_login_attempts, 0) as "failedLoginAttempts",
                 locked_until as "lockedUntil",
                 created_at as "createdAt",
@@ -1347,7 +1347,23 @@ export async function adminUsersRoutes(
         } else if (type === 'OVERRIDE') {
           const target = targetBalancePesewas !== undefined ? targetBalancePesewas : amountPesewas!;
           newBalance = target;
-          const diff = target - currentBalance;
+
+          // For OVERRIDE, determine the authoritative ledger-derived balance directly from financial_ledger
+          // so the balancing journal entries bring the immutable ledger to EXACTLY `target`,
+          // eliminating any existing discrepancy between projected wallet and ledger.
+          let currentLedgerBalance = currentBalance;
+          if (ledgerService) {
+            const ledgerSumRes = await client.query(
+              `SELECT COALESCE(SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_pesewas ELSE -amount_pesewas END), 0) as "currentLedgerBalance"
+               FROM financial_ledger WHERE account_id = $1`,
+              [req.params.id],
+            );
+            if (ledgerSumRes.rows.length > 0 && ledgerSumRes.rows[0]?.currentLedgerBalance !== undefined) {
+              currentLedgerBalance = parseInt(String(ledgerSumRes.rows[0].currentLedgerBalance), 10);
+            }
+          }
+
+          const diff = target - currentLedgerBalance;
           if (diff > 0) {
             deltaPesewas = diff;
             ledgerDirection = 'CREDIT';
@@ -1418,9 +1434,13 @@ export async function adminUsersRoutes(
           }
         }
 
-        // Update projected balance on user
+        // Update projected balance on user (both minor units pesewas and major units wallet_balance numeric)
         await client.query(
-          `UPDATE users SET wallet_balance_pesewas = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          `UPDATE users
+           SET wallet_balance_pesewas = $1,
+               wallet_balance = ROUND($1 / 100.0, 2),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
           [newBalance, req.params.id],
         );
 

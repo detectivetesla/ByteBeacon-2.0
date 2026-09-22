@@ -165,7 +165,7 @@ describe('Admin Users Directory & Dossier Control Plane', () => {
         // Financial ledger sum for user
         if (sql.includes('FROM financial_ledger WHERE account_id = $1')) {
           return Promise.resolve({
-            rows: [{ ledgerDerivedBalance: '50000' }],
+            rows: [{ ledgerDerivedBalance: '50000', currentLedgerBalance: '50000' }],
           });
         }
 
@@ -419,6 +419,58 @@ describe('Admin Users Directory & Dossier Control Plane', () => {
         }),
       ]),
     );
+  });
+
+  it('4d. POST /admin/users/:id/adjust-wallet with OVERRIDE to 0 should eliminate negative ledger discrepancy', async () => {
+    // Override mock for financial_ledger to simulate a -5000 pesewas negative ledger balance
+    const originalQuery = mockClient.query;
+    mockClient.query = vi.fn().mockImplementation((sql: string, params?: any[]) => {
+      if (sql.includes('FROM financial_ledger WHERE account_id = $1')) {
+        return Promise.resolve({
+          rows: [{ ledgerDerivedBalance: '-5000', currentLedgerBalance: '-5000' }],
+        });
+      }
+      return originalQuery(sql, params);
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/users/usr_cust_123/adjust-wallet',
+      headers: { authorization: 'Bearer superadmin_token' },
+      payload: {
+        targetBalancePesewas: 0,
+        type: 'OVERRIDE',
+        reason: 'Reset balance to zero and reconcile negative ledger discrepancy',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.newBalancePesewas).toBe(0);
+    expect(body.data.type).toBe('OVERRIDE');
+
+    // diff = target (0) - currentLedgerBalance (-5000) = +5000 CREDIT
+    // Ledger service must post CREDIT 5000 to user wallet and DEBIT 5000 to platform escrow
+    expect(mockLedgerService.recordJournalEntries).toHaveBeenCalledWith(
+      mockClient,
+      expect.arrayContaining([
+        expect.objectContaining({
+          entryType: LedgerEntryType.DEBIT,
+          accountType: LedgerAccountType.PLATFORM_ESCROW,
+          accountId: '00000000-0000-0000-0000-000000000000',
+          amountPesewas: 5000,
+        }),
+        expect.objectContaining({
+          entryType: LedgerEntryType.CREDIT,
+          accountType: LedgerAccountType.CUSTOMER_WALLET,
+          accountId: 'usr_cust_123',
+          amountPesewas: 5000,
+        }),
+      ]),
+    );
+
+    mockClient.query = originalQuery;
   });
 
   it('5. GET /admin/users/:id/pricing should return catalog products with user custom price overrides', async () => {

@@ -3460,6 +3460,31 @@ export const AdminUserDetailPage: React.FC = () => {
               </strong>
             </div>
 
+            {adjustType === 'OVERRIDE' && fin && fin.discrepancyPesewas > 0 && (
+              <div
+                style={{
+                  fontSize: '12px',
+                  lineHeight: '1.45',
+                  color: 'var(--color-warning)',
+                  padding: '0.65rem 0.85rem',
+                  backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem',
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>
+                  ⚠️ Active Discrepancy: GH₵ {((Number(fin.discrepancyPesewas) || 0) / 100).toFixed(2)}
+                </div>
+                <div style={{ color: 'var(--color-text-secondary)', fontSize: '11px' }}>
+                  Wallet projection is <strong>GH₵ {balanceGhs}</strong> while ledger-derived balance is <strong>GH₵ {((Number(fin.ledgerDerivedBalancePesewas) || 0) / 100).toFixed(2)}</strong>.
+                  Overriding will update the wallet balance and post a balancing journal voucher directly to the ledger, eliminating the discrepancy and reconciling the account.
+                </div>
+              </div>
+            )}
+
             <Input
               label={
                 adjustType === 'OVERRIDE'
