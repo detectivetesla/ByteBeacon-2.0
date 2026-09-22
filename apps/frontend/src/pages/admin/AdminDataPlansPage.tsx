@@ -40,6 +40,21 @@ import {
   Store,
 } from 'lucide-react';
 
+// Helpers for Data Volume display & payload conversion (MB <-> GB)
+const mbToGbString = (mb: number): string => {
+  if (!mb || mb <= 0) return '1';
+  if (mb % 1024 === 0) return String(mb / 1024);
+  if (mb % 1000 === 0) return String(mb / 1000);
+  const gb = mb / 1024;
+  return Number.isInteger(gb) ? String(gb) : String(parseFloat(gb.toFixed(2)));
+};
+
+const gbToMbNumber = (gbStr: string | number): number => {
+  const gb = typeof gbStr === 'number' ? gbStr : parseFloat(gbStr);
+  if (isNaN(gb) || gb <= 0) return 1024;
+  return Math.round(gb * 1024);
+};
+
 export const AdminDataPlansPage: React.FC = () => {
   useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
@@ -101,6 +116,7 @@ export const AdminDataPlansPage: React.FC = () => {
     providerPlanId: '',
     providerPlanCode: '',
     providerProductCode: '',
+    dataAmountGb: '1',
     dataAmountMb: 1024,
     validityDays: 30,
     validityDesc: 'Non-Expiry',
@@ -251,6 +267,7 @@ export const AdminDataPlansPage: React.FC = () => {
   // Open Edit Modal
   const handleOpenEdit = (plan: CatalogProductDto) => {
     setEditingPlan(plan);
+    const gbVal = mbToGbString(plan.dataAmountMb);
     setFormData({
       name: plan.name,
       network: plan.network,
@@ -258,6 +275,7 @@ export const AdminDataPlansPage: React.FC = () => {
       providerPlanId: plan.providerPlanId || '',
       providerPlanCode: plan.providerPlanCode || '',
       providerProductCode: plan.providerProductCode || '',
+      dataAmountGb: gbVal,
       dataAmountMb: plan.dataAmountMb,
       validityDays: plan.validityDays,
       validityDesc: plan.validityDesc || `${plan.validityDays} Days`,
@@ -291,6 +309,7 @@ export const AdminDataPlansPage: React.FC = () => {
       providerPlanId: '',
       providerPlanCode: '',
       providerProductCode: '',
+      dataAmountGb: '1',
       dataAmountMb: 1024,
       validityDays: 30,
       validityDesc: 'Non-Expiry',
@@ -321,6 +340,7 @@ export const AdminDataPlansPage: React.FC = () => {
     const provGhs = parseFloat(formData.providerPriceGhs || '0');
     const agentGhs = formData.agentPriceGhs ? parseFloat(formData.agentPriceGhs) : null;
     const storeGhs = formData.storePriceGhs ? parseFloat(formData.storePriceGhs) : null;
+    const effectiveMb = gbToMbNumber(formData.dataAmountGb);
 
     if (isNaN(custGhs) || custGhs <= 0) {
       toastError('Validation Error', 'Customer price must be greater than 0.');
@@ -341,7 +361,7 @@ export const AdminDataPlansPage: React.FC = () => {
           providerPlanId: formData.providerPlanId || undefined,
           providerPlanCode: formData.providerPlanCode || undefined,
           providerProductCode: formData.providerProductCode || undefined,
-          dataAmountMb: formData.dataAmountMb,
+          dataAmountMb: effectiveMb,
           validityDays: formData.validityDays,
           validityDesc: formData.validityDesc,
           providerPricePesewas: Math.round(provGhs * 100),
@@ -371,7 +391,7 @@ export const AdminDataPlansPage: React.FC = () => {
           providerPlanId: formData.providerPlanId || undefined,
           providerPlanCode: formData.providerPlanCode || undefined,
           providerProductCode: formData.providerProductCode || undefined,
-          dataAmountMb: formData.dataAmountMb,
+          dataAmountMb: effectiveMb,
           validityDays: formData.validityDays,
           validityDesc: formData.validityDesc,
           providerPricePesewas: Math.round(provGhs * 100),
@@ -1762,11 +1782,21 @@ export const AdminDataPlansPage: React.FC = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)' }}>
             <div>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Data Volume (MB) *</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Data Volume (GB) *</label>
               <Input
                 type="number"
-                value={formData.dataAmountMb}
-                onChange={(e) => setFormData({ ...formData, dataAmountMb: parseInt(e.target.value, 10) || 1024 })}
+                step="any"
+                min="0.1"
+                value={formData.dataAmountGb}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData({
+                    ...formData,
+                    dataAmountGb: val,
+                    dataAmountMb: gbToMbNumber(val),
+                  });
+                }}
+                placeholder="e.g. 5 or 10"
                 required
               />
             </div>
@@ -1788,31 +1818,6 @@ export const AdminDataPlansPage: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, validityDesc: e.target.value })}
                 placeholder="Non-Expiry"
               />
-            </div>
-          </div>
-
-          {/* Provider Mapping Identifiers */}
-          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
-              Telecom Provider Mapping (DataHouse Authority)
-            </span>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Provider Name</label>
-                <Input
-                  value={formData.providerName}
-                  onChange={(e) => setFormData({ ...formData, providerName: e.target.value })}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Provider Plan ID</label>
-                <Input
-                  value={formData.providerPlanId}
-                  onChange={(e) => setFormData({ ...formData, providerPlanId: e.target.value })}
-                  placeholder="dh_mtn_5gb"
-                />
-              </div>
             </div>
           </div>
 
