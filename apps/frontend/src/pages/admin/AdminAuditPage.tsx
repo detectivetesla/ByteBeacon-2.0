@@ -268,7 +268,7 @@ export const AdminAuditPage: React.FC = () => {
     {
       key: 'KILL_SWITCH_TELECOM_DISPATCH',
       name: 'Kill Switch: Automated Telecom Dispatch',
-      desc: 'Holds new data bundle orders in pending queue rather than submitting upstream to DataHouse.',
+      desc: 'Holds new data bundle orders in pending queue rather than submitting upstream to the telecom provider.',
       status: false,
     },
     {
@@ -2057,7 +2057,7 @@ export const AdminAuditPage: React.FC = () => {
                 category: 'TELECOM_SECURITY',
                 events: 'PROVIDER_STATE_RECONCILIATION, CARRIER_CREDENTIAL_UPDATED, WEBHOOK_SIGNATURE_FAILED',
                 severity: AuditSeverity.HIGH,
-                boundary: 'DataHouse authoritative state invariant; reconciliation overrides internal status.',
+                boundary: 'Telecom provider authoritative state invariant; reconciliation overrides internal status.',
               },
               {
                 category: 'SYSTEM_WORKER',

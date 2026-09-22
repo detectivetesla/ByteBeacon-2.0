@@ -1652,7 +1652,7 @@ export const adminApi = {
     return apiClient.post('/admin/reconciliation/trigger/paystack');
   },
 
-  triggerDatahouseReconciliation: async () => {
+  triggerCarrierReconciliation: async () => {
     return apiClient.post('/admin/reconciliation/trigger/datahouse');
   },
 

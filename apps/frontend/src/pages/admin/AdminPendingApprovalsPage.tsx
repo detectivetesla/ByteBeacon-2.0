@@ -167,7 +167,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
       fetchApprovals();
       fetchStats();
     } catch (err: any) {
-      toastError(err?.message || 'Failed to synchronize beneficiary with DataHouse.');
+      toastError(err?.message || 'Failed to synchronize beneficiary with telecom provider.');
     } finally {
       setIsSyncingSingle(false);
     }
@@ -632,7 +632,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                 setSearchQuery(e.target.value);
                 setPage(1);
               }}
-              placeholder="Search Phone (024XXXXXXX), DataHouse Ref, Name..."
+              placeholder="Search Phone (024XXXXXXX), Provider Ref, Name..."
             />
           </div>
 
@@ -938,7 +938,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSyncSingle(item.id)}
-                    title="Queue DataHouse Sync"
+                    title="Queue Provider Sync"
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1067,7 +1067,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
                     disabled={isSyncingSingle}
                   >
                     <Zap size={12} className={isSyncingSingle ? 'animate-spin' : ''} />
-                    <span>Sync with DataHouse</span>
+                    <span>Sync with Provider</span>
                   </Button>
 
                   {detail.record.status !== 'VALID' && (
@@ -1144,7 +1144,7 @@ export const AdminPendingApprovalsPage: React.FC = () => {
               <div style={{ padding: 'var(--space-3)', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: 'var(--radius-md)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <ShieldCheck size={16} color="var(--color-brand)" />
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-brand)', fontWeight: 600 }}>
-                  Automatic Release Pipeline: When approved, blocked orders transition from AWAITING_APPROVAL $\rightarrow$ SUBMITTED and are automatically queued for fulfillment with DataHouse.
+                  Automatic Release Pipeline: When approved, blocked orders transition from AWAITING_APPROVAL $\rightarrow$ SUBMITTED and are automatically queued for fulfillment with the telecom provider.
                 </span>
               </div>
 

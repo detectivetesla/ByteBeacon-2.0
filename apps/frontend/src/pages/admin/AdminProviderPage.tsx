@@ -137,7 +137,7 @@ export const AdminProviderPage: React.FC = () => {
 
   // Routing edit state
   const [selectedRoutingNet, setSelectedRoutingNet] = useState<NetworkProvider>(NetworkProvider.MTN);
-  const [selectedPrimary, setSelectedPrimary] = useState('DataHouse');
+  const [selectedPrimary, setSelectedPrimary] = useState('');
   const [selectedFallback, setSelectedFallback] = useState('GMPL');
   const [isUpdatingRouting, setIsUpdatingRouting] = useState(false);
 
@@ -252,7 +252,7 @@ export const AdminProviderPage: React.FC = () => {
       setSwitchValidation({
         canSwitch: true,
         targetProvider: target?.name || targetSwitchProvider,
-        currentProvider: overview?.authoritativeProvider || 'DataHouse',
+        currentProvider: overview?.authoritativeProvider || 'Primary Provider',
         checks: [
           { check: 'Target is not currently authoritative', passed: true, message: 'Target is ready for authoritative promotion.' },
           { check: 'Credentials valid & configured', passed: true, message: 'Production API credentials configured & active in vault.' },
@@ -367,7 +367,7 @@ export const AdminProviderPage: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 'var(--space-3)' }}>
         <MetricCard
           title="Authoritative Provider"
-          value={overview?.authoritativeProvider || 'DataHouse'}
+          value={overview?.authoritativeProvider || 'Primary Provider'}
           subvalue="Active Primary Engine"
           accent="green"
           icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}

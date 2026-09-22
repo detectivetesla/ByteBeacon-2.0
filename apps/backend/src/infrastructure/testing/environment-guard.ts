@@ -36,7 +36,7 @@ export class EnvironmentGuard {
 
     if (config.datahouseBaseUrl && config.datahouseBaseUrl.includes('production') && !config.datahouseBaseUrl.includes('sandbox')) {
       throw new EnvironmentIsolationError(
-        'Production DataHouse telecom endpoint detected in test environment. Phase 8 requires DataHouse Sandbox endpoint.',
+        'Production telecom endpoint detected in test environment. Phase 8 requires Sandbox endpoint.',
       );
     }
 

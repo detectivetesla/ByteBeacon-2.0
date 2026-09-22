@@ -111,12 +111,12 @@ export const AdminReconciliationPage: React.FC = () => {
     }
   };
 
-  // Trigger DataHouse Carrier Audit
-  const handleTriggerDatahouse = async () => {
-    setAuditRunning('DATAHOUSE');
+  // Trigger Carrier Audit
+  const handleTriggerCarrierAudit = async () => {
+    setAuditRunning('CARRIER');
     try {
-      const res = await adminApi.triggerDatahouseReconciliation() as any;
-      toastSuccess(res?.message || 'DataHouse carrier delivery reconciliation completed successfully.');
+      const res = await adminApi.triggerCarrierReconciliation() as any;
+      toastSuccess(res?.message || 'Carrier delivery reconciliation completed successfully.');
       fetchDashboard();
       fetchCases();
     } catch (err: any) {
@@ -201,7 +201,7 @@ export const AdminReconciliationPage: React.FC = () => {
     if (sourceFilter !== 'ALL') {
       const sourceLabels: Record<string, string> = {
         PAYSTACK: 'Source: Paystack Gateway',
-        DATAHOUSE: 'Source: DataHouse Carrier',
+        CARRIER: 'Source: Telecom Carrier',
         LEDGER: 'Source: Double-Entry Ledger',
         WALLET: 'Source: User Wallet',
       };
@@ -280,7 +280,7 @@ export const AdminReconciliationPage: React.FC = () => {
               Reconciliation Center & Case Management
             </h1>
             <p style={{ margin: '0.25rem 0 0 0', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)' }}>
-              Continuous cross-referencing across Paystack Gateway, DataHouse Telecom Logs, Internal Wallets, and General Ledger.
+              Continuous cross-referencing across Paystack Gateway, Telecom Carrier Logs, Internal Wallets, and General Ledger.
             </p>
           </div>
         </div>
@@ -418,7 +418,7 @@ export const AdminReconciliationPage: React.FC = () => {
           style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
-          title="DataHouse Carriers"
+          title="Telecom Carriers"
           value={`${dashboard?.datahouseMetrics.matchRatePercent || 100}%`}
           subvalue={`${dashboard?.datahouseMetrics.recordsChecked || 0} orders synced with gateways`}
           icon={<TactileIcon icon={Radio} color="orders" size="sm" />}
@@ -532,7 +532,7 @@ export const AdminReconciliationPage: React.FC = () => {
                 options={[
                   { value: 'ALL', label: 'All Sources' },
                   { value: 'PAYSTACK', label: 'Paystack Gateway' },
-                  { value: 'DATAHOUSE', label: 'DataHouse Carrier' },
+                  { value: 'CARRIER', label: 'Telecom Carrier' },
                   { value: 'LEDGER', label: 'Double-Entry Ledger' },
                   { value: 'WALLET', label: 'User Wallet' },
                 ]}

@@ -3138,7 +3138,7 @@ export const AdminPaymentsPage: React.FC = () => {
               rows={3}
               value={refundReason}
               onChange={(e) => setRefundReason(e.target.value)}
-              placeholder="e.g. Verified telecom gateway delivery failure with Datahouse"
+              placeholder="e.g. Verified telecom gateway delivery failure with carrier"
               style={{
                 width: '100%',
                 padding: '0.5rem 0.65rem',

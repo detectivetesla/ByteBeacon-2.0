@@ -8,7 +8,7 @@ export interface ReleaseGateInputs {
   typecheckPassed: boolean;
   financialLedgerBalanced: boolean;
   authBypassesDetected: number;
-  datahouseInvariantViolations: number;
+  telecomProviderInvariantViolations: number;
   unhandledCriticalErrors: number;
   migrationSafetyVerified: boolean;
   schemaIntegrityVerified?: boolean;
@@ -57,8 +57,8 @@ export class ProductionReleaseGateService {
       reasons.push(`Authentication/RBAC bypasses detected (count: ${inputs.authBypassesDetected})`);
     }
 
-    if (inputs.datahouseInvariantViolations > 0) {
-      reasons.push(`DataHouse telecom provider authority violations detected (count: ${inputs.datahouseInvariantViolations})`);
+    if (inputs.telecomProviderInvariantViolations > 0) {
+      reasons.push(`Telecom provider authority violations detected (count: ${inputs.telecomProviderInvariantViolations})`);
     }
 
     if (inputs.unhandledCriticalErrors > 0) {

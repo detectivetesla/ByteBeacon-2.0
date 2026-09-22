@@ -2710,7 +2710,7 @@ export const AdminCommunicationsPage: React.FC = () => {
                   </Badge>
                 </div>
                 <p style={{ margin: 0, fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                  Platform events trigger customer, merchant, and operational dispatches through immutable cryptographic ledger and DataHouse states.
+                  Platform events trigger customer, merchant, and operational dispatches through immutable cryptographic ledger and telecom provider states.
                 </p>
               </div>
 
@@ -2924,10 +2924,10 @@ export const AdminCommunicationsPage: React.FC = () => {
 
               <div style={{ padding: '1.15rem', borderRadius: 'var(--radius-lg)', background: 'var(--color-bg-subtle)', border: '1px solid var(--color-border-subtle)' }}>
                 <div style={{ fontWeight: 800, color: 'var(--color-brand-bright)', marginBottom: '0.45rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Radio size={16} /> DataHouse Fulfillment Authority
+                  <Radio size={16} /> Telecom Fulfillment Authority
                 </div>
                 <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: 0 }}>
-                  Data bundle delivery notices are generated <strong>only</strong> after DataHouse upstream status confirms <code>FULFILLED</code>. Failed carrier dispatches generate automated refund notifications.
+                  Data bundle delivery notices are generated <strong>only</strong> after upstream telecom status confirms <code>FULFILLED</code>. Failed carrier dispatches generate automated refund notifications.
                 </p>
               </div>
 

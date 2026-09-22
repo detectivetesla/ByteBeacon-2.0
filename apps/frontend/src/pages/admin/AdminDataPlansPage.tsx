@@ -112,7 +112,7 @@ export const AdminDataPlansPage: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     network: NetworkProvider.MTN,
-    providerName: 'DataHouse',
+    providerName: '',
     providerPlanId: '',
     providerPlanCode: '',
     providerProductCode: '',
@@ -271,7 +271,7 @@ export const AdminDataPlansPage: React.FC = () => {
     setFormData({
       name: plan.name,
       network: plan.network,
-      providerName: plan.providerName || 'DataHouse',
+      providerName: plan.providerName || '',
       providerPlanId: plan.providerPlanId || '',
       providerPlanCode: plan.providerPlanCode || '',
       providerProductCode: plan.providerProductCode || '',
@@ -305,7 +305,7 @@ export const AdminDataPlansPage: React.FC = () => {
     setFormData({
       name: '',
       network: NetworkProvider.MTN,
-      providerName: 'DataHouse',
+      providerName: '',
       providerPlanId: '',
       providerPlanCode: '',
       providerProductCode: '',
@@ -520,7 +520,7 @@ export const AdminDataPlansPage: React.FC = () => {
         network: networkFilter !== 'ALL' ? networkFilter : undefined,
       });
 
-      toastSuccess('Sync Complete', `Synchronized DataHouse catalog: ${res?.discrepancyCount || 0} discrepancies found.`);
+      toastSuccess('Sync Complete', `Synchronized provider catalog: ${res?.discrepancyCount || 0} discrepancies found.`);
       loadSyncBatches();
     } catch (err: any) {
       toastError('Sync Failed', err.message);
@@ -533,7 +533,7 @@ export const AdminDataPlansPage: React.FC = () => {
   const handleApplySyncBatch = async (batchId: string) => {
     try {
       await adminApi.applySyncBatch(batchId);
-      toastSuccess('Catalog Updated', 'Applied DataHouse catalog diffs to ByteBeacon.');
+      toastSuccess('Catalog Updated', 'Applied provider catalog diffs to ByteBeacon.');
       loadSyncBatches();
       fetchPlans();
       fetchStats();
@@ -880,7 +880,7 @@ export const AdminDataPlansPage: React.FC = () => {
             type="button"
             onClick={handleOpenSyncModal}
             style={tactileButtonStyle}
-            title="Review DataHouse catalog differences"
+            title="Review provider catalog differences"
           >
             <Zap size={14} />
             <span>Sync Provider</span>
@@ -972,7 +972,7 @@ export const AdminDataPlansPage: React.FC = () => {
         <MetricCard
           title="Provider Synced"
           value={stats ? stats.providerSynced.toString() : '—'}
-          subvalue="DataHouse matched"
+          subvalue="Provider matched"
           accent="green"
           icon={<TactileIcon icon={Zap} color="security" size="sm" />}
         />
@@ -1138,7 +1138,7 @@ export const AdminDataPlansPage: React.FC = () => {
               aria-label="Filter by Provider"
             >
               <option value="ALL">All Providers</option>
-              <option value="DataHouse">DataHouse</option>
+              <option value="">All Providers</option>
               <option value="GMPL">GMPL</option>
             </select>
 
@@ -2212,12 +2212,12 @@ export const AdminDataPlansPage: React.FC = () => {
       <Modal
         isOpen={isSyncModalOpen}
         onClose={() => setIsSyncModalOpen(false)}
-        title="DataHouse Provider Catalog Synchronization"
+        title="Provider Catalog Synchronization"
         maxWidth="820px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', padding: 'var(--space-2)' }}>
           <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: 0 }}>
-            DataHouse is authoritative for telecom fulfillment. Review provider catalog diffs before accepting updates into ByteBeacon.
+            The authoritative provider is used for telecom fulfillment. Review provider catalog diffs before accepting updates into ByteBeacon.
           </p>
 
           <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
@@ -2251,7 +2251,7 @@ export const AdminDataPlansPage: React.FC = () => {
                 style={tactileButtonStyle}
               >
                 <RefreshCw size={13} className={syncLoading ? 'animate-spin' : ''} />
-                <span>{syncLoading ? 'Fetching DataHouse...' : 'Trigger Sync Now'}</span>
+                <span>{syncLoading ? 'Fetching catalog...' : 'Trigger Sync Now'}</span>
               </button>
             </div>
           </div>
@@ -2316,7 +2316,7 @@ export const AdminDataPlansPage: React.FC = () => {
                 </div>
               ) : (
                 <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', textAlign: 'center', padding: 'var(--space-4)' }}>
-                  ✓ No discrepancies detected. ByteBeacon catalog is in full synchronization with DataHouse.
+                  ✓ No discrepancies detected. ByteBeacon catalog is in full synchronization with the authoritative provider.
                 </p>
               )}
 
@@ -2602,7 +2602,7 @@ export const AdminDataPlansPage: React.FC = () => {
                       <div>
                         <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Authority Provider</span>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
-                          {selectedPlanDetail.providerName || 'DataHouse'}
+                          {selectedPlanDetail.providerName || 'Provider'}
                         </p>
                       </div>
                       <div>
@@ -2612,7 +2612,7 @@ export const AdminDataPlansPage: React.FC = () => {
                         </p>
                       </div>
                       <div>
-                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>DataHouse Validity</span>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>Provider Validity</span>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
                           {selectedPlanDetail.validityDesc || `${selectedPlanDetail.validityDays} Days`}
                         </p>

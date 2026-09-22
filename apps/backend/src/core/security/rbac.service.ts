@@ -214,7 +214,7 @@ export const PERMISSION_METADATA: Record<
   [Permission.PROVIDERS_MANAGE]: {
     category: PermissionCategory.CATALOG_TELECOM,
     name: 'Manage Telecom Providers',
-    description: 'Switch authoritative upstream provider (DataHouse vs Secondary), circuit breakers, and endpoints.',
+    description: 'Switch authoritative upstream provider, circuit breakers, and endpoints.',
     riskLevel: ConfigRiskLevel.CRITICAL,
     requiresStepUp: true,
   },

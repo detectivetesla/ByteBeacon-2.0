@@ -70,6 +70,28 @@ export class BeneficiaryService {
     return 'PROVIDER-PRECHECK';
   }
 
+  /**
+   * Returns a dynamic provider reference string for auto-discovered beneficiaries.
+   */
+  private providerAutoReference(): string {
+    const name = this.telecomProvider?.providerName;
+    if (name) {
+      return `${name.toUpperCase().replace(/[^A-Z0-9]/g, '')}-AUTO`;
+    }
+    return 'PROVIDER-AUTO';
+  }
+
+  /**
+   * Returns a dynamic provider reference string for sync-discovered beneficiaries.
+   */
+  private providerSyncReference(): string {
+    const name = this.telecomProvider?.providerName;
+    if (name) {
+      return `${name.toUpperCase().replace(/[^A-Z0-9]/g, '')}-SYNC`;
+    }
+    return 'PROVIDER-SYNC';
+  }
+
   public async validatePhoneNumber(
     phoneNumber: string,
     network: NetworkProvider,
@@ -1825,7 +1847,7 @@ export class BeneficiaryService {
             phoneNumber: r.phoneNumber,
             network: r.network as NetworkProvider,
             status: r.status as BeneficiaryValidationStatus,
-            providerReference: r.providerReference || 'DH-AUTO',
+            providerReference: r.providerReference || this.providerAutoReference(),
             dataSize: dataSize || '5 GB',
             detectedFrom: meta.detectedFrom || meta.channel || 'Excel Upload',
             validatedAt: r.validatedAt ? new Date(r.validatedAt).toISOString() : null,
@@ -1900,7 +1922,7 @@ export class BeneficiaryService {
     const selectQuery = `
       SELECT p.id, p.phone_number as "phoneNumber", p.network,
              COALESCE(b.validation_status, p.status) as "status",
-             COALESCE(b.provider_reference, p.provider_reference, 'DH-AUTO') as "providerReference",
+             COALESCE(b.provider_reference, p.provider_reference, $${idx + 2}) as "providerReference",
              COALESCE(b.validated_at, p.resolved_at) as "validatedAt",
              b.expires_at as "expiresAt",
              p.created_at as "createdAt",
@@ -1914,7 +1936,7 @@ export class BeneficiaryService {
       ORDER BY p.created_at DESC
       LIMIT $${idx} OFFSET $${idx + 1}
     `;
-    queryParams.push(limit, offset);
+    queryParams.push(limit, offset, this.providerAutoReference());
 
     const itemsRes = await this.db.query(selectQuery, queryParams);
 
@@ -1931,7 +1953,7 @@ export class BeneficiaryService {
           phoneNumber: r.phoneNumber,
           network: r.network as NetworkProvider,
           status: r.status as BeneficiaryValidationStatus,
-          providerReference: r.providerReference || 'DH-AUTO',
+          providerReference: r.providerReference || this.providerAutoReference(),
           dataSize: dataSize || '5 GB',
           detectedFrom: r.detectedFrom || meta.detectedFrom || meta.channel || 'Excel Upload',
           validatedAt: r.validatedAt ? new Date(r.validatedAt).toISOString() : null,
@@ -2407,6 +2429,8 @@ export class BeneficiaryService {
       let submittedCount = 0;
       let pendingCount = 0;
 
+      const syncRef = this.providerSyncReference();
+
       for (const item of items) {
         const rawPhone = item.msisdn || (item as any).phoneNumber || (item as any).phone;
         if (!rawPhone) continue;
@@ -2440,17 +2464,17 @@ export class BeneficiaryService {
               phone_number, network, validation_status, validated_at, expires_at,
               provider_reference, provider_response_metadata, attempt_count, last_bundle_size_gb,
               created_at, updated_at
-            ) VALUES ($1, $2, 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-SYNC', $3::jsonb, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', $6, $3::jsonb, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (phone_number, network) DO UPDATE
             SET validation_status = 'VALID',
                 validated_at = CURRENT_TIMESTAMP,
                 expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
-                provider_reference = 'DH-SYNC',
+                provider_reference = $6,
                 provider_response_metadata = $3::jsonb,
                 attempt_count = GREATEST(beneficiary_validation.attempt_count, EXCLUDED.attempt_count),
                 last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
                 updated_at = CURRENT_TIMESTAMP`,
-            [phone, itemNet, meta, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null],
+            [phone, itemNet, meta, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null, syncRef],
           ).catch(() => {});
 
           // 2. Mark pending approval as APPROVED
@@ -2473,16 +2497,16 @@ export class BeneficiaryService {
               phone_number, network, validation_status, validated_at, expires_at,
               provider_reference, provider_response_metadata, attempt_count, last_bundle_size_gb,
               created_at, updated_at
-            ) VALUES ($1, $2, 'INVALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-SYNC', $3::jsonb, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, 'INVALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', $6, $3::jsonb, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (phone_number, network) DO UPDATE
             SET validation_status = 'INVALID',
                 validated_at = CURRENT_TIMESTAMP,
-                provider_reference = 'DH-SYNC',
+                provider_reference = $6,
                 provider_response_metadata = $3::jsonb,
                 attempt_count = GREATEST(beneficiary_validation.attempt_count, EXCLUDED.attempt_count),
                 last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
                 updated_at = CURRENT_TIMESTAMP`,
-            [phone, itemNet, meta, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null],
+            [phone, itemNet, meta, attemptCount, lastBundleSizeGb ? parseFloat(lastBundleSizeGb) : null, syncRef],
           ).catch(() => {});
 
           // 2. Mark pending approval as REJECTED

@@ -42,13 +42,14 @@ export interface AdminApiManagementRouteDependencies {
   tokenService: TokenService;
   rbacService: RbacService;
   auditService: AuditService;
+  providerRegistry?: any;
 }
 
 export async function adminApiManagementRoutes(
   app: FastifyInstance,
   deps: AdminApiManagementRouteDependencies,
 ) {
-  const { db, apiKeyService, tokenService, rbacService, auditService } = deps;
+  const { db, apiKeyService, tokenService, rbacService, auditService, providerRegistry } = deps;
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
 
   // =========================================================================
@@ -1310,7 +1311,7 @@ export async function adminApiManagementRoutes(
       const currRes = await db.query(
         "SELECT provider_name FROM telecom_provider_configs WHERE is_authoritative = TRUE AND provider_name != 'PAYSTACK'",
       );
-      const currentProvider = currRes.rows[0]?.provider_name || 'DataHouse';
+      const currentProvider = currRes.rows[0]?.provider_name || providerRegistry?.providerName || 'Unknown';
 
       if (currentProvider === newProvider) {
         throw new BadRequestError(`${newProvider} is already the authoritative provider`);
@@ -1356,6 +1357,17 @@ export async function adminApiManagementRoutes(
         throw err;
       } finally {
         client.release();
+      }
+
+      // Reload in-memory provider registry to match DB state
+      if (providerRegistry) {
+        await providerRegistry.loadProvidersFromDatabase(db).catch(() => {});
+        providerRegistry.setActiveProvider(newProvider);
+        // Update network routing for all supported networks
+        const networksToRoute = ['MTN', 'TELECEL', 'AIRTELTIGO'];
+        for (const net of networksToRoute) {
+          providerRegistry.setNetworkRouting(net, newProvider);
+        }
       }
 
       await auditService.logEvent({

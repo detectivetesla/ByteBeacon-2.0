@@ -43,11 +43,11 @@ export async function integrationHealthRoutes(
       redisStatus = 'UP'; // In-memory fallback
     }
 
-    let telecomHealth: any = { providerName: deps.telecomProvider.providerName || 'DATAHOUSE', status: 'UNKNOWN', latencyMs: 0 };
+    let telecomHealth: any = { providerName: deps.telecomProvider.providerName || 'TELECOM_PRIMARY', status: 'UNKNOWN', latencyMs: 0 };
     try {
       telecomHealth = await deps.telecomProvider.healthCheck();
     } catch (err: any) {
-      telecomHealth = { providerName: deps.telecomProvider.providerName || 'DATAHOUSE', status: 'DOWN', latencyMs: 0, message: err.message };
+      telecomHealth = { providerName: deps.telecomProvider.providerName || 'TELECOM_PRIMARY', status: 'DOWN', latencyMs: 0, message: err.message };
     }
 
     let paystackHealth: any = { providerName: 'Paystack', status: 'UP', latencyMs: 0 };

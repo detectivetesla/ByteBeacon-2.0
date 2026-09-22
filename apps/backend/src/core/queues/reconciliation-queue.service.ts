@@ -66,7 +66,7 @@ export class ReconciliationQueueService {
   public async executeReconciliation(jobData: ReconciliationJobData) {
     logger.info(
       { trigger: jobData.trigger, correlationId: jobData.correlationId },
-      '[ReconciliationQueue] Executing DataHouse reconciliation cycle...',
+      '[ReconciliationQueue] Executing telecom provider reconciliation cycle...',
     );
 
     const report = await this.reconciliationService.reconcilePendingOrders({
@@ -81,7 +81,7 @@ export class ReconciliationQueueService {
         failed: report.failedCount,
         unmatched: report.unmatchedCount,
       },
-      '[ReconciliationQueue] DataHouse reconciliation cycle completed',
+      '[ReconciliationQueue] telecom provider reconciliation cycle completed',
     );
 
     return report;

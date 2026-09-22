@@ -1617,7 +1617,7 @@ export const AdminApiManagementPage: React.FC = () => {
               <SearchInput
                 value={switchReason}
                 onChange={(e) => setSwitchReason(e.target.value)}
-                placeholder="e.g. DataHouse gateway maintenance window - failing over to GMPL"
+                placeholder="e.g. Telecom gateway maintenance window - failing over to GMPL"
                 required
               />
             </div>

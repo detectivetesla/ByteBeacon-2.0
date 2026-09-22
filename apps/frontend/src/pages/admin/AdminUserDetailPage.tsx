@@ -2045,7 +2045,7 @@ export const AdminUserDetailPage: React.FC = () => {
           >
             <Table
               minWidth="1200px"
-              headers={['Order ID / Public ID', 'Recipient', 'Network', 'Bundle Size', 'Amount', 'Payment', 'ByteBeacon State', 'DataHouse State', 'Date', 'Action']}
+              headers={['Order ID / Public ID', 'Recipient', 'Network', 'Bundle Size', 'Amount', 'Payment', 'ByteBeacon State', 'Provider State', 'Date', 'Action']}
             >
               {filteredOrders.length === 0 ? (
                 <tr>
@@ -3321,7 +3321,7 @@ export const AdminUserDetailPage: React.FC = () => {
                 <Badge variant={selectedOrder.orderStatus === 'COMPLETED' ? 'success' : 'info'} size="sm">{selectedOrder.orderStatus}</Badge>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>3. DataHouse Telecom Provider State</span>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>3. Telecom Provider State</span>
                 <Badge variant="neutral" size="sm">{selectedOrder.providerStatus || 'SUBMITTED'}</Badge>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -3332,7 +3332,7 @@ export const AdminUserDetailPage: React.FC = () => {
 
             <div style={{ padding: 'var(--space-3)', backgroundColor: 'rgba(234, 179, 8, 0.08)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(234, 179, 8, 0.25)' }}>
               <p style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-primary)', margin: 0 }}>
-                <strong>DataHouse Authority Rule:</strong> DataHouse remains authoritative for telecom fulfillment. Administrators cannot force-complete orders manually.
+                <strong>Telecom Provider Authority Rule:</strong> The authoritative provider remains authoritative for telecom fulfillment. Administrators cannot force-complete orders manually.
               </p>
             </div>
 

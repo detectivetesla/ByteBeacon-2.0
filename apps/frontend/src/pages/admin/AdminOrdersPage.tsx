@@ -1809,7 +1809,7 @@ export const AdminOrdersPage: React.FC = () => {
                     </h4>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: 'var(--font-size-xs)' }}>
-                    <div><span style={{ color: 'var(--color-text-muted)' }}>Provider: </span>{orderDetail.providerOrder?.providerName || 'DataHouse Carrier Hub'}</div>
+                    <div><span style={{ color: 'var(--color-text-muted)' }}>Provider: </span>{orderDetail.providerOrder?.providerName || 'Telecom Carrier Hub'}</div>
                     <div>
                       <span style={{ color: 'var(--color-text-muted)' }}>Reference: </span>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px' }}>

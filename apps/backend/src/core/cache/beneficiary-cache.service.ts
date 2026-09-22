@@ -138,7 +138,7 @@ export class BeneficiaryCacheService {
       const key = this.buildKey(network, phone);
       const enrichedItem: CachedBeneficiaryVerification = {
         ...item,
-        source: item.source || 'DATAHOUSE',
+        source: item.source || 'TELECOM_PROVIDER',
         verifiedAt: item.verifiedAt || new Date(now).toISOString(),
         cachedAt: now,
         ttlSeconds: ttl,
@@ -173,7 +173,7 @@ export class BeneficiaryCacheService {
 
           const enrichedItem: CachedBeneficiaryVerification = {
             ...item,
-            source: item.source || 'DATAHOUSE',
+            source: item.source || 'TELECOM_PROVIDER',
             verifiedAt: item.verifiedAt || new Date(now).toISOString(),
             cachedAt: now,
             ttlSeconds: ttl,
