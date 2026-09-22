@@ -29,8 +29,12 @@ import {
   DollarSign,
   Radio,
   FileText,
+  PauseCircle,
+  PlayCircle,
+  FileSpreadsheet,
+  AlertTriangle,
 } from 'lucide-react';
-import { adminApi, AdminOrderListItem, AdminOrderStats, AdminOrderDetail } from '../../api/admin.api.js';
+import { adminApi, AdminOrderListItem, AdminOrderStats, AdminOrderDetail, AdminOrderProcessingStatusDto } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
 
 export const AdminOrdersPage: React.FC = () => {
@@ -88,6 +92,18 @@ export const AdminOrdersPage: React.FC = () => {
   // Reconcile & Retry loading
   const [isReconciling, setIsReconciling] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+
+  // Operational Pause / Resume State
+  const [orderProcessingStatus, setOrderProcessingStatus] = useState<AdminOrderProcessingStatusDto | null>(null);
+  const [isLoadingProcessingStatus, setIsLoadingProcessingStatus] = useState(false);
+  const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
+  const [pauseReason, setPauseReason] = useState('');
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
+  const [resumeReason, setResumeReason] = useState('');
+  const [resumeAutoReenqueue, setResumeAutoReenqueue] = useState(true);
+  const [isResuming, setIsResuming] = useState(false);
+  const [isExportingPaused, setIsExportingPaused] = useState(false);
 
   // Copy helper
   const handleCopy = (text: string, label: string) => {
@@ -152,6 +168,19 @@ export const AdminOrdersPage: React.FC = () => {
     }
   }, [page, pageSize, searchQuery, lifecycleFilter, paymentFilter, networkFilter, sourceFilter, periodFilter, startDate, endDate, operationalStateFilter, toastError]);
 
+  // Fetch platform order processing & pause status
+  const fetchProcessingStatus = useCallback(async () => {
+    setIsLoadingProcessingStatus(true);
+    try {
+      const res = await adminApi.getOrderProcessingStatus();
+      if (res) setOrderProcessingStatus(res);
+    } catch {
+      // Non-fatal
+    } finally {
+      setIsLoadingProcessingStatus(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStats();
   }, [fetchStats]);
@@ -160,19 +189,28 @@ export const AdminOrdersPage: React.FC = () => {
     fetchOrders();
   }, [fetchOrders]);
 
+  useEffect(() => {
+    fetchProcessingStatus();
+  }, [fetchProcessingStatus]);
+
   // Real-time synchronization
   useEffect(() => {
     const handleUpdate = () => {
       fetchOrders();
       fetchStats();
+      fetchProcessingStatus();
     };
     window.addEventListener('order-created', handleUpdate);
     window.addEventListener('orders-updated', handleUpdate);
+    window.addEventListener('platform-status-check', handleUpdate);
+    window.addEventListener('order-processing-pause-active', handleUpdate);
     return () => {
       window.removeEventListener('order-created', handleUpdate);
       window.removeEventListener('orders-updated', handleUpdate);
+      window.removeEventListener('platform-status-check', handleUpdate);
+      window.removeEventListener('order-processing-pause-active', handleUpdate);
     };
-  }, [fetchOrders, fetchStats]);
+  }, [fetchOrders, fetchStats, fetchProcessingStatus]);
 
   // Fetch individual order detail
   const fetchOrderDetail = useCallback(async (id: string) => {
@@ -283,6 +321,73 @@ export const AdminOrdersPage: React.FC = () => {
       toastError(err?.message || 'Failed to issue refund.');
     } finally {
       setIsRefunding(false);
+    }
+  };
+
+  const handlePauseOperations = async () => {
+    if (!pauseReason.trim()) {
+      toastError('Mandatory Reason', 'Please provide a justification for pausing order operations.');
+      return;
+    }
+    setIsPausing(true);
+    try {
+      const res = await adminApi.pauseOrderOperations({
+        reason: pauseReason.trim(),
+      });
+      toastSuccess(`Order operations paused. ${res.heldOrdersCount || 0} active processing order(s) held in PAUSED status.`);
+      setOrderProcessingStatus(res);
+      setIsPauseModalOpen(false);
+      setPauseReason('');
+      fetchOrders();
+      fetchStats();
+      window.dispatchEvent(new CustomEvent('platform-status-check'));
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to pause order operations.');
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  const handleResumeOperations = async () => {
+    setIsResuming(true);
+    try {
+      const res = await adminApi.resumeOrderOperations({
+        reason: resumeReason.trim() || undefined,
+        autoReenqueue: resumeAutoReenqueue,
+      });
+      toastSuccess(`Order operations resumed. ${res.heldOrdersCount || 0} held order(s) restored.`);
+      setOrderProcessingStatus(res);
+      setIsResumeModalOpen(false);
+      setResumeReason('');
+      fetchOrders();
+      fetchStats();
+      window.dispatchEvent(new CustomEvent('platform-status-check'));
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to resume order operations.');
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const handleExportPausedOrders = async (format: 'XLSX' | 'CSV' = 'XLSX') => {
+    setIsExportingPaused(true);
+    try {
+      const blob = await adminApi.exportPausedOrders({ format });
+      const mimeType = format === 'XLSX'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'text/csv;charset=utf-8;';
+      const fileBlob = new Blob([blob], { type: mimeType });
+      const url = URL.createObjectURL(fileBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bytebeacon-paused-orders-${new Date().toISOString().slice(0, 10)}.${format.toLowerCase()}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toastSuccess(`Exported paused orders as ${format}.`);
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to export paused orders.');
+    } finally {
+      setIsExportingPaused(false);
     }
   };
 
@@ -416,6 +521,8 @@ export const AdminOrdersPage: React.FC = () => {
       case 'FAILED':
       case 'CANCELLED':
         return <Badge variant="danger" size="sm" dot>Failed</Badge>;
+      case 'PAUSED':
+        return <Badge variant="warning" size="sm" dot>Paused</Badge>;
       case 'REFUNDED':
         return <Badge variant="neutral" size="sm" dot>Refunded</Badge>;
       default:
@@ -598,6 +705,206 @@ export const AdminOrdersPage: React.FC = () => {
         </div>
       </div>
 
+      {/* 1.5. Operational Control Banner: Pause / Resume & Emergency Export */}
+      <div
+        style={{
+          borderRadius: 'var(--radius-xl)',
+          padding: '1rem 1.35rem',
+          backgroundColor: orderProcessingStatus?.isPaused
+            ? 'rgba(239, 68, 68, 0.08)'
+            : 'rgba(16, 185, 129, 0.06)',
+          border: orderProcessingStatus?.isPaused
+            ? '1.5px solid rgba(239, 68, 68, 0.35)'
+            : '1px solid rgba(16, 185, 129, 0.25)',
+          boxShadow: 'var(--shadow-tactile-sm)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          transition: 'all var(--transition-fast)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          {orderProcessingStatus?.isPaused ? (
+            <div
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <PauseCircle size={22} color="#EF4444" />
+            </div>
+          ) : (
+            <div
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <PlayCircle size={22} color="#10B981" />
+            </div>
+          )}
+
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  fontSize: 'var(--font-size-sm)',
+                  fontWeight: 800,
+                  color: orderProcessingStatus?.isPaused ? '#EF4444' : 'var(--color-text-primary)',
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                {orderProcessingStatus?.isPaused
+                  ? 'ORDER PROCESSING & EXCEL UPLOADS PAUSED'
+                  : 'Order Processing & Bulk Uploads: ACTIVE'}
+              </span>
+              <Badge
+                variant={orderProcessingStatus?.isPaused ? 'danger' : 'success'}
+                size="sm"
+                dot
+              >
+                {orderProcessingStatus?.isPaused ? 'RESTRICTED' : 'OPERATIONAL'}
+              </Badge>
+              {orderProcessingStatus?.heldOrdersCount ? (
+                <Badge variant="warning" size="sm">
+                  {orderProcessingStatus.heldOrdersCount} in-flight order(s) held
+                </Badge>
+              ) : null}
+            </div>
+
+            <p
+              style={{
+                margin: '0.2rem 0 0 0',
+                fontSize: 'var(--font-size-xs)',
+                color: 'var(--color-text-secondary)',
+                lineHeight: 1.4,
+              }}
+            >
+              {orderProcessingStatus?.isPaused
+                ? `Operations frozen${orderProcessingStatus.reason ? `: "${orderProcessingStatus.reason}"` : ''} • Paused by: ${orderProcessingStatus.pausedBy || 'Admin'}${orderProcessingStatus.pausedAt ? ` at ${new Date(orderProcessingStatus.pausedAt).toLocaleTimeString()}` : ''}. All customer checkouts, agent storefront orders, and Excel uploads are held.`
+                : 'All customer checkouts, agent storefront orders, Excel bulk uploads, and automated telecom dispatches are running normally.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Operational Action Buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {orderProcessingStatus?.isPaused ? (
+            <>
+              <button
+                type="button"
+                onClick={() => handleExportPausedOrders('XLSX')}
+                disabled={isExportingPaused}
+                title="Export all orders that were in processing when paused into a native Excel spreadsheet"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: '#1E293B',
+                  border: '1px solid #334155',
+                  color: '#38BDF8',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 700,
+                  cursor: isExportingPaused ? 'not-allowed' : 'pointer',
+                  boxShadow: 'var(--shadow-tactile-sm)',
+                  transition: 'all var(--transition-fast)',
+                }}
+              >
+                <FileSpreadsheet size={14} />
+                <span>{isExportingPaused ? 'Exporting...' : 'Export Paused Orders (Excel)'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleExportPausedOrders('CSV')}
+                disabled={isExportingPaused}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  border: '1px solid var(--color-border-subtle)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 700,
+                  cursor: isExportingPaused ? 'not-allowed' : 'pointer',
+                  boxShadow: 'var(--shadow-tactile-sm)',
+                }}
+              >
+                <Download size={14} />
+                <span>CSV</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsResumeModalOpen(true)}
+                disabled={isResuming}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.5rem 1rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: '#10B981',
+                  border: '1px solid #059669',
+                  color: '#FFFFFF',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)',
+                  transition: 'all var(--transition-fast)',
+                }}
+              >
+                <PlayCircle size={15} />
+                <span>Resume Order Operations</span>
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsPauseModalOpen(true)}
+              disabled={isPausing || isLoadingProcessingStatus}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.5rem 0.95rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                color: '#EF4444',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-tactile-sm)',
+                transition: 'all var(--transition-fast)',
+              }}
+            >
+              <PauseCircle size={14} />
+              <span>Pause Order Operations</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* 2. Responsive Operational Summary KPI Cards */}
       <div
         style={{
@@ -619,6 +926,13 @@ export const AdminOrdersPage: React.FC = () => {
           subvalue={activeFilters.length > 0 ? "Filtered in-flight" : "Awaiting telecom ACK"}
           accent="cyan"
           icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
+        />
+        <MetricCard
+          title="Paused in Flight"
+          value={(stats.paused || 0).toLocaleString()}
+          subvalue={activeFilters.length > 0 ? "Filtered paused" : "Orders frozen during pause"}
+          accent={(stats.paused || 0) > 0 ? 'amber' : 'green'}
+          icon={<TactileIcon icon={PauseCircle} color={(stats.paused || 0) > 0 ? 'speed' : 'security'} size="sm" />}
         />
         <MetricCard
           title="Completed Deliveries"
@@ -738,6 +1052,7 @@ export const AdminOrdersPage: React.FC = () => {
                   { label: 'All Lifecycles', value: 'ALL' },
                   { label: 'Fulfilled / Completed', value: 'COMPLETED' },
                   { label: 'Processing / In Flight', value: 'PROCESSING' },
+                  { label: 'Paused / Operations Freeze', value: 'PAUSED' },
                   { label: 'Submitted', value: 'SUBMITTED' },
                   { label: 'Pending', value: 'PENDING' },
                   { label: 'Awaiting MTN', value: 'AWAITING_APPROVAL' },
@@ -1111,7 +1426,14 @@ export const AdminOrdersPage: React.FC = () => {
 
                 {/* Order Status */}
                 <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', textAlign: 'center' }}>
-                  {renderOrderStatusBadge(order.orderStatus)}
+                  <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+                    {renderOrderStatusBadge(order.orderStatus)}
+                    {(order.isPaused || order.orderStatus === 'PAUSED') && order.pausedFromStatus && (
+                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                        (held: {order.pausedFromStatus})
+                      </span>
+                    )}
+                  </div>
                 </td>
 
                 {/* Provider Status */}
@@ -1382,6 +1704,27 @@ export const AdminOrdersPage: React.FC = () => {
                 </span>
               </div>
 
+              {/* Operations Freeze Callout */}
+              {(orderDetail.order.orderStatus === 'PAUSED' || orderDetail.order.isPaused) && (
+                <div
+                  style={{
+                    padding: '0.75rem 1rem',
+                    background: 'rgba(245, 158, 11, 0.1)',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'flex',
+                    gap: '0.6rem',
+                    alignItems: 'center',
+                  }}
+                >
+                  <AlertOctagon size={18} color="#D97706" />
+                  <div style={{ fontSize: '11px', color: '#B45309', lineHeight: 1.4 }}>
+                    <strong>Operations Freeze / Paused:</strong> This order is held in <strong>PAUSED</strong> status while in <strong>{orderDetail.order.pausedFromStatus || 'PROCESSING'}</strong>. It will be re-enqueued when operations resume.
+                    {orderDetail.order.pauseReason && <div>Reason: <em>{orderDetail.order.pauseReason}</em></div>}
+                  </div>
+                </div>
+              )}
+
               {/* 3-Column Info Cards */}
               <div
                 style={{
@@ -1639,6 +1982,162 @@ export const AdminOrdersPage: React.FC = () => {
                 disabled={isRefunding || refundReason.trim().length < 5}
               >
                 {isRefunding ? 'Processing Refund...' : 'Confirm Double-Entry Refund'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 7. Pause Order Operations Modal */}
+      {isPauseModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsPauseModalOpen(false)}
+          title="⚠️ Pause Platform Order Operations & Excel Uploads"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                padding: '0.85rem 1rem',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: 'var(--radius-md)',
+                color: '#EF4444',
+                fontSize: 'var(--font-size-xs)',
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>Caution — Platform Operational Freeze:</strong>
+              <ul style={{ margin: '0.4rem 0 0 1.1rem', padding: 0 }}>
+                <li>Customer checkouts and agent storefront purchases will be halted immediately.</li>
+                <li>Excel spreadsheet bulk uploads will be rejected with an informative notice.</li>
+                <li>All in-flight orders in <code>PROCESSING</code>, <code>SUBMITTED</code>, or <code>READY_FOR_FULFILLMENT</code> will be held in <code>PAUSED</code> status so upstream telecom APIs are not invoked.</li>
+                <li>You can export all paused orders into Excel (.xlsx) or CSV while paused.</li>
+              </ul>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, marginBottom: '0.25rem' }}>
+                Mandatory Operational Justification
+              </label>
+              <textarea
+                value={pauseReason}
+                onChange={(e) => setPauseReason(e.target.value)}
+                placeholder="Reason for pausing order operations (e.g. upstream telecom network downtime, reconciliation audit, maintenance)..."
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: 'var(--space-2)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border-subtle)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <Button variant="ghost" onClick={() => setIsPauseModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handlePauseOperations}
+                disabled={isPausing || !pauseReason.trim()}
+              >
+                {isPausing ? 'Pausing Operations...' : 'Confirm & Pause Order Operations'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 8. Resume Order Operations Modal */}
+      {isResumeModalOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsResumeModalOpen(false)}
+          title="▶️ Resume Platform Order Operations & Excel Uploads"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                padding: '0.85rem 1rem',
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                borderRadius: 'var(--radius-md)',
+                color: '#059669',
+                fontSize: 'var(--font-size-xs)',
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>Resuming Order Operations:</strong>
+              <p style={{ margin: '0.35rem 0 0 0' }}>
+                This will clear the operational freeze flag. Customer checkouts, agent storefront orders, and Excel uploads will resume immediately.
+              </p>
+            </div>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.6rem',
+                fontSize: 'var(--font-size-xs)',
+                cursor: 'pointer',
+                padding: '0.65rem 0.85rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-bg-subtle)',
+                border: '1px solid var(--color-border-subtle)',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={resumeAutoReenqueue}
+                onChange={(e) => setResumeAutoReenqueue(e.target.checked)}
+                style={{ marginTop: '0.15rem' }}
+              />
+              <div>
+                <strong style={{ display: 'block', color: 'var(--color-text-primary)' }}>
+                  Automatically re-enqueue held orders
+                </strong>
+                <span style={{ color: 'var(--color-text-muted)' }}>
+                  Restores held orders back to their previous status (<code>paused_from_status</code>) so background fulfillment queues process them upstream.
+                </span>
+              </div>
+            </label>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, marginBottom: '0.25rem' }}>
+                Resumption Notes (Optional)
+              </label>
+              <textarea
+                value={resumeReason}
+                onChange={(e) => setResumeReason(e.target.value)}
+                placeholder="Optional notes or operational clearance reference..."
+                rows={2}
+                style={{
+                  width: '100%',
+                  padding: 'var(--space-2)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border-subtle)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <Button variant="ghost" onClick={() => setIsResumeModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleResumeOperations}
+                disabled={isResuming}
+              >
+                {isResuming ? 'Resuming Operations...' : 'Confirm & Resume Operations'}
               </Button>
             </div>
           </div>

@@ -123,7 +123,7 @@ export const PublicStorefrontPage: React.FC = () => {
   const location = useLocation();
 
   const { toastSuccess, toastError, toastInfo } = useToast();
-  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
   const { resolvedTheme, toggleTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
 
@@ -703,6 +703,13 @@ function loadPaystackInlineScript(): Promise<boolean> {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
+    if (isOrderProcessingPaused) {
+      toastError(
+        'Orders Paused',
+        orderProcessingMessage || 'Order fulfillment is currently paused by platform administrators. Please check back shortly.',
+      );
+      return;
+    }
     if (!selectedProduct) return;
 
     const cleanRecipient = recipientPhone.trim().replace(/\s+/g, '');
@@ -1171,7 +1178,12 @@ function loadPaystackInlineScript(): Promise<boolean> {
         transition: 'background-color 200ms ease, color 200ms ease',
       }}
     >
-      <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
+      <MaintenanceBanner
+        isMaintenanceMode={isMaintenanceMode}
+        message={maintenanceMessage}
+        isOrderProcessingPaused={isOrderProcessingPaused}
+        orderProcessingMessage={orderProcessingMessage}
+      />
 
       {/* SCOPED RESPONSIVE & MOBILE-FIRST STYLES */}
       <style>{`
@@ -3316,9 +3328,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
             <form onSubmit={handleProcessCheckout} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {isMaintenanceMode && (
                 <div
-                  role="alert"
                   style={{
-                    padding: '0.65rem 0.85rem',
+                    padding: '0.625rem 0.875rem',
                     borderRadius: '8px',
                     backgroundColor: 'rgba(245, 158, 11, 0.12)',
                     border: '1px solid rgba(245, 158, 11, 0.35)',
@@ -3331,6 +3342,26 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 >
                   <AlertTriangle size={16} style={{ flexShrink: 0 }} />
                   <div>{maintenanceMessage || 'Checkout is temporarily paused for scheduled maintenance.'}</div>
+                </div>
+              )}
+
+              {isOrderProcessingPaused && !isMaintenanceMode && (
+                <div
+                  style={{
+                    padding: '0.625rem 0.875rem',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    color: '#EF4444',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                  <div>{orderProcessingMessage || 'Order fulfillment is temporarily paused for system maintenance. Please check back shortly.'}</div>
                 </div>
               )}
 
@@ -3453,23 +3484,23 @@ function loadPaystackInlineScript(): Promise<boolean> {
               <div style={{ marginTop: '0.5rem' }}>
                 <button
                   type="submit"
-                  disabled={isCheckingOut || isMaintenanceMode}
+                  disabled={isCheckingOut || isMaintenanceMode || isOrderProcessingPaused}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
                     borderRadius: '12px',
-                    backgroundColor: isMaintenanceMode ? '#334155' : brandAccent,
-                    color: isMaintenanceMode ? '#FFFFFF' : brandAccentContrast,
+                    backgroundColor: (isMaintenanceMode || isOrderProcessingPaused) ? '#334155' : brandAccent,
+                    color: (isMaintenanceMode || isOrderProcessingPaused) ? '#FFFFFF' : brandAccentContrast,
                     border: 'none',
                     fontSize: '13px',
                     fontWeight: 900,
-                    cursor: isCheckingOut ? 'wait' : isMaintenanceMode ? 'not-allowed' : 'pointer',
-                    opacity: isMaintenanceMode ? 0.65 : 1,
+                    cursor: isCheckingOut ? 'wait' : (isMaintenanceMode || isOrderProcessingPaused) ? 'not-allowed' : 'pointer',
+                    opacity: (isMaintenanceMode || isOrderProcessingPaused) ? 0.65 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    boxShadow: !isMaintenanceMode ? `0 4px 16px ${brandAccent}40` : 'none',
+                    boxShadow: !(isMaintenanceMode || isOrderProcessingPaused) ? `0 4px 16px ${brandAccent}40` : 'none',
                   }}
                 >
                   <Lock size={15} />
@@ -3478,6 +3509,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
                       ? 'Securing Payment...'
                       : isMaintenanceMode
                       ? 'Platform in Maintenance'
+                      : isOrderProcessingPaused
+                      ? 'Checkout Temporarily Paused'
                       : `Pay GH₵ ${(selectedProduct.retailPricePesewas / 100).toFixed(2)} via Paystack`}
                   </span>
                 </button>

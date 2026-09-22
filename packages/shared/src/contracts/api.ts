@@ -2260,10 +2260,27 @@ export interface AdminAuditExportRequest {
 }
 
 export interface AdminEmergencyControlToggleRequest {
-  controlKey: 'MAINTENANCE_MODE' | 'DISABLE_AGENT_STORES' | 'KILL_SWITCH_PAYSTACK' | 'KILL_SWITCH_TELECOM_DISPATCH' | 'EMERGENCY_READ_ONLY';
+  controlKey: 'MAINTENANCE_MODE' | 'DISABLE_AGENT_STORES' | 'KILL_SWITCH_PAYSTACK' | 'KILL_SWITCH_TELECOM_DISPATCH' | 'EMERGENCY_READ_ONLY' | 'PAUSE_ORDER_OPERATIONS';
   enabled: boolean;
   reason: string;
   stepUpConfirmation: string;
+}
+
+export interface AdminOrderProcessingStatusDto {
+  isPaused: boolean;
+  pausedCount: number;
+  pausedAt: string | null;
+  pausedBy?: string | null;
+  reason?: string | null;
+}
+
+export interface AdminPauseOrdersRequest {
+  reason: string;
+}
+
+export interface AdminResumeOrdersRequest {
+  resumePausedOrders?: boolean;
+  reason?: string;
 }
 
 // ----------------------------------------------------

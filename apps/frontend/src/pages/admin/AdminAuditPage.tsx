@@ -248,6 +248,12 @@ export const AdminAuditPage: React.FC = () => {
       status: false,
     },
     {
+      key: 'PAUSE_ORDER_OPERATIONS',
+      name: 'Global Pause: Order Processing & Excel Uploads',
+      desc: 'Freezes all customer purchases, agent storefront checkouts, and Excel bulk order uploads platform-wide, holding processing orders for safe inspection/export.',
+      status: false,
+    },
+    {
       key: 'DISABLE_AGENT_STORES',
       name: 'Kill Switch: Agent Storefronts',
       desc: 'Immediately pauses checkout processing on all agent public storefront subdomains.',

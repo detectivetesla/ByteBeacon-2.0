@@ -106,6 +106,8 @@ export const OrderStatusBadge: React.FC<{ status: OrderStatus | string; size?: '
       return <Badge variant="warning" size={size} dot>Pending</Badge>;
     case OrderStatus.FAILED:
       return <Badge variant="danger" size={size} dot>Failed</Badge>;
+    case OrderStatus.PAUSED:
+      return <Badge variant="danger" size={size} dot>Paused</Badge>;
     case OrderStatus.CANCELLED:
       return <Badge variant="neutral" size={size} dot>Cancelled</Badge>;
     default:

@@ -8,6 +8,7 @@ import { RateLimiterService } from '../../core/security/rate-limiter.service.js'
 import { createAuthHooks, extractApiKeyFromRequest } from '../../plugins/auth.plugin.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
+import { createOrderProcessingPauseHook } from '../../plugins/order-processing-pause.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BadRequestError } from '../../core/errors/app-error.js';
 import {
@@ -38,6 +39,7 @@ export async function bulkOrderRoutes(
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const bulkRateLimit = createRateLimitHook(rateLimiter, { limit: 10, windowSeconds: 60 });
   const maintenanceHook = createMaintenanceHook(featureFlagService);
+  const orderPauseHook = createOrderProcessingPauseHook(featureFlagService);
 
   // 1. CREATE BULK SUBMISSION
   app.post<{ Body: CreateBulkSubmissionRequest }>(
@@ -48,6 +50,7 @@ export async function bulkOrderRoutes(
         authHooks.authenticateCustomer,
         authHooks.requirePermission(Permission.ORDERS_CREATE),
         maintenanceHook,
+        orderPauseHook,
       ],
     },
     async (req: FastifyRequest<{ Body: CreateBulkSubmissionRequest }>, reply: FastifyReply) => {
@@ -108,6 +111,7 @@ export async function bulkOrderRoutes(
         authHooks.authenticate(Permission.ORDERS_CREATE),
         authHooks.requirePermission(Permission.ORDERS_CREATE),
         maintenanceHook,
+        orderPauseHook,
       ],
     },
     async (req: FastifyRequest<{ Body: AgentBulkOrderRequest }>, reply: FastifyReply) => {
@@ -147,6 +151,7 @@ export async function bulkOrderRoutes(
         bulkRateLimit,
         authHooks.authenticateCustomer,
         maintenanceHook,
+        orderPauseHook,
       ],
     },
     async (req: FastifyRequest, reply: FastifyReply) => {

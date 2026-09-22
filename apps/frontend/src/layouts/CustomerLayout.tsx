@@ -14,12 +14,17 @@ import { useWalletBalance } from '../hooks/useWalletBalance.js';
 export const CustomerLayout: React.FC = () => {
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const { balancePesewas } = useWalletBalance();
-  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
   const navigate = useNavigate();
 
   return (
     <>
-      <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
+      <MaintenanceBanner
+        isMaintenanceMode={isMaintenanceMode}
+        message={maintenanceMessage}
+        isOrderProcessingPaused={isOrderProcessingPaused}
+        orderProcessingMessage={orderProcessingMessage}
+      />
       <AppShell
         portalTitle="ByteBeacon"
         portalSubtitle="Customer Portal"

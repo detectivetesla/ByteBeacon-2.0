@@ -208,6 +208,9 @@ import {
   ProviderCapabilityType,
   ProviderIncidentSeverity,
   ProviderIncidentStatus,
+  AdminOrderProcessingStatusDto,
+  AdminPauseOrdersRequest,
+  AdminResumeOrdersRequest,
 } from '@bytebeacon/shared';
 
 
@@ -653,6 +656,7 @@ export interface AdminOrderStats {
   awaitingApproval: number;
   syncIssues: number;
   reconciliationRequired: number;
+  paused?: number;
 }
 
 export interface AdminOrderListItem {
@@ -667,6 +671,10 @@ export interface AdminOrderListItem {
   orderStatus: string;
   providerStatus: string;
   refundStatus?: string;
+  isPaused?: boolean;
+  pausedFromStatus?: string;
+  pausedAt?: string;
+  pauseReason?: string;
   createdAt: string;
   updatedAt?: string;
   userEmail?: string;
@@ -1022,6 +1030,22 @@ export const adminApi = {
 
   exportOrders: async (data: { format?: 'CSV' | 'JSON'; filter?: any } = {}) => {
     return apiClient.post('/admin/orders/export', data);
+  },
+
+  getOrderProcessingStatus: async () => {
+    return apiClient.get<AdminOrderProcessingStatusDto>('/admin/orders/processing-status');
+  },
+
+  pauseOrderOperations: async (data: AdminPauseOrdersRequest) => {
+    return apiClient.post<AdminOrderProcessingStatusDto>('/admin/orders/pause', data);
+  },
+
+  resumeOrderOperations: async (data: AdminResumeOrdersRequest = {}) => {
+    return apiClient.post<AdminOrderProcessingStatusDto>('/admin/orders/resume', data);
+  },
+
+  exportPausedOrders: async (data: { format?: 'XLSX' | 'CSV' } = { format: 'XLSX' }) => {
+    return apiClient.post<Blob>('/admin/orders/export-paused', data, { responseType: 'blob' });
   },
 
   // Pending MTN Approvals (Phase 11.5)

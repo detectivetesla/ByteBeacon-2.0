@@ -8,8 +8,17 @@ import { FulfillmentQueueService } from '../../core/providers/fulfillment-queue.
 import { ProviderReconciliationService } from '../../core/providers/provider-reconciliation.service.js';
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
+import * as XLSX from 'xlsx';
 import { NotFoundError, BadRequestError } from '../../core/errors/app-error.js';
-import { NetworkProvider, LedgerEntryType, LedgerAccountType, AuditCategory, AuditSeverity, AuditSource } from '@bytebeacon/shared';
+import {
+  NetworkProvider,
+  LedgerEntryType,
+  LedgerAccountType,
+  AuditCategory,
+  AuditSeverity,
+  AuditSource,
+  AuditResult,
+} from '@bytebeacon/shared';
 
 export interface AdminOrdersRouteDependencies {
   db: pg.Pool;
@@ -68,6 +77,45 @@ export async function adminOrdersRoutes(
     return sanitized;
   };
 
+  // Self-healing migration verification for paused orders schema
+  const ensurePausedOrdersSchema = async () => {
+    try {
+      await db.query(`
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(30);
+
+        DO $$
+        DECLARE
+            constraint_name TEXT;
+        BEGIN
+            SELECT con.conname INTO constraint_name
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_attribute att ON att.attrelid = rel.oid
+                AND att.attnum = ANY(con.conkey)
+            WHERE rel.relname = 'orders'
+              AND att.attname = 'order_status'
+              AND con.contype = 'c';
+
+            IF constraint_name IS NOT NULL THEN
+                EXECUTE format('ALTER TABLE orders DROP CONSTRAINT %I', constraint_name);
+            END IF;
+
+            ALTER TABLE orders
+                ADD CONSTRAINT orders_order_status_check
+                CHECK (order_status IN ('CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PAUSED'));
+        END $$;
+
+        CREATE INDEX IF NOT EXISTS idx_orders_is_paused ON orders(is_paused) WHERE is_paused = true;
+        CREATE INDEX IF NOT EXISTS idx_orders_paused_status ON orders(order_status) WHERE order_status = 'PAUSED';
+      `);
+    } catch {
+      // Non-fatal in test mocks or offline
+    }
+  };
+  ensurePausedOrdersSchema().catch(() => {});
+
   function buildOrderFilterClause(query: OrderFilterQueryParams = {}, startIdx = 1) {
     const whereConditions: string[] = [];
     const params: any[] = [];
@@ -78,6 +126,8 @@ export async function adminOrdersRoutes(
         whereConditions.push(`(o.order_status IN ('COMPLETED', 'DELIVERED', 'FULFILLED') OR po.provider_status IN ('COMPLETED', 'FULFILLED'))`);
       } else if (query.lifecycle === 'REFUNDED') {
         whereConditions.push(`(o.order_status = 'REFUNDED' OR o.refund_status = 'COMPLETED')`);
+      } else if (query.lifecycle === 'PAUSED') {
+        whereConditions.push(`(o.order_status = 'PAUSED' OR o.is_paused = true)`);
       } else {
         whereConditions.push(`o.order_status = $${idx}`);
         params.push(query.lifecycle);
@@ -195,6 +245,7 @@ export async function adminOrdersRoutes(
           COUNT(DISTINCT CASE WHEN o.order_status = 'FAILED' AND (po.provider_status IS NULL OR po.provider_status NOT IN ('COMPLETED', 'FULFILLED')) THEN o.id END) as "failed",
           COUNT(DISTINCT CASE WHEN o.order_status = 'REFUNDED' OR o.refund_status = 'COMPLETED' THEN o.id END) as "refunded",
           COUNT(DISTINCT CASE WHEN o.order_status = 'AWAITING_APPROVAL' THEN o.id END) as "awaitingApproval",
+          COUNT(DISTINCT CASE WHEN o.order_status = 'PAUSED' OR o.is_paused = true THEN o.id END) as "paused",
           COUNT(DISTINCT CASE WHEN o.provider_status IN ('SYNC_FAILED', 'STALE', 'RECONCILIATION_REQUIRED') OR po.provider_status IN ('SYNC_FAILED', 'STALE', 'RECONCILIATION_REQUIRED') THEN o.id END) as "syncIssues",
           COUNT(DISTINCT CASE WHEN o.order_status = 'COMPLETED' AND (o.provider_status = 'FAILED' OR po.provider_status = 'FAILED') THEN o.id END) as "reconciliationRequired"
         FROM orders o
@@ -214,7 +265,7 @@ export async function adminOrdersRoutes(
         app.log.error({ err }, '[ADMIN_ORDERS] Error calculating orders stats');
         return {
           rows: [{
-            totalOrders: 0, processing: 0, completed: 0, failed: 0, refunded: 0, awaitingApproval: 0, syncIssues: 0, reconciliationRequired: 0,
+            totalOrders: 0, processing: 0, completed: 0, failed: 0, refunded: 0, awaitingApproval: 0, paused: 0, syncIssues: 0, reconciliationRequired: 0,
           }],
         };
       });
@@ -229,6 +280,7 @@ export async function adminOrdersRoutes(
           failed: Number(r.failed || 0),
           refunded: Number(r.refunded || 0),
           awaitingApproval: Number(r.awaitingApproval || 0),
+          paused: Number(r.paused || 0),
           syncIssues: Number(r.syncIssues || 0),
           reconciliationRequired: Number(r.reconciliationRequired || 0),
         },
@@ -750,4 +802,387 @@ export async function adminOrdersRoutes(
         .send(csvRows);
     },
   );
+
+  // 8. GET /admin/orders/processing-status — Check whether order processing is paused
+  app.get(
+    '/admin/orders/processing-status',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (_req: FastifyRequest, reply: FastifyReply) => {
+      let isPaused = false;
+      let pausedAt: string | null = null;
+      let pausedBy: string | null = null;
+      let reason: string | null = null;
+      let pausedCount = 0;
+
+      try {
+        const ctrlRes = await db.query(
+          `SELECT is_enabled, last_toggled_at, last_toggled_by, last_justification
+           FROM emergency_system_controls
+           WHERE control_key = 'PAUSE_ORDER_OPERATIONS'
+           LIMIT 1`,
+        );
+        if (ctrlRes.rows.length > 0) {
+          isPaused = Boolean(ctrlRes.rows[0].is_enabled);
+          pausedAt = ctrlRes.rows[0].last_toggled_at;
+          pausedBy = ctrlRes.rows[0].last_toggled_by;
+          reason = ctrlRes.rows[0].last_justification;
+        }
+
+        const countRes = await db.query(
+          `SELECT COUNT(*) as cnt FROM orders WHERE is_paused = true OR order_status = 'PAUSED'`,
+        );
+        pausedCount = Number(countRes.rows[0]?.cnt || 0);
+      } catch (err: any) {
+        app.log.warn({ err: err?.message }, '[ADMIN_ORDERS] Error checking processing status');
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          isPaused,
+          pausedCount,
+          pausedAt,
+          pausedBy,
+          reason,
+        },
+      });
+    },
+  );
+
+  // 9. POST /admin/orders/pause — Pause all order processing, checkouts, and Excel bulk uploads
+  app.post<{
+    Body: { reason?: string };
+  }>(
+    '/admin/orders/pause',
+    {
+      preHandler: [authHooks.authenticateAdmin],
+    },
+    async (req: FastifyRequest<{ Body: { reason?: string } }>, reply: FastifyReply) => {
+      const { reason = 'Order processing paused by platform administrator.' } = req.body || {};
+
+      let affectedOrdersCount = 0;
+
+      try {
+        // 1. Activate emergency control
+        await db.query(
+          `INSERT INTO emergency_system_controls (
+             control_key, name, description, is_enabled, last_toggled_by, last_toggled_at, last_justification, updated_at
+           ) VALUES (
+             'PAUSE_ORDER_OPERATIONS', 'Pause All Order Processes & Activities', 'Platform order processing paused', true, $1, CURRENT_TIMESTAMP, $2, CURRENT_TIMESTAMP
+           )
+           ON CONFLICT (control_key) DO UPDATE SET
+             is_enabled = true,
+             last_toggled_by = EXCLUDED.last_toggled_by,
+             last_toggled_at = CURRENT_TIMESTAMP,
+             last_justification = EXCLUDED.last_justification,
+             updated_at = CURRENT_TIMESTAMP`,
+          [req.user!.sub, reason.trim()],
+        );
+
+        // 2. Sync to platform_feature_flags
+        await db.query(
+          `UPDATE platform_feature_flags
+           SET is_enabled = true, last_toggled_by = $1, last_toggled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE flag_key = 'PAUSE_ORDER_OPERATIONS'`,
+          [req.user!.sub],
+        ).catch(() => {});
+
+        // 3. Mark all active processing/submitted orders as PAUSED
+        const updateRes = await db.query(
+          `UPDATE orders
+           SET is_paused = true,
+               paused_at = CURRENT_TIMESTAMP,
+               paused_from_status = order_status,
+               order_status = 'PAUSED',
+               updated_at = CURRENT_TIMESTAMP
+           WHERE order_status IN ('PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT', 'VALIDATING')`,
+        );
+        affectedOrdersCount = updateRes.rowCount ?? 0;
+      } catch (err: any) {
+        app.log.error({ err: err?.message, userId: req.user!.sub }, '[ADMIN_ORDERS_PAUSE] Error pausing orders in database');
+      }
+
+      if (auditService) {
+        await auditService.logEvent?.({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_ORDER_PROCESSING_PAUSED',
+          category: AuditCategory.ADMIN_ACTION,
+          severity: AuditSeverity.CRITICAL,
+          resourceType: 'orders',
+          resourceId: 'global_order_processing',
+          reason: reason.trim(),
+          result: AuditResult.SUCCESS,
+          metadata: { affectedOrdersCount, reason: reason.trim() },
+          ipAddress: req.ip,
+        }).catch(() => {});
+      }
+
+      return reply.send({
+        success: true,
+        message: 'All order processes, activities, and bulk uploads have been paused successfully.',
+        data: {
+          isPaused: true,
+          affectedOrdersCount,
+          pausedAt: new Date().toISOString(),
+        },
+      });
+    },
+  );
+
+  // 10. POST /admin/orders/resume — Resume order operations & re-enqueue held orders
+  app.post<{
+    Body: { resumePausedOrders?: boolean; reason?: string };
+  }>(
+    '/admin/orders/resume',
+    {
+      preHandler: [authHooks.authenticateAdmin],
+    },
+    async (req: FastifyRequest<{ Body: { resumePausedOrders?: boolean; reason?: string } }>, reply: FastifyReply) => {
+      const { resumePausedOrders = true, reason = 'Order processing resumed by platform administrator.' } = req.body || {};
+
+      let resumedOrdersCount = 0;
+
+      try {
+        // 1. Deactivate emergency control
+        await db.query(
+          `UPDATE emergency_system_controls
+           SET is_enabled = false,
+               last_toggled_by = $1,
+               last_toggled_at = CURRENT_TIMESTAMP,
+               last_justification = $2,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE control_key = 'PAUSE_ORDER_OPERATIONS'`,
+          [req.user!.sub, reason.trim()],
+        );
+
+        // 2. Sync to platform_feature_flags
+        await db.query(
+          `UPDATE platform_feature_flags
+           SET is_enabled = false, last_toggled_by = $1, last_toggled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE flag_key = 'PAUSE_ORDER_OPERATIONS'`,
+          [req.user!.sub],
+        ).catch(() => {});
+
+        // 3. Restore paused orders back to their prior status
+        if (resumePausedOrders) {
+          const updateRes = await db.query(
+            `UPDATE orders
+             SET order_status = COALESCE(paused_from_status, 'PROCESSING'),
+                 is_paused = false,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE is_paused = true OR order_status = 'PAUSED'`,
+          );
+          resumedOrdersCount = updateRes.rowCount ?? 0;
+        }
+      } catch (err: any) {
+        app.log.error({ err: err?.message, userId: req.user!.sub }, '[ADMIN_ORDERS_RESUME] Error resuming orders in database');
+      }
+
+      if (auditService) {
+        await auditService.logEvent?.({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ADMIN_ORDER_PROCESSING_RESUMED',
+          category: AuditCategory.ADMIN_ACTION,
+          severity: AuditSeverity.HIGH,
+          resourceType: 'orders',
+          resourceId: 'global_order_processing',
+          reason: reason.trim(),
+          result: AuditResult.SUCCESS,
+          metadata: { resumedOrdersCount, resumePausedOrders, reason: reason.trim() },
+          ipAddress: req.ip,
+        }).catch(() => {});
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Order processes, activities, and bulk uploads have been resumed successfully.',
+        data: {
+          isPaused: false,
+          resumedOrdersCount,
+          resumedAt: new Date().toISOString(),
+        },
+      });
+    },
+  );
+
+  // 11. EXPORT PAUSED ORDERS (Excel XLSX / CSV / JSON)
+  const handleExportPausedOrders = async (req: FastifyRequest, reply: FastifyReply) => {
+    const rawFormat = ((req.query as any)?.format || (req.body as any)?.format || 'XLSX').toString().toUpperCase();
+    const format = rawFormat === 'CSV' ? 'CSV' : rawFormat === 'JSON' ? 'JSON' : 'XLSX';
+
+    const listRes = await db.query(`
+      SELECT 
+        o.id,
+        o.public_id as "publicId",
+        o.recipient_phone as "recipientPhone",
+        o.network,
+        o.data_amount_mb as "dataAmountMb",
+        o.amount_pesewas as "amountPesewas",
+        o.currency,
+        o.payment_status as "paymentStatus",
+        o.order_status as "orderStatus",
+        COALESCE(o.paused_from_status, 'PROCESSING') as "pausedFromStatus",
+        o.is_paused as "isPaused",
+        o.paused_at as "pausedAt",
+        o.created_at as "createdAt",
+        o.idempotency_key as "idempotencyKey",
+        u.email as "customerEmail",
+        u.full_name as "customerName",
+        u.phone as "customerPhone",
+        a.business_name as "agentBusinessName",
+        po.provider_name as "providerName",
+        po.provider_reference as "providerReference"
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN agents a ON o.agent_id = a.id
+      LEFT JOIN LATERAL (
+        SELECT provider_name, provider_reference
+        FROM provider_orders
+        WHERE order_id = o.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) po ON true
+      WHERE o.is_paused = true
+         OR o.order_status = 'PAUSED'
+         OR (o.paused_from_status IS NOT NULL AND o.paused_from_status = 'PROCESSING')
+      ORDER BY o.paused_at DESC NULLS LAST, o.created_at DESC
+      LIMIT 10000
+    `);
+
+    const timestampStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+    if (auditService) {
+      await auditService.logEvent?.({
+        correlationId: req.id,
+        actorId: req.user!.sub,
+        actorType: 'ADMIN',
+        action: 'EXPORT_PAUSED_PROCESSING_ORDERS',
+        category: AuditCategory.ADMIN_ACTION,
+        resourceType: 'orders',
+        resourceId: 'paused_batch',
+        result: AuditResult.SUCCESS,
+        metadata: { format, count: listRes.rows.length },
+      }).catch(() => {});
+    }
+
+    if (format === 'JSON') {
+      return reply
+        .header('Content-Type', 'application/json')
+        .header('Content-Disposition', `attachment; filename="paused_processing_orders_${timestampStr}.json"`)
+        .send(JSON.stringify(listRes.rows, null, 2));
+    }
+
+    if (format === 'CSV') {
+      const headers = [
+        'Order Public ID',
+        'Internal ID',
+        'Recipient Phone',
+        'Network',
+        'Data Size (MB)',
+        'Data Size (GB)',
+        'Amount (GHS)',
+        'Payment Status',
+        'Prior Status (Before Pause)',
+        'Current Order Status',
+        'Time Placed',
+        'Time Paused',
+        'Customer Name',
+        'Customer Email',
+        'Agent Business',
+        'Telecom Provider',
+        'Provider Reference',
+        'Idempotency Key',
+      ];
+
+      const csvLines = [
+        headers.join(','),
+        ...listRes.rows.map((r) => [
+          `"${r.publicId || ''}"`,
+          `"${r.id}"`,
+          `"${r.recipientPhone}"`,
+          `"${r.network}"`,
+          r.dataAmountMb,
+          (Number(r.dataAmountMb) / 1024).toFixed(2),
+          (Number(r.amountPesewas) / 100).toFixed(2),
+          `"${r.paymentStatus}"`,
+          `"${r.pausedFromStatus || 'PROCESSING'}"`,
+          `"${r.orderStatus}"`,
+          `"${r.createdAt}"`,
+          `"${r.pausedAt || ''}"`,
+          `"${(r.customerName || '').replace(/"/g, '""')}"`,
+          `"${r.customerEmail || ''}"`,
+          `"${(r.agentBusinessName || '').replace(/"/g, '""')}"`,
+          `"${r.providerName || 'N/A'}"`,
+          `"${r.providerReference || 'N/A'}"`,
+          `"${r.idempotencyKey || ''}"`,
+        ].join(',')),
+      ];
+
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="paused_processing_orders_${timestampStr}.csv"`)
+        .send(csvLines.join('\n'));
+    }
+
+    // Default: Native Excel XLSX Workbook
+    const sheetData = listRes.rows.map((r) => ({
+      'Order Public ID': r.publicId || r.id,
+      'Internal Order ID': r.id,
+      'Recipient Phone': r.recipientPhone,
+      'Network': r.network,
+      'Data Volume (MB)': Number(r.dataAmountMb),
+      'Data Volume (GB)': +(Number(r.dataAmountMb) / 1024).toFixed(2),
+      'Amount (GHS)': +(Number(r.amountPesewas) / 100).toFixed(2),
+      'Payment Status': r.paymentStatus,
+      'Prior Status (Before Pause)': r.pausedFromStatus || 'PROCESSING',
+      'Current Status': r.orderStatus,
+      'Date & Time Placed': r.createdAt ? new Date(r.createdAt).toLocaleString() : '',
+      'Date & Time Paused': r.pausedAt ? new Date(r.pausedAt).toLocaleString() : '',
+      'Customer Name': r.customerName || 'N/A',
+      'Customer Email': r.customerEmail || 'N/A',
+      'Agent Business Name': r.agentBusinessName || 'N/A',
+      'Telecom Provider': r.providerName || 'DataHouse',
+      'Provider Reference': r.providerReference || 'N/A',
+      'Idempotency Key': r.idempotencyKey || 'N/A',
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(sheetData);
+
+    ws['!cols'] = [
+      { wch: 18 },
+      { wch: 38 },
+      { wch: 16 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 15 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 22 },
+      { wch: 22 },
+      { wch: 22 },
+      { wch: 26 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 22 },
+      { wch: 24 },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Paused Processing Orders');
+    const xlsxBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    return reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="paused_processing_orders_${timestampStr}.xlsx"`)
+      .send(xlsxBuffer);
+  };
+
+  app.get('/admin/orders/export-paused', { preHandler: [authHooks.authenticateAdmin] }, handleExportPausedOrders);
+  app.post('/admin/orders/export-paused', { preHandler: [authHooks.authenticateAdmin] }, handleExportPausedOrders);
 }

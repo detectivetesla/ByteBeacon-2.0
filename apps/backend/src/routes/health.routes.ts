@@ -64,6 +64,7 @@ export async function healthRoutes(fastify: FastifyInstance) {
    */
   const handlePlatformStatus = async (_request: any, reply: any) => {
     let isMaintenance = false;
+    let isOrderProcessingPaused = false;
     const flagService = (fastify as any).featureFlagService;
     if (flagService) {
       try {
@@ -71,17 +72,31 @@ export async function healthRoutes(fastify: FastifyInstance) {
       } catch {
         isMaintenance = false;
       }
+      try {
+        isOrderProcessingPaused = await flagService.isOrderProcessingPaused();
+      } catch {
+        isOrderProcessingPaused = false;
+      }
+    }
+
+    let defaultMsg = 'All systems operational.';
+    if (isMaintenance) {
+      defaultMsg = 'Scheduled Maintenance in Progress: Telecom fulfillment and checkout are temporarily paused. You can still browse bundles, track past orders, and access your account.';
+    } else if (isOrderProcessingPaused) {
+      defaultMsg = 'Order Processing Paused: Customer and agent order checkouts and Excel bulk uploads are temporarily paused by administration. You can still browse and access your account.';
     }
 
     return reply.status(200).send({
       success: true,
       data: {
         isMaintenanceMode: isMaintenance,
+        isOrderProcessingPaused,
         platformStatus: isMaintenance ? 'MAINTENANCE' : 'OPERATIONAL',
         environment: process.env.NODE_ENV === 'production' ? 'PRODUCTION' : 'DEVELOPMENT / STAGING',
-        message: isMaintenance
-          ? 'Scheduled Maintenance in Progress: Telecom fulfillment and checkout are temporarily paused. You can still browse bundles, track past orders, and access your account.'
-          : 'All systems operational.',
+        message: defaultMsg,
+        orderProcessingMessage: isOrderProcessingPaused
+          ? 'Order processing, checkout, and bulk Excel uploads are temporarily paused by administration.'
+          : undefined,
         timestamp: new Date().toISOString(),
       },
     });

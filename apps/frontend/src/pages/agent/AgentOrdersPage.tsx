@@ -23,6 +23,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
+import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { ordersApi } from '../../api/orders.api.js';
 
 interface OrderRowData extends OrderDetailsItem {
@@ -32,6 +33,7 @@ interface OrderRowData extends OrderDetailsItem {
 export const AgentOrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const { toastSuccess, toastInfo } = useToast();
+  const { isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
 
   // Filters State
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -81,6 +83,8 @@ export const AgentOrdersPage: React.FC = () => {
           const rawStatus = (o.orderStatus || o.status || '').toUpperCase();
           if (rawStatus === 'APPROVED' || rawStatus === 'COMPLETED' || rawStatus === 'DELIVERED') {
             resolvedOrderStatus = OrderStatus.COMPLETED;
+          } else if (rawStatus === 'PAUSED' || o.isPaused) {
+            resolvedOrderStatus = OrderStatus.PAUSED;
           } else if (rawStatus === 'FAILED' || rawStatus === 'REJECTED') {
             resolvedOrderStatus = OrderStatus.FAILED;
           } else if (rawStatus === 'SUBMITTED' || rawStatus === 'RECEIVED' || rawStatus === 'CREATED') {
@@ -404,11 +408,49 @@ export const AgentOrdersPage: React.FC = () => {
             Export
           </Button>
 
-          <Button variant="primary" size="sm" onClick={() => navigate('/agent/buy-data')} leftIcon={<Plus size={15} />}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              if (isOrderProcessingPaused) {
+                toastInfo('Orders Paused', orderProcessingMessage || 'Order checkouts are temporarily paused by platform administrators.');
+                return;
+              }
+              navigate('/agent/buy-data');
+            }}
+            disabled={isOrderProcessingPaused}
+            title={isOrderProcessingPaused ? 'Order checkouts are temporarily paused' : undefined}
+            leftIcon={<Plus size={15} />}
+          >
             New Purchase
           </Button>
         </div>
       </div>
+
+      {/* Operations Freeze Notice */}
+      {isOrderProcessingPaused && (
+        <div
+          role="alert"
+          style={{
+            padding: '0.875rem 1.25rem',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            color: '#EF4444',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            fontSize: 'var(--font-size-sm)',
+            fontWeight: 600,
+          }}
+        >
+          <AlertCircle size={20} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <strong>Order Operations Paused:</strong>{' '}
+            {orderProcessingMessage || 'Platform administrators have temporarily paused order operations, bulk checkouts, and Excel uploads. Past orders and wallet balances remain accessible.'}
+          </div>
+        </div>
+      )}
 
       {/* 2. Four Premium Distinct Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
@@ -650,6 +692,7 @@ export const AgentOrdersPage: React.FC = () => {
               {[
                 { label: 'All', value: 'ALL' },
                 { label: 'Processing', value: OrderStatus.PROCESSING },
+                { label: 'Paused', value: OrderStatus.PAUSED },
                 { label: 'Delivered', value: OrderStatus.COMPLETED },
                 { label: 'Failed', value: OrderStatus.FAILED },
                 { label: 'Submitted', value: OrderStatus.SUBMITTED },
@@ -784,6 +827,7 @@ export const AgentOrdersPage: React.FC = () => {
               options={[
                 { label: 'All statuses', value: 'ALL' },
                 { label: 'Processing', value: OrderStatus.PROCESSING },
+                { label: 'Paused', value: OrderStatus.PAUSED },
                 { label: 'Delivered', value: OrderStatus.COMPLETED },
                 { label: 'Failed', value: OrderStatus.FAILED },
                 { label: 'Submitted', value: OrderStatus.SUBMITTED },
@@ -871,7 +915,18 @@ export const AgentOrdersPage: React.FC = () => {
               </p>
             </div>
             {orders.length === 0 ? (
-              <Button variant="primary" size="sm" onClick={() => navigate('/agent/buy-data')}>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  if (isOrderProcessingPaused) {
+                    toastInfo('Orders Paused', orderProcessingMessage || 'Order checkouts are temporarily paused by platform administrators.');
+                    return;
+                  }
+                  navigate('/agent/buy-data');
+                }}
+                disabled={isOrderProcessingPaused}
+              >
                 Buy Data
               </Button>
             ) : (

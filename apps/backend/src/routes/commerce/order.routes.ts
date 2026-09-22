@@ -8,6 +8,7 @@ import { RateLimiterService } from '../../core/security/rate-limiter.service.js'
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { createRateLimitHook } from '../../plugins/rate-limit.plugin.js';
 import { createMaintenanceHook } from '../../plugins/maintenance.plugin.js';
+import { createOrderProcessingPauseHook } from '../../plugins/order-processing-pause.plugin.js';
 import { FeatureFlagService } from '../../infrastructure/features/feature-flag.service.js';
 import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
 import { BadRequestError, InsufficientBalanceError, BeneficiaryNotValidatedError } from '../../core/errors/app-error.js';
@@ -45,6 +46,7 @@ export async function orderRoutes(
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
   const orderRateLimit = createRateLimitHook(rateLimiter, { limit: 120, windowSeconds: 60 });
   const maintenanceHook = createMaintenanceHook(featureFlagService);
+  const orderPauseHook = createOrderProcessingPauseHook(featureFlagService);
 
   // 1. CREATE ORDER (Returns 202 Accepted)
   app.post<{ Body: CreateOrderRequest }>(
@@ -55,6 +57,7 @@ export async function orderRoutes(
         authHooks.authenticateCustomer,
         authHooks.requirePermission(Permission.ORDERS_CREATE),
         maintenanceHook,
+        orderPauseHook,
       ],
     },
     async (req: FastifyRequest<{ Body: CreateOrderRequest }>, reply: FastifyReply) => {

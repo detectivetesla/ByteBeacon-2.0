@@ -189,6 +189,7 @@ export enum OrderStatus {
   COMPLETED = 'COMPLETED',
   FAILED = 'FAILED',
   CANCELLED = 'CANCELLED',
+  PAUSED = 'PAUSED',
 }
 
 export enum ProviderStatus {

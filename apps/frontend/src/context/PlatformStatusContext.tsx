@@ -7,12 +7,16 @@ export interface PlatformStatusData {
   environment?: string;
   message?: string;
   timestamp?: string;
+  isOrderProcessingPaused?: boolean;
+  orderProcessingMessage?: string;
 }
 
 export interface PlatformStatusContextType {
   isMaintenanceMode: boolean;
   platformStatus: 'OPERATIONAL' | 'MAINTENANCE';
   maintenanceMessage?: string;
+  isOrderProcessingPaused: boolean;
+  orderProcessingMessage?: string;
   isLoading: boolean;
   refetch: () => Promise<void>;
 }
@@ -23,6 +27,7 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
   const [statusData, setStatusData] = useState<PlatformStatusData>({
     isMaintenanceMode: false,
     platformStatus: 'OPERATIONAL',
+    isOrderProcessingPaused: false,
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -38,13 +43,17 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
         const nextEnv = res.environment;
         const nextMessage = res.message;
         const nextTimestamp = res.timestamp;
+        const nextOrderPaused = Boolean(res.isOrderProcessingPaused);
+        const nextOrderMessage = res.orderProcessingMessage;
 
         setStatusData((prev) => {
           if (
             prev.isMaintenanceMode === nextMaintenance &&
             prev.platformStatus === nextStatus &&
             prev.environment === nextEnv &&
-            prev.message === nextMessage
+            prev.message === nextMessage &&
+            prev.isOrderProcessingPaused === nextOrderPaused &&
+            prev.orderProcessingMessage === nextOrderMessage
           ) {
             return prev;
           }
@@ -54,6 +63,8 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
             environment: nextEnv,
             message: nextMessage,
             timestamp: nextTimestamp,
+            isOrderProcessingPaused: nextOrderPaused,
+            orderProcessingMessage: nextOrderMessage,
           };
         });
       }
@@ -67,7 +78,7 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
   useEffect(() => {
     fetchPlatformStatus();
 
-    // Poll status periodically every 60 seconds for maintenance enforcement without socket starvation
+    // Poll status periodically every 60 seconds for maintenance & order pause enforcement without socket starvation
     const interval = setInterval(fetchPlatformStatus, 60000);
 
     // Refresh when browser tab gains focus or returns online
@@ -87,6 +98,16 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
       fetchPlatformStatus();
     };
 
+    const handleOrderPauseEvent = (event: Event) => {
+      const customEvt = event as CustomEvent;
+      setStatusData((prev) => ({
+        ...prev,
+        isOrderProcessingPaused: true,
+        orderProcessingMessage: customEvt.detail?.message || prev.orderProcessingMessage,
+      }));
+      fetchPlatformStatus();
+    };
+
     const handleStatusCheckEvent = () => {
       fetchPlatformStatus();
     };
@@ -94,6 +115,7 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
     window.addEventListener('focus', handleFocus);
     window.addEventListener('online', handleFocus);
     window.addEventListener('platform-maintenance-active', handleMaintenanceEvent);
+    window.addEventListener('order-processing-pause-active', handleOrderPauseEvent);
     window.addEventListener('platform-status-check', handleStatusCheckEvent);
 
     return () => {
@@ -101,6 +123,7 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleFocus);
       window.removeEventListener('platform-maintenance-active', handleMaintenanceEvent);
+      window.removeEventListener('order-processing-pause-active', handleOrderPauseEvent);
       window.removeEventListener('platform-status-check', handleStatusCheckEvent);
     };
   }, [fetchPlatformStatus]);
@@ -111,6 +134,8 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
         isMaintenanceMode: statusData.isMaintenanceMode,
         platformStatus: statusData.platformStatus,
         maintenanceMessage: statusData.message,
+        isOrderProcessingPaused: Boolean(statusData.isOrderProcessingPaused),
+        orderProcessingMessage: statusData.orderProcessingMessage,
         isLoading,
         refetch: fetchPlatformStatus,
       }}
@@ -126,6 +151,7 @@ export const usePlatformStatus = (): PlatformStatusContextType => {
     return {
       isMaintenanceMode: false,
       platformStatus: 'OPERATIONAL',
+      isOrderProcessingPaused: false,
       isLoading: false,
       refetch: async () => {},
     };

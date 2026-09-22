@@ -102,7 +102,7 @@ export const BuyDataPage: React.FC = () => {
   const { user } = useAuth();
   const { balanceGhs } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
-  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
 
   // Role and portal channel detection
   const isAgentPortal =
@@ -603,6 +603,13 @@ export const BuyDataPage: React.FC = () => {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
+    if (isOrderProcessingPaused) {
+      toastError(
+        'Order Operations Paused',
+        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+      );
+      return;
+    }
     if (!currentSingleBundle || !currentSingleBundle.id) {
       toastError('Bundle Required', 'Please select a data bundle before submitting.');
       return;
@@ -812,6 +819,13 @@ export const BuyDataPage: React.FC = () => {
   const handleBulkNormalSubmit = async () => {
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
+    if (isOrderProcessingPaused) {
+      toastError(
+        'Order Operations Paused',
+        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+      );
       return;
     }
 
@@ -1073,6 +1087,13 @@ export const BuyDataPage: React.FC = () => {
   const handleBulkFreeSubmit = async () => {
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
+    if (isOrderProcessingPaused) {
+      toastError(
+        'Order Operations Paused',
+        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+      );
       return;
     }
     if (parsedFreeEntries.invalidCount > 0) {
@@ -1734,6 +1755,13 @@ export const BuyDataPage: React.FC = () => {
 
   // File Upload Handlers (Supports .xlsx, .xls, .csv standardized in GB)
   const handleFileUpload = async (file: File) => {
+    if (isOrderProcessingPaused) {
+      toastError(
+        'Excel Uploads Paused',
+        orderProcessingMessage || 'Spreadsheet uploads and batch processing are temporarily halted while order operations are paused.',
+      );
+      return;
+    }
     setExcelFile(file);
     setExcelLoading(true);
     setExcelFilter('ALL');
@@ -1997,6 +2025,13 @@ export const BuyDataPage: React.FC = () => {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
+    if (isOrderProcessingPaused) {
+      toastError(
+        'Order Operations Paused',
+        orderProcessingMessage || 'Order fulfillment and batch processing are currently paused by platform administration.',
+      );
+      return;
+    }
     if (!excelFile || excelParsedRows.length === 0) {
       toastError('No Orders', 'Please upload a spreadsheet first.');
       return;
@@ -2163,6 +2198,33 @@ export const BuyDataPage: React.FC = () => {
             </strong>
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
               {maintenanceMessage || 'Platform order fulfillment and checkout operations are temporarily paused for maintenance. You can still browse data packages and track existing orders.'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Order Processing Paused In-Page Alert Banner */}
+      {isOrderProcessingPaused && !isMaintenanceMode && (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-xl)',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            border: '1.5px solid rgba(239, 68, 68, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.85rem',
+            color: '#EF4444',
+          }}
+        >
+          <span style={{ fontSize: '1.25rem' }}>⚠️</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800 }}>
+              Order Operations & Excel Uploads Temporarily Paused
+            </strong>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+              {orderProcessingMessage || 'Order fulfillment, checkouts, and spreadsheet batch uploads are currently paused by platform administrators. You can configure orders, but new purchases and uploads cannot be submitted at this time.'}
             </span>
           </div>
         </div>

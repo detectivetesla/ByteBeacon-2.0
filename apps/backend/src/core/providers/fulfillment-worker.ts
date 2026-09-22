@@ -159,6 +159,18 @@ export class FulfillmentWorker {
         };
       }
 
+      // Guard: Check if this specific order is paused
+      if (order.order_status === 'PAUSED' || order.is_paused) {
+        logger.info({ orderId }, 'Order fulfillment skipped because order is paused');
+        return {
+          orderId,
+          success: false,
+          providerStatus: ProviderStatus.UNKNOWN,
+          orderStatus: 'PAUSED' as any,
+          error: 'Order fulfillment is currently paused',
+        };
+      }
+
       // Dispatch order.processing for agent orders entering active processing
       if (order.agent_id) {
         this.webhookDispatcher?.dispatchAgentEvent(order.agent_id, 'order.processing', {

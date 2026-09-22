@@ -269,6 +269,17 @@ export class HttpClient {
           );
         }
 
+        if (
+          typeof window !== 'undefined' &&
+          errorCode === 'ORDER_PROCESSING_PAUSED'
+        ) {
+          window.dispatchEvent(
+            new CustomEvent('order-processing-pause-active', {
+              detail: { message: errorMessage },
+            }),
+          );
+        }
+
         throw new ApiError(errorMessage, response.status, errorCode, details, requestId);
       }
 

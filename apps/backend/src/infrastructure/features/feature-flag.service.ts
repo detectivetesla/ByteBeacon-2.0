@@ -145,6 +145,49 @@ export class FeatureFlagService {
   }
 
   /**
+   * Helper to check if order processing & bulk activities are paused.
+   */
+  public async isOrderProcessingPaused(): Promise<boolean> {
+    // 1. Check in-memory override
+    const memOverride = this.memoryOverrides.get('PAUSE_ORDER_OPERATIONS');
+    if (memOverride !== undefined) {
+      return memOverride;
+    }
+
+    // 2. Check environment variable override
+    const envOverride = process.env.FF_PAUSE_ORDER_OPERATIONS;
+    if (envOverride === 'true' || envOverride === '1') {
+      return true;
+    }
+
+    // 3. Check database emergency controls and feature flags
+    if (this.db) {
+      try {
+        const res = await this.db.query<{ is_active: boolean }>(
+          `SELECT (
+            EXISTS (
+              SELECT 1 FROM emergency_system_controls
+              WHERE control_key IN ('PAUSE_ORDER_OPERATIONS', 'KILL_SWITCH_TELECOM_DISPATCH')
+                AND is_enabled = true
+            )
+            OR EXISTS (
+              SELECT 1 FROM platform_feature_flags
+              WHERE flag_key = 'PAUSE_ORDER_OPERATIONS' AND is_enabled = true
+            )
+          ) AS is_active`,
+        );
+        if (res.rows.length > 0) {
+          return Boolean(res.rows[0].is_active);
+        }
+      } catch (err: any) {
+        logger.warn({ err: err?.message }, '[FEATURE_FLAGS] Database lookup failed for order processing pause status');
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Sets an in-memory runtime override / emergency kill-switch.
    */
   public setOverride(flagName: string, isEnabled: boolean): void {

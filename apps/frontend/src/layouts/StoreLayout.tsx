@@ -27,7 +27,7 @@ import {
 export const StoreLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
   const { pendingCount } = usePendingApprovals();
   const location = useLocation();
   const navigate = useNavigate();
@@ -375,7 +375,12 @@ export const StoreLayout: React.FC = () => {
 
       {/* 2. Main Content Area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
+        <MaintenanceBanner
+          isMaintenanceMode={isMaintenanceMode}
+          message={maintenanceMessage}
+          isOrderProcessingPaused={isOrderProcessingPaused}
+          orderProcessingMessage={orderProcessingMessage}
+        />
         {/* Top Navbar */}
         <header
           className="store-top-header"

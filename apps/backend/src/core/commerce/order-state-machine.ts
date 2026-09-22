@@ -29,26 +29,39 @@ export class OrderStateMachine {
       OrderStatus.READY_FOR_FULFILLMENT,
       OrderStatus.CANCELLED,
       OrderStatus.FAILED,
+      OrderStatus.PAUSED,
     ],
     [OrderStatus.VALIDATING]: [
       OrderStatus.READY_FOR_FULFILLMENT,
       OrderStatus.FAILED,
       OrderStatus.CANCELLED,
+      OrderStatus.PAUSED,
     ],
     [OrderStatus.READY_FOR_FULFILLMENT]: [
       OrderStatus.SUBMITTED,
       OrderStatus.PROCESSING,
       OrderStatus.CANCELLED,
       OrderStatus.FAILED,
+      OrderStatus.PAUSED,
     ],
     [OrderStatus.SUBMITTED]: [
       OrderStatus.PROCESSING,
       OrderStatus.COMPLETED,
       OrderStatus.FAILED,
+      OrderStatus.PAUSED,
     ],
     [OrderStatus.PROCESSING]: [
       OrderStatus.COMPLETED,
       OrderStatus.FAILED,
+      OrderStatus.PAUSED,
+    ],
+    [OrderStatus.PAUSED]: [
+      OrderStatus.READY_FOR_FULFILLMENT,
+      OrderStatus.SUBMITTED,
+      OrderStatus.PROCESSING,
+      OrderStatus.COMPLETED,
+      OrderStatus.FAILED,
+      OrderStatus.CANCELLED,
     ],
     // Terminal States (No outward transitions)
     [OrderStatus.COMPLETED]: [],
@@ -128,7 +141,7 @@ export class OrderStateMachine {
     if (s === 'FAILED' || s === 'CANCELLED' || s === 'REJECTED') {
       return 'could_not_deliver';
     }
-    if (s === 'PROCESSING') {
+    if (s === 'PROCESSING' || s === 'PAUSED') {
       return 'processing';
     }
     return 'received';

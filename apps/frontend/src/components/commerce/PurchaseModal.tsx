@@ -139,7 +139,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   const { user, isAuthenticated } = useAuth();
   const { balanceGhs: liveBalanceGhs, refresh: refreshWalletBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
-  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
 
   const isBulk = Boolean(bulkItems && bulkItems.length > 0);
 
@@ -507,6 +507,13 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       );
       return;
     }
+    if (isOrderProcessingPaused) {
+      toastError(
+        'Order Operations Paused',
+        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+      );
+      return;
+    }
     const targetPhone = (
       recipientPhone ||
       initialRecipientPhone ||
@@ -732,6 +739,13 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       toastError(
         'Maintenance in Progress',
         'Platform checkout is temporarily paused for scheduled maintenance.',
+      );
+      return;
+    }
+    if (isOrderProcessingPaused) {
+      toastError(
+        'Order Operations Paused',
+        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
       );
       return;
     }
@@ -1031,6 +1045,31 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 <strong>Scheduled Maintenance in Progress:</strong>{' '}
                 {maintenanceMessage ||
                   'Telecom fulfillment and checkout are temporarily paused. Please check back shortly.'}
+              </div>
+            </div>
+          )}
+
+          {isOrderProcessingPaused && !isMaintenanceMode && (
+            <div
+              role="alert"
+              style={{
+                padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1.5px solid rgba(239, 68, 68, 0.35)',
+                color: '#EF4444',
+                fontSize: 'var(--font-size-xs)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.625rem',
+                lineHeight: 1.4,
+              }}
+            >
+              <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+              <div>
+                <strong>Order Operations Paused:</strong>{' '}
+                {orderProcessingMessage ||
+                  'Order fulfillment, checkouts, and uploads are temporarily paused by platform administrators.'}
               </div>
             </div>
           )}
@@ -1830,23 +1869,23 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
               <button
                 type="button"
                 onClick={handleValidateAndContinue}
-                disabled={!recipientPhone.trim() || isMaintenanceMode}
+                disabled={!recipientPhone.trim() || isMaintenanceMode || isOrderProcessingPaused}
                 style={{
                   padding: '0.45rem 1.25rem',
                   borderRadius: 'var(--radius-md)',
                   border: 'none',
-                  backgroundColor: isMaintenanceMode
+                  backgroundColor: isMaintenanceMode || isOrderProcessingPaused
                     ? 'var(--color-bg-surface-muted)'
                     : theme.buttonBg,
-                  color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                  color: isMaintenanceMode || isOrderProcessingPaused ? 'var(--color-text-muted)' : theme.buttonTextColor,
                   fontWeight: 800,
                   fontSize: 'var(--font-size-xs)',
-                  cursor: !recipientPhone.trim() || isMaintenanceMode ? 'not-allowed' : 'pointer',
-                  opacity: !recipientPhone.trim() || isMaintenanceMode ? 0.6 : 1,
-                  boxShadow: !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
+                  cursor: !recipientPhone.trim() || isMaintenanceMode || isOrderProcessingPaused ? 'not-allowed' : 'pointer',
+                  opacity: !recipientPhone.trim() || isMaintenanceMode || isOrderProcessingPaused ? 0.6 : 1,
+                  boxShadow: !isMaintenanceMode && !isOrderProcessingPaused ? `0 2px 8px ${theme.glowColor}` : 'none',
                 }}
               >
-                {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
+                {isOrderProcessingPaused ? 'Order Operations Paused' : isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
               </button>
             </>
           )}
@@ -1870,24 +1909,24 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 <button
                   type="button"
                   onClick={handlePaystackCheckout}
-                  disabled={isProcessing || isMaintenanceMode}
+                  disabled={isProcessing || isMaintenanceMode || isOrderProcessingPaused}
                   style={{
                     padding: '0.5rem 1.35rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: isMaintenanceMode
+                    backgroundColor: isMaintenanceMode || isOrderProcessingPaused
                       ? 'var(--color-bg-surface-muted)'
                       : theme.buttonBg,
-                    color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                    color: isMaintenanceMode || isOrderProcessingPaused ? 'var(--color-text-muted)' : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-xs)',
                     cursor: isProcessing
                       ? 'wait'
-                      : isMaintenanceMode
+                      : isMaintenanceMode || isOrderProcessingPaused
                         ? 'not-allowed'
                         : 'pointer',
-                    opacity: isProcessing || isMaintenanceMode ? 0.6 : 1,
-                    boxShadow: !isMaintenanceMode ? `0 2px 10px ${theme.glowColor}` : 'none',
+                    opacity: isProcessing || isMaintenanceMode || isOrderProcessingPaused ? 0.6 : 1,
+                    boxShadow: !isMaintenanceMode && !isOrderProcessingPaused ? `0 2px 10px ${theme.glowColor}` : 'none',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.4rem',
@@ -1897,7 +1936,9 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   <span>
                     {isProcessing
                       ? 'Connecting...'
-                      : isMaintenanceMode
+                      : isOrderProcessingPaused
+                        ? 'Order Operations Paused'
+                        : isMaintenanceMode
                         ? 'Platform in Maintenance'
                         : `Pay ${amountDisplay} via Paystack`}
                   </span>
@@ -1906,29 +1947,29 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 <button
                   type="button"
                   onClick={handleWalletPurchase}
-                  disabled={isProcessing || !isSufficient || isMaintenanceMode}
+                  disabled={isProcessing || !isSufficient || isMaintenanceMode || isOrderProcessingPaused}
                   style={{
                     padding: '0.45rem 1.25rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
                     backgroundColor:
-                      isSufficient && !isMaintenanceMode
+                      isSufficient && !isMaintenanceMode && !isOrderProcessingPaused
                         ? theme.buttonBg
                         : 'var(--color-bg-surface-muted)',
                     color:
-                      isSufficient && !isMaintenanceMode
+                      isSufficient && !isMaintenanceMode && !isOrderProcessingPaused
                         ? theme.buttonTextColor
                         : 'var(--color-text-muted)',
                     fontWeight: 800,
                     fontSize: 'var(--font-size-xs)',
                     cursor: isProcessing
                       ? 'wait'
-                      : !isSufficient || isMaintenanceMode
+                      : !isSufficient || isMaintenanceMode || isOrderProcessingPaused
                         ? 'not-allowed'
                         : 'pointer',
-                    opacity: isProcessing ? 0.8 : !isSufficient || isMaintenanceMode ? 0.6 : 1,
+                    opacity: isProcessing ? 0.8 : !isSufficient || isMaintenanceMode || isOrderProcessingPaused ? 0.6 : 1,
                     boxShadow:
-                      isSufficient && !isMaintenanceMode
+                      isSufficient && !isMaintenanceMode && !isOrderProcessingPaused
                         ? `0 2px 8px ${theme.glowColor}`
                         : 'none',
                     display: 'inline-flex',
@@ -1940,7 +1981,9 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   <span>
                     {isProcessing
                       ? 'Deducting...'
-                      : isMaintenanceMode
+                      : isOrderProcessingPaused
+                        ? 'Order Operations Paused'
+                        : isMaintenanceMode
                         ? 'Platform in Maintenance'
                         : 'Confirm Purchase'}
                   </span>

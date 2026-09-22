@@ -14,7 +14,7 @@ import { storesApi } from '../api/stores.api.js';
 export const AgentLayout: React.FC = () => {
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const { balancePesewas } = useWalletBalance();
-  const { isMaintenanceMode, maintenanceMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
   const [storeSlug, setStoreSlug] = useState<string | undefined>(undefined);
   const [isStoreApproved, setIsStoreApproved] = useState<boolean>(false);
   const navigate = useNavigate();
@@ -55,7 +55,12 @@ export const AgentLayout: React.FC = () => {
 
   return (
     <>
-      <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
+      <MaintenanceBanner
+        isMaintenanceMode={isMaintenanceMode}
+        message={maintenanceMessage}
+        isOrderProcessingPaused={isOrderProcessingPaused}
+        orderProcessingMessage={orderProcessingMessage}
+      />
       <AppShell
         portalTitle="ByteBeacon"
         portalSubtitle="Agent Operations"
