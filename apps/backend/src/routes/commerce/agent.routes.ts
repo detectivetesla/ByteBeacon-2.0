@@ -1799,17 +1799,17 @@ export async function agentRoutes(
 
     // 3. Reconcile: ensure users.wallet_balance_pesewas matches authoritative balance
     // If ledger has a higher balance (e.g. from topup), sync users table.
-    // If users has a balance but ledger is uninitialized, keep users balance authoritative.
     let balancePesewas = userBalancePesewas;
     if (ledgerBalancePesewas > userBalancePesewas) {
       balancePesewas = ledgerBalancePesewas;
+      const balanceGhs = Number((balancePesewas / 100).toFixed(2));
       db.query(
         `UPDATE users
          SET wallet_balance_pesewas = $1,
-             wallet_balance = ROUND($1 / 100.0, 2),
+             wallet_balance = $2,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [balancePesewas, userId],
+         WHERE id = $3`,
+        [balancePesewas, balanceGhs, userId],
       ).catch(() => {});
     } else if (userBalancePesewas > 0 && ledgerBalancePesewas === 0) {
       balancePesewas = userBalancePesewas;

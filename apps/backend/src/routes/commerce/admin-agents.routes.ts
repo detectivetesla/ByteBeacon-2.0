@@ -1222,13 +1222,14 @@ export async function adminAgentsRoutes(
           }
 
           // Update user wallet projection
+          const newBalanceGhs = Number((newBalance / 100).toFixed(2));
           await client.query(
             `UPDATE users
              SET wallet_balance_pesewas = $1,
-                 wallet_balance = ROUND($1 / 100.0, 2),
+                 wallet_balance = $2,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = $2`,
-            [newBalance, userId],
+             WHERE id = $3`,
+            [newBalance, newBalanceGhs, userId],
           );
 
           await client.query('COMMIT');
