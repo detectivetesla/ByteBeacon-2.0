@@ -14,12 +14,57 @@
       "destination": "/api/og?slug=:slug"
     },
     {
+      "source": "/favicon.ico",
+      "has": [
+        {
+          "type": "host",
+          "value": "(?i).*apisolutions\\.store"
+        }
+      ],
+      "destination": "/storefront-icon.png"
+    },
+    {
+      "source": "/favicon.png",
+      "has": [
+        {
+          "type": "host",
+          "value": "(?i).*apisolutions\\.store"
+        }
+      ],
+      "destination": "/storefront-icon.png"
+    },
+    {
+      "source": "/logo.png",
+      "has": [
+        {
+          "type": "host",
+          "value": "(?i).*apisolutions\\.store"
+        }
+      ],
+      "destination": "/storefront-icon.png"
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "(?i).*apisolutions\\.store"
+        },
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i).*(facebookexternalhit|whatsapp|twitterbot|telegrambot|slackbot|discordbot|applebot|linkedinbot|pinterest|googlebot|bingbot|baiduspider|yandexbot|duckduckbot).*"
+        }
+      ],
+      "destination": "/api/storefront"
+    },
+    {
       "source": "/store/:slug",
       "has": [
         {
           "type": "header",
           "key": "user-agent",
-          "value": ".*(facebookexternalhit|whatsapp|twitterbot|telegrambot|slackbot|discordbot|applebot|linkedinbot|pinterest|googlebot|bingbot).*"
+          "value": "(?i).*(facebookexternalhit|whatsapp|twitterbot|telegrambot|slackbot|discordbot|applebot|linkedinbot|pinterest|googlebot|bingbot|baiduspider|yandexbot|duckduckbot).*"
         }
       ],
       "destination": "/api/storefront?slug=:slug"
@@ -30,10 +75,20 @@
         {
           "type": "header",
           "key": "user-agent",
-          "value": ".*(facebookexternalhit|whatsapp|twitterbot|telegrambot|slackbot|discordbot|applebot|linkedinbot|pinterest|googlebot|bingbot).*"
+          "value": "(?i).*(facebookexternalhit|whatsapp|twitterbot|telegrambot|slackbot|discordbot|applebot|linkedinbot|pinterest|googlebot|bingbot|baiduspider|yandexbot|duckduckbot).*"
         }
       ],
       "destination": "/api/storefront?slug=:slug"
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "(?i).*apisolutions\\.store"
+        }
+      ],
+      "destination": "/apisolutions.html"
     },
     {
       "source": "/(.*)",

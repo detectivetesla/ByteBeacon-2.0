@@ -25,6 +25,10 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 600,
     rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        apisolutions: path.resolve(__dirname, 'apisolutions.html'),
+      },
       output: {
         manualChunks: {
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],

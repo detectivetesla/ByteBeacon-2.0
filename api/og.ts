@@ -68,13 +68,19 @@ export default async function handler(req: any, res: any) {
   }
 
   // Otherwise, render full 1200x630 high-res social card (or logo badge if requested)
-  const storeName = (store?.storeName || (slug ? humanize(slug) : 'Mobile Data Store')).trim();
+  const isApex = !slug;
+  const storeName = (isApex ? 'API Solutions' : (store?.storeName || humanize(slug) || 'Mobile Data Store')).trim();
   const primaryColor = /^#[0-9A-Fa-f]{6}$/.test(store?.primaryColor) ? store.primaryColor : '#0066FF';
-  const tagline = (store?.tagline || store?.description || 'Fast, reliable and instant mobile data activation across MTN, Telecel, and AT').trim();
+  const tagline = (
+    isApex
+      ? 'Instant automated mobile telecom data delivery across MTN, Telecel, and AT in Ghana'
+      : (store?.tagline || store?.description || 'Fast, reliable and instant mobile data activation across MTN, Telecel, and AT')
+  ).trim();
   const safeName = escapeXml(storeName);
   const safeColor = primaryColor;
-  const initial = escapeXml((storeName || 'D').trim().charAt(0).toUpperCase() || 'D');
+  const initial = escapeXml((isApex ? 'A' : ((storeName || 'D').trim().charAt(0).toUpperCase() || 'D')));
   const safeTagline = escapeXml(tagline);
+  const badgeText = isApex ? '✓ OFFICIAL NETWORK' : '✓ VERIFIED AGENT STORE';
 
   let logoMarkup = '';
   if (logoUrl && typeof logoUrl === 'string' && logoUrl.trim()) {
@@ -114,8 +120,8 @@ export default async function handler(req: any, res: any) {
     ${logoMarkup}
     
     <!-- Verified Badge -->
-    <rect x="256" y="146" width="220" height="42" rx="21" fill="#10B981" fill-opacity="0.15" stroke="#10B981" stroke-width="1.5" />
-    <text x="366" y="173" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" fill="#10B981" text-anchor="middle">✓ VERIFIED AGENT STORE</text>
+    <rect x="256" y="146" width="${isApex ? '200' : '220'}" height="42" rx="21" fill="#10B981" fill-opacity="0.15" stroke="#10B981" stroke-width="1.5" />
+    <text x="${isApex ? '356' : '366'}" y="173" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" fill="#10B981" text-anchor="middle">${badgeText}</text>
     
     <!-- Storefront Name -->
     <text x="120" y="285" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="54" font-weight="800" fill="#FFFFFF">${safeName}</text>
