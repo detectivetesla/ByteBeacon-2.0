@@ -286,7 +286,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
         window.dispatchEvent(new CustomEvent('pending-approvals-updated'));
       }
     } catch {
-      toastError('Carrier Sync Failed', 'Unable to check live status with MTN DataHouse.');
+      toastError('Carrier Sync Failed', 'Unable to check live status with the carrier provider.');
     } finally {
       setSyncingId(null);
     }
@@ -371,7 +371,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
         isValid: valid,
         accountName: first?.accountName,
         message: valid
-          ? 'Number is APPROVED and whitelisted on MTN DataHouse.'
+          ? 'Number is APPROVED and whitelisted by the carrier provider.'
           : 'Number is NOT on MTN whitelist. It has been automatically recorded to Pending Approvals.',
       });
 
@@ -1115,7 +1115,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '0.5rem 0' }}>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
-            Query the MTN DataHouse carrier database in real time to verify whether a recipient number is approved and whitelisted for instant bundle fulfillment.
+            Query the carrier database in real time to verify whether a recipient number is approved and whitelisted for instant bundle fulfillment.
           </p>
 
           <PhoneInput

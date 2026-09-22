@@ -469,6 +469,21 @@ export class TelecomProviderRegistry implements ITelecomProvider {
     return this.getActiveProvider();
   }
 
+  /**
+   * Checks whether the active provider natively supports beneficiary precheck enforcement.
+   * Returns false when the provider does not implement precheck, meaning MTN orders
+   * should be fulfilled directly without requiring beneficiary pre-validation.
+   */
+  public activeProviderSupportsPrecheck(): boolean {
+    const active = this.getActiveProvider();
+    // The registry itself always has precheck methods (fallbacks), so we need to check
+    // if the actual underlying provider implements them natively.
+    if (active === this as unknown as ITelecomProvider) {
+      return false;
+    }
+    return Boolean(active.precheckBeneficiaries || active.precheckPublicBeneficiaries);
+  }
+
   public listRegisteredProviders(): Array<{
     name: string;
     isAuthoritative: boolean;
@@ -539,24 +554,29 @@ export class TelecomProviderRegistry implements ITelecomProvider {
     if (provider.precheckBeneficiaries) {
       return provider.precheckBeneficiaries(input);
     }
-    const isMtn = input.network === NetworkProvider.MTN;
+    // Provider does not support precheck — treat all valid numbers as known and orderable.
+    // Do NOT enforce precheck for MTN when the active provider lacks this capability.
     return {
       network: input.network,
-      enforced: isMtn,
+      enforced: false,
       sandbox: false,
       recorded: false,
+      reason: 'provider_no_precheck',
       summary: {
         total: input.phoneNumbers.length,
-        known: isMtn ? 0 : input.phoneNumbers.length,
-        unknown: isMtn ? input.phoneNumbers.length : 0,
+        known: input.phoneNumbers.length,
+        unknown: 0,
         valid: input.phoneNumbers.length,
         invalid: 0,
       },
-      unknown: isMtn ? [...input.phoneNumbers] : [],
+      unknown: [],
       results: input.phoneNumbers.map((phone) => ({
         phoneNumber: phone,
-        isKnown: !isMtn,
+        isKnown: true,
         isValid: true,
+        orderable: true,
+        status: 'APPROVED',
+        message: 'Provider does not require beneficiary pre-validation',
       })),
     };
   }

@@ -45,6 +45,31 @@ export class BeneficiaryService {
     return this.circuitBreaker;
   }
 
+  /**
+   * Checks whether the current active telecom provider supports beneficiary precheck enforcement.
+   * When false, MTN numbers should be treated as orderable without requiring pre-validation.
+   */
+  private providerSupportsPrecheckEnforcement(): boolean {
+    if (!this.telecomProvider) return false;
+    // If the provider is a TelecomProviderRegistry, use its dedicated method
+    if (typeof (this.telecomProvider as any).activeProviderSupportsPrecheck === 'function') {
+      return (this.telecomProvider as any).activeProviderSupportsPrecheck();
+    }
+    // For direct provider instances, check if precheck methods exist
+    return Boolean(this.telecomProvider.precheckBeneficiaries || this.telecomProvider.precheckPublicBeneficiaries);
+  }
+
+  /**
+   * Returns a dynamic provider reference string for DB records instead of hardcoded 'DH-PRECHECK'.
+   */
+  private providerPrecheckReference(): string {
+    const name = this.telecomProvider?.providerName;
+    if (name) {
+      return `${name.toUpperCase().replace(/[^A-Z0-9]/g, '')}-PRECHECK`;
+    }
+    return 'PROVIDER-PRECHECK';
+  }
+
   public async validatePhoneNumber(
     phoneNumber: string,
     network: NetworkProvider,
@@ -260,6 +285,42 @@ export class BeneficiaryService {
       };
     }
 
+    // Provider-aware enforcement check: if the active provider does not support precheck,
+    // treat MTN numbers the same as non-MTN — all valid numbers are orderable.
+    if (!this.providerSupportsPrecheckEnforcement()) {
+      const results = parsedItems.map((item) => ({
+        phone: item.raw,
+        phoneNumber: item.raw,
+        normalized: item.normalized,
+        valid: item.valid,
+        isValid: item.valid,
+        known: item.valid,
+        isKnown: item.valid,
+        orderable: item.valid,
+        status: item.valid ? 'APPROVED' : 'REJECTED',
+        message: item.valid ? 'Provider does not require beneficiary pre-validation' : 'Invalid Ghanaian phone number format',
+      }));
+      return {
+        network: net,
+        enforced: false,
+        sandbox: false,
+        recorded: false,
+        reason: 'provider_no_precheck',
+        summary: {
+          requested: phoneNumbers.length,
+          unique: parsedItems.length,
+          valid: results.filter((r) => r.valid).length,
+          invalid: results.filter((r) => !r.valid).length,
+          known: results.filter((r) => r.known).length,
+          unknown: 0,
+          orderable: results.filter((r) => r.orderable).length,
+        },
+        unknown: [],
+        portedCandidates: [],
+        results,
+      };
+    }
+
     const knownPhonesSet = new Set<string>();
     const accountNamesMap = new Map<string, string>();
     const portedCandidatesSet = new Set<string>();
@@ -442,20 +503,21 @@ export class BeneficiaryService {
           source: 'telecom_provider_precheck',
           verifiedAt: new Date().toISOString(),
         });
+        const provRef = this.providerPrecheckReference();
         await this.db.query(
           `INSERT INTO beneficiary_validation (
             phone_number, network, validation_status, validated_at, expires_at,
             provider_reference, provider_response_metadata, created_at, updated_at
           )
-          SELECT unk, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-PRECHECK', $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          SELECT unk, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', $3, $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
           FROM unnest($1::text[]) AS unk
           ON CONFLICT (phone_number, network) DO UPDATE
           SET validation_status = 'VALID',
               validated_at = CURRENT_TIMESTAMP,
               expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
-              provider_reference = 'DH-PRECHECK',
+              provider_reference = $3,
               updated_at = CURRENT_TIMESTAMP`,
-          [uniqueNewlyApproved, meta],
+          [uniqueNewlyApproved, meta, provRef],
         ).catch(() => {});
 
         await this.db.query(
@@ -730,7 +792,7 @@ export class BeneficiaryService {
 
     return {
       network: net,
-      enforced: true,
+      enforced: this.providerSupportsPrecheckEnforcement(),
       sandbox: false,
       recorded,
       summary: {
@@ -867,6 +929,43 @@ export class BeneficiaryService {
         sandbox: false,
         recorded: false,
         reason: 'non_mtn',
+        summary: {
+          requested: requestedCount,
+          unique: uniqueItems.length,
+          valid: results.filter((r) => r.valid).length,
+          invalid: results.filter((r) => !r.valid).length,
+          known: results.filter((r) => r.known).length,
+          unknown: 0,
+          orderable: results.filter((r) => r.orderable).length,
+        },
+        unknown: [],
+        portedCandidates: [],
+        results,
+      };
+    }
+
+    // 2b. Provider-aware enforcement check: if the active provider does not support precheck,
+    // treat MTN numbers the same as non-MTN — all valid numbers are orderable.
+    if (!this.providerSupportsPrecheckEnforcement()) {
+      const results = uniqueItems.map((item) => ({
+        phone: item.phone,
+        phoneNumber: item.phone,
+        normalized: item.normalized,
+        valid: item.valid,
+        isValid: item.valid,
+        known: item.valid,
+        isKnown: item.valid,
+        orderable: item.valid,
+        status: item.valid ? 'APPROVED' : 'REJECTED',
+        message: item.valid ? 'Provider does not require beneficiary pre-validation' : 'Invalid Ghanaian phone number format',
+      }));
+
+      return {
+        network: net,
+        enforced: false,
+        sandbox: false,
+        recorded: false,
+        reason: 'provider_no_precheck',
         summary: {
           requested: requestedCount,
           unique: uniqueItems.length,
@@ -1140,20 +1239,21 @@ export class BeneficiaryService {
             source: 'telecom_provider_precheck',
             verifiedAt: new Date().toISOString(),
           });
+          const provRef = this.providerPrecheckReference();
           this.db.query(
             `INSERT INTO beneficiary_validation (
               phone_number, network, validation_status, validated_at, expires_at,
               provider_reference, provider_response_metadata, created_at, updated_at
             )
-            SELECT unk, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', 'DH-PRECHECK', $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            SELECT unk, 'MTN', 'VALID', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', $3, $2::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             FROM unnest($1::text[]) AS unk
             ON CONFLICT (phone_number, network) DO UPDATE
             SET validation_status = 'VALID',
                 validated_at = CURRENT_TIMESTAMP,
                 expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days',
-                provider_reference = 'DH-PRECHECK',
+                provider_reference = $3,
                 updated_at = CURRENT_TIMESTAMP`,
-            [uniqueNewlyApproved, meta],
+            [uniqueNewlyApproved, meta, provRef],
           ).catch(() => {});
 
           this.db.query(
@@ -1399,7 +1499,7 @@ export class BeneficiaryService {
 
     return {
       network: net,
-      enforced: true,
+      enforced: this.providerSupportsPrecheckEnforcement(),
       sandbox: false,
       recorded,
       summary: {

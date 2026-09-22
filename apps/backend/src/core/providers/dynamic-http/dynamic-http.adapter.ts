@@ -806,24 +806,29 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
       // Fallback
     }
 
-    const isMtn = input.network === NetworkProvider.MTN;
+    // Fallback: provider's precheck endpoint is unavailable or not configured.
+    // Do NOT enforce precheck — treat all numbers as orderable.
     return {
       network: input.network,
-      enforced: isMtn,
+      enforced: false,
       sandbox: false,
       recorded: false,
+      reason: 'provider_no_precheck',
       summary: {
         total: input.phoneNumbers.length,
-        known: isMtn ? 0 : input.phoneNumbers.length,
-        unknown: isMtn ? input.phoneNumbers.length : 0,
+        known: input.phoneNumbers.length,
+        unknown: 0,
         valid: input.phoneNumbers.length,
         invalid: 0,
       },
-      unknown: isMtn ? [...input.phoneNumbers] : [],
+      unknown: [],
       results: input.phoneNumbers.map((phone) => ({
         phoneNumber: phone,
-        isKnown: !isMtn,
+        isKnown: true,
         isValid: true,
+        orderable: true,
+        status: 'APPROVED',
+        message: 'Provider does not require beneficiary pre-validation',
       })),
     };
   }
@@ -1236,5 +1241,23 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     } catch {
       return false;
     }
+  }
+
+  public async getCapabilities(): Promise<Record<string, boolean>> {
+    const paths = this.config.endpointPaths || {};
+    return {
+      NETWORKS: true,
+      CATALOG: Boolean(paths.bundles || paths.catalog),
+      BENEFICIARY_VALIDATION: Boolean(paths.validateBeneficiary),
+      SINGLE_ORDERS: Boolean(paths.submitOrder || paths.order),
+      BULK_ORDERS: Boolean(paths.submitBulkOrder || paths.bulkOrder),
+      ORDER_STATUS: Boolean(paths.orderStatus || paths.status),
+      WEBHOOKS: Boolean(this.config.webhookSecret),
+      RECONCILIATION: false,
+      REFUNDS: false,
+      SANDBOX: true,
+      PRECHECK: Boolean(paths.precheck || paths.publicPrecheck),
+      WALLET_BALANCE: Boolean(paths.walletBalance || paths.balance),
+    };
   }
 }

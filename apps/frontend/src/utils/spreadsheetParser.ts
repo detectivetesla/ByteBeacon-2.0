@@ -195,6 +195,7 @@ export async function parseSpreadsheetFile(
   fileOrBuffer: File | Blob | ArrayBuffer,
   availableBundles: BundleItem[],
   selectedNetwork?: string,
+  providerEnforcesPrecheck: boolean = true,
 ): Promise<SpreadsheetParseResult> {
   let arrayBuffer: ArrayBuffer;
 
@@ -503,7 +504,7 @@ export async function parseSpreadsheetFile(
       if (isCarrierMismatch) {
         status = 'REJECTED';
         statusReason = `Appears to be on ${detected} rather than ${selectedNetwork || rowNetwork}. Tick if ported.`;
-      } else if (isMtn) {
+      } else if (isMtn && providerEnforcesPrecheck) {
         status = 'UNAPPROVED';
         statusReason = 'Pending MTN Up2U precheck';
       } else {
@@ -524,7 +525,7 @@ export async function parseSpreadsheetFile(
       isValid: isValid,
       status,
       statusReason,
-      isKnown: isValid && !isMtn,
+      isKnown: isValid && (!isMtn || !providerEnforcesPrecheck),
       rawPhone,
       rawVolume: rawVol,
       error: errorMsg,
