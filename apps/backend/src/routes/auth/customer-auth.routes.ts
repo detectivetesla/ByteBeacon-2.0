@@ -205,23 +205,27 @@ export async function customerAuthRoutes(
       });
 
       // Automated welcome notification & transactional email for new customer
-      notificationService.sendWelcomeCustomer({
-        userId: user.id,
-        email: user.email,
-        fullName: user.fullName,
-      }).catch((notifErr: any) => {
-        logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_REGISTER] Failed to dispatch welcome notification');
-      });
-
-      // Automated "Become an Agent" prompt for customer
-      if (user.role === UserRole.CUSTOMER) {
-        notificationService.sendAgentOpportunityPrompt({
+      try {
+        await notificationService.sendWelcomeCustomer({
           userId: user.id,
           email: user.email,
           fullName: user.fullName,
-        }).catch((notifErr: any) => {
-          logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_REGISTER] Failed to dispatch agent opportunity prompt');
         });
+      } catch (notifErr: any) {
+        logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_REGISTER] Failed to dispatch welcome notification');
+      }
+
+      // Automated "Become an Agent" prompt for customer
+      if (user.role === UserRole.CUSTOMER) {
+        try {
+          await notificationService.sendAgentOpportunityPrompt({
+            userId: user.id,
+            email: user.email,
+            fullName: user.fullName,
+          });
+        } catch (notifErr: any) {
+          logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_REGISTER] Failed to dispatch agent opportunity prompt');
+        }
       }
 
       const userSummary: UserSummaryDto = {
@@ -421,14 +425,16 @@ export async function customerAuthRoutes(
       });
 
       // Automated welcome notification & transactional email for new agent
-      notificationService.sendWelcomeAgent({
-        userId: user.id,
-        email: user.email,
-        fullName: user.fullName,
-        businessName: resolvedBusinessName,
-      }).catch((notifErr: any) => {
+      try {
+        await notificationService.sendWelcomeAgent({
+          userId: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          businessName: resolvedBusinessName,
+        });
+      } catch (notifErr: any) {
         logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_REGISTER_AGENT] Failed to dispatch agent welcome notification');
-      });
+      }
 
       const userSummary: UserSummaryDto = {
         id: user.id,
@@ -625,6 +631,16 @@ export async function customerAuthRoutes(
             mfaEnabled: devUser.mfaEnabled,
             walletBalancePesewas: parseInt(devUser.walletBalancePesewas, 10) || 0,
           };
+
+          // Self-healing check: ensure welcome notifications exist for dev user
+          notificationService.ensureWelcomeNotifications({
+            userId: devUser.id,
+            email: devUser.email,
+            fullName: devUser.fullName,
+            role: devUser.role,
+          }).catch((err: any) => {
+            logger.warn({ err: err?.message, userId: devUser.id }, '[AUTH_DEV_LOGIN] Failed to ensure welcome notifications');
+          });
 
           return reply.status(200).send({
             success: true,
@@ -911,6 +927,16 @@ export async function customerAuthRoutes(
         walletBalancePesewas: parseInt(user.walletBalancePesewas, 10) || 0,
       };
 
+      // Self-healing check: ensure welcome notifications exist for user
+      notificationService.ensureWelcomeNotifications({
+        userId: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+      }).catch((err: any) => {
+        logger.warn({ err: err?.message, userId: user.id }, '[AUTH_LOGIN] Failed to ensure welcome notifications');
+      });
+
       const response: ApiResponse<AuthResponseData> = {
         success: true,
         data: {
@@ -1015,9 +1041,11 @@ export async function customerAuthRoutes(
       }
 
       let user = userRes?.rows?.[0];
+      let isNewUser = false;
 
       // Auto-provision user if not exists
       if (!user) {
+        isNewUser = true;
         try {
           const insertRes = await db.query<{
             id: string;
@@ -1110,6 +1138,35 @@ export async function customerAuthRoutes(
         mfaEnabled: user.mfaEnabled,
         walletBalancePesewas: parseInt(user.walletBalancePesewas || '0', 10) || 0,
       };
+
+      if (isNewUser) {
+        try {
+          await notificationService.sendWelcomeCustomer({
+            userId: user.id,
+            email: user.email,
+            fullName: user.fullName || fullName,
+          });
+          if (user.role === UserRole.CUSTOMER) {
+            await notificationService.sendAgentOpportunityPrompt({
+              userId: user.id,
+              email: user.email,
+              fullName: user.fullName || fullName,
+            });
+          }
+        } catch (notifErr: any) {
+          logger.warn({ err: notifErr?.message, userId: user.id }, '[AUTH_GOOGLE] Failed to dispatch welcome notifications');
+        }
+      } else {
+        // Self-healing check for existing OAuth user who may not have received welcome notifications
+        notificationService.ensureWelcomeNotifications({
+          userId: user.id,
+          email: user.email,
+          fullName: user.fullName || fullName,
+          role: user.role,
+        }).catch((err: any) => {
+          logger.warn({ err: err?.message, userId: user.id }, '[AUTH_GOOGLE] Failed to ensure welcome notifications');
+        });
+      }
 
       return reply.status(200).send({
         success: true,

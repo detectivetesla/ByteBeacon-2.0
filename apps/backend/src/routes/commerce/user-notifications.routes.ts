@@ -13,12 +13,14 @@ import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { NotFoundError, UnauthorizedError } from '../../core/errors/app-error.js';
 import { logger } from '../../core/logging/logger.js';
+import { NotificationService, devNotificationCache } from '../../core/notifications/notification.service.js';
 
 interface UserNotificationsRouteOptions {
   db: pg.Pool;
   apiKeyService: ApiKeyService;
   tokenService: TokenService;
   rbacService: RbacService;
+  notificationService?: NotificationService;
 }
 
 export async function userNotificationsRoutes(
@@ -26,6 +28,7 @@ export async function userNotificationsRoutes(
   opts: UserNotificationsRouteOptions,
 ): Promise<void> {
   const { db, apiKeyService, tokenService, rbacService } = opts;
+  const notificationService = opts.notificationService ?? new NotificationService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
 
   // Self-heal notifications table in PostgreSQL if missing
@@ -34,8 +37,8 @@ export async function userNotificationsRoutes(
       await db.query(`
         CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
         CREATE TABLE IF NOT EXISTS notifications (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            id VARCHAR(255) PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
             type VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
             severity VARCHAR(20) NOT NULL DEFAULT 'INFO',
             title VARCHAR(255) NOT NULL,
@@ -50,6 +53,8 @@ export async function userNotificationsRoutes(
         CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
         CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
         CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+        ALTER TABLE notifications ALTER COLUMN user_id TYPE VARCHAR(255);
+        ALTER TABLE notifications ALTER COLUMN id TYPE VARCHAR(255);
       `);
     } catch (err: any) {
       logger.warn({ err: err?.message }, '[NOTIFICATIONS_SCHEMA] Schema self-heal notice (non-fatal)');
@@ -65,6 +70,7 @@ export async function userNotificationsRoutes(
     { preHandler: [authHooks.authenticate()] },
     async (req, reply: FastifyReply) => {
       const userId = req.user?.sub;
+      const userEmail = req.user?.email;
       if (!userId) {
         throw new UnauthorizedError('Customer authorization token missing');
       }
@@ -74,8 +80,8 @@ export async function userNotificationsRoutes(
       const offset = (page - 1) * limit;
       const unreadOnly = req.query.unreadOnly === 'true';
 
-      const conditions = ['user_id = $1'];
-      const params: any[] = [userId];
+      const conditions = ['(user_id = $1 OR user_id = $2)'];
+      const params: any[] = [userId, userEmail?.toLowerCase() || userId];
 
       if (unreadOnly) {
         conditions.push('is_read = false');
@@ -86,6 +92,7 @@ export async function userNotificationsRoutes(
       let items: UserNotificationItemDto[] = [];
       let total = 0;
 
+      // 1. Query PostgreSQL if online
       try {
         const [itemsRes, countRes] = await Promise.all([
           db.query<any>(
@@ -103,7 +110,7 @@ export async function userNotificationsRoutes(
         ]);
 
         items = itemsRes.rows.map((row: any) => ({
-          id: row.id,
+          id: String(row.id),
           type: (row.type ?? NotificationType.EMERGENCY_BROADCAST) as NotificationType,
           severity: (row.severity ?? NotificationSeverity.INFO) as NotificationSeverity,
           title: row.title,
@@ -117,7 +124,74 @@ export async function userNotificationsRoutes(
         total = Number(countRes.rows[0]?.total ?? 0);
       } catch (err: any) {
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS] Non-fatal notification lookup warning');
-        // Gracefully return empty notification list on schema/table recovery
+      }
+
+      // 2. Merge with in-memory cache
+      const memById = devNotificationCache.get(userId) || [];
+      const memByEmail = userEmail ? devNotificationCache.get(userEmail.toLowerCase()) || [] : [];
+      const combinedMem = [...memById, ...memByEmail];
+
+      if (combinedMem.length > 0) {
+        const seenIds = new Set(items.map((i) => i.id));
+        const newFromMem = combinedMem
+          .filter((m) => !seenIds.has(m.id))
+          .filter((m) => (unreadOnly ? !m.isRead : true))
+          .map((m) => ({
+            id: m.id,
+            type: (m.type ?? NotificationType.EMERGENCY_BROADCAST) as NotificationType,
+            severity: (m.severity ?? NotificationSeverity.INFO) as NotificationSeverity,
+            title: m.title,
+            body: m.body,
+            actionUrl: m.actionUrl,
+            isRead: m.isRead,
+            channel: CommunicationChannel.IN_APP,
+            createdAt: m.createdAt,
+          }));
+
+        // Deduplicate within newFromMem
+        const finalMem: UserNotificationItemDto[] = [];
+        for (const nm of newFromMem) {
+          if (!seenIds.has(nm.id)) {
+            seenIds.add(nm.id);
+            finalMem.push(nm);
+          }
+        }
+
+        items = [...finalMem, ...items];
+        total = Math.max(total + finalMem.length, items.length);
+      }
+
+      // 3. Self-healing: If user still has 0 notifications, ensure welcome notifications are generated!
+      if (total === 0) {
+        await notificationService.ensureWelcomeNotifications({
+          userId,
+          email: userEmail,
+          fullName: userEmail ? userEmail.split('@')[0] : 'User',
+          role: req.user?.role || 'customer',
+        });
+
+        const freshById = devNotificationCache.get(userId) || [];
+        const freshByEmail = userEmail ? devNotificationCache.get(userEmail.toLowerCase()) || [] : [];
+        const freshCombined = [...freshById, ...freshByEmail];
+
+        const seenIds = new Set<string>();
+        for (const m of freshCombined) {
+          if (!seenIds.has(m.id)) {
+            seenIds.add(m.id);
+            items.push({
+              id: m.id,
+              type: (m.type ?? NotificationType.EMERGENCY_BROADCAST) as NotificationType,
+              severity: (m.severity ?? NotificationSeverity.INFO) as NotificationSeverity,
+              title: m.title,
+              body: m.body,
+              actionUrl: m.actionUrl,
+              isRead: m.isRead,
+              channel: CommunicationChannel.IN_APP,
+              createdAt: m.createdAt,
+            });
+          }
+        }
+        total = items.length;
       }
 
       return reply.send({
@@ -128,7 +202,7 @@ export async function userNotificationsRoutes(
             page,
             limit,
             total,
-            totalPages: Math.ceil(total / limit),
+            totalPages: Math.ceil(total / limit) || 1,
           },
         },
       });
@@ -141,6 +215,7 @@ export async function userNotificationsRoutes(
     { preHandler: [authHooks.authenticate()] },
     async (req, reply: FastifyReply) => {
       const userId = req.user?.sub;
+      const userEmail = req.user?.email;
       if (!userId) {
         throw new UnauthorizedError('Customer authorization token missing');
       }
@@ -164,21 +239,56 @@ export async function userNotificationsRoutes(
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS_COUNTS] Non-fatal counts query warning');
       }
 
+      // Merge with in-memory counts
+      const memById = devNotificationCache.get(userId) || [];
+      const memByEmail = userEmail ? devNotificationCache.get(userEmail.toLowerCase()) || [] : [];
+      const combinedMem = [...memById, ...memByEmail];
+      const seenIds = new Set<string>();
+      let memTotal = 0;
+      let memUnread = 0;
+
+      for (const m of combinedMem) {
+        if (!seenIds.has(m.id)) {
+          seenIds.add(m.id);
+          memTotal++;
+          if (!m.isRead) memUnread++;
+        }
+      }
+
+      total = Math.max(total, memTotal);
+      unread = Math.max(unread, memUnread);
+
+      // Self-healing check if user has 0 notifications
+      if (total === 0) {
+        await notificationService.ensureWelcomeNotifications({
+          userId,
+          email: userEmail,
+          fullName: userEmail ? userEmail.split('@')[0] : 'User',
+          role: req.user?.role || 'customer',
+        });
+
+        const freshMem = devNotificationCache.get(userId) || [];
+        total = freshMem.length;
+        unread = freshMem.filter((m) => !m.isRead).length;
+      }
+
       const counts: UserNotificationCountsDto = { total, unread };
       return reply.send({ success: true, data: counts });
     },
   );
 
-  // 3. POST /notifications/:id/read — Mark single notification as read (anti-IDOR guarded)
-  app.post<{ Params: { id: string } }>(
+  // 3. POST /notifications/:id/read — Mark single notification as read
+  app.post<{
+    Params: { id: string };
+  }>(
     '/notifications/:id/read',
     { preHandler: [authHooks.authenticate()] },
     async (req, reply: FastifyReply) => {
+      const { id } = req.params;
       const userId = req.user?.sub;
       if (!userId) {
         throw new UnauthorizedError('Customer authorization token missing');
       }
-      const { id } = req.params;
 
       try {
         const result = await db.query(
@@ -187,12 +297,22 @@ export async function userNotificationsRoutes(
         );
 
         if (result.rowCount === 0) {
-          throw new NotFoundError(`Notification '${id}' not found or unauthorized.`);
+          // Check memory cache before throwing NotFound
+          const mem = devNotificationCache.get(userId) || [];
+          const found = mem.find((n) => n.id === id);
+          if (!found) {
+            throw new NotFoundError(`Notification '${id}' not found or unauthorized.`);
+          }
         }
       } catch (err: any) {
         if (err instanceof NotFoundError) throw err;
         logger.warn({ err: err?.message, id, userId }, '[NOTIFICATIONS_READ] Non-fatal update warning');
       }
+
+      // Update in-memory cache
+      const mem = devNotificationCache.get(userId) || [];
+      const item = mem.find((n) => n.id === id);
+      if (item) item.isRead = true;
 
       return reply.send({ success: true, data: { id, isRead: true } });
     },
@@ -219,6 +339,20 @@ export async function userNotificationsRoutes(
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS_READ_ALL] Non-fatal update warning');
       }
 
+      // Update in-memory cache
+      const mem = devNotificationCache.get(userId) || [];
+      let memMarked = 0;
+      for (const n of mem) {
+        if (!n.isRead) {
+          n.isRead = true;
+          memMarked++;
+        }
+      }
+
+      if (markedCount === 0) {
+        markedCount = memMarked;
+      }
+
       return reply.send({
         success: true,
         data: { markedCount },
@@ -241,14 +375,25 @@ export async function userNotificationsRoutes(
 
       let clearedCount = 0;
       try {
-        let query = `DELETE FROM notifications WHERE user_id = $1`;
+        let query = `DELETE FROM notifications WHERE (user_id = $1 OR user_id = $2)`;
         if (readOnly) {
           query += ` AND is_read = true`;
         }
-        const result = await db.query(query, [userId]);
+        const result = await db.query(query, [userId, req.user?.email?.toLowerCase() || userId]);
         clearedCount = result.rowCount ?? 0;
       } catch (err: any) {
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS_DELETE] Non-fatal delete warning');
+      }
+
+      // Sync in-memory cache
+      const mem = devNotificationCache.get(userId) || [];
+      if (readOnly) {
+        const remaining = mem.filter((n) => !n.isRead);
+        clearedCount += mem.length - remaining.length;
+        devNotificationCache.set(userId, remaining);
+      } else {
+        clearedCount += mem.length;
+        devNotificationCache.set(userId, []);
       }
 
       return reply.send({
@@ -273,14 +418,25 @@ export async function userNotificationsRoutes(
 
       let clearedCount = 0;
       try {
-        let query = `DELETE FROM notifications WHERE user_id = $1`;
+        let query = `DELETE FROM notifications WHERE (user_id = $1 OR user_id = $2)`;
         if (readOnly) {
           query += ` AND is_read = true`;
         }
-        const result = await db.query(query, [userId]);
+        const result = await db.query(query, [userId, req.user?.email?.toLowerCase() || userId]);
         clearedCount = result.rowCount ?? 0;
       } catch (err: any) {
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS_CLEAR] Non-fatal clear warning');
+      }
+
+      // Sync in-memory cache
+      const mem = devNotificationCache.get(userId) || [];
+      if (readOnly) {
+        const remaining = mem.filter((n) => !n.isRead);
+        clearedCount += mem.length - remaining.length;
+        devNotificationCache.set(userId, remaining);
+      } else {
+        clearedCount += mem.length;
+        devNotificationCache.set(userId, []);
       }
 
       return reply.send({
@@ -303,17 +459,28 @@ export async function userNotificationsRoutes(
 
       try {
         const result = await db.query(
-          `DELETE FROM notifications WHERE id = $1 AND user_id = $2`,
-          [id, userId],
+          `DELETE FROM notifications WHERE id = $1 AND (user_id = $2 OR user_id = $3)`,
+          [id, userId, req.user?.email?.toLowerCase() || userId],
         );
 
         if (result.rowCount === 0) {
-          throw new NotFoundError(`Notification '${id}' not found or unauthorized.`);
+          const mem = devNotificationCache.get(userId) || [];
+          const found = mem.some((n) => n.id === id);
+          if (!found) {
+            throw new NotFoundError(`Notification '${id}' not found or unauthorized.`);
+          }
         }
       } catch (err: any) {
         if (err instanceof NotFoundError) throw err;
         logger.warn({ err: err?.message, id, userId }, '[NOTIFICATIONS_DELETE_ITEM] Non-fatal delete warning');
       }
+
+      // Sync in-memory cache
+      const mem = devNotificationCache.get(userId) || [];
+      devNotificationCache.set(
+        userId,
+        mem.filter((n) => n.id !== id),
+      );
 
       return reply.send({
         success: true,

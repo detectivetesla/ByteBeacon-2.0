@@ -853,6 +853,7 @@ export function createApp(options: AppOptions = {}) {
         apiKeyService,
         tokenService,
         rbacService,
+        notificationService,
       });
       await developerSandboxRoutes(commerceSubApp, {
         db: dbPool!,
