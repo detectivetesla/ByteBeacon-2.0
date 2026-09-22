@@ -1,6 +1,8 @@
 -- Migration: 00000000000032 - daily_store_visits
 -- Description: Adds daily_visits and last_visit_date to stores table, creates store_visits table for day-scoped traffic tracking.
 
+BEGIN;
+
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stores') THEN
@@ -18,3 +20,16 @@ BEGIN
     CREATE INDEX IF NOT EXISTS idx_store_visits_store_date ON store_visits(store_id, visit_date);
     CREATE INDEX IF NOT EXISTS idx_store_visits_visited_at ON store_visits(visited_at DESC);
 END $$;
+
+-- Record migration in tracking table
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO schema_migrations (version, name)
+VALUES ('00000000000032', 'daily_store_visits')
+ON CONFLICT (version) DO NOTHING;
+
+COMMIT;

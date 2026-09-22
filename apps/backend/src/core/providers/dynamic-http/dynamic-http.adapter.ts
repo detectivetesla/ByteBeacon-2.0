@@ -1119,19 +1119,20 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   }
 
   public async getCapabilities(): Promise<Record<string, boolean>> {
+    const paths = this.config.endpointPaths || {};
     return (
       this.config.capabilities || {
         NETWORKS: true,
         CATALOG: true,
-        BENEFICIARY_VALIDATION: true,
+        BENEFICIARY_VALIDATION: Boolean(paths.validateBeneficiary),
         SINGLE_ORDERS: true,
         BULK_ORDERS: true,
         ORDER_STATUS: true,
-        WEBHOOKS: true,
+        WEBHOOKS: Boolean(this.config.webhookSecret),
         RECONCILIATION: true,
         REFUNDS: false,
         SANDBOX: true,
-        PRECHECK: true,
+        PRECHECK: Boolean(paths.precheck || paths.publicPrecheck),
         WALLET_BALANCE: true,
       }
     );
@@ -1241,23 +1242,5 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
     } catch {
       return false;
     }
-  }
-
-  public async getCapabilities(): Promise<Record<string, boolean>> {
-    const paths = this.config.endpointPaths || {};
-    return {
-      NETWORKS: true,
-      CATALOG: Boolean(paths.bundles || paths.catalog),
-      BENEFICIARY_VALIDATION: Boolean(paths.validateBeneficiary),
-      SINGLE_ORDERS: Boolean(paths.submitOrder || paths.order),
-      BULK_ORDERS: Boolean(paths.submitBulkOrder || paths.bulkOrder),
-      ORDER_STATUS: Boolean(paths.orderStatus || paths.status),
-      WEBHOOKS: Boolean(this.config.webhookSecret),
-      RECONCILIATION: false,
-      REFUNDS: false,
-      SANDBOX: true,
-      PRECHECK: Boolean(paths.precheck || paths.publicPrecheck),
-      WALLET_BALANCE: Boolean(paths.walletBalance || paths.balance),
-    };
   }
 }

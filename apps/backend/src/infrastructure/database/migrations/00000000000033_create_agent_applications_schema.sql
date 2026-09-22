@@ -3,6 +3,8 @@
 -- Description: Agent Applications, Verification Workflow, and Dynamic Pricing
 -- ==============================================================================
 
+BEGIN;
+
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS agent_applications (
@@ -41,3 +43,16 @@ VALUES (
     'AGENTS', 'agent_application_fee_pesewas', 'AGENTS', '10000'::jsonb, 'NUMBER', false, 'HIGH', true, 'One-time agent application and onboarding fee in pesewas (10000 = GH₵100.00)', 1
 )
 ON CONFLICT (config_key) DO NOTHING;
+
+-- Record migration in tracking table
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO schema_migrations (version, name)
+VALUES ('00000000000033', 'create_agent_applications_schema')
+ON CONFLICT (version) DO NOTHING;
+
+COMMIT;

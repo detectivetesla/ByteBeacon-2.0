@@ -1,6 +1,8 @@
 -- Migration: 00000000000036 - add_scheduled_status_to_store_payouts
 -- Adds SCHEDULED to the store_payouts status CHECK constraint
 
+BEGIN;
+
 DO $$
 DECLARE
     constraint_name TEXT;
@@ -25,6 +27,15 @@ BEGIN
         CHECK (status IN ('PENDING', 'PROCESSING', 'PAID', 'HELD', 'REJECTED', 'FAILED', 'SCHEDULED'));
 END $$;
 
+-- Record migration in tracking table
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 INSERT INTO schema_migrations (version, name)
 VALUES ('00000000000036', 'add_scheduled_status_to_store_payouts')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (version) DO NOTHING;
+
+COMMIT;
