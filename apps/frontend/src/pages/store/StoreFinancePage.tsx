@@ -4,6 +4,7 @@ import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { SearchInput, Select } from '../../components/ui/index.js';
+import { ResponsiveTable, ResponsiveTableColumn } from '../../components/ui/responsive/ResponsiveTable.js';
 import { Download, Loader2, ArrowDownToLine, Calendar, History, RotateCcw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
@@ -87,15 +88,62 @@ export const StoreFinancePage: React.FC = () => {
     toastSuccess('Statement Exported', 'Store settlements statement downloaded.');
   };
 
+  const columns: ResponsiveTableColumn<any>[] = [
+    {
+      header: 'Reference',
+      priority: 'always',
+      render: (tx: any) => (
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, wordBreak: 'break-all' }}>
+          {tx.referenceId}
+        </span>
+      ),
+    },
+    {
+      header: 'Type',
+      mobileLabel: 'Type',
+      render: (tx: any) => (
+        <span style={{ color: 'var(--color-text-primary)' }}>{tx.referenceType}</span>
+      ),
+    },
+    {
+      header: 'Amount',
+      mobileLabel: 'Amount',
+      priority: 'always',
+      render: (tx: any) => (
+        <span style={{ fontFamily: 'var(--font-data)', fontWeight: 900, color: tx.entryType === 'CREDIT' ? '#10B981' : '#EF4444' }}>
+          {tx.entryType === 'CREDIT' ? '+' : '-'}GH₵ {(tx.amountPesewas / 100).toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      header: 'Status',
+      mobileLabel: 'Status',
+      render: (tx: any) => (
+        <Badge variant={tx.entryType === 'CREDIT' ? 'success' : 'danger'} size="sm">
+          {tx.entryType}
+        </Badge>
+      ),
+    },
+    {
+      header: 'Date',
+      mobileLabel: 'Date',
+      render: (tx: any) => (
+        <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
+          {new Date(tx.createdAt).toLocaleString()}
+        </span>
+      ),
+    },
+  ];
+
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container" style={{ gap: 'clamp(1rem, 2vw, var(--space-6))' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="store-header-row">
         <div>
           <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#10B981' }}>
             Store Treasury
           </span>
-          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: 'clamp(1.25rem, 3.5vw, var(--font-size-2xl))', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
             Store Revenue & Settlements
           </h1>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
@@ -103,12 +151,13 @@ export const StoreFinancePage: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div className="store-header-actions">
           <Button
             variant="outline"
             size="sm"
             onClick={() => navigate('/store-console/transactions')}
             leftIcon={<History size={13} />}
+            style={{ minHeight: '38px' }}
           >
             Transactions Ledger
           </Button>
@@ -117,7 +166,7 @@ export const StoreFinancePage: React.FC = () => {
             size="sm"
             onClick={() => navigate('/agent/withdrawals')}
             leftIcon={<ArrowDownToLine size={13} />}
-            style={{ backgroundColor: '#10B981', color: '#000000', fontWeight: 800 }}
+            style={{ backgroundColor: '#10B981', color: '#000000', fontWeight: 800, minHeight: '38px' }}
           >
             Withdraw Profit
           </Button>
@@ -127,6 +176,7 @@ export const StoreFinancePage: React.FC = () => {
             onClick={handleExportStatement}
             leftIcon={<Download size={13} />}
             disabled={!data?.transactions?.length}
+            style={{ minHeight: '38px' }}
           >
             Export Statement
           </Button>
@@ -145,7 +195,7 @@ export const StoreFinancePage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               gap: '0.75rem',
-              padding: '0.85rem 1.25rem',
+              padding: 'clamp(0.75rem, 2vw, 1rem) clamp(1rem, 2vw, 1.25rem)',
               borderRadius: 'var(--radius-xl)',
               backgroundColor: 'rgba(16, 185, 129, 0.08)',
               border: '1px solid rgba(16, 185, 129, 0.25)',
@@ -157,7 +207,7 @@ export const StoreFinancePage: React.FC = () => {
             <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981', flexShrink: 0 }}>
               <Calendar size={16} />
             </div>
-            <div style={{ flex: 1, minWidth: '240px' }}>
+            <div style={{ flex: '1 1 240px', minWidth: 'min(100%, 240px)' }}>
               <strong style={{ color: '#10B981' }}>Weekly Settlement Cycle (Every Saturday):</strong>{' '}
               <span>Customer storefront payments settle into ByteBeacon Paystack. Your markup profit accumulates here in real-time. You can opt to request a payout anytime, reviewed and disbursed every Saturday.</span>
             </div>
@@ -165,19 +215,19 @@ export const StoreFinancePage: React.FC = () => {
               variant="outline"
               size="xs"
               onClick={() => navigate('/agent/withdrawals')}
-              style={{ borderColor: 'rgba(16, 185, 129, 0.4)', color: '#10B981', fontWeight: 800 }}
+              style={{ borderColor: 'rgba(16, 185, 129, 0.4)', color: '#10B981', fontWeight: 800, minHeight: '36px', width: 'auto' }}
             >
               Request Payout
             </Button>
           </div>
 
           {/* 4 Summary Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
+          <div className="store-kpis-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}>
             <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
                 Gross Store Sales
               </span>
-              <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+              <div style={{ fontSize: 'clamp(1.4rem, 4vw, 1.85rem)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
                 GH₵ {((data?.grossSalesGhs !== undefined ? data.grossSalesGhs : (data?.grossSalesPesewas || 0) / 100)).toFixed(2)}
               </div>
               <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Customer payments processed</span>
@@ -187,7 +237,7 @@ export const StoreFinancePage: React.FC = () => {
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
                 Wholesale Fulfillment Cost
               </span>
-              <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+              <div style={{ fontSize: 'clamp(1.4rem, 4vw, 1.85rem)', fontWeight: 900, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
                 GH₵ {((data?.costGhs !== undefined ? data.costGhs : (data?.costPesewas || 0) / 100)).toFixed(2)}
               </div>
               <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Base network cost</span>
@@ -200,17 +250,24 @@ export const StoreFinancePage: React.FC = () => {
                 </span>
                 <Badge variant="success" size="xs">Withdrawable</Badge>
               </div>
-              <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+              <div style={{ fontSize: 'clamp(1.4rem, 4vw, 1.85rem)', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
                 GH₵ {((data?.profitGhs !== undefined ? data.profitGhs : (data?.profitPesewas || 0) / 100)).toFixed(2)}
               </div>
-              <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700 }}>Eligible for Saturday payout</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700 }}>
+                <span>Eligible for Saturday payout</span>
+                {data?.totalWithdrawnGhs > 0 && (
+                  <span style={{ color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                    (GH₵ {data.totalWithdrawnGhs.toFixed(2)} paid)
+                  </span>
+                )}
+              </div>
             </Card>
 
             <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
                 Total Bundles Fulfilled
               </span>
-              <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+              <div style={{ fontSize: 'clamp(1.4rem, 4vw, 1.85rem)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
                 {data?.totalFulfilledOrders || 0}
               </div>
               <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>100% automated delivery</span>
@@ -219,9 +276,9 @@ export const StoreFinancePage: React.FC = () => {
 
           {/* Filter Bar */}
           <Card style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+            <div className="store-filter-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
               {/* Search */}
-              <div style={{ minWidth: '180px', flex: '1 1 200px' }}>
+              <div style={{ minWidth: 'min(100%, 180px)', flex: '1 1 180px' }}>
                 <SearchInput
                   placeholder="Search reference, description..."
                   value={search}
@@ -230,7 +287,7 @@ export const StoreFinancePage: React.FC = () => {
               </div>
 
               {/* Type Filter */}
-              <div style={{ minWidth: '140px' }}>
+              <div style={{ minWidth: 'min(100%, 130px)', flex: '1 1 130px' }}>
                 <Select
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
@@ -243,7 +300,7 @@ export const StoreFinancePage: React.FC = () => {
               </div>
 
               {/* Date Filter */}
-              <div style={{ minWidth: '130px' }}>
+              <div style={{ minWidth: 'min(100%, 130px)', flex: '1 1 130px' }}>
                 <Select
                   value={dateFilter}
                   onChange={(e) => {
@@ -267,7 +324,7 @@ export const StoreFinancePage: React.FC = () => {
 
               {/* Custom Date Inputs */}
               {dateFilter === 'custom' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexWrap: 'wrap', width: '100%' }}>
                   <input
                     type="date"
                     value={startDate}
@@ -279,6 +336,8 @@ export const StoreFinancePage: React.FC = () => {
                       border: '1px solid var(--color-border-default)',
                       background: 'var(--color-bg-surface)',
                       color: 'var(--color-text-primary)',
+                      flex: '1 1 120px',
+                      minWidth: 'min(100%, 120px)',
                     }}
                   />
                   <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
@@ -293,13 +352,15 @@ export const StoreFinancePage: React.FC = () => {
                       border: '1px solid var(--color-border-default)',
                       background: 'var(--color-bg-surface)',
                       color: 'var(--color-text-primary)',
+                      flex: '1 1 120px',
+                      minWidth: 'min(100%, 120px)',
                     }}
                   />
                 </div>
               )}
 
               {/* Sort Filter */}
-              <div style={{ minWidth: '130px' }}>
+              <div style={{ minWidth: 'min(100%, 130px)', flex: '1 1 130px' }}>
                 <Select
                   value={sortFilter}
                   onChange={(e) => setSortFilter(e.target.value)}
@@ -319,7 +380,7 @@ export const StoreFinancePage: React.FC = () => {
                   size="sm"
                   onClick={handleResetFilters}
                   leftIcon={<RotateCcw size={12} />}
-                  style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+                  style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap', minHeight: '38px' }}
                 >
                   Reset ({activeFilterCount})
                 </Button>
@@ -388,8 +449,8 @@ export const StoreFinancePage: React.FC = () => {
             }
 
             return (
-              <Card style={{ padding: 0, backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-2xl)', overflow: 'hidden' }}>
-                <div style={{ padding: 'var(--space-4) var(--space-6)', borderBottom: '1px solid var(--color-border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                   <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
                     Recent Storefront Settlements
                   </h3>
@@ -402,52 +463,28 @@ export const StoreFinancePage: React.FC = () => {
                     View Full Ledger →
                   </Button>
                 </div>
-
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                        <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Reference</th>
-                        <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Type</th>
-                        <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Amount</th>
-                        <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
-                        <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {list.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                            {activeFilterCount > 0 ? 'No settlements found matching your filter criteria.' : 'No transactions found.'}
-                          </td>
-                        </tr>
-                      ) : (
-                        list.map((tx: any) => (
-                          <tr key={tx.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                            <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                              {tx.referenceId}
-                            </td>
-                            <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-primary)' }}>
-                              {tx.referenceType}
-                            </td>
-                            <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 900, color: tx.entryType === 'CREDIT' ? '#10B981' : '#EF4444' }}>
-                              {tx.entryType === 'CREDIT' ? '+' : '-'}GH₵ {(tx.amountPesewas / 100).toFixed(2)}
-                            </td>
-                            <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                              <Badge variant={tx.entryType === 'CREDIT' ? 'success' : 'danger'} size="sm">
-                                {tx.entryType}
-                              </Badge>
-                            </td>
-                            <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
-                              {new Date(tx.createdAt).toLocaleString()}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
+                <ResponsiveTable
+                  columns={columns}
+                  data={list}
+                  keyExtractor={(tx: any) => String(tx.id || tx.referenceId)}
+                  cardTitle={(tx: any) => (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)', wordBreak: 'break-all' }}>
+                      {tx.referenceId}
+                    </span>
+                  )}
+                  cardSubtitle={(tx: any) => (
+                    <span style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-2xs)' }}>
+                      {tx.referenceType} • {new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                  cardBadge={(tx: any) => (
+                    <Badge variant={tx.entryType === 'CREDIT' ? 'success' : 'danger'} size="xs">
+                      {tx.entryType === 'CREDIT' ? '+' : '-'}GH₵ {(tx.amountPesewas / 100).toFixed(2)}
+                    </Badge>
+                  )}
+                  emptyMessage={activeFilterCount > 0 ? 'No settlements found matching your filter criteria.' : 'No transactions found.'}
+                />
+              </div>
             );
           })()}
         </>

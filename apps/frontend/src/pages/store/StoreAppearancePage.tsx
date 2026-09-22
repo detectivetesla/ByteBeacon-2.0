@@ -188,9 +188,9 @@ export const StoreAppearancePage: React.FC = () => {
   const previewTextSecondary = isDarkPreview ? '#94A3B8' : '#64748B';
 
   return (
-    <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="store-header-row">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
             <Sparkles size={14} color="#EC4899" />
@@ -198,15 +198,15 @@ export const StoreAppearancePage: React.FC = () => {
               Storefront Theme & Branding
             </span>
           </div>
-          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
             Store Appearance & Branding
           </h1>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0', lineHeight: 1.4 }}>
             Customize your customer-facing brand visual identity, logo, cover banner, and live storefront theme.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+        <div className="store-header-actions">
           {slug && (
             <a
               href={liveStoreUrl}
@@ -215,6 +215,7 @@ export const StoreAppearancePage: React.FC = () => {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: '0.4rem',
                 fontSize: 'var(--font-size-xs)',
                 fontWeight: 700,
@@ -222,9 +223,11 @@ export const StoreAppearancePage: React.FC = () => {
                 backgroundColor: 'var(--color-bg-surface)',
                 border: '1px solid var(--color-border-default)',
                 padding: '0.55rem 0.95rem',
+                minHeight: '44px',
                 borderRadius: 'var(--radius-lg)',
                 textDecoration: 'none',
                 transition: 'border-color 150ms ease',
+                flex: '1 1 auto',
               }}
             >
               <Globe size={14} />
@@ -238,6 +241,7 @@ export const StoreAppearancePage: React.FC = () => {
             size="md"
             onClick={handleResetDefaults}
             leftIcon={<RotateCcw size={14} />}
+            style={{ minHeight: '44px', flex: '1 1 auto' }}
           >
             Defaults
           </Button>
@@ -248,6 +252,7 @@ export const StoreAppearancePage: React.FC = () => {
             onClick={handleSave}
             isLoading={saving}
             leftIcon={<Save size={14} />}
+            style={{ minHeight: '44px', flex: '1 1 auto' }}
           >
             Save Appearance
           </Button>
@@ -255,7 +260,7 @@ export const StoreAppearancePage: React.FC = () => {
       </div>
 
       {/* Main Grid: Customizer Controls (Left) & Real-time Live Preview (Right) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.15fr) minmax(0, 1fr)', gap: 'var(--space-6)', alignItems: 'start' }}>
+      <div className="store-split-grid" style={{ alignItems: 'start' }}>
         {/* Left Column: Brand Assets & Customizer Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
           {/* 1. Brand Identity Assets */}
@@ -553,7 +558,7 @@ export const StoreAppearancePage: React.FC = () => {
                 Curated Theme Palettes
               </label>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.65rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 150px), 1fr))', gap: '0.65rem' }}>
                 {PRESET_THEMES.map((preset) => {
                   const isSelected = primaryColor.toLowerCase() === preset.primary.toLowerCase() &&
                                      accentColor.toLowerCase() === preset.accent.toLowerCase();
@@ -593,7 +598,7 @@ export const StoreAppearancePage: React.FC = () => {
             </div>
 
             {/* Custom Primary & Accent Pickers */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 'var(--space-4)' }}>
               {/* Primary */}
               <div>
                 <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: '0.35rem' }}>
@@ -757,7 +762,9 @@ export const StoreAppearancePage: React.FC = () => {
           >
             <div
               style={{
-                width: previewDevice === 'mobile' ? '340px' : '100%',
+                width: previewDevice === 'mobile' ? 'min(100%, 340px)' : '100%',
+                maxWidth: '100%',
+                boxSizing: 'border-box',
                 borderRadius: previewDevice === 'mobile' ? '36px' : '18px',
                 border: previewDevice === 'mobile' ? '8px solid #1E293B' : '1px solid var(--color-border-default)',
                 boxShadow: previewDevice === 'mobile' ? '0 25px 50px -12px rgba(0, 0, 0, 0.45)' : 'var(--shadow-tactile-lg)',

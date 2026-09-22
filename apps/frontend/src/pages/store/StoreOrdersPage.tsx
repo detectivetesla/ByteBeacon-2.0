@@ -3,6 +3,7 @@ import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Select, SearchInput, Modal } from '../../components/ui/index.js';
+import { ResponsiveTable } from '../../components/ui/responsive/ResponsiveTable.js';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi, StoreOrdersResponseDto, StoreOrderRecordDto } from '../../api/stores.api.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
@@ -167,9 +168,9 @@ export const StoreOrdersPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="store-header-row">
         <div>
           <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8B5CF6' }}>
             Store Fulfillment
@@ -182,7 +183,7 @@ export const StoreOrdersPage: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div className="store-header-actions">
           <Button variant="outline" size="sm" onClick={handleExportCsv} leftIcon={<Download size={13} />} disabled={orders.length === 0}>
             Export CSV
           </Button>
@@ -190,10 +191,10 @@ export const StoreOrdersPage: React.FC = () => {
       </div>
 
       {/* Filter Bar */}
-      <Card style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+      <Card style={{ padding: 'var(--space-3) var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
+        <div className="store-filter-bar">
           {/* Status Filter */}
-          <div style={{ minWidth: '130px' }}>
+          <div style={{ flex: '1 1 130px', minWidth: '120px' }}>
             <Select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -211,7 +212,7 @@ export const StoreOrdersPage: React.FC = () => {
           </div>
 
           {/* Payment Status Filter */}
-          <div style={{ minWidth: '130px' }}>
+          <div style={{ flex: '1 1 130px', minWidth: '120px' }}>
             <Select
               value={paymentFilter}
               onChange={(e) => setPaymentFilter(e.target.value)}
@@ -226,7 +227,7 @@ export const StoreOrdersPage: React.FC = () => {
           </div>
 
           {/* Date Range Filter */}
-          <div style={{ minWidth: '130px' }}>
+          <div style={{ flex: '1 1 130px', minWidth: '120px' }}>
             <Select
               value={dateFilter}
               onChange={(e) => {
@@ -250,7 +251,7 @@ export const StoreOrdersPage: React.FC = () => {
 
           {/* Custom Date Range Inputs */}
           {dateFilter === 'custom' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexWrap: 'wrap' }}>
               <input
                 type="date"
                 value={startDate}
@@ -282,7 +283,7 @@ export const StoreOrdersPage: React.FC = () => {
           )}
 
           {/* Network Filter */}
-          <div style={{ minWidth: '120px' }}>
+          <div style={{ flex: '1 1 120px', minWidth: '110px' }}>
             <Select
               value={networkFilter}
               onChange={(e) => setNetworkFilter(e.target.value)}
@@ -296,7 +297,7 @@ export const StoreOrdersPage: React.FC = () => {
           </div>
 
           {/* Sort Filter */}
-          <div style={{ minWidth: '130px' }}>
+          <div style={{ flex: '1 1 130px', minWidth: '120px' }}>
             <Select
               value={sortFilter}
               onChange={(e) => setSortFilter(e.target.value)}
@@ -310,7 +311,7 @@ export const StoreOrdersPage: React.FC = () => {
           </div>
 
           {/* Search Query */}
-          <div style={{ minWidth: '160px', flex: '1 1 160px' }}>
+          <div style={{ flex: '1 1 180px', minWidth: '140px' }}>
             <SearchInput
               placeholder="Search phone, order ID..."
               value={searchQuery}
@@ -350,79 +351,161 @@ export const StoreOrdersPage: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Order ID</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Recipient</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Network</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Bundle</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Amount</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Your Profit</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Payment</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Fulfillment</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Date</th>
-                  <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => {
-                  const profitGhs = o.profitGhs !== undefined ? o.profitGhs : (o.profitPesewas ? o.profitPesewas / 100 : 0);
-                  const isPaid = o.paymentStatus === 'PAID';
-
-                  return (
-                    <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        {o.publicId}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
-                        {o.recipientPhone}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        {getNetworkBadge(o.network)}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        {formatBundleSize(o.dataAmountMb)}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+          <>
+            <ResponsiveTable<StoreOrderRecordDto>
+              columns={[
+                {
+                  header: 'Order ID',
+                  accessor: 'publicId',
+                  render: (o) => (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                      {o.publicId}
+                    </span>
+                  ),
+                  priority: 'always',
+                },
+                {
+                  header: 'Recipient',
+                  accessor: 'recipientPhone',
+                  render: (o) => (
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
+                      {o.recipientPhone}
+                    </span>
+                  ),
+                  priority: 'always',
+                },
+                {
+                  header: 'Network',
+                  accessor: 'network',
+                  render: (o) => getNetworkBadge(o.network),
+                  priority: 'always',
+                },
+                {
+                  header: 'Bundle',
+                  accessor: 'dataAmountMb',
+                  render: (o) => (
+                    <strong style={{ color: 'var(--color-text-primary)' }}>{formatBundleSize(o.dataAmountMb)}</strong>
+                  ),
+                  priority: 'always',
+                },
+                {
+                  header: 'Amount',
+                  accessor: 'amountPesewas',
+                  render: (o) => (
+                    <span style={{ fontFamily: 'var(--font-data)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                      GH₵ {(o.amountPesewas / 100).toFixed(2)}
+                    </span>
+                  ),
+                  priority: 'always',
+                },
+                {
+                  header: 'Your Profit',
+                  accessor: 'profitPesewas' as any,
+                  render: (o) => {
+                    const profitGhs = o.profitGhs !== undefined ? o.profitGhs : (o.profitPesewas ? o.profitPesewas / 100 : 0);
+                    return (
+                      <span style={{ fontFamily: 'var(--font-data)', fontWeight: 900, color: o.paymentStatus === 'PAID' ? '#10B981' : 'var(--color-text-muted)' }}>
+                        {o.paymentStatus === 'PAID' ? `+GH₵ ${profitGhs.toFixed(2)}` : 'GH₵ 0.00'}
+                      </span>
+                    );
+                  },
+                  priority: 'secondary',
+                },
+                {
+                  header: 'Payment',
+                  accessor: 'paymentStatus',
+                  render: (o) => getPaymentBadge(o.paymentStatus),
+                  priority: 'always',
+                },
+                {
+                  header: 'Fulfillment',
+                  accessor: 'orderStatus',
+                  render: (o) => (
+                    <Badge variant={o.orderStatus === 'COMPLETED' || o.orderStatus === 'DELIVERED' ? 'success' : o.orderStatus === 'PROCESSING' ? 'info' : o.orderStatus === 'CANCELLED' ? 'danger' : 'warning'} size="xs" dot>
+                      {o.orderStatus}
+                    </Badge>
+                  ),
+                  priority: 'always',
+                },
+                {
+                  header: 'Date',
+                  accessor: 'createdAt',
+                  render: (o) => (
+                    <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
+                      {formatRelativeDate(o.createdAt)}
+                    </span>
+                  ),
+                  priority: 'secondary',
+                },
+                {
+                  header: 'Action',
+                  render: (o) => (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setSelectedOrder(o)}
+                      leftIcon={<Eye size={12} />}
+                    >
+                      View
+                    </Button>
+                  ),
+                  priority: 'always',
+                },
+              ]}
+              data={orders}
+              keyExtractor={(item) => item.id}
+              enableCardView={true}
+              cardTitle={(o) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {getNetworkBadge(o.network)}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800 }}>{o.publicId}</span>
+                </div>
+              )}
+              cardSubtitle={(o) => (
+                <span>
+                  {o.recipientPhone} · {formatBundleSize(o.dataAmountMb)} · {formatRelativeDate(o.createdAt)}
+                </span>
+              )}
+              cardBadge={(o) => (
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {getPaymentBadge(o.paymentStatus)}
+                  <Badge variant={o.orderStatus === 'COMPLETED' || o.orderStatus === 'DELIVERED' ? 'success' : o.orderStatus === 'PROCESSING' ? 'info' : o.orderStatus === 'CANCELLED' ? 'danger' : 'warning'} size="xs">
+                    {o.orderStatus}
+                  </Badge>
+                </div>
+              )}
+              cardActions={(o) => {
+                const profitGhs = o.profitGhs !== undefined ? o.profitGhs : (o.profitPesewas ? o.profitPesewas / 100 : 0);
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <div>
+                      <strong style={{ fontFamily: 'var(--font-data)', fontSize: 'var(--font-size-sm)' }}>
                         GH₵ {(o.amountPesewas / 100).toFixed(2)}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 900, color: isPaid ? '#10B981' : 'var(--color-text-muted)' }}>
-                        {isPaid ? `+GH₵ ${profitGhs.toFixed(2)}` : 'GH₵ 0.00'}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        {getPaymentBadge(o.paymentStatus)}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <Badge variant={o.orderStatus === 'COMPLETED' || o.orderStatus === 'DELIVERED' ? 'success' : o.orderStatus === 'PROCESSING' ? 'info' : o.orderStatus === 'CANCELLED' ? 'danger' : 'warning'} size="xs" dot>
-                          {o.orderStatus}
-                        </Badge>
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
-                        {formatRelativeDate(o.createdAt)}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => setSelectedOrder(o)}
-                          leftIcon={<Eye size={12} />}
-                        >
-                          View
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            
+                      </strong>
+                      {o.paymentStatus === 'PAID' && (
+                        <span style={{ color: '#10B981', fontWeight: 800, marginLeft: '6px', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-data)' }}>
+                          +GH₵ {profitGhs.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={() => setSelectedOrder(o)}
+                      leftIcon={<Eye size={12} />}
+                    >
+                      Details
+                    </Button>
+                  </div>
+                );
+              }}
+            />
+
             {/* Pagination Controls */}
             {pagination.totalPages > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-4)', borderTop: '1px solid var(--color-border-subtle)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-4)', borderTop: '1px solid var(--color-border-subtle)', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  Page {pagination.page} of {pagination.totalPages}
+                  Page {pagination.page} of {pagination.totalPages} ({pagination.total || orders.length} orders)
                 </span>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <Button 
@@ -446,7 +529,7 @@ export const StoreOrdersPage: React.FC = () => {
                 </div>
               </div>
             )}
-          </div>
+          </>
         )}
       </Card>
 
@@ -473,7 +556,7 @@ export const StoreOrdersPage: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
               <div>
                 <span style={{ color: 'var(--color-text-muted)' }}>Recipient SIM:</span>
                 <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{selectedOrder.recipientPhone}</div>

@@ -868,7 +868,7 @@ export async function storeRoutes(
       const customFilterSql = hasCustomFilter ? ` AND ${filterConditions.join(' AND ')}` : '';
 
       // Calculate scoped store metrics
-      const [ordersRes, trendRes, visitsRes] = await Promise.all([
+      const [ordersRes, trendRes, visitsRes, payoutsRes] = await Promise.all([
         db.query(
           `SELECT COUNT(*) as total_orders,
                   COUNT(CASE WHEN created_at >= CURRENT_DATE AND payment_status = 'PAID' THEN 1 END) as orders_today_count,
@@ -927,6 +927,17 @@ export async function storeRoutes(
            WHERE store_id = $1`,
           [store.id],
         ).catch(() => ({ rows: [] })),
+        db.query(
+          `SELECT 
+             COALESCE(SUM(CASE WHEN status IN ('PENDING', 'PROCESSING', 'PAID') THEN amount_pesewas ELSE 0 END), 0) as total_withdrawn_pesewas,
+             COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount_pesewas ELSE 0 END), 0) as settled_withdrawn_pesewas,
+             COALESCE(SUM(CASE WHEN status IN ('PENDING', 'PROCESSING') THEN amount_pesewas ELSE 0 END), 0) as pending_withdrawn_pesewas
+           FROM store_payouts
+           WHERE store_id = $1 
+              OR (agent_id IS NOT NULL AND agent_id = $2)
+              OR agent_id IN (SELECT id FROM agents WHERE user_id = $3)`,
+          [store.id, store.agentId || null, store.userId],
+        ).catch(() => ({ rows: [] })),
       ]);
 
       let filteredRes: any = null;
@@ -957,6 +968,16 @@ export async function storeRoutes(
 
       const stats = ordersRes.rows[0];
       const fStats = filteredRes?.rows?.[0];
+      const pStats = payoutsRes?.rows?.[0] || {};
+
+      const totalProfitEarnedPesewas = Number(stats.total_profit_pesewas || 0);
+      const totalWithdrawnPesewas = Number(pStats.total_withdrawn_pesewas || 0);
+      const settledWithdrawnPesewas = Number(pStats.settled_withdrawn_pesewas || 0);
+      const pendingWithdrawnPesewas = Number(pStats.pending_withdrawn_pesewas || 0);
+
+      // Reseller profit resets when payouts are approved/in-flight
+      const availableProfitPesewas = Math.max(0, totalProfitEarnedPesewas - totalWithdrawnPesewas);
+      const availableProfitGhs = availableProfitPesewas / 100;
 
       const revenueTrend = trendRes.rows.map((r: any) => ({
         date: r.date,
@@ -984,8 +1005,18 @@ export async function storeRoutes(
         ? Number(((completedOrders / totalHealthOrders) * 100).toFixed(1))
         : 100;
 
-      const filteredSalesGhs = fStats ? Number(fStats.filtered_sales_pesewas || 0) / 100 : Number(stats.today_sales_pesewas || 0) / 100;
-      const filteredProfitGhs = fStats ? Number(fStats.filtered_profit_pesewas || 0) / 100 : Number(stats.today_profit_pesewas || 0) / 100;
+      const filteredSalesGhs = fStats
+        ? Number(fStats.filtered_sales_pesewas || 0) / 100
+        : (dateRange === 'ALL' || dateRange === 'all'
+          ? Number(stats.total_sales_pesewas || 0) / 100
+          : Number(stats.today_sales_pesewas || 0) / 100);
+
+      const filteredProfitGhs = fStats
+        ? Number(fStats.filtered_profit_pesewas || 0) / 100
+        : (dateRange === 'ALL' || dateRange === 'all'
+          ? availableProfitGhs
+          : Number(stats.today_profit_pesewas || 0) / 100);
+
       const filteredOrdersCount = fStats ? Number(fStats.filtered_orders_count || 0) : ordersTodayCount;
       const filteredCustomersCount = fStats ? Number(fStats.filtered_customers_count || 0) : Number(stats.customers_count || 0);
 
@@ -1004,7 +1035,12 @@ export async function storeRoutes(
             totalSalesGhs: Number(stats.total_sales_pesewas || 0) / 100,
             filteredSalesGhs,
             todayProfitGhs: Number(stats.today_profit_pesewas || 0) / 100,
-            totalProfitGhs: Number(stats.total_profit_pesewas || 0) / 100,
+            totalProfitGhs: availableProfitGhs,
+            availableProfitGhs,
+            totalProfitEarnedGhs: totalProfitEarnedPesewas / 100,
+            totalWithdrawnGhs: totalWithdrawnPesewas / 100,
+            settledWithdrawnGhs: settledWithdrawnPesewas / 100,
+            pendingPayoutGhs: pendingWithdrawnPesewas / 100,
             filteredProfitGhs,
             ordersCount: ordersTodayCount,
             ordersTodayCount,
@@ -2572,6 +2608,17 @@ export async function storeRoutes(
         WHERE store_id = $1
       `;
 
+      const payoutsAggQuery = `
+        SELECT 
+          COALESCE(SUM(CASE WHEN status IN ('PENDING', 'PROCESSING', 'PAID') THEN amount_pesewas ELSE 0 END), 0) as "totalWithdrawnPesewas",
+          COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount_pesewas ELSE 0 END), 0) as "settledWithdrawnPesewas",
+          COALESCE(SUM(CASE WHEN status IN ('PENDING', 'PROCESSING') THEN amount_pesewas ELSE 0 END), 0) as "pendingWithdrawnPesewas"
+        FROM store_payouts
+        WHERE store_id = $1 
+           OR (agent_id IS NOT NULL AND agent_id = $2)
+           OR agent_id IN (SELECT id FROM agents WHERE user_id = $3)
+      `;
+
       const ledgerQuery = `
         SELECT * FROM (
           SELECT
@@ -2596,22 +2643,33 @@ export async function storeRoutes(
             CONCAT('Payout to ', p.destination_account, ' (', p.destination_provider, ')') as "description",
             p.created_at as "createdAt"
           FROM store_payouts p
-          WHERE p.store_id = $1 OR p.agent_id = (SELECT agent_id FROM stores WHERE id = $1 LIMIT 1)
+          WHERE p.store_id = $1 
+             OR (p.agent_id IS NOT NULL AND p.agent_id = $2) 
+             OR p.agent_id IN (SELECT id FROM agents WHERE user_id = $3)
         ) combined
         ORDER BY "createdAt" DESC
-        LIMIT $2 OFFSET $3
+        LIMIT $4 OFFSET $5
       `;
 
-      const [aggRes, ledgerRes] = await Promise.all([
+      const [aggRes, ledgerRes, payoutsRes] = await Promise.all([
         db.query(financeAggQuery, [store.id]),
-        db.query(ledgerQuery, [store.id, limit, offset]),
+        db.query(ledgerQuery, [store.id, store.agentId || null, store.userId, limit, offset]),
+        db.query(payoutsAggQuery, [store.id, store.agentId || null, store.userId]),
       ]);
 
       const agg = aggRes.rows[0] || {};
       const grossSalesPesewas = parseInt(agg.grossSalesPesewas || '0', 10);
       const costPesewas = parseInt(agg.costPesewas || '0', 10);
-      const profitPesewas = parseInt(agg.profitPesewas || (grossSalesPesewas - costPesewas).toString(), 10);
+      const totalProfitEarnedPesewas = parseInt(agg.profitPesewas || (grossSalesPesewas - costPesewas).toString(), 10);
       const totalFulfilledOrders = parseInt(agg.totalFulfilledOrders || '0', 10);
+
+      const pStats = payoutsRes.rows[0] || {};
+      const totalWithdrawnPesewas = parseInt(pStats.totalWithdrawnPesewas || '0', 10);
+      const settledWithdrawnPesewas = parseInt(pStats.settledWithdrawnPesewas || '0', 10);
+      const pendingWithdrawnPesewas = parseInt(pStats.pendingWithdrawnPesewas || '0', 10);
+
+      // Reseller profit resets when payouts are approved/in-flight
+      const availableProfitPesewas = Math.max(0, totalProfitEarnedPesewas - totalWithdrawnPesewas);
 
       const recentTransactions = (ledgerRes.rows || []).map((r: any) => ({
         id: r.id,
@@ -2630,8 +2688,18 @@ export async function storeRoutes(
           grossSalesGhs: grossSalesPesewas / 100,
           costPesewas,
           costGhs: costPesewas / 100,
-          profitPesewas,
-          profitGhs: profitPesewas / 100,
+          profitPesewas: availableProfitPesewas,
+          profitGhs: availableProfitPesewas / 100,
+          availableProfitPesewas,
+          availableProfitGhs: availableProfitPesewas / 100,
+          totalProfitEarnedPesewas,
+          totalProfitEarnedGhs: totalProfitEarnedPesewas / 100,
+          totalWithdrawnPesewas,
+          totalWithdrawnGhs: totalWithdrawnPesewas / 100,
+          settledWithdrawnPesewas,
+          settledWithdrawnGhs: settledWithdrawnPesewas / 100,
+          pendingWithdrawnPesewas,
+          pendingWithdrawnGhs: pendingWithdrawnPesewas / 100,
           totalFulfilledOrders,
           recentTransactions,
           transactions: recentTransactions,
@@ -2726,12 +2794,12 @@ export async function storeRoutes(
             'NONE' as "refundStatus",
             created_at as "createdAt"
           FROM store_payouts
-          WHERE (store_id = $1 OR agent_id = (SELECT agent_id FROM stores WHERE id = $1 LIMIT 1)) ${dateCondition}
+          WHERE (store_id = $1 OR (agent_id IS NOT NULL AND agent_id = $2) OR agent_id IN (SELECT id FROM agents WHERE user_id = $3)) ${dateCondition}
         `;
 
         const [ordersRes, payoutsRes] = await Promise.all([
           db.query(ordersQuery, [store.id]),
-          db.query(payoutsQuery, [store.id]),
+          db.query(payoutsQuery, [store.id, store.agentId || null, store.userId]),
         ]);
 
         let allTx = [];
@@ -2816,9 +2884,15 @@ export async function storeRoutes(
         const totalGrossGhs = filtered
           .filter(t => t.type === 'SALE' && t.status === 'PAID')
           .reduce((sum, t) => sum + t.grossAmountGhs, 0);
-        const totalProfitGhs = filtered
+
+        // Deduct approved and pending withdrawals so reseller profit reflects available balance
+        const totalSalesProfitGhs = (typeFilter === 'SALE' ? filtered : allTx)
           .filter(t => t.type === 'SALE' && t.status === 'PAID')
           .reduce((sum, t) => sum + t.profitGhs, 0);
+        const totalWithdrawnGhs = (typeFilter === 'WITHDRAWAL' ? filtered : allTx)
+          .filter(t => t.type === 'WITHDRAWAL' && ['PAID', 'PENDING', 'PROCESSING'].includes(t.status))
+          .reduce((sum, t) => sum + t.profitGhs, 0);
+        const totalProfitGhs = Math.max(0, totalSalesProfitGhs - totalWithdrawnGhs);
 
         const paginated = filtered.slice(offset, offset + limit);
         const totalPages = Math.ceil(totalCount / limit) || 1;
@@ -2831,6 +2905,9 @@ export async function storeRoutes(
               totalCount,
               totalGrossGhs: Number(totalGrossGhs.toFixed(2)),
               totalProfitGhs: Number(totalProfitGhs.toFixed(2)),
+              availableProfitGhs: Number(totalProfitGhs.toFixed(2)),
+              totalProfitEarnedGhs: Number(totalSalesProfitGhs.toFixed(2)),
+              totalWithdrawnGhs: Number(totalWithdrawnGhs.toFixed(2)),
             },
             pagination: {
               page,

@@ -9,6 +9,7 @@ import {
   EyeOff,
   Save,
 } from 'lucide-react';
+import { ResponsiveTable } from '../../components/ui/responsive/index.js';
 
 interface StoreProductItem {
   id: string;
@@ -147,24 +148,24 @@ export const StoreProductsPage: React.FC = () => {
   );
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="store-header-row">
         <div>
           <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#10B981' }}>
             Catalogue & Margins
           </span>
-          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
             Products & Data Bundles
           </h1>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0', lineHeight: 1.4 }}>
             Set custom profit markups, retail pricing, and control which bundles appear on your public store.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div className="store-header-actions">
           {modifiedProducts.size > 0 && (
-            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-warning)', fontWeight: 700 }}>
+            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-warning)', fontWeight: 700, alignSelf: 'center' }}>
               {modifiedProducts.size} unsaved change{modifiedProducts.size > 1 ? 's' : ''}
             </span>
           )}
@@ -174,7 +175,7 @@ export const StoreProductsPage: React.FC = () => {
             onClick={handleSaveAll}
             isLoading={isSaving}
             leftIcon={<Save size={14} />}
-            style={{ backgroundColor: '#10B981', color: '#000000', fontWeight: 800 }}
+            style={{ backgroundColor: '#10B981', color: '#000000', fontWeight: 800, minHeight: '44px', flex: '1 1 auto' }}
           >
             Publish Changes
           </Button>
@@ -182,11 +183,11 @@ export const StoreProductsPage: React.FC = () => {
       </div>
 
       {/* Margin Presets & Bulk Controls */}
-      <Card style={{ padding: '0.85rem 1.25rem', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
+      <Card style={{ padding: 'var(--space-3) var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
-              Quick Markup Presets:
+              Quick Markup:
             </span>
             {[1, 2, 3, 5, 10].map((ghs) => (
               <Button
@@ -194,19 +195,20 @@ export const StoreProductsPage: React.FC = () => {
                 variant="outline"
                 size="xs"
                 onClick={() => applyMarkupPreset(ghs)}
-                style={{ fontWeight: 700 }}
+                style={{ fontWeight: 700, minHeight: '36px', padding: '0 0.5rem' }}
               >
                 +GH₵ {ghs}.00
               </Button>
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
             <Button
               variant="ghost"
               size="xs"
               onClick={() => bulkSetVisibility(true)}
               leftIcon={<Eye size={12} />}
+              style={{ minHeight: '36px' }}
             >
               Show All
             </Button>
@@ -215,6 +217,7 @@ export const StoreProductsPage: React.FC = () => {
               size="xs"
               onClick={() => bulkSetVisibility(false)}
               leftIcon={<EyeOff size={12} />}
+              style={{ minHeight: '36px' }}
             >
               Hide All
             </Button>
@@ -223,7 +226,17 @@ export const StoreProductsPage: React.FC = () => {
       </Card>
 
       {/* Network Tabs Bar */}
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.5rem',
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          paddingBottom: '0.25rem',
+          msOverflowStyle: 'none',
+          scrollbarWidth: 'none',
+        }}
+      >
         {[
           { id: 'ALL', label: 'All Networks', count: products.length },
           { id: 'MTN', label: 'MTN Bundles', color: '#FFCC00', count: products.filter((p) => p.network === 'MTN').length },
@@ -237,7 +250,9 @@ export const StoreProductsPage: React.FC = () => {
               type="button"
               onClick={() => setSelectedNetwork(tab.id as any)}
               style={{
-                padding: '0.45rem 0.85rem',
+                padding: '0.5rem 0.85rem',
+                minHeight: '40px',
+                whiteSpace: 'nowrap',
                 borderRadius: 'var(--radius-md)',
                 border: isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border-default)',
                 backgroundColor: isSelected ? 'var(--color-bg-surface-elevated)' : 'var(--color-bg-surface)',
@@ -245,9 +260,10 @@ export const StoreProductsPage: React.FC = () => {
                 fontWeight: isSelected ? 800 : 600,
                 fontSize: 'var(--font-size-xs)',
                 cursor: 'pointer',
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.4rem',
+                flexShrink: 0,
               }}
             >
               {tab.color && (
@@ -262,97 +278,186 @@ export const StoreProductsPage: React.FC = () => {
 
       {/* Products Grid / Table */}
       <Card style={{ padding: '0', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-2xl)', overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Network</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Bundle Name</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Wholesale Cost</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Your Markup</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Retail Price</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Available</th>
-                <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Store Visible</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    Loading store products...
-                  </td>
-                </tr>
-              ) : filteredProducts.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    No products configured for this network filter.
-                  </td>
-                </tr>
+        {isLoading && products.length === 0 ? (
+          <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+            Loading store products...
+          </div>
+        ) : filteredProducts.length === 0 ? (
+          <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+            No products configured for this network filter.
+          </div>
+        ) : (
+          <ResponsiveTable<StoreProductItem>
+            columns={[
+              {
+                header: 'Network',
+                accessor: 'network',
+                render: (p) => (
+                  p.network === 'MTN' ? (
+                    <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#FFCC00', color: '#000000', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>MTN</span>
+                  ) : p.network === 'TELECEL' ? (
+                    <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#E11D48', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>TELECEL</span>
+                  ) : (
+                    <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#2563EB', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>AT</span>
+                  )
+                ),
+                priority: 'always',
+              },
+              {
+                header: 'Bundle Name',
+                accessor: 'bundleName',
+                render: (p) => (
+                  <strong style={{ color: 'var(--color-text-primary)' }}>{p.bundleName}</strong>
+                ),
+                priority: 'always',
+              },
+              {
+                header: 'Wholesale Cost',
+                accessor: (p) => `GH₵ ${p.baseCostGhs.toFixed(2)}`,
+                render: (p) => (
+                  <span style={{ fontFamily: 'var(--font-data)', color: 'var(--color-text-secondary)' }}>
+                    GH₵ {p.baseCostGhs.toFixed(2)}
+                  </span>
+                ),
+                priority: 'secondary',
+              },
+              {
+                header: 'Your Markup',
+                accessor: (p) => String(p.markupGhs),
+                render: (p) => (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>+GH₵</span>
+                    <Input
+                      type="number"
+                      value={p.markupGhs}
+                      onChange={(e) => handleMarkupChange(p.id, parseFloat(e.target.value) || 0)}
+                      step="0.5"
+                      min="0"
+                      style={{ width: '65px', fontWeight: 800, fontFamily: 'var(--font-data)' }}
+                    />
+                  </div>
+                ),
+                priority: 'always',
+              },
+              {
+                header: 'Retail Price',
+                accessor: (p) => `GH₵ ${(p.baseCostGhs + p.markupGhs).toFixed(2)}`,
+                render: (p) => (
+                  <span style={{ fontFamily: 'var(--font-data)', fontWeight: 900, color: '#10B981', fontSize: 'var(--font-size-sm)' }}>
+                    GH₵ {(p.baseCostGhs + p.markupGhs).toFixed(2)}
+                  </span>
+                ),
+                priority: 'always',
+              },
+              {
+                header: 'Available',
+                accessor: (p) => (p.isAvailable ? 'Yes' : 'No'),
+                render: (p) => (
+                  <Checkbox
+                    checked={p.isAvailable}
+                    onChange={() => toggleAvailability(p.id)}
+                  />
+                ),
+                priority: 'always',
+              },
+              {
+                header: 'Store Visible',
+                accessor: (p) => (p.isVisible ? 'Visible' : 'Hidden'),
+                render: (p) => (
+                  <button
+                    type="button"
+                    onClick={() => toggleVisibility(p.id)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: p.isVisible ? '#3B82F6' : 'var(--color-text-muted)',
+                      padding: '4px',
+                    }}
+                    title={p.isVisible ? 'Visible in store' : 'Hidden in store'}
+                  >
+                    {p.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+                  </button>
+                ),
+                priority: 'always',
+              },
+            ]}
+            data={filteredProducts}
+            keyExtractor={(p) => p.id}
+            enableCardView={true}
+            cardTitle={(p) => p.bundleName}
+            cardSubtitle={(p) => `Cost: GH₵ ${p.baseCostGhs.toFixed(2)} • Retail: GH₵ ${(p.baseCostGhs + p.markupGhs).toFixed(2)}`}
+            cardBadge={(p) => (
+              p.network === 'MTN' ? (
+                <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#FFCC00', color: '#000000', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>MTN</span>
+              ) : p.network === 'TELECEL' ? (
+                <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#E11D48', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>TELECEL</span>
               ) : (
-                filteredProducts.map((p) => {
-                  const retailPrice = p.baseCostGhs + p.markupGhs;
-                  return (
-                    <tr key={p.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        {p.network === 'MTN' ? (
-                          <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#FFCC00', color: '#000000', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>MTN</span>
-                        ) : p.network === 'TELECEL' ? (
-                          <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#E11D48', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>TELECEL</span>
-                        ) : (
-                          <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#2563EB', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>AT</span>
-                        )}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        {p.bundleName}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', color: 'var(--color-text-secondary)' }}>
-                        GH₵ {p.baseCostGhs.toFixed(2)}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>+GH₵</span>
-                          <Input
-                            type="number"
-                            value={p.markupGhs}
-                            onChange={(e) => handleMarkupChange(p.id, parseFloat(e.target.value) || 0)}
-                            step="0.5"
-                            min="0"
-                            style={{ width: '65px', fontWeight: 800, fontFamily: 'var(--font-data)' }}
-                          />
-                        </div>
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 900, color: '#10B981', fontSize: 'var(--font-size-sm)' }}>
-                        GH₵ {retailPrice.toFixed(2)}
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <Checkbox
-                          checked={p.isAvailable}
-                          onChange={() => toggleAvailability(p.id)}
-                        />
-                      </td>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <button
-                          type="button"
-                          onClick={() => toggleVisibility(p.id)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: p.isVisible ? '#3B82F6' : 'var(--color-text-muted)',
-                            padding: '4px',
-                          }}
-                          title={p.isVisible ? 'Visible in store' : 'Hidden in store'}
-                        >
-                          {p.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                <span style={{ padding: '0.15rem 0.45rem', borderRadius: 'var(--radius-xs)', backgroundColor: '#2563EB', color: '#FFFFFF', fontWeight: 900, fontSize: 'var(--font-size-3xs)' }}>AT</span>
+              )
+            )}
+            cardActions={(p) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', width: '100%', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--color-bg-subtle)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-md)' }}>
+                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Your Profit Markup:</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: '#10B981' }}>+GH₵</span>
+                    <Input
+                      type="number"
+                      value={p.markupGhs}
+                      onChange={(e) => handleMarkupChange(p.id, parseFloat(e.target.value) || 0)}
+                      step="0.5"
+                      min="0"
+                      style={{ width: '80px', fontWeight: 800, fontFamily: 'var(--font-data)' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      cursor: 'pointer',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      minHeight: '44px',
+                    }}
+                  >
+                    <Checkbox
+                      checked={p.isAvailable}
+                      onChange={() => toggleAvailability(p.id)}
+                    />
+                    <span>Available</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleVisibility(p.id)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      minHeight: '44px',
+                      padding: '0 0.85rem',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      backgroundColor: p.isVisible ? 'rgba(59, 130, 246, 0.1)' : 'var(--color-bg-subtle)',
+                      color: p.isVisible ? '#3B82F6' : 'var(--color-text-muted)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {p.isVisible ? <Eye size={15} /> : <EyeOff size={15} />}
+                    <span>{p.isVisible ? 'Visible' : 'Hidden'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          />
+        )}
       </Card>
     </div>
   );

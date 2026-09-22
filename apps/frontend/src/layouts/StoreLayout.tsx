@@ -378,6 +378,7 @@ export const StoreLayout: React.FC = () => {
         <MaintenanceBanner isMaintenanceMode={isMaintenanceMode} message={maintenanceMessage} />
         {/* Top Navbar */}
         <header
+          className="store-top-header"
           style={{
             height: '64px',
             backgroundColor: 'var(--color-bg-surface)',
@@ -390,9 +391,10 @@ export const StoreLayout: React.FC = () => {
             top: 0,
             zIndex: 30,
             boxShadow: 'var(--shadow-tactile-sm)',
+            minWidth: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
             <button
               type="button"
               onClick={() => setIsMobileOpen(true)}
@@ -402,15 +404,21 @@ export const StoreLayout: React.FC = () => {
                 border: 'none',
                 cursor: 'pointer',
                 color: 'var(--color-text-primary)',
-                padding: '4px',
+                padding: '6px',
+                minHeight: '40px',
+                minWidth: '40px',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
               className="store-mobile-toggle"
+              aria-label="Open navigation menu"
             >
-              <Menu size={20} />
+              <Menu size={22} />
             </button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, overflow: 'hidden' }}>
               <span
+                className="store-header-console-badge"
                 style={{
                   fontSize: 'var(--font-size-3xs)',
                   fontWeight: 900,
@@ -420,17 +428,18 @@ export const StoreLayout: React.FC = () => {
                   backgroundColor: 'rgba(59, 130, 246, 0.15)',
                   color: '#3B82F6',
                   letterSpacing: '0.06em',
+                  whiteSpace: 'nowrap',
                 }}
               >
                 STORE CONSOLE
               </span>
-              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                / {location.pathname.split('/').pop()?.toUpperCase() || 'OVERVIEW'}
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                / {location.pathname.split('/').pop()?.replace(/-/g, ' ').toUpperCase() || 'OVERVIEW'}
               </span>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
             {/* Theme Toggle */}
             <button
               type="button"
@@ -488,11 +497,13 @@ export const StoreLayout: React.FC = () => {
               href={publicStoreUrl}
               target="_blank"
               rel="noreferrer"
+              title="View Live Storefront"
+              className="store-header-live-btn"
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.35rem',
-                padding: '0.4rem 0.75rem',
+                padding: '0.4rem 0.65rem',
                 borderRadius: 'var(--radius-sm)',
                 backgroundColor: 'rgba(34, 197, 94, 0.12)',
                 border: '1px solid rgba(34, 197, 94, 0.3)',
@@ -502,7 +513,7 @@ export const StoreLayout: React.FC = () => {
                 fontWeight: 700,
               }}
             >
-              <span>Live Storefront</span>
+              <span className="store-header-live-text">Live Storefront</span>
               <ArrowUpRight size={13} />
             </a>
 
@@ -510,6 +521,7 @@ export const StoreLayout: React.FC = () => {
             <div style={{ position: 'relative' }}>
               <div
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                className="store-header-user-capsule"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -533,11 +545,12 @@ export const StoreLayout: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    flexShrink: 0,
                   }}
                 >
                   {user?.fullName?.charAt(0) || 'A'}
                 </div>
-                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                <span className="store-header-user-name" style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                   {user?.fullName || 'Agent Merchant'}
                 </span>
                 <ChevronDown size={13} color="var(--color-text-muted)" />
@@ -639,7 +652,19 @@ export const StoreLayout: React.FC = () => {
         </header>
 
         {/* Page View Body */}
-        <main style={{ flex: 1, padding: 'var(--space-6)', overflowY: 'auto', background: 'transparent' }}>
+        <main
+          className="store-main-viewport"
+          style={{
+            flex: 1,
+            padding: 'var(--space-page-y, var(--space-6)) var(--space-page-x, var(--space-6))',
+            overflowY: 'auto',
+            overflowX: 'clip',
+            background: 'transparent',
+            minWidth: 0,
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
+        >
           <Outlet />
         </main>
       </div>
@@ -713,7 +738,8 @@ export const StoreLayout: React.FC = () => {
                             display: 'flex',
                             alignItems: 'center',
                             gap: '0.65rem',
-                            padding: '0.55rem 0.75rem',
+                            padding: '0.6rem 0.75rem',
+                            minHeight: '44px',
                             borderRadius: 'var(--radius-md)',
                             textDecoration: 'none',
                             fontSize: 'var(--font-size-xs)',
@@ -722,6 +748,7 @@ export const StoreLayout: React.FC = () => {
                             backgroundColor: isActive ? 'var(--sidebar-item-active-bg)' : 'transparent',
                             border: isActive ? '1px solid var(--sidebar-item-active-border)' : '1px solid transparent',
                             position: 'relative',
+                            boxSizing: 'border-box',
                           }}
                         >
                           <span style={{ color: isActive ? '#34D399' : 'currentColor', display: 'flex', alignItems: 'center' }}>
@@ -772,10 +799,12 @@ export const StoreLayout: React.FC = () => {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
-                  padding: '0.5rem',
+                  padding: '0.6rem 0.5rem',
+                  minHeight: '44px',
                   color: 'var(--sidebar-text-muted)',
                   textDecoration: 'none',
                   fontSize: 'var(--font-size-xs)',
+                  boxSizing: 'border-box',
                 }}
               >
                 ← Back to Agent Console
@@ -793,6 +822,24 @@ export const StoreLayout: React.FC = () => {
           }
           .store-mobile-toggle {
             display: flex !important;
+          }
+        }
+        @media (max-width: 639px) {
+          .store-top-header {
+            padding: 0 var(--space-3) !important;
+            height: 56px !important;
+          }
+          .store-main-viewport {
+            padding: var(--space-3) !important;
+          }
+          .store-header-live-text {
+            display: none !important;
+          }
+          .store-header-user-name {
+            display: none !important;
+          }
+          .store-header-console-badge {
+            display: none !important;
           }
         }
       `}</style>

@@ -101,22 +101,24 @@ export const StoreLinkPage: React.FC = () => {
   }
 
   return (
-    <div style={{ maxWidth: '1100px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container">
       {/* Header */}
-      <div>
-        <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#10B981' }}>
-          Distribution & Marketing
-        </span>
-        <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
-          Store Link & Promotion
-        </h1>
-        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
-          Share your public storefront URL, download your scannable QR flyer, and promote across WhatsApp and social media.
-        </p>
+      <div className="store-header-row">
+        <div>
+          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#10B981' }}>
+            Distribution & Marketing
+          </span>
+          <h1 style={{ fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+            Store Link & Promotion
+          </h1>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0', lineHeight: 1.4 }}>
+            Share your public storefront URL, download your scannable QR flyer, and promote across WhatsApp and social media.
+          </p>
+        </div>
       </div>
 
       {/* Main Link Card */}
-      <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)', border: '1px solid var(--color-border-default)', backgroundColor: 'var(--color-bg-surface)' }}>
+      <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-2xl)', border: '1px solid var(--color-border-default)', backgroundColor: 'var(--color-bg-surface)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: 'var(--space-4)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
@@ -138,16 +140,16 @@ export const StoreLinkPage: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', backgroundColor: 'var(--color-bg-surface-elevated)', padding: '0.65rem 1rem', borderRadius: 'var(--radius-xl)', border: '1px solid var(--color-border-subtle)' }}>
-          <span style={{ flex: 1, minWidth: '220px', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', wordBreak: 'break-all', fontWeight: 600 }}>
+          <span style={{ flex: '1 1 200px', minWidth: 'min(100%, 180px)', fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', wordBreak: 'break-all', fontWeight: 600 }}>
             {storeUrl}
           </span>
-          <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
             <Button
               variant={copiedLink ? 'primary' : 'outline'}
               size="sm"
               onClick={handleCopyLink}
               leftIcon={copiedLink ? <CheckCircle2 size={13} /> : <Copy size={13} />}
-              style={copiedLink ? { backgroundColor: '#10B981', color: '#000000', fontWeight: 800 } : {}}
+              style={{ minHeight: '38px', ...(copiedLink ? { backgroundColor: '#10B981', color: '#000000', fontWeight: 800 } : {}) }}
             >
               {copiedLink ? 'Copied' : 'Copy Link'}
             </Button>
@@ -156,6 +158,7 @@ export const StoreLinkPage: React.FC = () => {
               size="sm"
               onClick={() => window.open(storeUrl, '_blank')}
               leftIcon={<ExternalLink size={13} />}
+              style={{ minHeight: '38px' }}
             >
               Open Store
             </Button>
@@ -164,7 +167,7 @@ export const StoreLinkPage: React.FC = () => {
       </Card>
 
       {/* 2-Column: QR Code & WhatsApp Marketing */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-6)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 'var(--space-6)' }}>
         {/* QR Flyer */}
         <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)', border: '1px solid var(--color-border-default)', backgroundColor: 'var(--color-bg-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
           <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3B82F6', marginBottom: 'var(--space-3)' }}>
@@ -239,7 +242,7 @@ export const StoreLinkPage: React.FC = () => {
             size="md"
             onClick={handleWhatsAppShare}
             leftIcon={<MessageCircle size={16} />}
-            style={{ backgroundColor: '#25D366', color: '#FFFFFF', fontWeight: 800, width: '100%' }}
+            style={{ backgroundColor: '#25D366', color: '#FFFFFF', fontWeight: 800, width: '100%', minHeight: '44px' }}
           >
             Share on WhatsApp
           </Button>

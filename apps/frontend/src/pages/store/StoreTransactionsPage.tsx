@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi, StoreTransactionRecordDto } from '../../api/stores.api.js';
+import { ResponsiveTable, ResponsiveTableColumn } from '../../components/ui/responsive/ResponsiveTable.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
 
 export const StoreTransactionsPage: React.FC = () => {
@@ -26,7 +27,14 @@ export const StoreTransactionsPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
 
   const [transactions, setTransactions] = useState<StoreTransactionRecordDto[]>([]);
-  const [summary, setSummary] = useState<{ totalCount: number; totalGrossGhs: number; totalProfitGhs: number }>({
+  const [summary, setSummary] = useState<{
+    totalCount: number;
+    totalGrossGhs: number;
+    totalProfitGhs: number;
+    availableProfitGhs?: number;
+    totalProfitEarnedGhs?: number;
+    totalWithdrawnGhs?: number;
+  }>({
     totalCount: 0,
     totalGrossGhs: 0,
     totalProfitGhs: 0,
@@ -150,15 +158,111 @@ export const StoreTransactionsPage: React.FC = () => {
     toastSuccess('Export Complete', 'Transactions ledger exported successfully.');
   };
 
+  const columns: ResponsiveTableColumn<StoreTransactionRecordDto>[] = [
+    {
+      header: 'Reference',
+      priority: 'always',
+      render: (t) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)', wordBreak: 'break-all' }}>
+            {t.reference}
+          </span>
+          <button
+            type="button"
+            onClick={() => handleCopy(t.reference)}
+            style={{ background: 'none', border: 'none', padding: '2px', cursor: 'pointer', color: 'var(--color-text-muted)', flexShrink: 0 }}
+            title="Copy Reference"
+          >
+            {copiedRef === t.reference ? <Check size={12} color="#10B981" /> : <Copy size={12} />}
+          </button>
+        </div>
+      ),
+    },
+    {
+      header: 'Type',
+      mobileLabel: 'Type',
+      render: (t) => (
+        <Badge variant={t.type === 'SALE' ? 'success' : 'brand'} size="xs">
+          {t.type === 'SALE' ? 'Store Sale' : 'Withdrawal'}
+        </Badge>
+      ),
+    },
+    {
+      header: 'Details',
+      mobileLabel: 'Details',
+      render: (t) => (
+        <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{t.details}</span>
+      ),
+    },
+    {
+      header: 'Recipient / Account',
+      mobileLabel: 'Recipient',
+      render: (t) => (
+        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)', wordBreak: 'break-all' }}>{t.recipient}</span>
+      ),
+    },
+    {
+      header: 'Gross Sales',
+      mobileLabel: 'Gross',
+      render: (t) => (
+        <span style={{ fontFamily: 'var(--font-data)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+          GH₵ {t.grossAmountGhs.toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      header: 'Reseller Profit',
+      mobileLabel: 'Profit',
+      priority: 'always',
+      render: (t) => (
+        <span style={{ fontFamily: 'var(--font-data)', fontWeight: 800, color: t.type === 'SALE' ? '#10B981' : '#8B5CF6' }}>
+          {t.type === 'SALE' ? '+' : '-'}GH₵ {t.profitGhs.toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      header: 'Status',
+      mobileLabel: 'Status',
+      render: (t) => (
+        <Badge
+          variant={
+            t.status === 'PAID' || t.status === 'COMPLETED'
+              ? 'success'
+              : t.status === 'PENDING'
+              ? 'warning'
+              : 'danger'
+          }
+          size="xs"
+        >
+          {t.status}
+        </Badge>
+      ),
+    },
+    {
+      header: 'Date',
+      mobileLabel: 'Date',
+      render: (t) => (
+        <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
+          {new Date(t.createdAt).toLocaleDateString([], {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </span>
+      ),
+    },
+  ];
+
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container" style={{ gap: 'clamp(1rem, 2vw, var(--space-6))' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="store-header-row">
         <div>
           <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#F59E0B' }}>
             Store Finance & Ledger
           </span>
-          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: 'clamp(1.25rem, 3.5vw, var(--font-size-2xl))', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
             Store Transactions
           </h1>
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
@@ -166,13 +270,14 @@ export const StoreTransactionsPage: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div className="store-header-actions">
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportCsv}
             leftIcon={<Download size={13} />}
             disabled={loading || transactions.length === 0}
+            style={{ minHeight: '38px' }}
           >
             Export CSV
           </Button>
@@ -181,7 +286,7 @@ export const StoreTransactionsPage: React.FC = () => {
             size="sm"
             onClick={() => navigate('/agent/withdrawals')}
             leftIcon={<ArrowDownToLine size={13} />}
-            style={{ backgroundColor: '#10B981', color: '#000000', fontWeight: 800 }}
+            style={{ backgroundColor: '#10B981', color: '#000000', fontWeight: 800, minHeight: '38px' }}
           >
             Withdraw Profit
           </Button>
@@ -189,7 +294,7 @@ export const StoreTransactionsPage: React.FC = () => {
       </div>
 
       {/* Top Summary KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
+      <div className="store-kpis-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))' }}>
         <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
@@ -199,7 +304,7 @@ export const StoreTransactionsPage: React.FC = () => {
               <History size={14} color="#F59E0B" />
             </div>
           </div>
-          <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+          <div style={{ fontSize: 'clamp(1.4rem, 4vw, 1.85rem)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
             {summary.totalCount}
           </div>
           <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>Store orders and disbursements</span>
@@ -214,7 +319,7 @@ export const StoreTransactionsPage: React.FC = () => {
               <DollarSign size={14} color="#3B82F6" />
             </div>
           </div>
-          <div style={{ fontSize: '1.85rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+          <div style={{ fontSize: 'clamp(1.4rem, 4vw, 1.85rem)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
             GH₵ {summary.totalGrossGhs.toFixed(2)}
           </div>
           <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>100% routed through Paystack</span>
@@ -229,17 +334,24 @@ export const StoreTransactionsPage: React.FC = () => {
               <TrendingUp size={14} color="#10B981" />
             </div>
           </div>
-          <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+          <div style={{ fontSize: 'clamp(1.4rem, 4vw, 1.85rem)', fontWeight: 900, color: '#10B981', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
             GH₵ {summary.totalProfitGhs.toFixed(2)}
           </div>
-          <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700 }}>Eligible for Saturday payout</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700 }}>
+            <span>Eligible for Saturday payout</span>
+            {summary.totalWithdrawnGhs !== undefined && summary.totalWithdrawnGhs > 0 && (
+              <span style={{ color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                (GH₵ {summary.totalWithdrawnGhs.toFixed(2)} paid)
+              </span>
+            )}
+          </div>
         </Card>
       </div>
 
       {/* Filter Bar */}
       <Card style={{ padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-          <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
+        <div className="store-filter-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+          <div style={{ flex: '1 1 200px', minWidth: 'min(100%, 180px)' }}>
             <SearchInput
               placeholder="Search reference, recipient, bundle..."
               value={search}
@@ -247,7 +359,7 @@ export const StoreTransactionsPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ minWidth: '140px' }}>
+          <div style={{ minWidth: 'min(100%, 130px)', flex: '1 1 130px' }}>
             <Select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
@@ -259,7 +371,7 @@ export const StoreTransactionsPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ minWidth: '140px' }}>
+          <div style={{ minWidth: 'min(100%, 130px)', flex: '1 1 130px' }}>
             <Select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -275,7 +387,7 @@ export const StoreTransactionsPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ minWidth: '130px' }}>
+          <div style={{ minWidth: 'min(100%, 130px)', flex: '1 1 130px' }}>
             <Select
               value={dateRange}
               onChange={(e) => {
@@ -300,7 +412,7 @@ export const StoreTransactionsPage: React.FC = () => {
 
           {/* Custom Date Range Inputs */}
           {dateRange === 'custom' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexWrap: 'wrap', width: '100%' }}>
               <input
                 type="date"
                 value={startDate}
@@ -312,6 +424,8 @@ export const StoreTransactionsPage: React.FC = () => {
                   border: '1px solid var(--color-border-default)',
                   background: 'var(--color-bg-surface)',
                   color: 'var(--color-text-primary)',
+                  flex: '1 1 120px',
+                  minWidth: 'min(100%, 120px)',
                 }}
               />
               <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
@@ -326,12 +440,14 @@ export const StoreTransactionsPage: React.FC = () => {
                   border: '1px solid var(--color-border-default)',
                   background: 'var(--color-bg-surface)',
                   color: 'var(--color-text-primary)',
+                  flex: '1 1 120px',
+                  minWidth: 'min(100%, 120px)',
                 }}
               />
             </div>
           )}
 
-          <div style={{ minWidth: '130px' }}>
+          <div style={{ minWidth: 'min(100%, 130px)', flex: '1 1 130px' }}>
             <Select
               value={sortFilter}
               onChange={(e) => setSortFilter(e.target.value)}
@@ -351,7 +467,7 @@ export const StoreTransactionsPage: React.FC = () => {
               size="sm"
               onClick={handleResetFilters}
               leftIcon={<RotateCcw size={12} />}
-              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap', minHeight: '38px' }}
             >
               Reset ({activeFilterCount})
             </Button>
@@ -359,111 +475,59 @@ export const StoreTransactionsPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* Transactions Audit Ledger Table */}
-      <Card style={{ padding: 0, backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-2xl)', overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-            <Loader2 size={32} className="spin" style={{ margin: '0 auto', marginBottom: 'var(--space-4)' }} />
-            <p>Loading transactions ledger...</p>
-          </div>
-        ) : transactions.length === 0 ? (
-          <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-            <p style={{ margin: 0, fontWeight: 700 }}>No store transactions found matching your filter criteria.</p>
-            <p style={{ fontSize: 'var(--font-size-xs)', marginTop: '0.25rem', color: 'var(--color-text-muted)' }}>
-              Completed purchases from your customer storefront and Saturday payouts will automatically appear here.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Reference</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Type</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Details</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Recipient / Account</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Gross Sales</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Reseller Profit</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Status</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: 'var(--font-size-3xs)' }}>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((t) => (
-                    <tr key={t.id + t.reference} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                            {t.reference}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(t.reference)}
-                            style={{ background: 'none', border: 'none', padding: '2px', cursor: 'pointer', color: 'var(--color-text-muted)' }}
-                            title="Copy Reference"
-                          >
-                            {copiedRef === t.reference ? <Check size={12} color="#10B981" /> : <Copy size={12} />}
-                          </button>
-                        </div>
-                      </td>
+      {/* Transactions Audit Ledger */}
+      {loading ? (
+        <Card style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-secondary)', borderRadius: 'var(--radius-2xl)' }}>
+          <Loader2 size={32} className="spin" style={{ margin: '0 auto', marginBottom: 'var(--space-4)' }} />
+          <p>Loading transactions ledger...</p>
+        </Card>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <ResponsiveTable<StoreTransactionRecordDto>
+            columns={columns}
+            data={transactions}
+            keyExtractor={(t) => String(t.id || t.reference)}
+            cardTitle={(t) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)', wordBreak: 'break-all' }}>
+                  {t.reference}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(t.reference)}
+                  style={{ background: 'none', border: 'none', padding: '2px', cursor: 'pointer', color: 'var(--color-text-muted)', flexShrink: 0 }}
+                  title="Copy Reference"
+                >
+                  {copiedRef === t.reference ? <Check size={12} color="#10B981" /> : <Copy size={12} />}
+                </button>
+              </div>
+            )}
+            cardSubtitle={(t) => (
+              <span style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-2xs)' }}>
+                {t.details} • {t.recipient}
+              </span>
+            )}
+            cardBadge={(t) => (
+              <Badge
+                variant={
+                  t.status === 'PAID' || t.status === 'COMPLETED'
+                    ? 'success'
+                    : t.status === 'PENDING'
+                    ? 'warning'
+                    : 'danger'
+                }
+                size="xs"
+              >
+                {t.status}
+              </Badge>
+            )}
+            emptyMessage="No store transactions found matching your filter criteria."
+          />
 
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <Badge variant={t.type === 'SALE' ? 'success' : 'brand'} size="xs">
-                          {t.type === 'SALE' ? 'Store Sale' : 'Withdrawal'}
-                        </Badge>
-                      </td>
-
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-primary)', fontWeight: 600 }}>
-                        {t.details}
-                      </td>
-
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-mono)', color: 'var(--color-text-secondary)' }}>
-                        {t.recipient}
-                      </td>
-
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        GH₵ {t.grossAmountGhs.toFixed(2)}
-                      </td>
-
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-data)', fontWeight: 800 }}>
-                        <span style={{ color: t.type === 'SALE' ? '#10B981' : '#8B5CF6' }}>
-                          {t.type === 'SALE' ? '+' : '-'}GH₵ {t.profitGhs.toFixed(2)}
-                        </span>
-                      </td>
-
-                      <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
-                        <Badge
-                          variant={
-                            t.status === 'PAID' || t.status === 'COMPLETED'
-                              ? 'success'
-                              : t.status === 'PENDING'
-                              ? 'warning'
-                              : 'danger'
-                          }
-                          size="xs"
-                        >
-                          {t.status}
-                        </Badge>
-                      </td>
-
-                      <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
-                        {new Date(t.createdAt).toLocaleDateString([], {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', padding: 'var(--space-4)', borderTop: '1px solid var(--color-border-subtle)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Pagination Controls */}
+          {transactions.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', padding: 'var(--space-4)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-xl)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
                   Showing {totalCount > 0 ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, totalCount)} of {totalCount} transactions
                 </span>
@@ -487,6 +551,7 @@ export const StoreTransactionsPage: React.FC = () => {
                   disabled={page === 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   leftIcon={<ChevronLeft size={14} />}
+                  style={{ minHeight: '38px' }}
                 >
                   Prev
                 </Button>
@@ -496,14 +561,15 @@ export const StoreTransactionsPage: React.FC = () => {
                   disabled={page >= totalPages}
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   rightIcon={<ChevronRight size={14} />}
+                  style={{ minHeight: '38px' }}
                 >
                   Next
                 </Button>
               </div>
             </div>
-          </>
-        )}
-      </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 };

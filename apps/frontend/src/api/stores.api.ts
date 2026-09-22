@@ -122,6 +122,11 @@ export interface StoreDashboardDto {
     filteredSalesGhs?: number;
     todayProfitGhs?: number;
     totalProfitGhs?: number;
+    availableProfitGhs?: number;
+    totalProfitEarnedGhs?: number;
+    totalWithdrawnGhs?: number;
+    settledWithdrawnGhs?: number;
+    pendingPayoutGhs?: number;
     filteredProfitGhs?: number;
     ordersCount: number;
     ordersTodayCount?: number;
@@ -237,8 +242,19 @@ export interface StoreFinanceLedgerEntryDto {
 
 export interface StoreFinanceDto {
   grossSalesGhs: number;
+  grossSalesPesewas?: number;
   costGhs: number;
+  costPesewas?: number;
   profitGhs: number;
+  profitPesewas?: number;
+  availableProfitGhs?: number;
+  availableProfitPesewas?: number;
+  totalProfitEarnedGhs?: number;
+  totalProfitEarnedPesewas?: number;
+  totalWithdrawnGhs?: number;
+  totalWithdrawnPesewas?: number;
+  settledWithdrawnGhs?: number;
+  pendingWithdrawnGhs?: number;
   totalFulfilledOrders: number;
   transactions: StoreFinanceLedgerEntryDto[];
   pagination: {
@@ -271,6 +287,9 @@ export interface StoreTransactionsResponseDto {
     totalCount: number;
     totalGrossGhs: number;
     totalProfitGhs: number;
+    availableProfitGhs?: number;
+    totalProfitEarnedGhs?: number;
+    totalWithdrawnGhs?: number;
   };
   pagination: {
     page: number;

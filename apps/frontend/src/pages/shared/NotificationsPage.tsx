@@ -161,7 +161,9 @@ export const NotificationsPage: React.FC = () => {
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        gap: 'var(--space-6)',
+        gap: 'clamp(1rem, 2vw, var(--space-6))',
+        minWidth: 0,
+        overflowX: 'hidden',
       }}
     >
       {/* Page Header */}
@@ -169,7 +171,7 @@ export const NotificationsPage: React.FC = () => {
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           flexWrap: 'wrap',
           gap: '1rem',
         }}
@@ -188,7 +190,7 @@ export const NotificationsPage: React.FC = () => {
           </span>
           <h1
             style={{
-              fontSize: 'var(--font-size-2xl)',
+              fontSize: 'clamp(1.25rem, 3.5vw, var(--font-size-2xl))',
               fontWeight: 800,
               color: 'var(--color-text-primary)',
               margin: '0.125rem 0 0 0',
@@ -208,7 +210,7 @@ export const NotificationsPage: React.FC = () => {
         </div>
 
         {/* Action Buttons: Mark all read & Clear */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <Button
             variant="outline"
             size="sm"
@@ -216,6 +218,7 @@ export const NotificationsPage: React.FC = () => {
             disabled={unreadTotal === 0}
             leftIcon={<CheckCheck size={14} />}
             title="Mark all notifications as read"
+            style={{ minHeight: '38px' }}
           >
             Mark all read
           </Button>
@@ -227,6 +230,7 @@ export const NotificationsPage: React.FC = () => {
             disabled={notifications.length === 0 || isClearing}
             leftIcon={<Trash2 size={14} />}
             title="Clear all notifications"
+            style={{ minHeight: '38px' }}
           >
             Clear
           </Button>
@@ -255,6 +259,7 @@ export const NotificationsPage: React.FC = () => {
             backgroundColor: 'var(--color-bg-surface-elevated)',
             border: '1px solid var(--color-border-default)',
             borderRadius: 'var(--radius-lg)',
+            maxWidth: '100%',
           }}
         >
           <button
@@ -274,6 +279,7 @@ export const NotificationsPage: React.FC = () => {
               cursor: 'pointer',
               boxShadow: statusTab === 'all' ? 'var(--shadow-sm)' : 'none',
               transition: 'all var(--transition-normal)',
+              minHeight: '34px',
             }}
           >
             All
@@ -308,6 +314,7 @@ export const NotificationsPage: React.FC = () => {
               cursor: 'pointer',
               boxShadow: statusTab === 'unread' ? 'var(--shadow-sm)' : 'none',
               transition: 'all var(--transition-normal)',
+              minHeight: '34px',
             }}
           >
             Unread
@@ -329,7 +336,7 @@ export const NotificationsPage: React.FC = () => {
         </div>
 
         {/* Category Filter Pills */}
-        <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', maxWidth: '100%' }}>
           {[
             { key: 'all', label: 'All Categories' },
             { key: 'orders', label: 'Orders & Deliveries' },
@@ -343,7 +350,7 @@ export const NotificationsPage: React.FC = () => {
                 type="button"
                 onClick={() => setCategoryFilter(cat.key as any)}
                 style={{
-                  padding: '0.35rem 0.75rem',
+                  padding: '0.4rem 0.75rem',
                   fontSize: '11px',
                   fontWeight: isSelected ? 700 : 500,
                   borderRadius: 'var(--radius-full)',
@@ -352,6 +359,7 @@ export const NotificationsPage: React.FC = () => {
                   color: isSelected ? 'var(--color-brand)' : 'var(--color-text-secondary)',
                   cursor: 'pointer',
                   transition: 'all var(--transition-fast)',
+                  minHeight: '30px',
                 }}
               >
                 {cat.label}
@@ -365,7 +373,7 @@ export const NotificationsPage: React.FC = () => {
       <Card
         elevated
         style={{
-          padding: 'var(--space-4)',
+          padding: 'clamp(0.5rem, 2vw, var(--space-4))',
           backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid var(--color-border-default)',
           borderRadius: 'var(--radius-lg)',
@@ -387,26 +395,30 @@ export const NotificationsPage: React.FC = () => {
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',
-                  gap: 'var(--space-4)',
-                  padding: 'var(--space-4)',
+                  gap: 'clamp(0.5rem, 2vw, var(--space-4))',
+                  padding: 'clamp(0.75rem, 2vw, var(--space-4))',
                   borderRadius: 'var(--radius-lg)',
                   backgroundColor: item.unread ? 'var(--color-bg-surface-elevated)' : 'transparent',
                   border: item.unread ? '1px solid var(--color-border-hover)' : '1px solid var(--color-border-subtle)',
                   cursor: 'pointer',
                   transition: 'all var(--transition-fast)',
                   position: 'relative',
+                  minWidth: 0,
                 }}
               >
-                {getCategoryIcon(item.category)}
+                <div style={{ flexShrink: 0 }}>
+                  {getCategoryIcon(item.category)}
+                </div>
 
                 <div style={{ flexGrow: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.25rem 0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', minWidth: 0 }}>
                       <span
                         style={{
                           fontSize: 'var(--font-size-sm)',
                           fontWeight: item.unread ? 800 : 600,
                           color: 'var(--color-text-primary)',
+                          wordBreak: 'break-word',
                         }}
                       >
                         {item.title}
@@ -419,12 +431,13 @@ export const NotificationsPage: React.FC = () => {
                             borderRadius: '50%',
                             backgroundColor: 'var(--color-brand)',
                             display: 'inline-block',
+                            flexShrink: 0,
                           }}
                         />
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: 'auto' }}>
                       <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                         {item.time}
                       </span>
@@ -440,9 +453,12 @@ export const NotificationsPage: React.FC = () => {
                             border: 'none',
                             cursor: 'pointer',
                             color: 'var(--color-text-muted)',
-                            padding: '2px',
+                            padding: '4px',
                             display: 'flex',
                             alignItems: 'center',
+                            minHeight: '28px',
+                            minWidth: '28px',
+                            justifyContent: 'center',
                           }}
                         >
                           <Check size={14} />
@@ -458,9 +474,12 @@ export const NotificationsPage: React.FC = () => {
                           border: 'none',
                           cursor: 'pointer',
                           color: 'var(--color-text-muted)',
-                          padding: '2px',
+                          padding: '4px',
                           display: 'flex',
                           alignItems: 'center',
+                          minHeight: '28px',
+                          minWidth: '28px',
+                          justifyContent: 'center',
                         }}
                       >
                         <X size={14} />
@@ -474,6 +493,7 @@ export const NotificationsPage: React.FC = () => {
                       color: 'var(--color-text-secondary)',
                       margin: '0.25rem 0 0 0',
                       lineHeight: 1.4,
+                      wordBreak: 'break-word',
                     }}
                   >
                     {item.detail}

@@ -3,6 +3,7 @@ import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
 import { Badge, NetworkBadge } from '../../components/ui/Badge/Badge.js';
 import { Table } from '../../components/ui/Table/Table.js';
+import { ResponsiveTable } from '../../components/ui/responsive/ResponsiveTable.js';
 import { useNavigate } from 'react-router-dom';
 import { storesApi, StoreDashboardDto, StoreOrderRecordDto } from '../../api/stores.api.js';
 import {
@@ -178,7 +179,7 @@ export const StoreDashboardPage: React.FC = () => {
   const safePercent = (val: number) => totalHealth > 0 ? ((val / totalHealth) * 100).toFixed(1) : '0.0';
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container">
       <style>{`
         .store-kpi-card-interactive {
           padding: var(--space-5);
@@ -201,18 +202,19 @@ export const StoreDashboardPage: React.FC = () => {
         .store-filter-bar {
           display: flex;
           align-items: center;
-          gap: var(--space-3);
+          gap: var(--space-2);
           flex-wrap: wrap;
           padding: var(--space-3) var(--space-4);
           background: var(--color-bg-surface);
           border-radius: var(--radius-xl);
           border: 1px solid var(--color-border-default);
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+          width: 100%;
+          box-sizing: border-box;
         }
         .store-filter-bar .sf-search-input {
-          flex: 1;
-          min-width: 180px;
-          max-width: 260px;
+          flex: 1 1 180px;
+          min-width: 140px;
           padding: 0.45rem 0.7rem 0.45rem 2rem;
           font-size: var(--font-size-xs);
           border-radius: var(--radius-lg);
@@ -222,6 +224,7 @@ export const StoreDashboardPage: React.FC = () => {
           font-family: inherit;
           outline: none;
           transition: border-color 0.15s;
+          box-sizing: border-box;
         }
         .store-filter-bar .sf-search-input:focus {
           border-color: #3B82F6;
@@ -238,8 +241,9 @@ export const StoreDashboardPage: React.FC = () => {
           color: var(--color-text-primary);
           font-family: inherit;
           cursor: pointer;
-          min-width: 120px;
+          min-width: 110px;
           outline: none;
+          box-sizing: border-box;
         }
         .store-filter-bar select.sf-select:focus {
           border-color: #3B82F6;
@@ -261,17 +265,22 @@ export const StoreDashboardPage: React.FC = () => {
         }
         @media (max-width: 767px) {
           .store-filter-bar {
-            flex-direction: column;
-            align-items: stretch;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: var(--space-2);
           }
           .store-filter-bar .sf-search-input {
-            max-width: 100%;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+          .store-filter-bar select.sf-select {
+            width: 100% !important;
           }
         }
       `}</style>
 
       {/* 1. Header & Live Storefront Banner */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="store-header-row">
         <div>
           <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#3B82F6' }}>
             Storefront Intelligence
@@ -284,7 +293,7 @@ export const StoreDashboardPage: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div className="store-header-actions">
           <Button variant="outline" size="sm" onClick={() => navigate('/store-console/products')}>
             Manage Products
           </Button>
@@ -296,7 +305,7 @@ export const StoreDashboardPage: React.FC = () => {
               display: 'inline-flex',
               alignItems: 'center',
               gap: '0.35rem',
-              padding: '0.35rem 0.75rem',
+              padding: '0.45rem 0.85rem',
               borderRadius: 'var(--radius-sm)',
               backgroundColor: '#3B82F6',
               color: '#FFFFFF',
@@ -304,6 +313,8 @@ export const StoreDashboardPage: React.FC = () => {
               fontSize: 'var(--font-size-xs)',
               fontWeight: 800,
               boxShadow: '0 4px 12px rgba(59, 130, 246, 0.35)',
+              minHeight: '38px',
+              justifyContent: 'center',
             }}
           >
             <span>Preview Store</span>
@@ -315,7 +326,7 @@ export const StoreDashboardPage: React.FC = () => {
       {/* 2. Top-Level Unified Filter Bar (Controls KPIs, Fulfillment Health, and Orders Table) */}
       <div className="store-filter-bar">
         {/* Search */}
-        <div style={{ position: 'relative', flex: 1, minWidth: '180px', maxWidth: '240px' }}>
+        <div style={{ position: 'relative', flex: '1 1 200px', minWidth: '160px' }}>
           <Search size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
@@ -437,7 +448,7 @@ export const StoreDashboardPage: React.FC = () => {
       </div>
 
       {/* 3. Top-Level KPI Cards (Fully Functional, Interactive, Drillable) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
+      <div className="store-kpis-grid">
         {/* Feature 1: Today's Sales */}
         <div
           className="store-kpi-card-interactive"
@@ -468,7 +479,7 @@ export const StoreDashboardPage: React.FC = () => {
           className="store-kpi-card-interactive"
           onClick={() => navigate('/store-console/finance')}
           style={{ border: '1px solid rgba(16, 185, 129, 0.35)' }}
-          title="Click to view Reseller Profit details"
+          title={kpis.totalProfitEarnedGhs ? `Available: GH₵ ${(kpis.totalProfitGhs || 0).toFixed(2)} (Lifetime: GH₵ ${kpis.totalProfitEarnedGhs.toFixed(2)})` : "Click to view Reseller Profit details"}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
             <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -484,6 +495,11 @@ export const StoreDashboardPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-2)', fontSize: 'var(--font-size-3xs)' }}>
             <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>
               Today: GH₵ {(kpis.todayProfitGhs || 0).toFixed(2)}
+              {kpis.totalWithdrawnGhs !== undefined && kpis.totalWithdrawnGhs > 0 && (
+                <span style={{ color: 'var(--color-text-muted)', fontWeight: 500, marginLeft: '0.35rem' }}>
+                  (GH₵ {kpis.totalWithdrawnGhs.toFixed(2)} paid)
+                </span>
+              )}
             </span>
             <button
               type="button"
@@ -582,7 +598,7 @@ export const StoreDashboardPage: React.FC = () => {
       </div>
 
       {/* 4. Revenue Trajectory & Order Health Split */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.8fr) minmax(0, 1.2fr)', gap: 'var(--space-6)', alignItems: 'start' }}>
+      <div className="store-split-grid">
         {/* Left: Revenue Trajectory Chart */}
         <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
@@ -800,22 +816,25 @@ export const StoreDashboardPage: React.FC = () => {
             </div>
           </div>
         ) : (
-          <Table<StoreOrderRecordDto>
+          <ResponsiveTable<StoreOrderRecordDto>
             columns={[
               {
                 header: 'Network',
                 accessor: 'network',
                 render: (row) => <NetworkBadge network={row.network as any} size="sm" />,
+                priority: 'always',
               },
               {
                 header: 'Recipient',
                 accessor: 'recipientPhone',
                 render: (row) => <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-xs)' }}>{row.recipientPhone}</span>,
+                priority: 'always',
               },
               {
                 header: 'Bundle',
                 accessor: 'dataAmountMb',
                 render: (row) => <strong style={{ color: 'var(--color-text-primary)' }}>{row.dataLabel || `${(row.dataAmountMb / 1024).toFixed(1)} GB`}</strong>,
+                priority: 'always',
               },
               {
                 header: 'Amount',
@@ -823,6 +842,7 @@ export const StoreDashboardPage: React.FC = () => {
                 render: (row) => (
                   <span style={{ fontWeight: 700, fontFamily: 'var(--font-data)' }}>GH₵ {(row.amountPesewas / 100).toFixed(2)}</span>
                 ),
+                priority: 'always',
               },
               {
                 header: 'Profit',
@@ -832,6 +852,7 @@ export const StoreDashboardPage: React.FC = () => {
                     {row.profitPesewas != null ? `GH₵ ${(row.profitPesewas / 100).toFixed(2)}` : '—'}
                   </span>
                 ),
+                priority: 'secondary',
               },
               {
                 header: 'Status',
@@ -841,6 +862,7 @@ export const StoreDashboardPage: React.FC = () => {
                     {row.orderStatus === 'COMPLETED' ? 'Delivered' : row.orderStatus === 'FAILED' ? 'Failed' : row.orderStatus === 'CANCELLED' ? 'Cancelled' : 'Pending'}
                   </Badge>
                 ),
+                priority: 'always',
               },
               {
                 header: 'Date',
@@ -850,10 +872,34 @@ export const StoreDashboardPage: React.FC = () => {
                     {row.createdAt ? new Date(row.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                   </span>
                 ),
+                priority: 'secondary',
               },
             ]}
             data={storeOrders}
             keyExtractor={(item) => item.id}
+            enableCardView={true}
+            cardTitle={(row) => (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <NetworkBadge network={row.network as any} size="sm" />
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{row.recipientPhone}</span>
+              </div>
+            )}
+            cardSubtitle={(row) => row.dataLabel || `${(row.dataAmountMb / 1024).toFixed(1)} GB`}
+            cardBadge={(row) => (
+              <Badge variant={row.orderStatus === 'COMPLETED' ? 'success' : row.orderStatus === 'FAILED' || row.orderStatus === 'CANCELLED' ? 'danger' : 'warning'} size="sm">
+                {row.orderStatus === 'COMPLETED' ? 'Delivered' : row.orderStatus === 'FAILED' ? 'Failed' : row.orderStatus === 'CANCELLED' ? 'Cancelled' : 'Pending'}
+              </Badge>
+            )}
+            cardActions={(row) => (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', fontSize: 'var(--font-size-xs)' }}>
+                <span style={{ fontWeight: 800, fontFamily: 'var(--font-data)' }}>GH₵ {(row.amountPesewas / 100).toFixed(2)}</span>
+                {row.profitPesewas != null && (
+                  <span style={{ fontWeight: 700, color: '#10B981', fontFamily: 'var(--font-data)' }}>
+                    +GH₵ {(row.profitPesewas / 100).toFixed(2)}
+                  </span>
+                )}
+              </div>
+            )}
           />
         )}
       </Card>

@@ -138,24 +138,24 @@ export const StoreAnalyticsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="store-header-row">
         <div>
           <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#A855F7' }}>
             Store Performance
           </span>
-          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
             Store Analytics & Metrics
           </h1>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0', lineHeight: 1.4 }}>
             Sales conversions, average basket values, and carrier market share for your storefront.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div className="store-header-actions">
           {/* Period Selector Dropdown */}
-          <div style={{ minWidth: '150px' }}>
+          <div style={{ minWidth: 'min(100%, 140px)', flex: '1 1 130px' }}>
             <Select
               value={period}
               onChange={(e) => {
@@ -179,7 +179,7 @@ export const StoreAnalyticsPage: React.FC = () => {
 
           {/* Custom Date Range Inputs */}
           {period === 'custom' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexWrap: 'wrap' }}>
               <input
                 type="date"
                 value={startDate}
@@ -191,6 +191,7 @@ export const StoreAnalyticsPage: React.FC = () => {
                   border: '1px solid var(--color-border-default)',
                   background: 'var(--color-bg-surface)',
                   color: 'var(--color-text-primary)',
+                  minHeight: '38px',
                 }}
               />
               <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-muted)' }}>to</span>
@@ -205,6 +206,7 @@ export const StoreAnalyticsPage: React.FC = () => {
                   border: '1px solid var(--color-border-default)',
                   background: 'var(--color-bg-surface)',
                   color: 'var(--color-text-primary)',
+                  minHeight: '38px',
                 }}
               />
             </div>
@@ -217,7 +219,7 @@ export const StoreAnalyticsPage: React.FC = () => {
               size="sm"
               onClick={handleResetFilters}
               leftIcon={<RotateCcw size={12} />}
-              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap' }}
+              style={{ fontSize: 'var(--font-size-2xs)', whiteSpace: 'nowrap', minHeight: '38px' }}
             >
               Reset ({activeFilterCount})
             </Button>
@@ -229,6 +231,7 @@ export const StoreAnalyticsPage: React.FC = () => {
             onClick={handleExportReport}
             leftIcon={<Download size={13} />}
             disabled={loading || !data}
+            style={{ minHeight: '38px', flex: '1 1 auto' }}
           >
             Export Report
           </Button>
@@ -250,32 +253,32 @@ export const StoreAnalyticsPage: React.FC = () => {
       ) : data ? (
         <>
           {/* Top Analytics Metrics */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
-            <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
+          <div className="store-kpis-grid">
+            <Card style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-xl)' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Monthly Revenue</span>
-              <div style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+              <div style={{ fontSize: 'clamp(1.4rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
                 GH₵ {data.monthlyRevenueGhs.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </Card>
 
-            <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
+            <Card style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-xl)' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Completed Orders</span>
-              <div style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+              <div style={{ fontSize: 'clamp(1.4rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
                 {data.completedOrders}
               </div>
               <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>{data.successRate.toFixed(1)}% success rate</span>
             </Card>
 
-            <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
+            <Card style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-xl)' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Total Orders</span>
-              <div style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+              <div style={{ fontSize: 'clamp(1.4rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
                 {data.totalOrders}
               </div>
             </Card>
 
-            <Card style={{ padding: 'var(--space-5)', borderRadius: 'var(--radius-xl)' }}>
+            <Card style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-xl)' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Average Order Value</span>
-              <div style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
+              <div style={{ fontSize: 'clamp(1.4rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', fontFamily: 'var(--font-data)', margin: '0.25rem 0' }}>
                 GH₵ {data.averageOrderValueGhs.toFixed(2)}
               </div>
             </Card>
@@ -411,7 +414,7 @@ export const StoreAnalyticsPage: React.FC = () => {
               }
 
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 'var(--space-4)' }}>
                   {list.length > 0 ? list.map((item) => {
                     const color = NETWORK_COLORS[item.network] || '#888888';
                     const label = NETWORK_LABELS[item.network] || item.network;

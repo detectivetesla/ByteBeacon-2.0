@@ -185,22 +185,22 @@ export const StoreProfilePage: React.FC = () => {
   }
 
   return (
-    <div style={{ maxWidth: '980px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div className="store-page-container">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="store-header-row">
         <div>
           <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#10B981' }}>
             Storefront Identity & Links
           </span>
-          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
             {isLinkView ? 'Storefront URL & Custom Link' : 'Store Profile & Identity'}
           </h1>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0', lineHeight: 1.4 }}>
             Manage your customer storefront link, custom URL slug, branding, and merchant support channels.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div className="store-header-actions">
           {storeData?.storeStatus === 'ACTIVE' && storeData?.approvalStatus === 'APPROVED' ? (
             <Badge variant="success" size="md">
               <ShieldCheck size={14} style={{ marginRight: '0.25rem' }} />
@@ -292,7 +292,7 @@ export const StoreProfilePage: React.FC = () => {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
             gap: 'var(--space-3)',
             paddingTop: 'var(--space-3)',
             borderTop: '1px solid var(--color-border-subtle)',
@@ -433,7 +433,7 @@ export const StoreProfilePage: React.FC = () => {
               </div>
 
               {/* Upload Controls & URL input */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minWidth: '260px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minWidth: 'min(100%, 240px)' }}>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                   <label
                     style={{
@@ -531,7 +531,7 @@ export const StoreProfilePage: React.FC = () => {
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 'var(--space-4)' }}>
             <Input
               label="Store Business Name"
               value={storeName}
@@ -726,7 +726,7 @@ export const StoreProfilePage: React.FC = () => {
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 'var(--space-4)' }}>
             <PhoneInput
               label="Support Phone Number"
               value={contactPhone}
@@ -751,14 +751,14 @@ export const StoreProfilePage: React.FC = () => {
             />
           </div>
 
-          <div style={{ marginTop: 'var(--space-2)', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <div style={{ marginTop: 'var(--space-2)', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
             <Button
               variant="primary"
               size="md"
               type="submit"
               isLoading={saving}
               leftIcon={<Save size={15} />}
-              style={{ fontWeight: 800, backgroundColor: '#10B981', color: '#000000' }}
+              style={{ fontWeight: 800, backgroundColor: '#10B981', color: '#000000', minHeight: '44px', flex: '1 1 auto' }}
             >
               Save Store Profile & Custom Link
             </Button>

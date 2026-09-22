@@ -6,6 +6,8 @@ import { SearchInput, Select, PhoneInput } from '../../components/ui/index.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Modal } from '../../components/ui/Modal/Modal.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
+import { ResponsiveTable } from '../../components/ui/responsive/index.js';
+import type { ResponsiveTableColumn } from '../../components/ui/responsive/index.js';
 import {
   Clock,
   RefreshCw,
@@ -527,30 +529,13 @@ export const StorePendingApprovalsPage: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        maxWidth: '1440px',
-        margin: '0 auto',
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-6)',
-      }}
-    >
+    <div className="store-page-container">
       {/* 1. Header Toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '1rem',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div className="store-header-row">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0, flex: '1 1 300px' }}>
           <TactileIcon icon={Clock} color="speed" size="lg" />
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
               <span
                 style={{
                   fontSize: 'var(--font-size-3xs)',
@@ -568,17 +553,17 @@ export const StorePendingApprovalsPage: React.FC = () => {
                 Automatic Number Recording
               </span>
             </div>
-            <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
+            <h1 style={{ fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
               Pending MTN Approvals
             </h1>
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0', lineHeight: 1.4 }}>
               Monitor, test, and manage MTN recipient approvals for unapproved numbers detected across your customer storefront and agent console.
             </p>
           </div>
         </div>
 
         {/* Top Action Buttons */}
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="store-header-actions">
           <button
             type="button"
             onClick={() => {
@@ -589,8 +574,10 @@ export const StorePendingApprovalsPage: React.FC = () => {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '0.45rem',
               padding: '0.5rem 0.85rem',
+              minHeight: '44px',
               borderRadius: 'var(--radius-md)',
               backgroundColor: '#A3E635',
               border: '1px solid rgba(0, 0, 0, 0.1)',
@@ -600,6 +587,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
               fontWeight: 800,
               cursor: 'pointer',
               transition: 'all var(--transition-fast)',
+              flex: '1 1 auto',
             }}
           >
             <Plus size={14} strokeWidth={2.8} />
@@ -613,8 +601,10 @@ export const StorePendingApprovalsPage: React.FC = () => {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '0.45rem',
               padding: '0.5rem 0.85rem',
+              minHeight: '44px',
               borderRadius: 'var(--radius-md)',
               backgroundColor: 'var(--color-bg-surface)',
               border: '1px solid var(--color-border-subtle)',
@@ -624,6 +614,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
               fontWeight: 700,
               cursor: isLoading ? 'not-allowed' : 'pointer',
               transition: 'all var(--transition-fast)',
+              flex: '1 1 auto',
             }}
           >
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
@@ -637,8 +628,10 @@ export const StorePendingApprovalsPage: React.FC = () => {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '0.45rem',
               padding: '0.5rem 0.85rem',
+              minHeight: '44px',
               borderRadius: 'var(--radius-md)',
               backgroundColor: 'var(--color-bg-surface)',
               border: '1px solid var(--color-border-subtle)',
@@ -648,10 +641,11 @@ export const StorePendingApprovalsPage: React.FC = () => {
               fontWeight: 700,
               cursor: isBulkSyncing || records.length === 0 ? 'not-allowed' : 'pointer',
               transition: 'all var(--transition-fast)',
+              flex: '1 1 auto',
             }}
           >
             <Zap size={14} className={isBulkSyncing ? 'animate-spin' : ''} />
-            <span>Sync All Pending</span>
+            <span>Sync All</span>
           </button>
 
           <button
@@ -661,8 +655,10 @@ export const StorePendingApprovalsPage: React.FC = () => {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '0.45rem',
               padding: '0.5rem 0.85rem',
+              minHeight: '44px',
               borderRadius: 'var(--radius-md)',
               backgroundColor: 'var(--color-bg-surface)',
               border: '1px solid var(--color-border-subtle)',
@@ -672,6 +668,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
               fontWeight: 700,
               cursor: isExporting || records.length === 0 ? 'not-allowed' : 'pointer',
               transition: 'all var(--transition-fast)',
+              flex: '1 1 auto',
             }}
           >
             <Download size={14} />
@@ -685,8 +682,10 @@ export const StorePendingApprovalsPage: React.FC = () => {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '0.45rem',
               padding: '0.5rem 0.85rem',
+              minHeight: '44px',
               borderRadius: 'var(--radius-md)',
               backgroundColor: 'var(--color-bg-surface)',
               border: '1px solid rgba(239, 68, 68, 0.3)',
@@ -696,50 +695,51 @@ export const StorePendingApprovalsPage: React.FC = () => {
               fontWeight: 700,
               cursor: records.length === 0 ? 'not-allowed' : 'pointer',
               transition: 'all var(--transition-fast)',
+              flex: '1 1 auto',
             }}
           >
             <Trash2 size={14} />
-            <span>Clear Records</span>
+            <span>Clear</span>
           </button>
         </div>
       </div>
 
       {/* 2. KPI Metric Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-3)' }}>
+      <div className="store-kpis-grid">
         <MetricCard
           title="Awaiting Approval"
           value={metrics.pending.toLocaleString()}
           subvalue="Pending MTN validation"
           icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
-          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
+          style={{ minHeight: '90px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Approved / Valid"
           value={metrics.approved.toLocaleString()}
           subvalue="Whitelisted beneficiaries"
           icon={<TactileIcon icon={CheckCircle2} color="security" size="sm" />}
-          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
+          style={{ minHeight: '90px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Rejected / Blocked"
           value={metrics.rejected.toLocaleString()}
           subvalue="Invalid or non-beneficiary"
           icon={<TactileIcon icon={AlertOctagon} color="red" size="sm" />}
-          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
+          style={{ minHeight: '90px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Storefront Detected"
           value={metrics.storefrontCount.toLocaleString()}
           subvalue="Auto-recorded from storefront"
           icon={<TactileIcon icon={Store} color="speed" size="sm" />}
-          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
+          style={{ minHeight: '90px', padding: '0.85rem 1rem' }}
         />
         <MetricCard
           title="Total Scanned"
           value={metrics.total.toLocaleString()}
           subvalue="All recorded recipients"
           icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
-          style={{ minHeight: '100px', padding: '0.85rem 1rem' }}
+          style={{ minHeight: '90px', padding: '0.85rem 1rem' }}
         />
       </div>
 
@@ -747,112 +747,91 @@ export const StorePendingApprovalsPage: React.FC = () => {
       <Card
         elevated
         style={{
-          padding: 'var(--space-4) var(--space-5)',
+          padding: 'var(--space-4)',
           backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid var(--color-border-subtle)',
           borderRadius: 'var(--radius-xl)',
           boxShadow: 'var(--shadow-tactile-sm)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-3)',
         }}
       >
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: '0.65rem',
-            justifyContent: 'space-between',
-          }}
-        >
+        <div className="store-filter-bar">
           {/* Search Box */}
-          <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
+          <div style={{ flex: '2 1 200px', minWidth: 'min(100%, 180px)' }}>
             <SearchInput
               value={searchQuery}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Search Phone (024XXXXXXX), reference..."
+              placeholder="Search Phone (024XXXXXXX), ref..."
             />
           </div>
 
-          {/* Filter Dropdowns */}
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '0.45rem',
-              alignItems: 'center',
-            }}
-          >
-            {/* Status */}
-            <div style={{ width: '155px' }}>
-              <Select
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                options={[
-                  { label: 'All Statuses', value: 'ALL' },
-                  { label: 'Awaiting MTN', value: 'PENDING' },
-                  { label: 'Approved (Valid)', value: 'APPROVED' },
-                  { label: 'Rejected', value: 'REJECTED' },
-                  { label: 'Processing', value: 'PROCESSING' },
-                ]}
-              />
-            </div>
+          {/* Status */}
+          <div style={{ flex: '1 1 130px', minWidth: 'min(100%, 120px)' }}>
+            <Select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              options={[
+                { label: 'All Statuses', value: 'ALL' },
+                { label: 'Awaiting MTN', value: 'PENDING' },
+                { label: 'Approved (Valid)', value: 'APPROVED' },
+                { label: 'Rejected', value: 'REJECTED' },
+                { label: 'Processing', value: 'PROCESSING' },
+              ]}
+            />
+          </div>
 
-            {/* Source Channel */}
-            <div style={{ width: '175px' }}>
-              <Select
-                value={channelFilter}
-                onChange={(e) => {
-                  setChannelFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                options={[
-                  { label: 'All Channels', value: 'ALL' },
-                  { label: 'Storefront Only', value: 'STOREFRONT' },
-                  { label: 'Store Orders', value: 'ORDERS' },
-                  { label: 'Excel Uploads', value: 'EXCEL' },
-                  { label: 'Manual Checks', value: 'MANUAL' },
-                ]}
-              />
-            </div>
+          {/* Source Channel */}
+          <div style={{ flex: '1 1 140px', minWidth: 'min(100%, 130px)' }}>
+            <Select
+              value={channelFilter}
+              onChange={(e) => {
+                setChannelFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              options={[
+                { label: 'All Channels', value: 'ALL' },
+                { label: 'Storefront Only', value: 'STOREFRONT' },
+                { label: 'Store Orders', value: 'ORDERS' },
+                { label: 'Excel Uploads', value: 'EXCEL' },
+                { label: 'Manual Checks', value: 'MANUAL' },
+              ]}
+            />
+          </div>
 
-            {/* Network */}
-            <div style={{ width: '135px' }}>
-              <Select
-                value={networkFilter}
-                onChange={(e) => {
-                  setNetworkFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                options={[
-                  { label: 'All Networks', value: 'ALL' },
-                  { label: 'MTN Ghana', value: 'MTN' },
-                  { label: 'Telecel', value: 'TELECEL' },
-                  { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
-                ]}
-              />
-            </div>
+          {/* Network */}
+          <div style={{ flex: '1 1 120px', minWidth: 'min(100%, 110px)' }}>
+            <Select
+              value={networkFilter}
+              onChange={(e) => {
+                setNetworkFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              options={[
+                { label: 'All Networks', value: 'ALL' },
+                { label: 'MTN Ghana', value: 'MTN' },
+                { label: 'Telecel', value: 'TELECEL' },
+                { label: 'AT (AirtelTigo)', value: 'AIRTELTIGO' },
+              ]}
+            />
+          </div>
 
-            {/* Sort */}
-            <div style={{ width: '145px' }}>
-              <Select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                options={[
-                  { label: 'Newest First', value: 'newest' },
-                  { label: 'Oldest First', value: 'oldest' },
-                  { label: 'Phone Number', value: 'phone' },
-                  { label: 'Occurrences', value: 'occurrences' },
-                ]}
-              />
-            </div>
+          {/* Sort */}
+          <div style={{ flex: '1 1 130px', minWidth: 'min(100%, 120px)' }}>
+            <Select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              options={[
+                { label: 'Newest First', value: 'newest' },
+                { label: 'Oldest First', value: 'oldest' },
+                { label: 'Phone Number', value: 'phone' },
+                { label: 'Occurrences', value: 'occurrences' },
+              ]}
+            />
           </div>
         </div>
       </Card>
@@ -868,198 +847,244 @@ export const StorePendingApprovalsPage: React.FC = () => {
           boxShadow: 'var(--shadow-tactile-sm)',
         }}
       >
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-subtle)' }}>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
-                  Recipient Phone
-                </th>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
-                  Network
-                </th>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
-                  Occurrences
-                </th>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
-                  Bundle / Size
-                </th>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
-                  Source / Detected
-                </th>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
-                  Approval Status
-                </th>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
-                  Date Detected
-                </th>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em', textAlign: 'right' }}>
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
-                      <RefreshCw size={24} className="animate-spin" color="var(--color-brand-primary)" />
-                      <span>Loading pending MTN approvals...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : paginatedRecords.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-                      <CheckCircle2 size={32} color="var(--color-success)" />
-                      <strong style={{ color: 'var(--color-text-primary)' }}>No Pending Numbers Found</strong>
-                      <span style={{ fontSize: 'var(--font-size-xs)' }}>
-                        All scanned numbers are whitelisted or no numbers matched your filter.
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                paginatedRecords.map((item) => (
-                  <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    {/* Phone */}
-                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 'var(--font-size-xs)' }}>
-                      <button
-                        onClick={() => handleOpenDetails(item)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--color-brand-primary, #0284C7)',
-                          cursor: 'pointer',
-                          fontWeight: 800,
-                          padding: 0,
-                          textAlign: 'left',
-                          fontSize: '13px',
-                        }}
-                      >
-                        {item.phoneNumber}
-                      </button>
-                    </td>
+        {isLoading && records.length === 0 ? (
+          <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+              <RefreshCw size={24} className="animate-spin" color="var(--color-brand-primary)" />
+              <span>Loading pending MTN approvals...</span>
+            </div>
+          </div>
+        ) : paginatedRecords.length === 0 ? (
+          <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+              <CheckCircle2 size={32} color="var(--color-success)" />
+              <strong style={{ color: 'var(--color-text-primary)' }}>No Pending Numbers Found</strong>
+              <span style={{ fontSize: 'var(--font-size-xs)' }}>
+                All scanned numbers are whitelisted or no numbers matched your filter.
+              </span>
+            </div>
+          </div>
+        ) : (
+          <ResponsiveTable<StorePendingApprovalItem>
+            columns={[
+              {
+                header: 'Recipient Phone',
+                accessor: 'phoneNumber',
+                render: (item) => (
+                  <button
+                    onClick={() => handleOpenDetails(item)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--color-brand-primary, #0284C7)',
+                      cursor: 'pointer',
+                      fontWeight: 800,
+                      padding: 0,
+                      textAlign: 'left',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '13px',
+                    }}
+                  >
+                    {item.phoneNumber}
+                  </button>
+                ),
+                priority: 'always',
+              },
+              {
+                header: 'Network',
+                accessor: 'network',
+                render: (item) => (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                      padding: '0.2rem 0.55rem',
+                      borderRadius: 'var(--radius-full)',
+                      backgroundColor: '#FEF3C7',
+                      color: '#B45309',
+                      fontWeight: 800,
+                      fontSize: '11px',
+                    }}
+                  >
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#D97706' }} />
+                    {item.network}
+                  </span>
+                ),
+                priority: 'always',
+              },
+              {
+                header: 'Occurrences',
+                accessor: (item) => String(item.occurrences || 1),
+                render: (item) => (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                      padding: '0.2rem 0.55rem',
+                      borderRadius: 'var(--radius-full)',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      fontFamily: 'var(--font-mono)',
+                      backgroundColor: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
+                      color: (item.occurrences || 1) > 1 ? '#B45309' : 'var(--color-text-secondary)',
+                      border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
+                    }}
+                    title={`Recorded ${item.occurrences || 1} time(s) across order prechecks`}
+                  >
+                    <Layers size={11} />
+                    {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
+                  </span>
+                ),
+                priority: 'secondary',
+              },
+              {
+                header: 'Bundle / Size',
+                accessor: (item) => item.dataSize || '—',
+                render: (item) => (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                    {item.dataSize || '—'}
+                  </span>
+                ),
+                priority: 'secondary',
+              },
+              {
+                header: 'Source / Detected',
+                accessor: (item) => item.detectedFrom,
+                render: (item) => <DetectedChannelBadge source={item.detectedFrom} />,
+                priority: 'secondary',
+              },
+              {
+                header: 'Approval Status',
+                accessor: 'status',
+                render: (item) => renderStatusBadge(item.status),
+                priority: 'always',
+              },
+              {
+                header: 'Date Detected',
+                accessor: 'createdAt',
+                render: (item) => (
+                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                    {new Date(item.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                ),
+                priority: 'expandable',
+              },
+              {
+                header: 'Actions',
+                accessor: 'id',
+                align: 'right',
+                render: (item) => (
+                  <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleSyncRecord(item)}
+                      disabled={syncingId === item.id}
+                      title="Sync with Carrier Whitelist"
+                      style={{
+                        padding: '0.35rem 0.55rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--color-border-subtle)',
+                        backgroundColor: 'transparent',
+                        color: 'var(--color-text-primary)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: syncingId === item.id ? 'wait' : 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                        minHeight: '36px',
+                      }}
+                    >
+                      <Zap size={12} className={syncingId === item.id ? 'animate-spin' : ''} />
+                      <span>Re-check</span>
+                    </button>
 
-                    {/* Network */}
-                    <td style={{ padding: '0.85rem 1rem' }}>
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.3rem',
-                          padding: '0.2rem 0.55rem',
-                          borderRadius: 'var(--radius-full)',
-                          backgroundColor: '#FEF3C7',
-                          color: '#B45309',
-                          fontWeight: 800,
-                          fontSize: '11px',
-                        }}
-                      >
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#D97706' }} />
-                        {item.network}
-                      </span>
-                    </td>
-
-                    {/* Occurrences */}
-                    <td style={{ padding: '0.85rem 1rem' }}>
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.3rem',
-                          padding: '0.2rem 0.55rem',
-                          borderRadius: 'var(--radius-full)',
-                          fontSize: '11px',
-                          fontWeight: 800,
-                          fontFamily: 'var(--font-mono)',
-                          backgroundColor: (item.occurrences || 1) > 1 ? 'rgba(255, 204, 0, 0.15)' : 'var(--color-bg-subtle)',
-                          color: (item.occurrences || 1) > 1 ? '#B45309' : 'var(--color-text-secondary)',
-                          border: (item.occurrences || 1) > 1 ? '1px solid rgba(255, 204, 0, 0.3)' : '1px solid var(--color-border-subtle)',
-                        }}
-                        title={`Recorded ${item.occurrences || 1} time(s) across order prechecks`}
-                      >
-                        <Layers size={11} />
-                        {item.occurrences || 1} {item.occurrences === 1 ? 'time' : 'times'}
-                      </span>
-                    </td>
-
-                    {/* Data Size */}
-                    <td style={{ padding: '0.85rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
-                      {item.dataSize || '—'}
-                    </td>
-
-                    {/* Source / Detected Channel */}
-                    <td style={{ padding: '0.85rem 1rem' }}>
-                      <DetectedChannelBadge source={item.detectedFrom} />
-                    </td>
-
-                    {/* Status */}
-                    <td style={{ padding: '0.85rem 1rem' }}>
-                      {renderStatusBadge(item.status)}
-                    </td>
-
-                    {/* Date */}
-                    <td style={{ padding: '0.85rem 1rem', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                      {new Date(item.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </td>
-
-                    {/* Actions */}
-                    <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleSyncRecord(item)}
-                          disabled={syncingId === item.id}
-                          title="Sync with Carrier Whitelist"
-                          style={{
-                            padding: '0.35rem 0.55rem',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--color-border-subtle)',
-                            backgroundColor: 'transparent',
-                            color: 'var(--color-text-primary)',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            cursor: syncingId === item.id ? 'wait' : 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.25rem',
-                          }}
-                        >
-                          <Zap size={12} className={syncingId === item.id ? 'animate-spin' : ''} />
-                          <span>Re-check</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleOpenDetails(item)}
-                          title="View Details"
-                          style={{
-                            padding: '0.35rem 0.55rem',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--color-border-subtle)',
-                            backgroundColor: 'transparent',
-                            color: 'var(--color-text-primary)',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.25rem',
-                          }}
-                        >
-                          <Eye size={12} />
-                          <span>Details</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDetails(item)}
+                      title="View Details"
+                      style={{
+                        padding: '0.35rem 0.55rem',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--color-border-subtle)',
+                        backgroundColor: 'transparent',
+                        color: 'var(--color-text-primary)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                        minHeight: '36px',
+                      }}
+                    >
+                      <Eye size={12} />
+                      <span>Details</span>
+                    </button>
+                  </div>
+                ),
+                priority: 'always',
+              },
+            ]}
+            data={paginatedRecords}
+            keyExtractor={(item) => item.id}
+            enableCardView={true}
+            cardTitle={(item) => item.phoneNumber}
+            cardSubtitle={(item) => `${item.network} • ${item.dataSize || 'Pending bundle'} • ${item.occurrences || 1} scan(s)`}
+            cardBadge={(item) => renderStatusBadge(item.status)}
+            cardActions={(item) => (
+              <div style={{ display: 'flex', gap: '0.5rem', width: '100%', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => handleSyncRecord(item)}
+                  disabled={syncingId === item.id}
+                  style={{
+                    flex: 1,
+                    minHeight: '44px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    backgroundColor: 'var(--color-bg-surface)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: syncingId === item.id ? 'wait' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.4rem',
+                  }}
+                >
+                  <Zap size={14} className={syncingId === item.id ? 'animate-spin' : ''} />
+                  <span>Re-check</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetails(item)}
+                  style={{
+                    flex: 1,
+                    minHeight: '44px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border-subtle)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.4rem',
+                  }}
+                >
+                  <Eye size={14} />
+                  <span>Details</span>
+                </button>
+              </div>
+            )}
+          />
+        )}
 
         {/* Pagination Bar */}
         {filteredRecords.length > 0 && (
@@ -1190,7 +1215,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
           title={`Beneficiary: ${selectedRecord.phoneNumber}`}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '0.5rem 0' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', backgroundColor: 'var(--color-bg-subtle)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', backgroundColor: 'var(--color-bg-subtle)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>
               <div>
                 <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-muted)', display: 'block' }}>Status</span>
                 <div style={{ marginTop: '0.2rem' }}>{renderStatusBadge(selectedRecord.status)}</div>
@@ -1250,7 +1275,7 @@ export const StorePendingApprovalsPage: React.FC = () => {
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
               <Button
                 variant="outline"
                 fullWidth
