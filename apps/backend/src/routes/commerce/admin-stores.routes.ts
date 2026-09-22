@@ -955,6 +955,7 @@ export async function adminStoresRoutes(
         }
       }
 
+      const paidAtExpr = newStatus === 'PAID' ? 'CURRENT_TIMESTAMP' : 'paid_at';
       let payoutRes;
       try {
         payoutRes = await db.query(
@@ -963,7 +964,7 @@ export async function adminStoresRoutes(
                admin_notes = $2,
                reviewed_by = $3,
                reviewed_at = CURRENT_TIMESTAMP,
-               paid_at = CASE WHEN $1::text = 'PAID' THEN CURRENT_TIMESTAMP ELSE paid_at END,
+               paid_at = ${paidAtExpr},
                updated_at = CURRENT_TIMESTAMP
            WHERE id::text = $4 AND store_id::text = $5
            RETURNING id, store_id as "storeId", amount_pesewas as "amountPesewas", status, destination_account as "destinationAccount"`,

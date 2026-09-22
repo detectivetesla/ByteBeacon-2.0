@@ -1054,6 +1054,7 @@ export async function adminFinanceRoutes(
         }
       }
 
+      const paidAtExpr = newStatus === 'PAID' ? 'CURRENT_TIMESTAMP' : 'paid_at';
       let updateRes;
       try {
         updateRes = await db.query(
@@ -1062,7 +1063,7 @@ export async function adminFinanceRoutes(
                admin_notes = COALESCE($2, admin_notes),
                reviewed_by = $3,
                reviewed_at = CURRENT_TIMESTAMP,
-               paid_at = CASE WHEN $1::text = 'PAID' THEN CURRENT_TIMESTAMP ELSE paid_at END,
+               paid_at = ${paidAtExpr},
                updated_at = CURRENT_TIMESTAMP
            WHERE id::text = $4
            RETURNING id, store_id as "storeId", agent_id as "agentId", amount_pesewas as "amountPesewas",
