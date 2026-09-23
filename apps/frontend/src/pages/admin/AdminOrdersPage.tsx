@@ -90,6 +90,16 @@ export const AdminOrdersPage: React.FC = () => {
   const [refundReason, setRefundReason] = useState('');
   const [isRefunding, setIsRefunding] = useState(false);
 
+  // Manual Complete / Approve Modal State
+  const [orderToComplete, setOrderToComplete] = useState<AdminOrderListItem | AdminOrderDetail['order'] | null>(null);
+  const [completeReason, setCompleteReason] = useState('Manually approved and marked completed by administrator');
+  const [isCompletingOrder, setIsCompletingOrder] = useState(false);
+
+  // Manual Fail Modal State
+  const [orderToFail, setOrderToFail] = useState<AdminOrderListItem | AdminOrderDetail['order'] | null>(null);
+  const [failReason, setFailReason] = useState('Manually marked as failed by administrator');
+  const [isFailingOrder, setIsFailingOrder] = useState(false);
+
   // Reconcile & Retry loading
   const [isReconciling, setIsReconciling] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -325,6 +335,50 @@ export const AdminOrdersPage: React.FC = () => {
       setIsRefunding(false);
     }
   };
+
+  const handleCompleteOrderSubmit = async () => {
+    if (!orderToComplete) return;
+    setIsCompletingOrder(true);
+    try {
+      await adminApi.completeOrder(orderToComplete.id, completeReason.trim() || undefined);
+      toastSuccess(`Order [${orderToComplete.id}] manually marked as COMPLETED.`);
+      const completedId = orderToComplete.id;
+      setOrderToComplete(null);
+      setCompleteReason('Manually approved and marked completed by administrator');
+      if (selectedOrderId === completedId) {
+        fetchOrderDetail(completedId);
+      }
+      fetchOrders();
+      fetchStats();
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to complete order.');
+    } finally {
+      setIsCompletingOrder(false);
+    }
+  };
+
+  const handleFailOrderSubmit = async () => {
+    if (!orderToFail) return;
+    setIsFailingOrder(true);
+    try {
+      const res = await adminApi.failOrder(orderToFail.id, failReason.trim() || undefined);
+      const isRefunded = (res as any)?.data?.refundProcessed;
+      toastSuccess(`Order [${orderToFail.id}] manually marked as FAILED${isRefunded ? ' and payment refunded to wallet.' : '.'}`);
+      const failedId = orderToFail.id;
+      setOrderToFail(null);
+      setFailReason('Manually marked as failed by administrator');
+      if (selectedOrderId === failedId) {
+        fetchOrderDetail(failedId);
+      }
+      fetchOrders();
+      fetchStats();
+    } catch (err: any) {
+      toastError(err?.message || 'Failed to fail order.');
+    } finally {
+      setIsFailingOrder(false);
+    }
+  };
+
 
   const handlePauseOperations = async () => {
     if (!pauseReason.trim()) {
@@ -1342,7 +1396,7 @@ export const AdminOrdersPage: React.FC = () => {
         }}
       >
         <Table
-          minWidth="1360px"
+          minWidth="1460px"
           headers={[
             'Order ID',
             'Customer',
@@ -1476,27 +1530,132 @@ export const AdminOrdersPage: React.FC = () => {
 
                 {/* Action */}
                 <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', textAlign: 'center' }}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedOrderId(order.id)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.3rem',
-                      padding: '0.35rem 0.65rem',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'var(--color-bg-surface-elevated)',
-                      border: '1px solid var(--color-border-subtle)',
-                      color: 'var(--color-brand-primary)',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      transition: 'all var(--transition-fast)',
-                    }}
-                  >
-                    <Eye size={12} />
-                    <span>Inspect</span>
-                  </button>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
+                    {order.orderStatus !== 'COMPLETED' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrderToComplete(order);
+                          setCompleteReason('Manually approved and marked completed by administrator');
+                        }}
+                        title="Manually Approve / Complete Order"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                          padding: '0.35rem 0.55rem',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                          border: '1px solid rgba(16, 185, 129, 0.3)',
+                          color: '#10B981',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          transition: 'all var(--transition-fast)',
+                        }}
+                      >
+                        <CheckCircle2 size={12} />
+                        <span>Approve</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        title="Order is already completed"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                          padding: '0.35rem 0.55rem',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                          border: '1px solid var(--color-border-subtle)',
+                          color: 'var(--color-text-muted)',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'not-allowed',
+                          opacity: 0.6,
+                        }}
+                      >
+                        <CheckCircle2 size={12} />
+                        <span>Done</span>
+                      </button>
+                    )}
+
+                    {order.orderStatus !== 'FAILED' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrderToFail(order);
+                          setFailReason('Manually marked as failed by administrator');
+                        }}
+                        title="Manually Fail Order (auto-refunds if paid)"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                          padding: '0.35rem 0.55rem',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                          border: '1px solid rgba(239, 68, 68, 0.25)',
+                          color: '#EF4444',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          transition: 'all var(--transition-fast)',
+                        }}
+                      >
+                        <AlertOctagon size={12} />
+                        <span>Fail</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        title="Order is already failed"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                          padding: '0.35rem 0.55rem',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                          border: '1px solid var(--color-border-subtle)',
+                          color: 'var(--color-text-muted)',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'not-allowed',
+                          opacity: 0.6,
+                        }}
+                      >
+                        <AlertOctagon size={12} />
+                        <span>Failed</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrderId(order.id)}
+                      title="Inspect order details"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                        padding: '0.35rem 0.55rem',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'var(--color-bg-surface-elevated)',
+                        border: '1px solid var(--color-border-subtle)',
+                        color: 'var(--color-brand-primary)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all var(--transition-fast)',
+                      }}
+                    >
+                      <Eye size={12} />
+                      <span>Inspect</span>
+                    </button>
+                  </div>
                 </td>
               </tr>
             );
@@ -1600,6 +1759,42 @@ export const AdminOrdersPage: React.FC = () => {
                     >
                       <Zap size={13} className={isRetrying ? 'animate-spin' : ''} />
                       <span>Retry Fulfillment</span>
+                    </Button>
+                  )}
+
+                  {orderDetail.order.orderStatus !== 'COMPLETED' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setOrderToComplete(orderDetail.order);
+                        setCompleteReason('Manually approved and marked completed by administrator');
+                      }}
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        borderColor: '#10B981',
+                        color: '#10B981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                      }}
+                    >
+                      <CheckCircle2 size={13} />
+                      <span>Approve & Complete</span>
+                    </Button>
+                  )}
+
+                  {orderDetail.order.orderStatus !== 'FAILED' && (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => {
+                        setOrderToFail(orderDetail.order);
+                        setFailReason('Manually marked as failed by administrator');
+                      }}
+                      style={{ fontSize: '11px', fontWeight: 700 }}
+                    >
+                      <AlertOctagon size={13} />
+                      <span>Fail Order</span>
                     </Button>
                   )}
 
@@ -2014,6 +2209,147 @@ export const AdminOrdersPage: React.FC = () => {
                 disabled={isRefunding || refundReason.trim().length < 5}
               >
                 {isRefunding ? 'Processing Refund...' : 'Confirm Double-Entry Refund'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 6b. Complete / Approve Order Modal */}
+      {orderToComplete && (
+        <Modal
+          isOpen={true}
+          onClose={() => {
+            if (!isCompletingOrder) {
+              setOrderToComplete(null);
+            }
+          }}
+          title={`Approve Order [${orderToComplete.id}]`}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                padding: 'var(--space-3)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                border: '1px solid rgba(16, 185, 129, 0.25)',
+                fontSize: 'var(--font-size-xs)',
+                color: 'var(--color-text-secondary)',
+                lineHeight: 1.5,
+              }}
+            >
+              <strong style={{ color: '#10B981', display: 'block', marginBottom: '0.25rem' }}>
+                Manual Fulfillment Approval
+              </strong>
+              This will authoritatively mark the order as <strong>COMPLETED</strong> and set its delivery status to <strong>DELIVERED</strong>. Any pause lock on this order will be released, and an audit event will be recorded.
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, marginBottom: '0.25rem' }}>
+                Approval Note / Reason
+              </label>
+              <textarea
+                value={completeReason}
+                onChange={(e) => setCompleteReason(e.target.value)}
+                placeholder="Reason for approving and completing this order..."
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: 'var(--space-2)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border-subtle)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <Button
+                variant="ghost"
+                onClick={() => setOrderToComplete(null)}
+                disabled={isCompletingOrder}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCompleteOrderSubmit}
+                disabled={isCompletingOrder}
+                style={{ backgroundColor: '#10B981', borderColor: '#10B981' }}
+              >
+                {isCompletingOrder ? 'Approving...' : 'Confirm Approve & Complete'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 6c. Fail Order Modal */}
+      {orderToFail && (
+        <Modal
+          isOpen={true}
+          onClose={() => {
+            if (!isFailingOrder) {
+              setOrderToFail(null);
+            }
+          }}
+          title={`Fail Order [${orderToFail.id}]`}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                padding: 'var(--space-3)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                fontSize: 'var(--font-size-xs)',
+                color: 'var(--color-text-secondary)',
+                lineHeight: 1.5,
+              }}
+            >
+              <strong style={{ color: '#EF4444', display: 'block', marginBottom: '0.25rem' }}>
+                Manual Order Termination & Automated Wallet Refund
+              </strong>
+              This will transition the order status to <strong>FAILED</strong>. If the order was paid and not already refunded, the system will <strong>automatically refund</strong> the customer/agent wallet via balanced double-entry financial ledger accounting.
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, marginBottom: '0.25rem' }}>
+                Failure Reason <span style={{ color: 'var(--color-brand-danger)' }}>*</span>
+              </label>
+              <textarea
+                value={failReason}
+                onChange={(e) => setFailReason(e.target.value)}
+                placeholder="Reason for failing this order (e.g., Telco network rejected, invalid recipient phone)..."
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: 'var(--space-2)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border-subtle)',
+                  background: 'var(--color-bg-surface)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <Button
+                variant="ghost"
+                onClick={() => setOrderToFail(null)}
+                disabled={isFailingOrder}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleFailOrderSubmit}
+                disabled={isFailingOrder || failReason.trim().length < 3}
+              >
+                {isFailingOrder ? 'Failing Order...' : 'Confirm Fail & Refund Order'}
               </Button>
             </div>
           </div>

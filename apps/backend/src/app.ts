@@ -720,6 +720,7 @@ export function createApp(options: AppOptions = {}) {
         fulfillmentQueueService,
         providerReconciliationService,
         financialLedgerService: ledgerService,
+        refundService,
       });
       await adminApprovalsRoutes(commerceSubApp, {
         db: dbPool!,

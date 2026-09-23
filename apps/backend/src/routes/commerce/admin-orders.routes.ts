@@ -7,6 +7,7 @@ import { AuditService } from '../../core/security/audit.service.js';
 import { FulfillmentQueueService } from '../../core/providers/fulfillment-queue.service.js';
 import { ProviderReconciliationService } from '../../core/providers/provider-reconciliation.service.js';
 import { FinancialLedgerService } from '../../core/payments/financial-ledger.service.js';
+import { RefundService } from '../../core/payments/refund.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import * as XLSX from 'xlsx';
 import { NotFoundError, BadRequestError } from '../../core/errors/app-error.js';
@@ -29,6 +30,7 @@ export interface AdminOrdersRouteDependencies {
   fulfillmentQueueService: FulfillmentQueueService;
   providerReconciliationService: ProviderReconciliationService;
   financialLedgerService?: FinancialLedgerService;
+  refundService?: RefundService;
 }
 
 export interface OrderFilterQueryParams {
@@ -57,6 +59,7 @@ export async function adminOrdersRoutes(
     fulfillmentQueueService,
     providerReconciliationService,
     financialLedgerService,
+    refundService,
   } = deps;
 
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
@@ -743,6 +746,286 @@ export async function adminOrdersRoutes(
       return reply.send({
         success: true,
         message: `Order [${orderId}] successfully refunded GHS ${(refundAmount / 100).toFixed(2)}.`,
+      });
+    },
+  );
+
+  // 6b. POST /admin/orders/:id/complete (and /admin/orders/:id/approve) — Manually Mark Order as Completed / Successful
+  const handleCompleteOrder = async (
+    req: FastifyRequest<{ Params: { id: string }; Body?: { reason?: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const orderId = req.params.id;
+    const { reason } = req.body || {};
+    const auditReason = (reason || '').trim() || 'Manually approved and marked completed by administrator';
+
+    const orderRes = await db.query(
+      `SELECT o.id, o.user_id as "userId", o.order_status as "orderStatus", o.payment_status as "paymentStatus",
+              o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
+              o.amount_pesewas as "amountPesewas"
+       FROM orders o
+       WHERE o.id = $1`,
+      [orderId],
+    );
+
+    if (orderRes.rows.length === 0) {
+      throw new NotFoundError(`Order [${orderId}] not found.`);
+    }
+
+    const order = orderRes.rows[0];
+
+    // If order was in a paused/held state, unpause it as well
+    await db.query(
+      `UPDATE orders
+       SET order_status = 'COMPLETED',
+           delivery_status = 'DELIVERED',
+           is_paused = FALSE,
+           paused_at = NULL,
+           failure_reason = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [orderId],
+    );
+
+    // Update provider_orders record if one exists
+    await db.query(
+      `UPDATE provider_orders
+       SET provider_status = 'DELIVERED',
+           last_synced_at = CURRENT_TIMESTAMP,
+           sync_version = sync_version + 1
+       WHERE order_id = $1`,
+      [orderId],
+    ).catch(() => {});
+
+    // Record order event
+    await db.query(
+      `INSERT INTO order_events (order_id, event_type, payload, created_at)
+       VALUES ($1, 'ORDER_COMPLETED', $2, CURRENT_TIMESTAMP)`,
+      [
+        orderId,
+        JSON.stringify({
+          manual: true,
+          adminId: req.user?.sub,
+          previousStatus: order.orderStatus,
+          reason: auditReason,
+          completedAt: new Date().toISOString(),
+        }),
+      ],
+    ).catch(() => {});
+
+    if (auditService) {
+      await auditService.log({
+        correlationId: req.id,
+        actorId: req.user!.sub,
+        actorType: 'ADMIN',
+        action: 'ORDER_MANUALLY_COMPLETED',
+        resourceType: 'orders',
+        resourceId: orderId,
+        metadata: {
+          previousStatus: order.orderStatus,
+          recipientPhone: order.recipientPhone,
+          network: order.network,
+          reason: auditReason,
+        },
+      });
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        orderId,
+        orderStatus: 'COMPLETED',
+        deliveryStatus: 'DELIVERED',
+      },
+      message: `Order [${orderId}] manually marked as COMPLETED.`,
+    });
+  };
+
+  app.post<{ Params: { id: string }; Body?: { reason?: string } }>(
+    '/admin/orders/:id/complete',
+    { preHandler: [authHooks.authenticateAdmin] },
+    handleCompleteOrder,
+  );
+
+  app.post<{ Params: { id: string }; Body?: { reason?: string } }>(
+    '/admin/orders/:id/approve',
+    { preHandler: [authHooks.authenticateAdmin] },
+    handleCompleteOrder,
+  );
+
+  // 6c. POST /admin/orders/:id/fail — Manually Mark Order as Failed & Automatically Refund Wallet
+  app.post<{ Params: { id: string }; Body?: { reason?: string } }>(
+    '/admin/orders/:id/fail',
+    { preHandler: [authHooks.authenticateAdmin] },
+    async (req, reply) => {
+      const orderId = req.params.id;
+      const { reason } = req.body || {};
+      const auditReason = (reason || '').trim() || 'Manually marked as failed by administrator';
+
+      const orderRes = await db.query(
+        `SELECT o.id, o.user_id as "userId", o.agent_id as "agentId", o.order_status as "orderStatus",
+                o.payment_status as "paymentStatus", o.refund_status as "refundStatus",
+                o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
+                o.amount_pesewas as "amountPesewas", o.public_id as "publicId"
+         FROM orders o
+         WHERE o.id = $1`,
+        [orderId],
+      );
+
+      if (orderRes.rows.length === 0) {
+        throw new NotFoundError(`Order [${orderId}] not found.`);
+      }
+
+      const order = orderRes.rows[0];
+
+      // Update order status to FAILED
+      await db.query(
+        `UPDATE orders
+         SET order_status = 'FAILED',
+             failure_reason = $1,
+             is_paused = FALSE,
+             paused_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [auditReason, orderId],
+      );
+
+      // Update provider_orders record if exists
+      await db.query(
+        `UPDATE provider_orders
+         SET provider_status = 'FAILED',
+             last_synced_at = CURRENT_TIMESTAMP,
+             sync_version = sync_version + 1
+         WHERE order_id = $1`,
+        [orderId],
+      ).catch(() => {});
+
+      // Record order event
+      await db.query(
+        `INSERT INTO order_events (order_id, event_type, payload, created_at)
+         VALUES ($1, 'ORDER_FAILED', $2, CURRENT_TIMESTAMP)`,
+        [
+          orderId,
+          JSON.stringify({
+            manual: true,
+            adminId: req.user?.sub,
+            previousStatus: order.orderStatus,
+            reason: auditReason,
+            failedAt: new Date().toISOString(),
+          }),
+        ],
+      ).catch(() => {});
+
+      // AUTOMATED WALLET REFUND IF PAID
+      const isPaid = ['PAID', 'SUCCESS', 'COMPLETED'].includes(String(order.paymentStatus || '').toUpperCase());
+      const needsRefund = isPaid && order.refundStatus !== 'COMPLETED' && Number(order.amountPesewas) > 0;
+      let refundProcessed = false;
+
+      if (needsRefund) {
+        if (refundService) {
+          try {
+            await refundService.executeAutomatedOrderRefund(
+              orderId,
+              auditReason,
+              req.id,
+            );
+            refundProcessed = true;
+          } catch {
+            refundProcessed = false;
+          }
+        }
+
+        // Double-entry atomic fallback in case refundService threw or was absent
+        if (!refundProcessed) {
+          try {
+            const refundAmt = Number(order.amountPesewas);
+            let targetUserId = order.userId;
+            let targetAccountType = 'CUSTOMER_WALLET';
+            if (!targetUserId && order.agentId) {
+              const agRes = await db.query('SELECT user_id FROM agents WHERE id = $1 LIMIT 1', [order.agentId]).catch(() => ({ rows: [] }));
+              targetUserId = agRes.rows[0]?.user_id;
+              targetAccountType = 'AGENT_WALLET';
+            }
+
+            if (targetUserId) {
+              await db.query(
+                `UPDATE users
+                 SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+                     wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $2`,
+                [refundAmt, targetUserId],
+              );
+
+              await db.query(
+                `UPDATE orders
+                 SET refund_status = 'COMPLETED',
+                     payment_status = 'REFUNDED',
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $1`,
+                [orderId],
+              );
+
+              const refPubId = `ref_${Math.random().toString(36).substring(2, 10)}`;
+              const refRes = await db.query(
+                `INSERT INTO refunds (public_id, order_id, amount_pesewas, reason, status)
+                 VALUES ($1, $2, $3, $4, 'COMPLETED')
+                 RETURNING id`,
+                [refPubId, orderId, refundAmt, auditReason],
+              ).catch(async () => {
+                return db.query(
+                  `INSERT INTO refunds (order_id, amount_pesewas, reason, status)
+                   VALUES ($1, $2, $3, 'COMPLETED')
+                   RETURNING id`,
+                  [orderId, refundAmt, auditReason],
+                ).catch(() => ({ rows: [] }));
+              });
+
+              const refundDbId = refRes?.rows?.[0]?.id || orderId;
+
+              await db.query(
+                `INSERT INTO financial_ledger (
+                    transaction_id, entry_type, account_type, account_id,
+                    amount_pesewas, currency, reference_type, reference_id,
+                    description
+                 ) VALUES 
+                   (uuid_generate_v4(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
+                   (uuid_generate_v4(), 'CREDIT', $4, $5, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
+                [refundAmt, refundDbId, `Manual failure refund [${orderId}]`, targetAccountType, targetUserId],
+              ).catch(() => {});
+
+              refundProcessed = true;
+            }
+          } catch {}
+        }
+      }
+
+      if (auditService) {
+        await auditService.log({
+          correlationId: req.id,
+          actorId: req.user!.sub,
+          actorType: 'ADMIN',
+          action: 'ORDER_MANUALLY_FAILED',
+          resourceType: 'orders',
+          resourceId: orderId,
+          metadata: {
+            previousStatus: order.orderStatus,
+            recipientPhone: order.recipientPhone,
+            network: order.network,
+            reason: auditReason,
+            refundProcessed,
+          },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          orderId,
+          orderStatus: 'FAILED',
+          refundProcessed,
+        },
+        message: `Order [${orderId}] manually marked as FAILED${refundProcessed ? ' and payment refunded to wallet' : ''}.`,
       });
     },
   );

@@ -1029,6 +1029,18 @@ export const adminApi = {
     return apiClient.post(`/admin/orders/${id}/refund`, { reason, amountPesewas });
   },
 
+  completeOrder: async (id: string, reason?: string) => {
+    return apiClient.post<{ success: boolean; message: string; data?: any }>(`/admin/orders/${id}/complete`, { reason });
+  },
+
+  approveOrder: async (id: string, reason?: string) => {
+    return apiClient.post<{ success: boolean; message: string; data?: any }>(`/admin/orders/${id}/approve`, { reason });
+  },
+
+  failOrder: async (id: string, reason?: string) => {
+    return apiClient.post<{ success: boolean; message: string; data?: any }>(`/admin/orders/${id}/fail`, { reason });
+  },
+
   exportOrders: async (data: { format?: 'CSV' | 'JSON'; filter?: any } = {}) => {
     return apiClient.post('/admin/orders/export', data);
   },
