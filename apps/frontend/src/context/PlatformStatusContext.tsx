@@ -52,6 +52,7 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
         const nextTotalLockdown = Boolean(res.isTotalOrderLockdown);
         const nextPauseMode = res.orderPauseMode || (nextTotalLockdown ? 'TOTAL_LOCKDOWN' : (nextOrderPaused ? 'OPERATIONAL_FREEZE' : 'NONE'));
         const nextOrderMessage = res.orderProcessingMessage;
+        const nextTimestamp = res.timestamp || new Date().toISOString();
 
         setStatusData((prev) => {
           if (

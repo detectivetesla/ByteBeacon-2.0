@@ -528,6 +528,8 @@ function loadPaystackInlineScript(): Promise<boolean> {
     }
   }, [searchParams]);
 
+  const RECENT_ORDERS_STORAGE_KEY = 'bb_storefront_recent_order';
+
   // Save recent order to sessionStorage for real-time live tracker
   const saveRecentOrder = (order: CustomerOrderDto) => {
     try {
