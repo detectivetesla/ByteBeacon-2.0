@@ -13,7 +13,8 @@
     "bench:argon2": "tsx src/core/security/password-hasher.bench.ts",
     "migrate": "tsx src/infrastructure/database/cli.ts",
     "migrate:up": "tsx src/infrastructure/database/cli.ts up",
-    "migrate:status": "tsx src/infrastructure/database/cli.ts status"
+    "migrate:status": "tsx src/infrastructure/database/cli.ts status",
+    "purge:storage": "tsx src/infrastructure/database/purge-database.ts"
   },
   "dependencies": {
     "@bytebeacon/shared": "*",
