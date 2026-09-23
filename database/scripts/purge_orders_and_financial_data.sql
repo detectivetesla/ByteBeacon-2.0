@@ -5,9 +5,8 @@
 --         revenues, total withdrawals, and high-volume telemetry logs.
 -- PRESERVATION RULE: STRICTLY MAINTAINS ALL USER & AGENT WALLETS & PROFILES.
 -- INSTRUCTIONS: Run this complete script in the Supabase SQL Editor.
+-- NOTE: In PostgreSQL, TRUNCATE physically frees disk pages upon execution.
 -- ==============================================================================
-
-BEGIN;
 
 -- 1. Ensure UUID extension is available
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -140,10 +139,5 @@ BEGIN
     END IF;
 END $$;
 
-COMMIT;
-
--- ==============================================================================
--- 4. STORAGE RECLAMATION (Releases deallocated pages back to host operating system)
--- Note: Run outside of multi-statement transaction block
--- ==============================================================================
-VACUUM (ANALYZE, VERBOSE);
+-- 4. UPDATE QUERY PLANNER STATISTICS (Safe inside Supabase SQL editor)
+ANALYZE;

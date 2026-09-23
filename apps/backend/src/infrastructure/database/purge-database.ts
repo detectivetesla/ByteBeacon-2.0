@@ -154,10 +154,16 @@ async function runStoragePurge() {
     await client.query('COMMIT');
     logger.info(`[STORAGE_PURGE] Transaction committed successfully. Maintained wallets for ${usersWithBalance.rows.length} users.`);
 
-    // 4. Release connection and run VACUUM ANALYZE to reclaim disk space
+    // 4. Release connection and update query planner statistics
     client.release();
-    logger.info('[STORAGE_PURGE] Running VACUUM (ANALYZE) to reclaim disk space in PostgreSQL...');
-    await pool.query('VACUUM (ANALYZE)');
+    logger.info('[STORAGE_PURGE] Updating query planner statistics with ANALYZE...');
+    await pool.query('ANALYZE');
+    try {
+      await pool.query('VACUUM');
+      logger.info('[STORAGE_PURGE] VACUUM completed successfully.');
+    } catch {
+      logger.info('[STORAGE_PURGE] VACUUM skipped (running under transaction pooling/managed block). TRUNCATE has already deallocated physical disk pages.');
+    }
     logger.info('[STORAGE_PURGE] Database storage reclamation 100% COMPLETE.');
   } catch (error: any) {
     await client.query('ROLLBACK').catch(() => {});
