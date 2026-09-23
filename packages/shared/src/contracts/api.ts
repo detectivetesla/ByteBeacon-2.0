@@ -2271,6 +2271,7 @@ export interface AdminOrderProcessingStatusDto {
   isTotalLockdown?: boolean;
   pauseMode?: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE' | 'NONE';
   pausedCount: number;
+  heldOrdersCount?: number;
   pausedAt: string | null;
   pausedBy?: string | null;
   reason?: string | null;
@@ -2283,6 +2284,7 @@ export interface AdminPauseOrdersRequest {
 
 export interface AdminResumeOrdersRequest {
   resumePausedOrders?: boolean;
+  autoReenqueue?: boolean;
   reason?: string;
 }
 

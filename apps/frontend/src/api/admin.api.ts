@@ -373,6 +373,10 @@ export type {
   ReprocessEligibleItemDto,
   ReprocessPreviewDto,
   ReprocessExecuteRequest,
+  AdminOrderProcessingStatusDto,
+  AdminPauseOrdersRequest,
+  AdminResumeOrdersRequest,
+  AgentWithdrawalPolicyDto,
 };
 
 export interface AdminUserStats {

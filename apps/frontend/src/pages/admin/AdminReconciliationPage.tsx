@@ -111,9 +111,9 @@ export const AdminReconciliationPage: React.FC = () => {
     }
   };
 
-  // Trigger Carrier Audit
+  // Trigger Carrier / Datahouse Audit
   const handleTriggerCarrierAudit = async () => {
-    setAuditRunning('CARRIER');
+    setAuditRunning('DATAHOUSE');
     try {
       const res = await adminApi.triggerCarrierReconciliation() as any;
       toastSuccess(res?.message || 'Carrier delivery reconciliation completed successfully.');
@@ -125,6 +125,8 @@ export const AdminReconciliationPage: React.FC = () => {
       setAuditRunning(null);
     }
   };
+
+  const handleTriggerDatahouse = handleTriggerCarrierAudit;
 
   // Trigger Ledger Audit
   const handleTriggerLedger = async () => {
