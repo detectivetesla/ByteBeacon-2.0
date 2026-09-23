@@ -933,6 +933,11 @@ export const AdminOrdersPage: React.FC = () => {
           subvalue={activeFilters.length > 0 ? "Filtered paused" : "Orders frozen during pause"}
           accent={(stats.paused || 0) > 0 ? 'amber' : 'green'}
           icon={<TactileIcon icon={PauseCircle} color={(stats.paused || 0) > 0 ? 'speed' : 'security'} size="sm" />}
+          onClick={() => {
+            setLifecycleFilter('PAUSED');
+            setOperationalStateFilter('ALL');
+            setPage(1);
+          }}
         />
         <MetricCard
           title="Completed Deliveries"
@@ -1106,6 +1111,7 @@ export const AdminOrdersPage: React.FC = () => {
                 }}
                 options={[
                   { label: 'All States', value: 'ALL' },
+                  { label: '⏸ Paused in Flight / Freeze', value: 'OPERATIONAL_FREEZE' },
                   { label: '⚠ Recon Required', value: 'RECONCILIATION_REQUIRED' },
                   { label: '⌛ Awaiting Approval', value: 'AWAITING_APPROVAL' },
                   { label: '❌ Failed Queue', value: 'FAILED_QUEUE' },
@@ -1428,9 +1434,13 @@ export const AdminOrdersPage: React.FC = () => {
                 <td style={{ padding: '0.85rem 1rem', verticalAlign: 'middle', textAlign: 'center' }}>
                   <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
                     {renderOrderStatusBadge(order.orderStatus)}
-                    {(order.isPaused || order.orderStatus === 'PAUSED') && order.pausedFromStatus && (
+                    {(order.isPaused || order.orderStatus === 'PAUSED') && (
                       <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
-                        (held: {order.pausedFromStatus})
+                        {order.placedDuringFreeze
+                          ? '(Placed During Freeze)'
+                          : order.pausedFromStatus
+                          ? `(held: ${order.pausedFromStatus})`
+                          : '(Operational Freeze)'}
                       </span>
                     )}
                   </div>
@@ -1719,7 +1729,11 @@ export const AdminOrdersPage: React.FC = () => {
                 >
                   <AlertOctagon size={18} color="#D97706" />
                   <div style={{ fontSize: '11px', color: '#B45309', lineHeight: 1.4 }}>
-                    <strong>Operations Freeze / Paused:</strong> This order is held in <strong>PAUSED</strong> status while in <strong>{orderDetail.order.pausedFromStatus || 'PROCESSING'}</strong>. It will be re-enqueued when operations resume.
+                    <strong>{orderDetail.order.placedDuringFreeze ? 'Placed During Operational Freeze:' : 'Operations Freeze / Paused in Flight:'}</strong>{' '}
+                    {orderDetail.order.placedDuringFreeze
+                      ? 'This order was submitted and paid while order operations were paused. It is held safely and will be automatically enqueued to fulfillment queues when operations resume.'
+                      : `This order was in-flight and abruptly paused from ${orderDetail.order.pausedFromStatus || 'PROCESSING'}. It will be automatically restored and re-enqueued when operations resume.`}
+                    {orderDetail.order.pausedAt && <div style={{ marginTop: '0.2rem' }}>Paused At: {new Date(orderDetail.order.pausedAt).toLocaleString()}</div>}
                     {orderDetail.order.pauseReason && <div>Reason: <em>{orderDetail.order.pauseReason}</em></div>}
                   </div>
                 </div>

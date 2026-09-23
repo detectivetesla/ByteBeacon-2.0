@@ -156,6 +156,7 @@ export interface MetricCardProps {
   accent?: 'green' | 'cyan' | 'amber' | 'violet' | 'red' | 'blue' | 'orange' | 'purple';
   variant?: CardVariant;
   style?: React.CSSProperties;
+  onClick?: () => void;
 }
 
 export const MetricCard: React.FC<MetricCardProps> = ({
@@ -169,6 +170,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   accent,
   variant = 'default',
   style,
+  onClick,
 }) => {
   const displaySubtitle = subvalue || subtitle || description;
   const mapAccentToCardAccent = (a?: string): CardAccentColor | undefined => {
@@ -192,11 +194,13 @@ export const MetricCard: React.FC<MetricCardProps> = ({
       elevated
       variant={variant}
       accentColor={mapAccentToCardAccent(accent)}
+      onClick={onClick}
       style={{
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
         minHeight: '120px',
+        cursor: onClick ? 'pointer' : undefined,
         ...style,
       }}
     >

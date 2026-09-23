@@ -604,11 +604,10 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
     if (isOrderProcessingPaused) {
-      toastError(
-        'Order Operations Paused',
-        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+      toastInfo(
+        'Operational Freeze Active',
+        'Your order will be held safely in Operational Freeze and fulfilled automatically when operations resume.',
       );
-      return;
     }
     if (!currentSingleBundle || !currentSingleBundle.id) {
       toastError('Bundle Required', 'Please select a data bundle before submitting.');
@@ -822,11 +821,10 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
     if (isOrderProcessingPaused) {
-      toastError(
-        'Order Operations Paused',
-        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+      toastInfo(
+        'Operational Freeze Active',
+        'Your batch orders will be held safely in Operational Freeze and fulfilled automatically when operations resume.',
       );
-      return;
     }
 
     const cleanedRecipients = bulkRecipients.map((r) => ({
@@ -1090,11 +1088,10 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
     if (isOrderProcessingPaused) {
-      toastError(
-        'Order Operations Paused',
-        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+      toastInfo(
+        'Operational Freeze Active',
+        'Your batch orders will be held safely in Operational Freeze and fulfilled automatically when operations resume.',
       );
-      return;
     }
     if (parsedFreeEntries.invalidCount > 0) {
       toastError('Invalid Entries', 'Please fix any invalid recipient phone numbers before proceeding.');
@@ -1756,11 +1753,10 @@ export const BuyDataPage: React.FC = () => {
   // File Upload Handlers (Supports .xlsx, .xls, .csv standardized in GB)
   const handleFileUpload = async (file: File) => {
     if (isOrderProcessingPaused) {
-      toastError(
-        'Excel Uploads Paused',
-        orderProcessingMessage || 'Spreadsheet uploads and batch processing are temporarily halted while order operations are paused.',
+      toastInfo(
+        'Operational Freeze Active',
+        'Spreadsheet orders will be placed and held safely in Operational Freeze until operations resume.',
       );
-      return;
     }
     setExcelFile(file);
     setExcelLoading(true);
@@ -2026,11 +2022,10 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
     if (isOrderProcessingPaused) {
-      toastError(
-        'Order Operations Paused',
-        orderProcessingMessage || 'Order fulfillment and batch processing are currently paused by platform administration.',
+      toastInfo(
+        'Operational Freeze Active',
+        'Your batch upload will be held safely in Operational Freeze and fulfilled automatically when operations resume.',
       );
-      return;
     }
     if (!excelFile || excelParsedRows.length === 0) {
       toastError('No Orders', 'Please upload a spreadsheet first.');
@@ -2221,10 +2216,10 @@ export const BuyDataPage: React.FC = () => {
           <span style={{ fontSize: '1.25rem' }}>⚠️</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800 }}>
-              Order Operations & Excel Uploads Temporarily Paused
+              Operational Freeze Active
             </strong>
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              {orderProcessingMessage || 'Order fulfillment, checkouts, and spreadsheet batch uploads are currently paused by platform administrators. You can configure orders, but new purchases and uploads cannot be submitted at this time.'}
+              {orderProcessingMessage || 'Order fulfillment is temporarily frozen. Any orders or uploads placed now will be safely queued in Operational Freeze and dispatched automatically once operations resume.'}
             </span>
           </div>
         </div>

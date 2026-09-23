@@ -2070,6 +2070,7 @@ export async function storeRoutes(
       }
 
       const row = payRes.rows[0];
+      let isOperationsPaused = row.orderStatus === 'PAUSED';
 
       if (row.paymentStatus !== 'PAID') {
         if (deps.paymentProvider) {
@@ -2115,15 +2116,48 @@ export async function storeRoutes(
           ],
         );
 
-        // Transition Order to READY_FOR_FULFILLMENT
-        await client.query(
-          `UPDATE orders
-           SET payment_status = 'PAID',
-               order_status = 'READY_FOR_FULFILLMENT',
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1`,
-          [row.orderId],
-        );
+        // Check if operations are paused
+        isOperationsPaused = false;
+        try {
+          const pauseCheck = await client.query(
+            `SELECT (
+              EXISTS (
+                SELECT 1 FROM emergency_system_controls
+                WHERE control_key IN ('PAUSE_ORDER_OPERATIONS', 'KILL_SWITCH_TELECOM_DISPATCH')
+                  AND is_enabled = true
+              )
+              OR EXISTS (
+                SELECT 1 FROM platform_feature_flags
+                WHERE flag_key = 'PAUSE_ORDER_OPERATIONS' AND is_enabled = true
+              )
+            ) AS is_active`
+          );
+          isOperationsPaused = Boolean(pauseCheck.rows[0]?.is_active);
+        } catch {}
+
+        // Transition Order to READY_FOR_FULFILLMENT or PAUSED if operations paused
+        if (isOperationsPaused) {
+          await client.query(
+            `UPDATE orders
+             SET payment_status = 'PAID',
+                 order_status = 'PAUSED',
+                 is_paused = true,
+                 paused_at = CURRENT_TIMESTAMP,
+                 paused_from_status = 'READY_FOR_FULFILLMENT',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [row.orderId],
+          );
+        } else {
+          await client.query(
+            `UPDATE orders
+             SET payment_status = 'PAID',
+                 order_status = 'READY_FOR_FULFILLMENT',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [row.orderId],
+          );
+        }
 
         // Record Order Event
         await client.query(
@@ -2136,7 +2170,12 @@ export async function storeRoutes(
             req.id,
             row.userId,
             JSON.stringify({ paymentStatus: 'PENDING', orderStatus: 'CREATED' }),
-            JSON.stringify({ paymentStatus: 'PAID', orderStatus: 'READY_FOR_FULFILLMENT' }),
+            JSON.stringify({
+              paymentStatus: 'PAID',
+              orderStatus: isOperationsPaused ? 'PAUSED' : 'READY_FOR_FULFILLMENT',
+              isPaused: isOperationsPaused,
+              pausedFromStatus: isOperationsPaused ? 'READY_FOR_FULFILLMENT' : undefined,
+            }),
           ],
         );
 
@@ -2170,8 +2209,10 @@ export async function storeRoutes(
         success: true,
         data: {
           orderId: row.orderPublicId,
-          status: 'READY_TO_PROCESS',
-          statusLabel: 'Payment Confirmed · Processing Data Dispatch',
+          status: isOperationsPaused ? 'PAUSED' : 'READY_TO_PROCESS',
+          statusLabel: isOperationsPaused
+            ? 'Payment Confirmed · Held in Operational Freeze (Dispatches on resume)'
+            : 'Payment Confirmed · Processing Data Dispatch',
           paymentStatus: 'PAID',
           product: {
             name: `${row.network} ${dataDisplay} Data Bundle`,

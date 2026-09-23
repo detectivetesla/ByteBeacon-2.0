@@ -1,7 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { FeatureFlagService } from '../infrastructure/features/feature-flag.service.js';
 import { UserRole } from '@bytebeacon/shared';
-import { AppError } from '../core/errors/app-error.js';
 
 /**
  * Creates a preHandler hook that rejects order creation, checkouts, and Excel bulk uploads
@@ -18,12 +17,6 @@ export function createOrderProcessingPauseHook(featureFlagService: FeatureFlagSe
     }
 
     const isPaused = await featureFlagService.isOrderProcessingPaused();
-    if (isPaused) {
-      throw new AppError(
-        'Order processing, checkout, and bulk Excel uploads are temporarily paused by platform administration. Please check back shortly.',
-        503,
-        'ORDER_PROCESSING_PAUSED',
-      );
-    }
+    (req as any).isOrderOperationsPaused = isPaused;
   };
 }

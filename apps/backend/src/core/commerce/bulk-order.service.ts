@@ -47,6 +47,27 @@ export class BulkOrderService {
     this.idempotencyService = idempotencyService ?? (db ? new IdempotencyService(db) : undefined);
   }
 
+  public async isOrderProcessingPaused(): Promise<boolean> {
+    try {
+      const res = await this.db.query(
+        `SELECT (
+          EXISTS (
+            SELECT 1 FROM emergency_system_controls
+            WHERE control_key IN ('PAUSE_ORDER_OPERATIONS', 'KILL_SWITCH_TELECOM_DISPATCH')
+              AND is_enabled = true
+          )
+          OR EXISTS (
+            SELECT 1 FROM platform_feature_flags
+            WHERE flag_key = 'PAUSE_ORDER_OPERATIONS' AND is_enabled = true
+          )
+        ) AS is_active`
+      );
+      return Boolean(res.rows[0]?.is_active);
+    } catch {
+      return false;
+    }
+  }
+
   public async createBulkSubmission(
     input: CreateBulkSubmissionRequest,
     userId: string,
@@ -147,12 +168,14 @@ export class BulkOrderService {
                   status, created_at as "createdAt", updated_at as "updatedAt"
       `;
 
+      const isPaused = await this.isOrderProcessingPaused();
+
       const subRes = await client.query(subQuery, [
         userId,
         input.name.trim(),
         itemsToInsert.length,
         totalAmountPesewas,
-        isWalletPayment ? 'PROCESSING' : 'PENDING',
+        isPaused ? 'PAUSED' : isWalletPayment ? 'PROCESSING' : 'PENDING',
         input.idempotencyKey || null,
       ]);
       const subRow = subRes.rows[0];
@@ -184,9 +207,9 @@ export class BulkOrderService {
               public_id, user_id, product_id, recipient_phone,
               network, data_amount_mb, amount_pesewas, currency,
               pricing_snapshot, payment_status, order_status, provider_status,
-              refund_status, idempotency_key
+              refund_status, idempotency_key, is_paused, paused_at, paused_from_status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'GHS', $8, 'PAID', 'READY_FOR_FULFILLMENT', 'UNKNOWN', 'NONE', $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'GHS', $8, 'PAID', $9, 'UNKNOWN', 'NONE', $10, $11, $12, $13)
             RETURNING id`,
             [
               childPublicId,
@@ -201,8 +224,12 @@ export class BulkOrderService {
                 dataAmountMb: product.dataAmountMb,
                 pricePesewas: item.amountPesewas,
                 confirmedPorted: input.confirmedPorted,
+                placedDuringFreeze: isPaused ? true : undefined,
               }),
               `${subRow.id}_${item.recipientPhone}_${Date.now()}`,
+              isPaused,
+              isPaused ? new Date() : null,
+              isPaused ? 'READY_FOR_FULFILLMENT' : null,
             ],
           );
           childOrderId = childOrderRes.rows[0].id;
@@ -284,7 +311,7 @@ export class BulkOrderService {
       await client.query('COMMIT');
 
       // 4. Trigger fulfillment for all created child orders
-      if (isWalletPayment && dispatchedOrderIds.length > 0) {
+      if (isWalletPayment && dispatchedOrderIds.length > 0 && !isPaused) {
         logger.info(
           { submissionId: subRow.id, count: dispatchedOrderIds.length },
           '[BULK_ORDER_SERVICE] Dispatching child orders to fulfillment pipeline',
@@ -310,6 +337,11 @@ export class BulkOrderService {
             });
           }
         }
+      } else if (isWalletPayment && dispatchedOrderIds.length > 0 && isPaused) {
+        logger.info(
+          { submissionId: subRow.id, count: dispatchedOrderIds.length },
+          '[BULK_ORDER_SERVICE] Bulk child orders created during operational freeze — held in PAUSED status without telecom dispatch',
+        );
       }
 
       return {
@@ -717,18 +749,21 @@ export class BulkOrderService {
         [grandTotalPesewas, userId],
       );
 
+      const isPaused = await this.isOrderProcessingPaused();
+
       // Insert Bulk Submission
       const subRes = await client.query(
         `INSERT INTO bulk_submissions (
           user_id, name, total_count, total_amount_pesewas, status, idempotency_key
         )
-        VALUES ($1, $2, $3, $4, 'PROCESSING', $5)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id`,
         [
           userId,
           `Bulk ${netUpper} (${acceptedRecipients.length} recipients)`,
           acceptedRecipients.length,
           grandTotalPesewas,
+          isPaused ? 'PAUSED' : 'PROCESSING',
           params.idempotencyKey,
         ],
       );
@@ -765,9 +800,9 @@ export class BulkOrderService {
             public_id, user_id, agent_id, product_id, recipient_phone,
             network, data_amount_mb, amount_pesewas, currency,
             pricing_snapshot, payment_status, order_status, provider_status,
-            refund_status, idempotency_key
+            refund_status, idempotency_key, is_paused, paused_at, paused_from_status
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'GHS', $9, 'PAID', 'READY_FOR_FULFILLMENT', 'UNKNOWN', 'NONE', $10)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'GHS', $9, 'PAID', $10, 'UNKNOWN', 'NONE', $11, $12, $13, $14)
           RETURNING id`,
           [
             childPublicId,
@@ -784,6 +819,7 @@ export class BulkOrderService {
               unitPricePesewas,
               beneficiaryCount: count,
               confirmedPorted: params.confirmedPorted,
+              placedDuringFreeze: isPaused ? true : undefined,
               beneficiaries: recipientsForSize.map((r) => ({
                 id: `ben_${crypto.randomBytes(6).toString('hex')}`,
                 phoneNumber: r.phoneNumber,
@@ -795,6 +831,9 @@ export class BulkOrderService {
               })),
             }),
             `${params.idempotencyKey}_${sizeGb}gb_${Date.now()}`,
+            isPaused,
+            isPaused ? new Date() : null,
+            isPaused ? 'READY_FOR_FULFILLMENT' : null,
           ],
         );
 
@@ -910,30 +949,37 @@ export class BulkOrderService {
       }
 
       // Dispatch all child orders to fulfillment pipeline
-      logger.info(
-        { submissionId: submissionPublicId, count: createdChildOrderIds.length },
-        '[BULK_ORDER_SERVICE] Agent bulk submission dispatching child orders to fulfillment pipeline',
-      );
-      for (const orderId of createdChildOrderIds) {
-        if (this.fulfillmentQueueService) {
-          this.fulfillmentQueueService
-            .enqueueOrderFulfillment({
-              orderId,
-              correlationId: `bulk_${submissionPublicId}`,
-              idempotencyKey: `bulk_sub_${orderId}`,
-              attemptCount: 1,
-            })
-            .catch(() => {});
+      if (!isPaused) {
+        logger.info(
+          { submissionId: submissionPublicId, count: createdChildOrderIds.length },
+          '[BULK_ORDER_SERVICE] Agent bulk submission dispatching child orders to fulfillment pipeline',
+        );
+        for (const orderId of createdChildOrderIds) {
+          if (this.fulfillmentQueueService) {
+            this.fulfillmentQueueService
+              .enqueueOrderFulfillment({
+                orderId,
+                correlationId: `bulk_${submissionPublicId}`,
+                idempotencyKey: `bulk_sub_${orderId}`,
+                attemptCount: 1,
+              })
+              .catch(() => {});
+          }
+          if (this.fulfillmentWorker) {
+            setImmediate(() => {
+              this.fulfillmentWorker!
+                .processOrderFulfillment(orderId, `bulk_${submissionPublicId}`)
+                .catch((err) => {
+                  logger.error({ err, orderId }, 'Agent bulk child order background fulfillment error');
+                });
+            });
+          }
         }
-        if (this.fulfillmentWorker) {
-          setImmediate(() => {
-            this.fulfillmentWorker!
-              .processOrderFulfillment(orderId, `bulk_${submissionPublicId}`)
-              .catch((err) => {
-                logger.error({ err, orderId }, 'Agent bulk child order background fulfillment error');
-              });
-          });
-        }
+      } else {
+        logger.info(
+          { submissionId: submissionPublicId, count: createdChildOrderIds.length },
+          '[BULK_ORDER_SERVICE] Agent bulk submission child orders held in PAUSED status (Operational Freeze) without telecom dispatch',
+        );
       }
 
       return bulkResult;

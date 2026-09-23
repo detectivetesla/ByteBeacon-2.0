@@ -675,6 +675,7 @@ export interface AdminOrderListItem {
   pausedFromStatus?: string;
   pausedAt?: string;
   pauseReason?: string;
+  placedDuringFreeze?: boolean;
   createdAt: string;
   updatedAt?: string;
   userEmail?: string;

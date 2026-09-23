@@ -185,7 +185,9 @@ export async function adminOrdersRoutes(
     }
 
     if (query.operationalState && query.operationalState !== 'ALL') {
-      if (query.operationalState === 'RECONCILIATION_REQUIRED') {
+      if (query.operationalState === 'OPERATIONAL_FREEZE' || query.operationalState === 'PAUSED_IN_FLIGHT') {
+        whereConditions.push(`(o.order_status = 'PAUSED' OR o.is_paused = true)`);
+      } else if (query.operationalState === 'RECONCILIATION_REQUIRED') {
         whereConditions.push(`(o.order_status = 'COMPLETED' AND (o.provider_status = 'FAILED' OR po.provider_status = 'FAILED'))`);
       } else if (query.operationalState === 'AWAITING_APPROVAL') {
         whereConditions.push(`o.order_status = 'AWAITING_APPROVAL'`);
@@ -334,9 +336,11 @@ export async function adminOrdersRoutes(
                o.payment_status as "paymentStatus", o.order_status as "orderStatus",
                COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
                o.refund_status as "refundStatus",
+               o.is_paused as "isPaused", o.paused_at as "pausedAt", o.paused_from_status as "pausedFromStatus",
+               (o.pricing_snapshot->>'placedDuringFreeze')::boolean as "placedDuringFreeze",
                o.created_at as "createdAt", o.updated_at as "updatedAt",
                u.email as "userEmail", COALESCE(u.full_name, 'Customer') as "userName",
-               COALESCE(po.provider_name, (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse') as "providerName",
+               COALESCE(po.provider_name, (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Telecom Carrier') as "providerName",
                COALESCE(po.provider_order_id, po.provider_reference) as "providerOrderId"
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
@@ -383,6 +387,8 @@ export async function adminOrdersRoutes(
                 o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
                 COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
                 o.refund_status as "refundStatus",
+                o.is_paused as "isPaused", o.paused_at as "pausedAt", o.paused_from_status as "pausedFromStatus",
+                (o.pricing_snapshot->>'placedDuringFreeze')::boolean as "placedDuringFreeze",
                 o.idempotency_key as "idempotencyKey", o.pricing_snapshot as "pricingSnapshot",
                 o.created_at as "createdAt", o.updated_at as "updatedAt"
          FROM orders o
@@ -427,7 +433,7 @@ export async function adminOrdersRoutes(
       // Provider Order Information
       const providerOrderRes = await db.query(
         `SELECT id, 
-                COALESCE(provider_name, (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'DataHouse') as "providerName",
+                COALESCE(provider_name, (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Telecom Carrier') as "providerName",
                 provider_order_id as "providerOrderId",
                 provider_reference as "providerReference", provider_status as "providerStatus",
                 raw_payload as "rawPayload", last_synced_at as "lastSyncedAt",
@@ -972,9 +978,34 @@ export async function adminOrdersRoutes(
              SET order_status = COALESCE(paused_from_status, 'PROCESSING'),
                  is_paused = false,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE is_paused = true OR order_status = 'PAUSED'`,
+             WHERE is_paused = true OR order_status = 'PAUSED'
+             RETURNING id, network, recipient_phone, product_id, data_amount_mb, order_status`,
           );
           resumedOrdersCount = updateRes.rowCount ?? 0;
+
+          // Re-enqueue restored orders to fulfillment pipeline
+          if (fulfillmentQueueService && updateRes.rows && updateRes.rows.length > 0) {
+            for (const order of updateRes.rows) {
+              if (
+                order.order_status === 'PROCESSING' ||
+                order.order_status === 'READY_FOR_FULFILLMENT' ||
+                order.order_status === 'SUBMITTED'
+              ) {
+                fulfillmentQueueService
+                  .enqueueOrderFulfillment({
+                    orderId: order.id,
+                    correlationId: `resume_${req.id}`,
+                    idempotencyKey: `resume_sub_${order.id}`,
+                    attemptCount: 1,
+                    network: order.network,
+                    phoneNumber: order.recipient_phone,
+                    bundleId: order.product_id,
+                    dataAmountMb: order.data_amount_mb,
+                  })
+                  .catch(() => {});
+              }
+            }
+          }
         }
       } catch (err: any) {
         app.log.error({ err: err?.message, userId: req.user!.sub }, '[ADMIN_ORDERS_RESUME] Error resuming orders in database');

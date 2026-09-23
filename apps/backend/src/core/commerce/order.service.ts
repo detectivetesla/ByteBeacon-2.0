@@ -77,6 +77,27 @@ export class OrderService {
     this.fulfillmentWorker = fulfillmentWorker;
   }
 
+  public async isOrderProcessingPaused(): Promise<boolean> {
+    try {
+      const res = await this.db.query(
+        `SELECT (
+          EXISTS (
+            SELECT 1 FROM emergency_system_controls
+            WHERE control_key IN ('PAUSE_ORDER_OPERATIONS', 'KILL_SWITCH_TELECOM_DISPATCH')
+              AND is_enabled = true
+          )
+          OR EXISTS (
+            SELECT 1 FROM platform_feature_flags
+            WHERE flag_key = 'PAUSE_ORDER_OPERATIONS' AND is_enabled = true
+          )
+        ) AS is_active`
+      );
+      return Boolean(res.rows[0]?.is_active);
+    } catch {
+      return false;
+    }
+  }
+
   public async createOrder(
     input: CreateOrderRequest,
     context: CreateOrderContext,
@@ -169,10 +190,22 @@ export class OrderService {
         input.paymentMethod === 'WALLET' ||
         input.paymentMethod === 'wallet';
 
+      const isPaused = await this.isOrderProcessingPaused();
+
       const initialPaymentStatus = isWalletPayment ? PaymentStatus.PAID : PaymentStatus.PENDING;
-      const initialOrderStatus = isWalletPayment
+      const initialOrderStatus = isPaused
+        ? OrderStatus.PAUSED
+        : isWalletPayment
+          ? OrderStatus.READY_FOR_FULFILLMENT
+          : OrderStatus.CREATED;
+
+      const pausedFromStatus = isWalletPayment
         ? OrderStatus.READY_FOR_FULFILLMENT
         : OrderStatus.CREATED;
+
+      if (isPaused) {
+        (pricingSnapshot as any).placedDuringFreeze = true;
+      }
 
       if (isWalletPayment) {
         const userRes = await client.query(
@@ -215,15 +248,17 @@ export class OrderService {
           public_id, user_id, agent_id, product_id, recipient_phone,
           network, data_amount_mb, amount_pesewas, currency,
           pricing_snapshot, payment_status, order_status, provider_status,
-          refund_status, idempotency_key
+          refund_status, idempotency_key, is_paused, paused_at, paused_from_status
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         RETURNING id, public_id as "publicId", user_id as "userId", agent_id as "agentId",
                   product_id as "productId", recipient_phone as "recipientPhone",
                   network, data_amount_mb as "dataAmountMb", amount_pesewas as "amountPesewas",
                   currency, pricing_snapshot as "pricingSnapshot", payment_status as "paymentStatus",
                   order_status as "orderStatus", provider_status as "providerStatus",
-                  refund_status as "refundStatus", created_at as "createdAt", updated_at as "updatedAt"
+                  refund_status as "refundStatus", is_paused as "isPaused",
+                  paused_at as "pausedAt", paused_from_status as "pausedFromStatus",
+                  created_at as "createdAt", updated_at as "updatedAt"
       `;
 
       const orderRes = await client.query(insertOrderQuery, [
@@ -242,6 +277,9 @@ export class OrderService {
         ProviderStatus.UNKNOWN,
         RefundStatus.NONE,
         input.idempotencyKey || null,
+        isPaused,
+        isPaused ? new Date() : null,
+        isPaused ? pausedFromStatus : null,
       ]);
 
       const orderRow = orderRes.rows[0];
@@ -458,6 +496,10 @@ export class OrderService {
         updatedAt: new Date(orderRow.updatedAt).toISOString(),
       };
 
+      (orderDetails as any).isPaused = Boolean(orderRow.isPaused ?? isPaused);
+      (orderDetails as any).pausedFromStatus = orderRow.pausedFromStatus || (isPaused ? pausedFromStatus : null);
+      (orderDetails as any).placedDuringFreeze = isPaused;
+
       // 7. Save Idempotency Record atomically inside the same transaction
       if (input.idempotencyKey) {
         await this.idempotencyService.saveResponse(client, {
@@ -473,7 +515,7 @@ export class OrderService {
       await client.query('COMMIT');
 
       // 8. Trigger Background Telecom Fulfillment if Paid via Wallet
-      if (isWalletPayment) {
+      if (isWalletPayment && !isPaused) {
         logger.info(
           { orderId: orderRow.id, correlationId: context.correlationId, hasFQS: !!this.fulfillmentQueueService, hasFW: !!this.fulfillmentWorker },
           '[ORDER_SERVICE] Wallet payment confirmed — dispatching to fulfillment pipeline',
@@ -518,6 +560,11 @@ export class OrderService {
         } else {
           logger.warn({ orderId: orderRow.id }, '[ORDER_SERVICE] No FulfillmentWorker available — order will stay READY_FOR_FULFILLMENT');
         }
+      } else if (isWalletPayment && isPaused) {
+        logger.info(
+          { orderId: orderRow.id, correlationId: context.correlationId },
+          '[ORDER_SERVICE] Wallet payment confirmed — order held in PAUSED status (Operational Freeze) without telecom dispatch',
+        );
       }
 
       return {

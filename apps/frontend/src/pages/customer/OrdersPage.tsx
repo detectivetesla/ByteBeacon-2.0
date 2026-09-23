@@ -837,13 +837,8 @@ export const OrdersPage: React.FC = () => {
               variant="primary"
               size="sm"
               onClick={() => {
-                if (isOrderProcessingPaused) {
-                  toastInfo('Orders Paused', orderProcessingMessage || 'Order checkouts are temporarily paused by platform administrators.');
-                  return;
-                }
                 navigate('/app/buy-data');
               }}
-              disabled={isOrderProcessingPaused}
             >
               Buy Data
             </Button>
