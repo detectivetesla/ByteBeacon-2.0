@@ -27,6 +27,17 @@ export const DynamicHomeRoute: React.FC = () => {
   return <LandingPage />;
 };
 
+export const DynamicTrackRoute: React.FC = () => {
+  if (isStorefrontHostname()) {
+    const slug = extractStoreSlugFromHost();
+    if (slug) {
+      // When accessed on a merchant subdomain (e.g. fastdata.apisolutions.store), render storefront
+      return <PublicStorefrontPage />;
+    }
+  }
+  return <OrderTrackingPage />;
+};
+
 /**
  * Gateway component for /store routes:
  * If accessed on the main bytebeacon.online domain in production, redirects to apisolutions.store.
@@ -94,11 +105,11 @@ export const publicRoutes: RouteObject[] = [
       },
       {
         path: '/track',
-        element: <OrderTrackingPage />,
+        element: <DynamicTrackRoute />,
       },
       {
         path: '/track/:orderId',
-        element: <OrderTrackingPage />,
+        element: <DynamicTrackRoute />,
       },
       {
         path: '/developer',

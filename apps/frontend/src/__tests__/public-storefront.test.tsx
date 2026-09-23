@@ -358,6 +358,7 @@ describe('Public Customer Storefront Integration Tests', () => {
           <ToastProvider>
             <Routes>
               <Route path="/store/:slug" element={<PublicStorefrontPage />} />
+              <Route path="/store/:slug/:page" element={<PublicStorefrontPage />} />
             </Routes>
           </ToastProvider>
         </PlatformStatusProvider>
@@ -380,6 +381,50 @@ describe('Public Customer Storefront Integration Tests', () => {
     });
 
     expect(await screen.findByText('ord_sf_track_999')).toBeInTheDocument();
+  });
+
+  it('navigates to the track order page when the track nav link is clicked', async () => {
+    vi.mocked(storesApi.getPublicStore).mockResolvedValueOnce({
+      store: {
+        id: 'str_123',
+        agentId: 'ag_123',
+        slug: 'datahub-express',
+        storeName: 'DataHub Express',
+        tagline: 'Instant 24/7 Data Deliveries',
+        description: 'Authorized MTN, Telecel & AT mobile data reseller.',
+        primaryColor: '#F59E0B',
+        accentColor: '#10B981',
+        paymentStatus: 'PAID',
+        approvalStatus: 'APPROVED',
+        storeStatus: 'ACTIVE',
+        activationFeePesewas: 50000,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      products: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/store/datahub-express']}>
+        <PlatformStatusProvider>
+          <ToastProvider>
+            <Routes>
+              <Route path="/store/:slug" element={<PublicStorefrontPage />} />
+              <Route path="/store/:slug/:page" element={<PublicStorefrontPage />} />
+            </Routes>
+          </ToastProvider>
+        </PlatformStatusProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('DataHub Express')).toBeInTheDocument();
+
+    const trackNavBtn = await screen.findByRole('button', { name: /Track Order/i });
+    fireEvent.click(trackNavBtn);
+
+    expect(await screen.findByText('Track Order Status')).toBeInTheDocument();
+    expect(screen.getByText('Enter your Order ID, reference, or recipient phone number to check live status.')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Enter Order ID or Reference/i)).toBeInTheDocument();
   });
 
   it('renders store unavailable state when store is not found or inactive', async () => {

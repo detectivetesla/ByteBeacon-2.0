@@ -169,12 +169,21 @@ export const PublicStorefrontPage: React.FC = () => {
   // Navigate helper that updates URL cleanly
   const handleNavClick = (target: StorefrontNavPage) => {
     setMobileMenuOpen(false);
+    setShowTrackModal(false);
     setActiveNav(target);
+
     // Only omit slug from URL when on a real subdomain store (e.g. fastdata.apisolutions.store)
     // On apex apisolutions.store (no subdomain slug), we must keep the slug in the path
     const subdomainSlugVal = STOREFRONT_CONFIG.extractSlugFromSubdomain();
     const isSubdomainStore = !!subdomainSlugVal;
-    const basePath = isSubdomainStore ? '' : `/store/${storeSlug}`;
+    let basePath = '';
+    if (!isSubdomainStore && storeSlug) {
+      if (location.pathname.startsWith('/store/')) {
+        basePath = `/store/${storeSlug}`;
+      } else {
+        basePath = `/${storeSlug}`;
+      }
+    }
     const targetPath = target === 'home' ? (basePath || '/') : `${basePath}/${target}`;
 
     if (typeof window !== 'undefined' && window.history?.pushState) {
@@ -1605,9 +1614,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 {/* Track Order Link */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTrackModal(true);
-                  }}
+                  onClick={() => handleNavClick('track')}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1816,10 +1823,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    setShowTrackModal(true);
-                  }}
+                  onClick={() => handleNavClick('track')}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -2096,10 +2100,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTrackModal(true);
-                    handleNavClick('track');
-                  }}
+                  onClick={() => handleNavClick('track')}
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.12)',
                     color: '#FFFFFF',
@@ -2887,7 +2888,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
         )}
 
         {/* VIEW 3: TRACK ORDER PAGE (Matches media_1789553086389.png) */}
-        {activeNav === 'track' && !showTrackModal && (
+        {activeNav === 'track' && (
           <div style={{ maxWidth: '620px', margin: '2rem auto' }}>
             <div
               style={{
@@ -2946,7 +2947,7 @@ function loadPaystackInlineScript(): Promise<boolean> {
                   />
                   <button
                     type="submit"
-                    aria-label="Search - Track Order"
+                    aria-label="Search"
                     disabled={isTrackPageSearching}
                     style={{
                       backgroundColor: brandAccent,
