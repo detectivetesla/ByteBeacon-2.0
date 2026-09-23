@@ -30,6 +30,7 @@ import { FinancialLedgerService } from '../payments/financial-ledger.service.js'
 import { NotFoundError, ForbiddenError, InsufficientBalanceError, BundleInactiveError, BadRequestError } from '../errors/app-error.js';
 import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.js';
 import { FulfillmentWorker } from '../providers/fulfillment-worker.js';
+import { RefundService } from '../payments/refund.service.js';
 import { logger } from '../logging/logger.js';
 
 function toSafeIso(val: any, fallback?: string): string {
@@ -60,6 +61,7 @@ export class OrderService {
   private readonly ledgerService: FinancialLedgerService;
   private readonly fulfillmentQueueService?: FulfillmentQueueService;
   private readonly fulfillmentWorker?: FulfillmentWorker;
+  private readonly refundService?: RefundService;
 
   constructor(
     db: pg.Pool,
@@ -68,6 +70,7 @@ export class OrderService {
     ledgerService?: FinancialLedgerService,
     fulfillmentQueueService?: FulfillmentQueueService,
     fulfillmentWorker?: FulfillmentWorker,
+    refundService?: RefundService,
   ) {
     this.db = db;
     this.catalogService = catalogService;
@@ -75,6 +78,29 @@ export class OrderService {
     this.ledgerService = ledgerService ?? new FinancialLedgerService(db);
     this.fulfillmentQueueService = fulfillmentQueueService;
     this.fulfillmentWorker = fulfillmentWorker;
+    this.refundService = refundService;
+  }
+
+  /**
+   * Universal automated wallet refund trigger when an order permanently fails or is cancelled.
+   */
+  public async triggerOrderFailureRefund(
+    orderId: string,
+    reason: string,
+    correlationId: string,
+  ): Promise<void> {
+    try {
+      if (this.refundService) {
+        await this.refundService.executeAutomatedOrderRefund(orderId, reason, correlationId);
+      } else if (this.fulfillmentWorker) {
+        await this.fulfillmentWorker.executeAutomaticRefund(orderId, correlationId, reason);
+      }
+    } catch (err: any) {
+      logger.error(
+        { orderId, reason, err: err?.message },
+        '[ORDER_SERVICE] Failed to execute automated refund on order failure',
+      );
+    }
   }
 
   public async isOrderProcessingPaused(): Promise<boolean> {
@@ -580,10 +606,25 @@ export class OrderService {
                   '[ORDER_SERVICE] FulfillmentWorker.processOrderFulfillment completed',
                 );
               })
-              .catch((err) => {
+              .catch(async (err) => {
                 logger.error(
                   { orderId: orderRow.id, err: err?.message, stack: err?.stack },
-                  '[ORDER_SERVICE] FulfillmentWorker.processOrderFulfillment FAILED',
+                  '[ORDER_SERVICE] FulfillmentWorker.processOrderFulfillment FAILED — triggering automated refund',
+                );
+                try {
+                  await this.db.query(
+                    `UPDATE orders
+                     SET order_status = $1,
+                         failure_reason = COALESCE(failure_reason, $2),
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $3 AND order_status NOT IN ('COMPLETED', 'REFUNDED')`,
+                    [OrderStatus.FAILED, `Order fulfillment failed: ${err?.message || 'Execution error'}`, orderRow.id],
+                  );
+                } catch {}
+                await this.triggerOrderFailureRefund(
+                  orderRow.id,
+                  `Order fulfillment execution failed: ${err?.message || 'Execution error'}`,
+                  context.correlationId,
                 );
               });
           });
@@ -715,6 +756,13 @@ export class OrderService {
               row.providerStatus = liveStatus.providerStatus;
               row.poProviderStatus = liveStatus.providerStatus;
               row.poLastSyncedAt = new Date();
+
+              if (isFailed) {
+                const failReason = `Telecom provider reported status [${liveStatus.providerStatus}]. Your payment has been refunded to your wallet.`;
+                await this.triggerOrderFailureRefund(row.id, failReason, row.publicId || row.id);
+                row.refundStatus = RefundStatus.COMPLETED;
+                row.paymentStatus = PaymentStatus.REFUNDED;
+              }
             }
           }
         } catch (err: any) {
@@ -890,6 +938,13 @@ export class OrderService {
               );
               row.orderStatus = newOrderStatus;
               row.providerStatus = liveStatus.providerStatus;
+
+              if (isFailed) {
+                const failReason = `Telecom provider reported status [${liveStatus.providerStatus}]. Your payment has been refunded to your wallet.`;
+                await this.triggerOrderFailureRefund(row.id, failReason, row.publicId || row.id);
+                row.refundStatus = RefundStatus.COMPLETED;
+                row.paymentStatus = PaymentStatus.REFUNDED;
+              }
             }
           }
         } catch (err: any) {
@@ -1086,6 +1141,7 @@ export class OrderService {
     OrderStateMachine.validateTransition(order.orderStatus, OrderStatus.CANCELLED);
 
     const client = await this.db.connect();
+    let isCommitted = false;
     try {
       await client.query('BEGIN');
 
@@ -1109,14 +1165,31 @@ export class OrderService {
       );
 
       await client.query('COMMIT');
-
-      return await this.getOrderById(order.id, userId, isAdmin);
+      isCommitted = true;
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
     } finally {
       client.release();
     }
+
+    if (isCommitted) {
+      const rawPaymentStatus = String((order as any).paymentStatus || '').toUpperCase();
+      const isPaid =
+        rawPaymentStatus === 'PAID' ||
+        rawPaymentStatus === 'SUCCESS' ||
+        rawPaymentStatus === 'COMPLETED';
+
+      if (isPaid) {
+        await this.triggerOrderFailureRefund(
+          order.id,
+          isAdmin ? 'ORDER_CANCELLED_BY_ADMIN' : 'ORDER_CANCELLED_BY_USER',
+          correlationId,
+        );
+      }
+    }
+
+    return await this.getOrderById(order.id, userId, isAdmin);
   }
 
   /**
@@ -1573,6 +1646,13 @@ export class OrderService {
             );
             r.orderStatus = newOrderStatus;
             r.providerStatus = liveStatus.providerStatus;
+
+            if (isFailed) {
+              const failReason = `Telecom provider reported status [${liveStatus.providerStatus}]. Your payment has been refunded to your wallet.`;
+              await this.triggerOrderFailureRefund(r.id, failReason, r.publicId || r.id);
+              r.refundStatus = RefundStatus.COMPLETED;
+              r.paymentStatus = PaymentStatus.REFUNDED;
+            }
           }
         }
       } catch (err: any) {

@@ -471,6 +471,7 @@ export function createApp(options: AppOptions = {}) {
       ledgerService,
       fulfillmentQueueService,
       fulfillmentWorker,
+      refundService,
     );
 
   const paymentService =
@@ -511,7 +512,7 @@ export function createApp(options: AppOptions = {}) {
 
   const providerReconciliationService =
     options.providerReconciliationService ??
-    new ProviderReconciliationService(dbPool, telecomProvider);
+    new ProviderReconciliationService(dbPool, telecomProvider, refundService);
 
   const bulkQueueService =
     options.bulkQueueService ??
@@ -536,11 +537,11 @@ export function createApp(options: AppOptions = {}) {
 
   const datahouseWebhookService =
     options.datahouseWebhookService ??
-    new DataHouseWebhookService(dbPool, redisClient, telecomProvider);
+    new DataHouseWebhookService(dbPool, redisClient, telecomProvider, refundService);
 
   const gmplWebhookService =
     options.gmplWebhookService ??
-    new GmplWebhookService(dbPool, redisClient, telecomProvider);
+    new GmplWebhookService(dbPool, redisClient, telecomProvider, refundService);
 
   const telecomProviderManagementService =
     options.telecomProviderManagementService ??
@@ -728,6 +729,7 @@ export function createApp(options: AppOptions = {}) {
         auditService,
         fulfillmentQueueService,
         beneficiaryService,
+        refundService,
       });
       await adminCatalogRoutes(commerceSubApp, {
         db: dbPool!,

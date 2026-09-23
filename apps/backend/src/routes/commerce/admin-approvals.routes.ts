@@ -6,6 +6,7 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { AuditService } from '../../core/security/audit.service.js';
 import { FulfillmentQueueService } from '../../core/providers/fulfillment-queue.service.js';
 import { BeneficiaryService } from '../../core/commerce/beneficiary.service.js';
+import { RefundService } from '../../core/payments/refund.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { NotFoundError, BadRequestError } from '../../core/errors/app-error.js';
 import { NetworkProvider } from '@bytebeacon/shared';
@@ -18,6 +19,7 @@ export interface AdminApprovalsRouteDependencies {
   auditService?: AuditService;
   fulfillmentQueueService: FulfillmentQueueService;
   beneficiaryService: BeneficiaryService;
+  refundService?: RefundService;
 }
 
 export async function adminApprovalsRoutes(
@@ -32,6 +34,7 @@ export async function adminApprovalsRoutes(
     auditService,
     fulfillmentQueueService,
     beneficiaryService,
+    refundService,
   } = deps;
 
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
@@ -854,6 +857,62 @@ export async function adminApprovalsRoutes(
           [reason || 'MTN beneficiary rejected by administrator', order.id],
         ).catch(() => {});
         failedOrdersCount++;
+
+        // Automated Wallet Refund for rejected orders
+        if (refundService) {
+          await refundService.executeAutomatedOrderRefund(
+            order.id,
+            reason || 'MTN beneficiary rejected by administrator',
+            req.id,
+          ).catch(() => {});
+        } else {
+          try {
+            const ordInfo = await db.query(
+              `SELECT user_id, agent_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
+              [order.id],
+            );
+            const ord = ordInfo.rows[0];
+            const isPaid = ['PAID', 'SUCCESS', 'COMPLETED'].includes(String(ord?.payment_status || '').toUpperCase());
+            if (isPaid && ord?.refund_status !== 'COMPLETED' && Number(ord?.amount_pesewas) > 0) {
+              let targetUserId = ord.user_id;
+              if (!targetUserId && ord.agent_id) {
+                const agRes = await db.query('SELECT user_id FROM agents WHERE id = $1 LIMIT 1', [ord.agent_id]).catch(() => ({ rows: [] }));
+                targetUserId = agRes.rows[0]?.user_id;
+              }
+              if (targetUserId) {
+                const refundAmt = Number(ord.amount_pesewas);
+                await db.query(
+                  `UPDATE users
+                   SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+                       wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [refundAmt, targetUserId],
+                );
+                await db.query(
+                  `UPDATE orders
+                   SET refund_status = 'COMPLETED', payment_status = 'REFUNDED', updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $1`,
+                  [order.id],
+                );
+                await db.query(
+                  `INSERT INTO refunds (order_id, amount_pesewas, reason, status)
+                   VALUES ($1, $2, $3, 'COMPLETED')`,
+                  [order.id, refundAmt, reason || 'MTN beneficiary rejected by administrator'],
+                ).catch(() => {});
+                await db.query(
+                  `INSERT INTO financial_ledger (
+                      transaction_id, entry_type, account_type, account_id,
+                      amount_pesewas, currency, reference_type, reference_id, description
+                   ) VALUES 
+                     (uuid_generate_v4(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
+                     (uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $4, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
+                  [refundAmt, order.id, `Refund on admin beneficiary rejection [${order.id}]`, targetUserId],
+                ).catch(() => {});
+              }
+            }
+          } catch {}
+        }
       }
 
       if (auditService) {

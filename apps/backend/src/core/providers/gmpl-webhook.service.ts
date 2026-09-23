@@ -4,6 +4,7 @@ import { ITelecomProvider } from './telecom/telecom-provider.interface.js';
 import { GmplWebhookPayload } from './gmpl/gmpl.types.js';
 import { GmplMapper } from './gmpl/gmpl.mapper.js';
 import { ProviderStatus, OrderStatus, OrderEventType } from '@bytebeacon/shared';
+import { RefundService } from '../payments/refund.service.js';
 import { UnauthorizedError } from '../errors/app-error.js';
 import { logger } from '../logging/logger.js';
 
@@ -11,11 +12,18 @@ export class GmplWebhookService {
   private readonly db: pg.Pool;
   private readonly redis: Redis | null;
   private readonly provider: ITelecomProvider;
+  private readonly refundService?: RefundService;
 
-  constructor(db: pg.Pool, redis: Redis | null, provider: ITelecomProvider) {
+  constructor(
+    db: pg.Pool,
+    redis: Redis | null,
+    provider: ITelecomProvider,
+    refundService?: RefundService,
+  ) {
     this.db = db;
     this.redis = redis;
     this.provider = provider;
+    this.refundService = refundService;
   }
 
   /**
@@ -46,6 +54,7 @@ export class GmplWebhookService {
     const providerEventId = payload.event_id || `${payload.event}_${payload.data?.reference}_${payload.timestamp}`;
     const eventTimestamp = new Date(payload.timestamp || Date.now());
     const eventVersion = payload.event_version || 1;
+    let orderToRefundOnFailure: { orderId: string; status: string } | null = null;
 
     // 2. Redis Acceleration Deduplication
     if (this.redis) {
@@ -204,41 +213,66 @@ export class GmplWebhookService {
         `UPDATE orders
          SET order_status = $1,
              provider_status = $2,
-             refund_status = CASE WHEN $4 = TRUE AND payment_status = 'PAID' THEN 'COMPLETED' ELSE refund_status END,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $3`,
-        [newOrderStatus, incomingStatus, projection.orderId, isFailed],
+        [newOrderStatus, incomingStatus, projection.orderId],
       );
 
       if (isFailed) {
+        orderToRefundOnFailure = { orderId: projection.orderId, status: incomingStatus };
+      }
+
+      if (isFailed && !this.refundService) {
         const orderInfo = await client.query(
-          `SELECT user_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
+          `SELECT user_id, agent_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
           [projection.orderId],
         );
         if (orderInfo.rows.length > 0) {
           const ord = orderInfo.rows[0];
-          if (ord.payment_status === 'PAID' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+          const isPaid = ['PAID', 'SUCCESS', 'COMPLETED'].includes(String(ord.payment_status || '').toUpperCase());
+          if (isPaid && ord.refund_status !== 'COMPLETED' && Number(ord.amount_pesewas) > 0) {
             const refundAmt = Number(ord.amount_pesewas);
-            await client.query(
-              `UPDATE users
-               SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
-                   wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE id = $2`,
-              [refundAmt, ord.user_id],
-            );
-            await client.query(
-              `INSERT INTO financial_ledger (
-                  transaction_id, entry_type, account_type, account_id,
-                  amount_pesewas, currency, reference_type, reference_id,
-                  description
-               ) VALUES (
-                  uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
-                  $2, 'GHS', 'ORDER_REFUND', $3,
-                  $4
-               )`,
-              [ord.user_id, refundAmt, projection.orderId, `Automated refund on GMPL webhook failure [${projection.orderId}]`],
-            ).catch(() => {});
+            let targetUserId = ord.user_id;
+            let targetAccountType = 'CUSTOMER_WALLET';
+            if (!targetUserId && ord.agent_id) {
+              const agRes = await client.query('SELECT user_id FROM agents WHERE id = $1 LIMIT 1', [ord.agent_id]).catch(() => ({ rows: [] }));
+              targetUserId = agRes.rows[0]?.user_id;
+              targetAccountType = 'AGENT_WALLET';
+            }
+            if (targetUserId) {
+              await client.query(
+                `UPDATE users
+                 SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+                     wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $2`,
+                [refundAmt, targetUserId],
+              );
+              await client.query(
+                `UPDATE orders
+                 SET refund_status = 'COMPLETED',
+                     payment_status = 'REFUNDED',
+                     order_status = 'FAILED',
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $1`,
+                [projection.orderId],
+              );
+              await client.query(
+                `INSERT INTO refunds (order_id, amount_pesewas, reason, status)
+                 VALUES ($1, $2, $3, 'COMPLETED')`,
+                [projection.orderId, refundAmt, `Automated refund on GMPL webhook failure [${projection.orderId}]`],
+              ).catch(() => {});
+              await client.query(
+                `INSERT INTO financial_ledger (
+                    transaction_id, entry_type, account_type, account_id,
+                    amount_pesewas, currency, reference_type, reference_id,
+                    description
+                 ) VALUES 
+                   (uuid_generate_v4(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
+                   (uuid_generate_v4(), 'CREDIT', $4, $5, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
+                [refundAmt, projection.orderId, `Automated refund on GMPL webhook failure [${projection.orderId}]`, targetAccountType, targetUserId],
+              ).catch(() => {});
+            }
           }
         }
       }
@@ -263,7 +297,6 @@ export class GmplWebhookService {
         'GMPL webhook processed and local projection updated',
       );
 
-      return { status: 'PROCESSED', message: 'Fulfillment status updated' };
     } catch (err: any) {
       await client.query('ROLLBACK');
       if (err.code === '23505') {
@@ -274,5 +307,17 @@ export class GmplWebhookService {
     } finally {
       client.release();
     }
+
+    if (orderToRefundOnFailure && this.refundService) {
+      await this.refundService.executeAutomatedOrderRefund(
+        orderToRefundOnFailure.orderId,
+        `Automated refund on GMPL webhook failure [${orderToRefundOnFailure.status}]`,
+        correlationId,
+      ).catch((e: any) => {
+        logger.warn({ orderId: orderToRefundOnFailure?.orderId, err: e?.message }, '[GMPL_WEBHOOK] Failed executing automated refund');
+      });
+    }
+
+    return { status: 'PROCESSED', message: 'Fulfillment status updated' };
   }
 }

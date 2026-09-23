@@ -4,6 +4,7 @@ import { ITelecomProvider } from './telecom/telecom-provider.interface.js';
 import { DataHouseWebhookPayload } from './datahouse/datahouse.types.js';
 import { DataHouseMapper } from './datahouse/datahouse.mapper.js';
 import { ProviderStatus, OrderStatus, OrderEventType, RefundStatus } from '@bytebeacon/shared';
+import { RefundService } from '../payments/refund.service.js';
 import { UnauthorizedError } from '../errors/app-error.js';
 import { logger } from '../logging/logger.js';
 
@@ -11,11 +12,18 @@ export class DataHouseWebhookService {
   private readonly db: pg.Pool;
   private readonly redis: Redis | null;
   private readonly provider: ITelecomProvider;
+  private readonly refundService?: RefundService;
 
-  constructor(db: pg.Pool, redis: Redis | null, provider: ITelecomProvider) {
+  constructor(
+    db: pg.Pool,
+    redis: Redis | null,
+    provider: ITelecomProvider,
+    refundService?: RefundService,
+  ) {
     this.db = db;
     this.redis = redis;
     this.provider = provider;
+    this.refundService = refundService;
   }
 
   /**
@@ -51,6 +59,7 @@ export class DataHouseWebhookService {
 
     const eventTimestamp = new Date(payload.timestamp ? (typeof payload.timestamp === 'number' ? payload.timestamp * 1000 : payload.timestamp) : Date.now());
     const eventType = payload.type || 'ORDER_STATUS_UPDATE';
+    let orderToRefundOnFailure: { orderId: string; status: string } | null = null;
 
     // 2. Redis Deduplication Accelerator
     if (this.redis) {
@@ -201,35 +210,51 @@ export class DataHouseWebhookService {
         nextOrderStatus = OrderStatus.COMPLETED;
       } else if (incomingStatus === ProviderStatus.FAILED || incomingStatus === ProviderStatus.REJECTED) {
         nextOrderStatus = OrderStatus.FAILED;
+        orderToRefundOnFailure = { orderId: projection.orderId, status: incomingStatus };
         if (projection.paymentStatus === 'PAID') {
-          refundStatus = RefundStatus.PENDING;
-          // Auto refund wallet
-          const orderInfo = await client.query(
-            `SELECT user_id, amount_pesewas FROM orders WHERE id = $1`,
-            [projection.orderId],
-          );
-          if (orderInfo.rows.length > 0 && orderInfo.rows[0].user_id && orderInfo.rows[0].amount_pesewas) {
-            const refundAmt = Number(orderInfo.rows[0].amount_pesewas);
-            await client.query(
-              `UPDATE users
-               SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
-                   wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE id = $2`,
-              [refundAmt, orderInfo.rows[0].user_id],
+          if (!this.refundService) {
+            refundStatus = RefundStatus.COMPLETED;
+            // Direct fallback refund
+            const orderInfo = await client.query(
+              `SELECT user_id, agent_id, amount_pesewas FROM orders WHERE id = $1`,
+              [projection.orderId],
             );
-            await client.query(
-              `INSERT INTO financial_ledger (
-                  transaction_id, entry_type, account_type, account_id,
-                  amount_pesewas, currency, reference_type, reference_id,
-                  description
-               ) VALUES (
-                  uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
-                  $2, 'GHS', 'ORDER_REFUND', $3,
-                  $4
-               )`,
-              [orderInfo.rows[0].user_id, refundAmt, projection.orderId, `Automated refund on DataHouse webhook failure [${projection.orderId}]`],
-            ).catch(() => {});
+            if (orderInfo.rows.length > 0 && orderInfo.rows[0].amount_pesewas) {
+              const ord = orderInfo.rows[0];
+              const refundAmt = Number(ord.amount_pesewas);
+              let targetUserId = ord.user_id;
+              let targetAccountType = 'CUSTOMER_WALLET';
+              if (!targetUserId && ord.agent_id) {
+                const agRes = await client.query('SELECT user_id FROM agents WHERE id = $1 LIMIT 1', [ord.agent_id]).catch(() => ({ rows: [] }));
+                targetUserId = agRes.rows[0]?.user_id;
+                targetAccountType = 'AGENT_WALLET';
+              }
+              if (targetUserId) {
+                await client.query(
+                  `UPDATE users
+                   SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
+                       wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE id = $2`,
+                  [refundAmt, targetUserId],
+                );
+                await client.query(
+                  `INSERT INTO refunds (order_id, amount_pesewas, reason, status)
+                   VALUES ($1, $2, $3, 'COMPLETED')`,
+                  [projection.orderId, refundAmt, `Automated refund on DataHouse webhook failure [${projection.orderId}]`],
+                ).catch(() => {});
+                await client.query(
+                  `INSERT INTO financial_ledger (
+                      transaction_id, entry_type, account_type, account_id,
+                      amount_pesewas, currency, reference_type, reference_id,
+                      description
+                   ) VALUES 
+                     (uuid_generate_v4(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
+                     (uuid_generate_v4(), 'CREDIT', $4, $5, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
+                  [refundAmt, projection.orderId, `Automated refund on DataHouse webhook failure [${projection.orderId}]`, targetAccountType, targetUserId],
+                ).catch(() => {});
+              }
+            }
           }
         }
       } else if (incomingStatus === ProviderStatus.PROCESSING) {
@@ -310,7 +335,6 @@ export class DataHouseWebhookService {
         'DataHouse webhook applied successfully',
       );
 
-      return { status: 'PROCESSED', message: 'Order projection updated' };
     } catch (err: any) {
       await client.query('ROLLBACK');
       logger.error({ err, correlationId }, 'DataHouse webhook processing error');
@@ -318,5 +342,17 @@ export class DataHouseWebhookService {
     } finally {
       client.release();
     }
+
+    if (orderToRefundOnFailure && this.refundService) {
+      await this.refundService.executeAutomatedOrderRefund(
+        orderToRefundOnFailure.orderId,
+        `Automated refund on DataHouse webhook failure [${orderToRefundOnFailure.status}]`,
+        correlationId,
+      ).catch((e: any) => {
+        logger.warn({ orderId: orderToRefundOnFailure?.orderId, err: e?.message }, '[DATAHOUSE_WEBHOOK] Failed executing automated refund');
+      });
+    }
+
+    return { status: 'PROCESSED', message: 'Order projection updated' };
   }
 }
