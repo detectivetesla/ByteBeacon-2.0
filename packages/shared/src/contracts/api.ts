@@ -2260,7 +2260,7 @@ export interface AdminAuditExportRequest {
 }
 
 export interface AdminEmergencyControlToggleRequest {
-  controlKey: 'MAINTENANCE_MODE' | 'DISABLE_AGENT_STORES' | 'KILL_SWITCH_PAYSTACK' | 'KILL_SWITCH_TELECOM_DISPATCH' | 'EMERGENCY_READ_ONLY' | 'PAUSE_ORDER_OPERATIONS';
+  controlKey: 'MAINTENANCE_MODE' | 'DISABLE_AGENT_STORES' | 'KILL_SWITCH_PAYSTACK' | 'KILL_SWITCH_TELECOM_DISPATCH' | 'EMERGENCY_READ_ONLY' | 'PAUSE_ORDER_OPERATIONS' | 'TOTAL_ORDER_LOCKDOWN';
   enabled: boolean;
   reason: string;
   stepUpConfirmation: string;
@@ -2268,6 +2268,8 @@ export interface AdminEmergencyControlToggleRequest {
 
 export interface AdminOrderProcessingStatusDto {
   isPaused: boolean;
+  isTotalLockdown?: boolean;
+  pauseMode?: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE' | 'NONE';
   pausedCount: number;
   pausedAt: string | null;
   pausedBy?: string | null;
@@ -2276,6 +2278,7 @@ export interface AdminOrderProcessingStatusDto {
 
 export interface AdminPauseOrdersRequest {
   reason: string;
+  mode?: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE';
 }
 
 export interface AdminResumeOrdersRequest {

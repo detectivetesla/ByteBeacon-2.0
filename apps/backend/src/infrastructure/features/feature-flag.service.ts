@@ -188,6 +188,49 @@ export class FeatureFlagService {
   }
 
   /**
+   * Helper to check if total order lockdown is active (complete block of all order creation and uploads).
+   */
+  public async isTotalOrderLockdownActive(): Promise<boolean> {
+    // 1. Check in-memory override
+    const memOverride = this.memoryOverrides.get('TOTAL_ORDER_LOCKDOWN');
+    if (memOverride !== undefined) {
+      return memOverride;
+    }
+
+    // 2. Check environment variable override
+    const envOverride = process.env.FF_TOTAL_ORDER_LOCKDOWN;
+    if (envOverride === 'true' || envOverride === '1') {
+      return true;
+    }
+
+    // 3. Check database emergency controls and feature flags
+    if (this.db) {
+      try {
+        const res = await this.db.query<{ is_active: boolean }>(
+          `SELECT (
+            EXISTS (
+              SELECT 1 FROM emergency_system_controls
+              WHERE control_key = 'TOTAL_ORDER_LOCKDOWN'
+                AND is_enabled = true
+            )
+            OR EXISTS (
+              SELECT 1 FROM platform_feature_flags
+              WHERE flag_key = 'TOTAL_ORDER_LOCKDOWN' AND is_enabled = true
+            )
+          ) AS is_active`,
+        );
+        if (res.rows.length > 0) {
+          return Boolean(res.rows[0].is_active);
+        }
+      } catch (err: any) {
+        logger.warn({ err: err?.message }, '[FEATURE_FLAGS] Database lookup failed for total order lockdown status');
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Sets an in-memory runtime override / emergency kill-switch.
    */
   public setOverride(flagName: string, isEnabled: boolean): void {

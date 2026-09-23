@@ -65,6 +65,7 @@ export async function healthRoutes(fastify: FastifyInstance) {
   const handlePlatformStatus = async (_request: any, reply: any) => {
     let isMaintenance = false;
     let isOrderProcessingPaused = false;
+    let isTotalOrderLockdown = false;
     const flagService = (fastify as any).featureFlagService;
     if (flagService) {
       try {
@@ -73,30 +74,45 @@ export async function healthRoutes(fastify: FastifyInstance) {
         isMaintenance = false;
       }
       try {
+        isTotalOrderLockdown = await flagService.isTotalOrderLockdownActive();
+      } catch {
+        isTotalOrderLockdown = false;
+      }
+      try {
         isOrderProcessingPaused = await flagService.isOrderProcessingPaused();
       } catch {
         isOrderProcessingPaused = false;
       }
     }
 
+    const orderPauseMode: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE' | 'NONE' = isTotalOrderLockdown
+      ? 'TOTAL_LOCKDOWN'
+      : (isOrderProcessingPaused ? 'OPERATIONAL_FREEZE' : 'NONE');
+
     let defaultMsg = 'All systems operational.';
     if (isMaintenance) {
       defaultMsg = 'Scheduled Maintenance in Progress: Telecom fulfillment and checkout are temporarily paused. You can still browse bundles, track past orders, and access your account.';
+    } else if (isTotalOrderLockdown) {
+      defaultMsg = 'Order Placement Locked Down: All single orders, bulk purchases, and Excel spreadsheet uploads are completely paused by administration.';
     } else if (isOrderProcessingPaused) {
-      defaultMsg = 'Order Processing Paused: Customer and agent order checkouts and Excel bulk uploads are temporarily paused by administration. You can still browse and access your account.';
+      defaultMsg = 'Operational Freeze Active: Order fulfillment is held. Orders placed now are saved and queued automatically.';
     }
 
     return reply.status(200).send({
       success: true,
       data: {
         isMaintenanceMode: isMaintenance,
-        isOrderProcessingPaused,
+        isOrderProcessingPaused: isOrderProcessingPaused || isTotalOrderLockdown,
+        isTotalOrderLockdown,
+        orderPauseMode,
         platformStatus: isMaintenance ? 'MAINTENANCE' : 'OPERATIONAL',
         environment: process.env.NODE_ENV === 'production' ? 'PRODUCTION' : 'DEVELOPMENT / STAGING',
         message: defaultMsg,
-        orderProcessingMessage: isOrderProcessingPaused
-          ? 'Order processing, checkout, and bulk Excel uploads are temporarily paused by administration.'
-          : undefined,
+        orderProcessingMessage: isTotalOrderLockdown
+          ? 'All order placements, bulk checkouts, and Excel spreadsheet uploads are completely paused by platform administration.'
+          : (isOrderProcessingPaused
+            ? 'Order fulfillment is temporarily paused. Orders placed now will be held safely and fulfilled automatically when operations resume.'
+            : undefined),
         timestamp: new Date().toISOString(),
       },
     });

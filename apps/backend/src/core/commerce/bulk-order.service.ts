@@ -68,10 +68,38 @@ export class BulkOrderService {
     }
   }
 
+  public async isTotalOrderLockdownActive(): Promise<boolean> {
+    try {
+      const res = await this.db.query(
+        `SELECT (
+          EXISTS (
+            SELECT 1 FROM emergency_system_controls
+            WHERE control_key = 'TOTAL_ORDER_LOCKDOWN'
+              AND is_enabled = true
+          )
+          OR EXISTS (
+            SELECT 1 FROM platform_feature_flags
+            WHERE flag_key = 'TOTAL_ORDER_LOCKDOWN' AND is_enabled = true
+          )
+        ) AS is_active`
+      );
+      return Boolean(res.rows[0]?.is_active);
+    } catch {
+      return false;
+    }
+  }
+
   public async createBulkSubmission(
     input: CreateBulkSubmissionRequest,
     userId: string,
   ): Promise<BulkSubmissionDetailsDto> {
+    const isTotalLockdown = await this.isTotalOrderLockdownActive();
+    if (isTotalLockdown) {
+      throw new BadRequestError(
+        'Bulk order submissions and spreadsheet uploads are completely paused under total platform lockdown.',
+      );
+    }
+
     if (!input.name || !input.items || !Array.isArray(input.items) || input.items.length === 0) {
       throw new BadRequestError('Bulk submission name and a non-empty items array are required');
     }
@@ -441,6 +469,13 @@ export class BulkOrderService {
     confirmedPorted?: string[];
     onUnvalidated?: 'set_aside' | 'reject';
   }): Promise<AgentBulkOrderResult> {
+    const isTotalLockdown = await this.isTotalOrderLockdownActive();
+    if (isTotalLockdown) {
+      throw new BadRequestError(
+        'Bulk order submissions and spreadsheet uploads are completely paused under total platform lockdown.',
+      );
+    }
+
     // 1. Sandbox key check
     if (params.isSandbox) {
       throw new BulkNotOnSandboxError(

@@ -139,7 +139,7 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
   const { user, isAuthenticated } = useAuth();
   const { balanceGhs: liveBalanceGhs, refresh: refreshWalletBalance } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
-  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, isTotalOrderLockdown, orderProcessingMessage } = usePlatformStatus();
 
   const isBulk = Boolean(bulkItems && bulkItems.length > 0);
 
@@ -507,12 +507,18 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       );
       return;
     }
-    if (isOrderProcessingPaused) {
+    if (isTotalOrderLockdown) {
       toastError(
-        'Order Operations Paused',
-        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+        'Order Placement Paused',
+        orderProcessingMessage || 'Order placement is completely suspended under total platform lockdown.',
       );
       return;
+    }
+    if (isOrderProcessingPaused) {
+      toastInfo(
+        'Operational Freeze Active',
+        orderProcessingMessage || 'Your order will be held safely in Operational Freeze and fulfilled automatically when operations resume.',
+      );
     }
     const targetPhone = (
       recipientPhone ||
@@ -742,12 +748,18 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
       );
       return;
     }
-    if (isOrderProcessingPaused) {
+    if (isTotalOrderLockdown) {
       toastError(
-        'Order Operations Paused',
-        orderProcessingMessage || 'Order fulfillment is currently paused by platform administration.',
+        'Order Placement Paused',
+        orderProcessingMessage || 'Order placement is completely suspended under total platform lockdown.',
       );
       return;
+    }
+    if (isOrderProcessingPaused) {
+      toastInfo(
+        'Operational Freeze Active',
+        orderProcessingMessage || 'Your order will be held safely in Operational Freeze and fulfilled automatically when operations resume.',
+      );
     }
     if (!isSufficient) {
       toastError('Insufficient Balance', `You need GH₵ ${shortfall} more to complete this purchase.`);
@@ -1049,15 +1061,40 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
             </div>
           )}
 
-          {isOrderProcessingPaused && !isMaintenanceMode && (
+          {isTotalOrderLockdown && !isMaintenanceMode && (
             <div
               role="alert"
               style={{
                 padding: '0.75rem 1rem',
                 borderRadius: 'var(--radius-md)',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1.5px solid rgba(239, 68, 68, 0.35)',
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
                 color: '#EF4444',
+                fontSize: 'var(--font-size-xs)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.625rem',
+                lineHeight: 1.4,
+              }}
+            >
+              <Lock size={18} style={{ flexShrink: 0 }} />
+              <div>
+                <strong>Total Order Lockdown Active:</strong>{' '}
+                {orderProcessingMessage ||
+                  'Platform order placements and checkouts are completely suspended by platform administrators.'}
+              </div>
+            </div>
+          )}
+
+          {isOrderProcessingPaused && !isTotalOrderLockdown && !isMaintenanceMode && (
+            <div
+              role="alert"
+              style={{
+                padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                color: '#F59E0B',
                 fontSize: 'var(--font-size-xs)',
                 display: 'flex',
                 alignItems: 'center',
@@ -1067,9 +1104,9 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
             >
               <AlertTriangle size={18} style={{ flexShrink: 0 }} />
               <div>
-                <strong>Order Operations Paused:</strong>{' '}
+                <strong>Operational Freeze Active:</strong>{' '}
                 {orderProcessingMessage ||
-                  'Order fulfillment, checkouts, and uploads are temporarily paused by platform administrators.'}
+                  'Telecom fulfillment is temporarily paused. Orders placed will be queued safely in Operational Freeze and fulfilled automatically when operations resume.'}
               </div>
             </div>
           )}
@@ -1909,24 +1946,24 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 <button
                   type="button"
                   onClick={handlePaystackCheckout}
-                  disabled={isProcessing || isMaintenanceMode || isOrderProcessingPaused}
+                  disabled={isProcessing || isMaintenanceMode || isTotalOrderLockdown}
                   style={{
                     padding: '0.5rem 1.35rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: isMaintenanceMode || isOrderProcessingPaused
+                    backgroundColor: isMaintenanceMode || isTotalOrderLockdown
                       ? 'var(--color-bg-surface-muted)'
                       : theme.buttonBg,
-                    color: isMaintenanceMode || isOrderProcessingPaused ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                    color: isMaintenanceMode || isTotalOrderLockdown ? 'var(--color-text-muted)' : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-xs)',
                     cursor: isProcessing
                       ? 'wait'
-                      : isMaintenanceMode || isOrderProcessingPaused
+                      : isMaintenanceMode || isTotalOrderLockdown
                         ? 'not-allowed'
                         : 'pointer',
-                    opacity: isProcessing || isMaintenanceMode || isOrderProcessingPaused ? 0.6 : 1,
-                    boxShadow: !isMaintenanceMode && !isOrderProcessingPaused ? `0 2px 10px ${theme.glowColor}` : 'none',
+                    opacity: isProcessing || isMaintenanceMode || isTotalOrderLockdown ? 0.6 : 1,
+                    boxShadow: !isMaintenanceMode && !isTotalOrderLockdown ? `0 2px 10px ${theme.glowColor}` : 'none',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.4rem',
@@ -1936,10 +1973,12 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   <span>
                     {isProcessing
                       ? 'Connecting...'
-                      : isOrderProcessingPaused
-                        ? 'Order Operations Paused'
+                      : isTotalOrderLockdown
+                        ? 'Order Placement Paused'
                         : isMaintenanceMode
                         ? 'Platform in Maintenance'
+                        : isOrderProcessingPaused
+                        ? `Pay ${amountDisplay} (Queued in Freeze)`
                         : `Pay ${amountDisplay} via Paystack`}
                   </span>
                 </button>
@@ -1947,29 +1986,29 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                 <button
                   type="button"
                   onClick={handleWalletPurchase}
-                  disabled={isProcessing || !isSufficient || isMaintenanceMode || isOrderProcessingPaused}
+                  disabled={isProcessing || !isSufficient || isMaintenanceMode || isTotalOrderLockdown}
                   style={{
                     padding: '0.45rem 1.25rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
                     backgroundColor:
-                      isSufficient && !isMaintenanceMode && !isOrderProcessingPaused
+                      isSufficient && !isMaintenanceMode && !isTotalOrderLockdown
                         ? theme.buttonBg
                         : 'var(--color-bg-surface-muted)',
                     color:
-                      isSufficient && !isMaintenanceMode && !isOrderProcessingPaused
+                      isSufficient && !isMaintenanceMode && !isTotalOrderLockdown
                         ? theme.buttonTextColor
                         : 'var(--color-text-muted)',
                     fontWeight: 800,
                     fontSize: 'var(--font-size-xs)',
                     cursor: isProcessing
                       ? 'wait'
-                      : !isSufficient || isMaintenanceMode || isOrderProcessingPaused
+                      : !isSufficient || isMaintenanceMode || isTotalOrderLockdown
                         ? 'not-allowed'
                         : 'pointer',
-                    opacity: isProcessing ? 0.8 : !isSufficient || isMaintenanceMode || isOrderProcessingPaused ? 0.6 : 1,
+                    opacity: isProcessing ? 0.8 : !isSufficient || isMaintenanceMode || isTotalOrderLockdown ? 0.6 : 1,
                     boxShadow:
-                      isSufficient && !isMaintenanceMode && !isOrderProcessingPaused
+                      isSufficient && !isMaintenanceMode && !isTotalOrderLockdown
                         ? `0 2px 8px ${theme.glowColor}`
                         : 'none',
                     display: 'inline-flex',
@@ -1981,10 +2020,12 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
                   <span>
                     {isProcessing
                       ? 'Deducting...'
-                      : isOrderProcessingPaused
-                        ? 'Order Operations Paused'
+                      : isTotalOrderLockdown
+                        ? 'Order Placement Paused'
                         : isMaintenanceMode
                         ? 'Platform in Maintenance'
+                        : isOrderProcessingPaused
+                        ? 'Confirm Purchase (Queued in Freeze)'
                         : 'Confirm Purchase'}
                   </span>
                 </button>

@@ -8,6 +8,8 @@ export interface PlatformStatusData {
   message?: string;
   timestamp?: string;
   isOrderProcessingPaused?: boolean;
+  isTotalOrderLockdown?: boolean;
+  orderPauseMode?: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE' | 'NONE';
   orderProcessingMessage?: string;
 }
 
@@ -16,6 +18,8 @@ export interface PlatformStatusContextType {
   platformStatus: 'OPERATIONAL' | 'MAINTENANCE';
   maintenanceMessage?: string;
   isOrderProcessingPaused: boolean;
+  isTotalOrderLockdown: boolean;
+  orderPauseMode: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE' | 'NONE';
   orderProcessingMessage?: string;
   isLoading: boolean;
   refetch: () => Promise<void>;
@@ -28,6 +32,8 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
     isMaintenanceMode: false,
     platformStatus: 'OPERATIONAL',
     isOrderProcessingPaused: false,
+    isTotalOrderLockdown: false,
+    orderPauseMode: 'NONE',
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -42,8 +48,9 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
         const nextStatus = res.platformStatus || (res.isMaintenanceMode ? 'MAINTENANCE' : 'OPERATIONAL');
         const nextEnv = res.environment;
         const nextMessage = res.message;
-        const nextTimestamp = res.timestamp;
         const nextOrderPaused = Boolean(res.isOrderProcessingPaused);
+        const nextTotalLockdown = Boolean(res.isTotalOrderLockdown);
+        const nextPauseMode = res.orderPauseMode || (nextTotalLockdown ? 'TOTAL_LOCKDOWN' : (nextOrderPaused ? 'OPERATIONAL_FREEZE' : 'NONE'));
         const nextOrderMessage = res.orderProcessingMessage;
 
         setStatusData((prev) => {
@@ -53,6 +60,8 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
             prev.environment === nextEnv &&
             prev.message === nextMessage &&
             prev.isOrderProcessingPaused === nextOrderPaused &&
+            prev.isTotalOrderLockdown === nextTotalLockdown &&
+            prev.orderPauseMode === nextPauseMode &&
             prev.orderProcessingMessage === nextOrderMessage
           ) {
             return prev;
@@ -64,6 +73,8 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
             message: nextMessage,
             timestamp: nextTimestamp,
             isOrderProcessingPaused: nextOrderPaused,
+            isTotalOrderLockdown: nextTotalLockdown,
+            orderPauseMode: nextPauseMode,
             orderProcessingMessage: nextOrderMessage,
           };
         });
@@ -135,6 +146,8 @@ export const PlatformStatusProvider: React.FC<{ children: React.ReactNode }> = (
         platformStatus: statusData.platformStatus,
         maintenanceMessage: statusData.message,
         isOrderProcessingPaused: Boolean(statusData.isOrderProcessingPaused),
+        isTotalOrderLockdown: Boolean(statusData.isTotalOrderLockdown),
+        orderPauseMode: statusData.orderPauseMode || 'NONE',
         orderProcessingMessage: statusData.orderProcessingMessage,
         isLoading,
         refetch: fetchPlatformStatus,
@@ -152,6 +165,8 @@ export const usePlatformStatus = (): PlatformStatusContextType => {
       isMaintenanceMode: false,
       platformStatus: 'OPERATIONAL',
       isOrderProcessingPaused: false,
+      isTotalOrderLockdown: false,
+      orderPauseMode: 'NONE',
       isLoading: false,
       refetch: async () => {},
     };

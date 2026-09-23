@@ -123,7 +123,7 @@ export const PublicStorefrontPage: React.FC = () => {
   const location = useLocation();
 
   const { toastSuccess, toastError, toastInfo } = useToast();
-  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, isTotalOrderLockdown, orderProcessingMessage } = usePlatformStatus();
   const { resolvedTheme, toggleTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
 
@@ -701,6 +701,13 @@ function loadPaystackInlineScript(): Promise<boolean> {
     e.preventDefault();
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
+    if (isTotalOrderLockdown) {
+      toastError(
+        'Orders Temporarily Suspended',
+        orderProcessingMessage || 'Order placement is completely suspended under total platform lockdown.',
+      );
       return;
     }
     if (isOrderProcessingPaused) {
@@ -3344,13 +3351,13 @@ function loadPaystackInlineScript(): Promise<boolean> {
                 </div>
               )}
 
-              {isOrderProcessingPaused && !isMaintenanceMode && (
+              {isTotalOrderLockdown && !isMaintenanceMode && (
                 <div
                   style={{
                     padding: '0.625rem 0.875rem',
                     borderRadius: '8px',
-                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
                     color: '#EF4444',
                     fontSize: '11px',
                     fontWeight: 700,
@@ -3359,7 +3366,27 @@ function loadPaystackInlineScript(): Promise<boolean> {
                     gap: '0.5rem',
                   }}
                 >
-                  <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                  <Lock size={15} style={{ flexShrink: 0 }} />
+                  <div>{orderProcessingMessage || 'Order placements are temporarily paused under platform lockdown. Checkout is currently unavailable.'}</div>
+                </div>
+              )}
+
+              {isOrderProcessingPaused && !isTotalOrderLockdown && !isMaintenanceMode && (
+                <div
+                  style={{
+                    padding: '0.625rem 0.875rem',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    color: '#F59E0B',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <Clock size={15} style={{ flexShrink: 0 }} />
                   <div>{orderProcessingMessage || 'Operational Freeze active: Order fulfillment is paused. You can still complete your order now and it will be queued safely and fulfilled automatically when operations resume.'}</div>
                 </div>
               )}
@@ -3483,29 +3510,31 @@ function loadPaystackInlineScript(): Promise<boolean> {
               <div style={{ marginTop: '0.5rem' }}>
                 <button
                   type="submit"
-                  disabled={isCheckingOut || isMaintenanceMode}
+                  disabled={isCheckingOut || isMaintenanceMode || isTotalOrderLockdown}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
                     borderRadius: '12px',
-                    backgroundColor: isMaintenanceMode ? '#334155' : brandAccent,
-                    color: isMaintenanceMode ? '#FFFFFF' : brandAccentContrast,
+                    backgroundColor: isMaintenanceMode || isTotalOrderLockdown ? '#334155' : brandAccent,
+                    color: isMaintenanceMode || isTotalOrderLockdown ? '#94A3B8' : brandAccentContrast,
                     border: 'none',
                     fontSize: '13px',
                     fontWeight: 900,
-                    cursor: isCheckingOut ? 'wait' : isMaintenanceMode ? 'not-allowed' : 'pointer',
-                    opacity: isMaintenanceMode ? 0.65 : 1,
+                    cursor: isCheckingOut ? 'wait' : isMaintenanceMode || isTotalOrderLockdown ? 'not-allowed' : 'pointer',
+                    opacity: isMaintenanceMode || isTotalOrderLockdown ? 0.65 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    boxShadow: !isMaintenanceMode ? `0 4px 16px ${brandAccent}40` : 'none',
+                    boxShadow: !isMaintenanceMode && !isTotalOrderLockdown ? `0 4px 16px ${brandAccent}40` : 'none',
                   }}
                 >
                   <Lock size={15} />
                   <span>
                     {isCheckingOut
                       ? 'Securing Payment...'
+                      : isTotalOrderLockdown
+                      ? 'Orders Temporarily Suspended'
                       : isMaintenanceMode
                       ? 'Platform in Maintenance'
                       : isOrderProcessingPaused

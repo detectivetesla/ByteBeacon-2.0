@@ -35,6 +35,7 @@ import {
   RefreshCw,
   AlertTriangle,
   Info,
+  Lock,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
@@ -102,7 +103,7 @@ export const BuyDataPage: React.FC = () => {
   const { user } = useAuth();
   const { balanceGhs } = useWalletBalance();
   const { toastSuccess, toastError, toastInfo } = useToast();
-  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
+  const { isMaintenanceMode, maintenanceMessage, isOrderProcessingPaused, isTotalOrderLockdown, orderProcessingMessage } = usePlatformStatus();
 
   // Role and portal channel detection
   const isAgentPortal =
@@ -603,6 +604,13 @@ export const BuyDataPage: React.FC = () => {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
+    if (isTotalOrderLockdown) {
+      toastError(
+        'Order Placement Paused',
+        orderProcessingMessage || 'Order placement is completely suspended under total platform lockdown.',
+      );
+      return;
+    }
     if (isOrderProcessingPaused) {
       toastInfo(
         'Operational Freeze Active',
@@ -818,6 +826,13 @@ export const BuyDataPage: React.FC = () => {
   const handleBulkNormalSubmit = async () => {
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
+    if (isTotalOrderLockdown) {
+      toastError(
+        'Bulk Orders Paused',
+        orderProcessingMessage || 'Bulk order placement is completely suspended under total platform lockdown.',
+      );
       return;
     }
     if (isOrderProcessingPaused) {
@@ -1085,6 +1100,13 @@ export const BuyDataPage: React.FC = () => {
   const handleBulkFreeSubmit = async () => {
     if (isMaintenanceMode) {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
+      return;
+    }
+    if (isTotalOrderLockdown) {
+      toastError(
+        'Bulk Orders Paused',
+        orderProcessingMessage || 'Bulk order placement is completely suspended under total platform lockdown.',
+      );
       return;
     }
     if (isOrderProcessingPaused) {
@@ -1752,6 +1774,13 @@ export const BuyDataPage: React.FC = () => {
 
   // File Upload Handlers (Supports .xlsx, .xls, .csv standardized in GB)
   const handleFileUpload = async (file: File) => {
+    if (isTotalOrderLockdown) {
+      toastError(
+        'Uploads Paused',
+        orderProcessingMessage || 'Spreadsheet batch uploads and ordering are completely paused under total platform lockdown.',
+      );
+      return;
+    }
     if (isOrderProcessingPaused) {
       toastInfo(
         'Operational Freeze Active',
@@ -2021,6 +2050,13 @@ export const BuyDataPage: React.FC = () => {
       toastError('Maintenance in Progress', 'Platform checkout is temporarily paused for scheduled maintenance.');
       return;
     }
+    if (isTotalOrderLockdown) {
+      toastError(
+        'Upload Orders Paused',
+        orderProcessingMessage || 'Spreadsheet batch order submissions are completely paused under total platform lockdown.',
+      );
+      return;
+    }
     if (isOrderProcessingPaused) {
       toastInfo(
         'Operational Freeze Active',
@@ -2198,27 +2234,116 @@ export const BuyDataPage: React.FC = () => {
         </div>
       )}
 
-      {/* Order Processing Paused In-Page Alert Banner */}
-      {isOrderProcessingPaused && !isMaintenanceMode && (
+      {/* Total Order Lockdown Banner */}
+      {isTotalOrderLockdown && !isMaintenanceMode && (
         <div
           role="alert"
           style={{
-            padding: 'var(--space-4) var(--space-5)',
-            borderRadius: 'var(--radius-xl)',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            border: '1.5px solid rgba(239, 68, 68, 0.35)',
+            padding: 'var(--space-3) var(--space-4)',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: 'rgba(239, 68, 68, 0.06)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.85rem',
-            color: '#EF4444',
+            gap: '0.75rem',
+            backdropFilter: 'blur(8px)',
           }}
         >
-          <span style={{ fontSize: '1.25rem' }}>⚠️</span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <strong style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800 }}>
-              Operational Freeze Active
-            </strong>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#EF4444',
+              flexShrink: 0,
+            }}
+          >
+            <Lock size={16} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: '#EF4444', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                Order Placement Suspended
+              </span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 'var(--radius-full)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  color: '#EF4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Total Lockdown
+              </span>
+            </div>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+              {orderProcessingMessage || 'Platform administration has suspended all order creation, bulk purchases, and spreadsheet batch uploads. Please check back shortly.'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Operational Freeze Active In-Page Alert Banner (Only when not in total lockdown) */}
+      {isOrderProcessingPaused && !isTotalOrderLockdown && !isMaintenanceMode && (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: 'rgba(245, 158, 11, 0.06)',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#F59E0B',
+              flexShrink: 0,
+            }}
+          >
+            <Clock size={16} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: '#F59E0B', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                Operational Freeze Active
+              </span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 'var(--radius-full)',
+                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                  color: '#F59E0B',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Queued in Flight
+              </span>
+            </div>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
               {orderProcessingMessage || 'Order fulfillment is temporarily frozen. Any orders or uploads placed now will be safely queued in Operational Freeze and dispatched automatically once operations resume.'}
             </span>
           </div>
@@ -2845,48 +2970,57 @@ export const BuyDataPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleSingleOrderSubmit}
-                  disabled={isMaintenanceMode || isCheckingBeneficiary}
+                  disabled={isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary}
                   style={{
                     width: '100%',
                     padding: '0.65rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
                     backgroundColor:
-                      isMaintenanceMode || isCheckingBeneficiary
+                      isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary
                         ? 'var(--color-bg-surface-muted)'
                         : singleApprovalStatus === 'UNAPPROVED'
                         ? 'var(--color-warning)'
                         : theme.buttonBg,
                     color:
-                      isMaintenanceMode || isCheckingBeneficiary
+                      isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary
                         ? 'var(--color-text-muted)'
                         : singleApprovalStatus === 'UNAPPROVED'
                         ? '#000000'
                         : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-sm)',
-                    cursor: isMaintenanceMode || isCheckingBeneficiary ? 'not-allowed' : 'pointer',
-                    opacity: isMaintenanceMode || isCheckingBeneficiary ? 0.6 : 1,
+                    cursor: isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary ? 'not-allowed' : 'pointer',
+                    opacity: isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary ? 0.6 : 1,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.4rem',
-                    boxShadow: !isMaintenanceMode && !isCheckingBeneficiary ? `0 3px 12px ${theme.glowColor}` : 'none',
+                    boxShadow: !isMaintenanceMode && !isTotalOrderLockdown && !isCheckingBeneficiary ? `0 3px 12px ${theme.glowColor}` : 'none',
                     transition: 'all 150ms ease',
                   }}
-                  onMouseDown={(e) => (!isMaintenanceMode && !isCheckingBeneficiary && (e.currentTarget.style.transform = 'translateY(1px)'))}
-                  onMouseUp={(e) => (!isMaintenanceMode && !isCheckingBeneficiary && (e.currentTarget.style.transform = 'translateY(0)'))}
+                  onMouseDown={(e) => (!isMaintenanceMode && !isTotalOrderLockdown && !isCheckingBeneficiary && (e.currentTarget.style.transform = 'translateY(1px)'))}
+                  onMouseUp={(e) => (!isMaintenanceMode && !isTotalOrderLockdown && !isCheckingBeneficiary && (e.currentTarget.style.transform = 'translateY(0)'))}
                 >
-                  <span>
-                    {isMaintenanceMode
-                      ? 'Platform in Maintenance'
-                      : isCheckingBeneficiary
-                        ? 'Verifying Beneficiary...'
-                        : singleApprovalStatus === 'UNAPPROVED'
-                        ? `Buy Data (Unapproved) — ${currentSingleBundle.priceDisplay}`
-                        : `Buy Data (${currentSingleBundle.priceDisplay})`}
-                  </span>
-                  <ArrowRight size={16} strokeWidth={2.6} />
+                  {isTotalOrderLockdown ? (
+                    <>
+                      <Lock size={15} />
+                      <span>Order Placement Paused</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        {isMaintenanceMode
+                          ? 'Platform in Maintenance'
+                          : isCheckingBeneficiary
+                            ? 'Verifying Beneficiary...'
+                            : singleApprovalStatus === 'UNAPPROVED'
+                            ? `Buy Data (Unapproved) — ${currentSingleBundle.priceDisplay}`
+                            : `Buy Data (${currentSingleBundle.priceDisplay})`}
+                      </span>
+                      <ArrowRight size={16} strokeWidth={2.6} />
+                    </>
+                  )}
                 </button>
               </Card>
             </div>
@@ -2993,21 +3127,33 @@ export const BuyDataPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleBulkNormalSubmit}
-                  disabled={isMaintenanceMode}
+                  disabled={isMaintenanceMode || isTotalOrderLockdown}
                   style={{
                     padding: '0.55rem 1.5rem',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    backgroundColor: isMaintenanceMode ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                    color: isMaintenanceMode ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                    backgroundColor: isMaintenanceMode || isTotalOrderLockdown ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                    color: isMaintenanceMode || isTotalOrderLockdown ? 'var(--color-text-muted)' : theme.buttonTextColor,
                     fontWeight: 900,
                     fontSize: 'var(--font-size-sm)',
-                    cursor: isMaintenanceMode ? 'not-allowed' : 'pointer',
-                    opacity: isMaintenanceMode ? 0.6 : 1,
-                    boxShadow: !isMaintenanceMode ? `0 2px 8px ${theme.glowColor}` : 'none',
+                    cursor: isMaintenanceMode || isTotalOrderLockdown ? 'not-allowed' : 'pointer',
+                    opacity: isMaintenanceMode || isTotalOrderLockdown ? 0.6 : 1,
+                    boxShadow: !isMaintenanceMode && !isTotalOrderLockdown ? `0 2px 8px ${theme.glowColor}` : 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
                   }}
                 >
-                  {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
+                  {isTotalOrderLockdown ? (
+                    <>
+                      <Lock size={15} />
+                      <span>Bulk Purchases Paused</span>
+                    </>
+                  ) : isMaintenanceMode ? (
+                    'Platform in Maintenance'
+                  ) : (
+                    'Continue to Payment →'
+                  )}
                 </button>
               </Card>
             </div>
@@ -3108,22 +3254,35 @@ export const BuyDataPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleBulkFreeSubmit}
-                    disabled={parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode}
+                    disabled={parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown}
                     style={{
                       width: '100%',
                       padding: '0.6rem',
                       borderRadius: 'var(--radius-md)',
                       border: 'none',
-                      backgroundColor: isMaintenanceMode || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                      color: isMaintenanceMode || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                      backgroundColor: isMaintenanceMode || isTotalOrderLockdown || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                      color: isMaintenanceMode || isTotalOrderLockdown || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-text-muted)' : theme.buttonTextColor,
                       fontWeight: 900,
                       fontSize: 'var(--font-size-sm)',
-                      cursor: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode ? 'not-allowed' : 'pointer',
-                      opacity: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode ? 0.6 : 1,
-                      boxShadow: !isMaintenanceMode && parsedFreeEntries.invalidCount === 0 && parsedFreeEntries.entries.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
+                      cursor: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown ? 'not-allowed' : 'pointer',
+                      opacity: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown ? 0.6 : 1,
+                      boxShadow: !isMaintenanceMode && !isTotalOrderLockdown && parsedFreeEntries.invalidCount === 0 && parsedFreeEntries.entries.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.4rem',
                     }}
                   >
-                    {isMaintenanceMode ? 'Platform in Maintenance' : 'Continue to Payment →'}
+                    {isTotalOrderLockdown ? (
+                      <>
+                        <Lock size={15} />
+                        <span>Bulk Purchases Paused</span>
+                      </>
+                    ) : isMaintenanceMode ? (
+                      'Platform in Maintenance'
+                    ) : (
+                      'Continue to Payment →'
+                    )}
                   </button>
                 </div>
               </Card>
@@ -3160,38 +3319,79 @@ export const BuyDataPage: React.FC = () => {
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
-                  setIsDragging(true);
+                  if (!isTotalOrderLockdown) setIsDragging(true);
                 }}
                 onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
+                onDrop={(e) => {
+                  if (isTotalOrderLockdown) {
+                    e.preventDefault();
+                    return;
+                  }
+                  handleDrop(e);
+                }}
+                onClick={() => !isTotalOrderLockdown && fileInputRef.current?.click()}
                 style={{
                   padding: 'var(--space-8)',
                   borderRadius: 'var(--radius-2xl)',
-                  border: isDragging ? `2px dashed ${theme.brandColor}` : '2px dashed var(--color-border-default)',
-                  backgroundColor: isDragging ? theme.accentBg : 'var(--color-bg-surface)',
+                  border: isTotalOrderLockdown
+                    ? '1.5px dashed rgba(239, 68, 68, 0.35)'
+                    : isDragging
+                    ? `2px dashed ${theme.brandColor}`
+                    : '2px dashed var(--color-border-default)',
+                  backgroundColor: isTotalOrderLockdown
+                    ? 'rgba(239, 68, 68, 0.03)'
+                    : isDragging
+                    ? theme.accentBg
+                    : 'var(--color-bg-surface)',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
                   textAlign: 'center',
-                  cursor: 'pointer',
+                  cursor: isTotalOrderLockdown ? 'not-allowed' : 'pointer',
                   transition: 'all 150ms ease',
                 }}
               >
                 <input
                   type="file"
                   ref={fileInputRef}
+                  disabled={isTotalOrderLockdown}
                   style={{ display: 'none' }}
                   accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
                   onChange={(e) => {
+                    if (isTotalOrderLockdown) return;
                     if (e.target.files && e.target.files.length > 0) {
                       handleFileUpload(e.target.files[0]);
                     }
                   }}
                 />
 
-                {excelLoading ? (
+                {isTotalOrderLockdown ? (
+                  <>
+                    <div
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                        color: 'var(--color-danger, #EF4444)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: 'var(--space-3)',
+                      }}
+                    >
+                      <Lock size={22} />
+                    </div>
+                    <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
+                      Spreadsheet Batch Uploads Suspended
+                    </h3>
+                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.35rem 0 0 0', maxWidth: '440px', lineHeight: 1.4 }}>
+                      {orderProcessingMessage || 'Spreadsheet batch order submissions and excel uploads are temporarily locked down by system administration.'}
+                    </p>
+                  </>
+                ) : excelLoading ? (
                   <>
                     <div
                       style={{
@@ -3813,19 +4013,19 @@ export const BuyDataPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleExcelSubmit}
-                      disabled={isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)}
+                      disabled={isMaintenanceMode || isTotalOrderLockdown || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)}
                       style={{
                         padding: '0.55rem 1.5rem',
                         borderRadius: 'var(--radius-md)',
-                        border: approvedExcelRows.length === 0 && unapprovedExcelRows.length > 0 ? '1px solid var(--color-warning-border)' : 'none',
+                        border: approvedExcelRows.length === 0 && unapprovedExcelRows.length > 0 && !isTotalOrderLockdown ? '1px solid var(--color-warning-border)' : 'none',
                         backgroundColor:
-                          isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
+                          isMaintenanceMode || isTotalOrderLockdown || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
                             ? 'var(--color-bg-surface-muted)'
                             : approvedExcelRows.length === 0
                             ? 'var(--color-warning-surface)'
                             : theme.buttonBg,
                         color:
-                          isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
+                          isMaintenanceMode || isTotalOrderLockdown || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
                             ? 'var(--color-text-muted)'
                             : approvedExcelRows.length === 0
                             ? 'var(--color-warning)'
@@ -3833,24 +4033,31 @@ export const BuyDataPage: React.FC = () => {
                         fontWeight: 900,
                         fontSize: 'var(--font-size-sm)',
                         cursor:
-                          isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
+                          isMaintenanceMode || isTotalOrderLockdown || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0)
                             ? 'not-allowed'
                             : 'pointer',
-                        opacity: isMaintenanceMode || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0) ? 0.6 : 1,
-                        boxShadow: !isMaintenanceMode && approvedExcelRows.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
+                        opacity: isMaintenanceMode || isTotalOrderLockdown || (approvedExcelRows.length === 0 && unapprovedExcelRows.length === 0) ? 0.6 : 1,
+                        boxShadow: !isMaintenanceMode && !isTotalOrderLockdown && approvedExcelRows.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '0.375rem',
                         transition: 'all 0.15s ease',
                       }}
                     >
-                      {isMaintenanceMode
-                        ? 'Platform in Maintenance'
-                        : approvedExcelRows.length > 0
-                        ? `Continue to Payment (${approvedExcelRows.length} Approved) →`
-                        : unapprovedExcelRows.length > 0
-                        ? `Review ${unapprovedExcelRows.length} Unapproved Recipient(s) ⚠️`
-                        : 'No Approved Orders'}
+                      {isTotalOrderLockdown ? (
+                        <>
+                          <Lock size={15} />
+                          <span>Excel Uploads Paused</span>
+                        </>
+                      ) : isMaintenanceMode ? (
+                        'Platform in Maintenance'
+                      ) : approvedExcelRows.length > 0 ? (
+                        `Continue to Payment (${approvedExcelRows.length} Approved) →`
+                      ) : unapprovedExcelRows.length > 0 ? (
+                        `Review ${unapprovedExcelRows.length} Unapproved Recipient(s) ⚠️`
+                      ) : (
+                        'No Approved Orders'
+                      )}
                     </button>
                   </div>
                 </Card>

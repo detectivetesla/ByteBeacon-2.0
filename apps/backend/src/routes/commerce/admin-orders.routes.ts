@@ -815,6 +815,7 @@ export async function adminOrdersRoutes(
     { preHandler: [authHooks.authenticateAdmin] },
     async (_req: FastifyRequest, reply: FastifyReply) => {
       let isPaused = false;
+      let isTotalLockdown = false;
       let pausedAt: string | null = null;
       let pausedBy: string | null = null;
       let reason: string | null = null;
@@ -822,16 +823,22 @@ export async function adminOrdersRoutes(
 
       try {
         const ctrlRes = await db.query(
-          `SELECT is_enabled, last_toggled_at, last_toggled_by, last_justification
+          `SELECT control_key, is_enabled, last_toggled_at, last_toggled_by, last_justification
            FROM emergency_system_controls
-           WHERE control_key = 'PAUSE_ORDER_OPERATIONS'
-           LIMIT 1`,
+           WHERE control_key IN ('PAUSE_ORDER_OPERATIONS', 'TOTAL_ORDER_LOCKDOWN')`,
         );
         if (ctrlRes.rows.length > 0) {
-          isPaused = Boolean(ctrlRes.rows[0].is_enabled);
-          pausedAt = ctrlRes.rows[0].last_toggled_at;
-          pausedBy = ctrlRes.rows[0].last_toggled_by;
-          reason = ctrlRes.rows[0].last_justification;
+          for (const row of ctrlRes.rows) {
+            if (row.control_key === 'TOTAL_ORDER_LOCKDOWN' && row.is_enabled) {
+              isTotalLockdown = true;
+            }
+            if (row.is_enabled) {
+              isPaused = true;
+              pausedAt = row.last_toggled_at;
+              pausedBy = row.last_toggled_by;
+              reason = row.last_justification;
+            }
+          }
         }
 
         const countRes = await db.query(
@@ -842,10 +849,16 @@ export async function adminOrdersRoutes(
         app.log.warn({ err: err?.message }, '[ADMIN_ORDERS] Error checking processing status');
       }
 
+      const pauseMode: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE' | 'NONE' = isTotalLockdown
+        ? 'TOTAL_LOCKDOWN'
+        : (isPaused ? 'OPERATIONAL_FREEZE' : 'NONE');
+
       return reply.send({
         success: true,
         data: {
           isPaused,
+          isTotalLockdown,
+          pauseMode,
           pausedCount,
           pausedAt,
           pausedBy,
@@ -857,19 +870,43 @@ export async function adminOrdersRoutes(
 
   // 9. POST /admin/orders/pause — Pause all order processing, checkouts, and Excel bulk uploads
   app.post<{
-    Body: { reason?: string };
+    Body: { reason?: string; mode?: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE' };
   }>(
     '/admin/orders/pause',
     {
       preHandler: [authHooks.authenticateAdmin],
     },
-    async (req: FastifyRequest<{ Body: { reason?: string } }>, reply: FastifyReply) => {
-      const { reason = 'Order processing paused by platform administrator.' } = req.body || {};
+    async (req: FastifyRequest<{ Body: { reason?: string; mode?: 'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE' } }>, reply: FastifyReply) => {
+      const { reason = 'Order processing paused by platform administrator.', mode = 'TOTAL_LOCKDOWN' } = req.body || {};
+      const isTotalLockdown = mode === 'TOTAL_LOCKDOWN';
 
       let affectedOrdersCount = 0;
 
       try {
-        // 1. Activate emergency control
+        // 1. Activate or deactivate TOTAL_ORDER_LOCKDOWN
+        await db.query(
+          `INSERT INTO emergency_system_controls (
+             control_key, name, description, is_enabled, last_toggled_by, last_toggled_at, last_justification, updated_at
+           ) VALUES (
+             'TOTAL_ORDER_LOCKDOWN', 'Total Order Lockdown (Block All Order Placements)', 'Full block on all orders, bulk batches, and spreadsheet uploads', $1, $2, CURRENT_TIMESTAMP, $3, CURRENT_TIMESTAMP
+           )
+           ON CONFLICT (control_key) DO UPDATE SET
+             is_enabled = $1,
+             last_toggled_by = EXCLUDED.last_toggled_by,
+             last_toggled_at = CURRENT_TIMESTAMP,
+             last_justification = EXCLUDED.last_justification,
+             updated_at = CURRENT_TIMESTAMP`,
+          [isTotalLockdown, req.user!.sub, reason.trim()],
+        );
+
+        await db.query(
+          `UPDATE platform_feature_flags
+           SET is_enabled = $1, last_toggled_by = $2, last_toggled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE flag_key = 'TOTAL_ORDER_LOCKDOWN'`,
+          [isTotalLockdown, req.user!.sub],
+        ).catch(() => {});
+
+        // 2. Activate emergency control PAUSE_ORDER_OPERATIONS
         await db.query(
           `INSERT INTO emergency_system_controls (
              control_key, name, description, is_enabled, last_toggled_by, last_toggled_at, last_justification, updated_at
@@ -885,7 +922,7 @@ export async function adminOrdersRoutes(
           [req.user!.sub, reason.trim()],
         );
 
-        // 2. Sync to platform_feature_flags
+        // 3. Sync to platform_feature_flags
         await db.query(
           `UPDATE platform_feature_flags
            SET is_enabled = true, last_toggled_by = $1, last_toggled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -893,7 +930,7 @@ export async function adminOrdersRoutes(
           [req.user!.sub],
         ).catch(() => {});
 
-        // 3. Mark all active processing/submitted orders as PAUSED
+        // 4. Mark all active processing/submitted orders as PAUSED
         const updateRes = await db.query(
           `UPDATE orders
            SET is_paused = true,
@@ -920,16 +957,20 @@ export async function adminOrdersRoutes(
           resourceId: 'global_order_processing',
           reason: reason.trim(),
           result: AuditResult.SUCCESS,
-          metadata: { affectedOrdersCount, reason: reason.trim() },
+          metadata: { affectedOrdersCount, reason: reason.trim(), mode },
           ipAddress: req.ip,
         }).catch(() => {});
       }
 
       return reply.send({
         success: true,
-        message: 'All order processes, activities, and bulk uploads have been paused successfully.',
+        message: isTotalLockdown
+          ? 'Total Order Lockdown activated: All order creation, bulk batches, and spreadsheet uploads are completely blocked.'
+          : 'Operational Freeze activated: Orders will be held safely in flight without telecom dispatch.',
         data: {
           isPaused: true,
+          isTotalLockdown,
+          pauseMode: mode,
           affectedOrdersCount,
           pausedAt: new Date().toISOString(),
         },
@@ -951,7 +992,7 @@ export async function adminOrdersRoutes(
       let resumedOrdersCount = 0;
 
       try {
-        // 1. Deactivate emergency control
+        // 1. Deactivate emergency controls
         await db.query(
           `UPDATE emergency_system_controls
            SET is_enabled = false,
@@ -959,7 +1000,7 @@ export async function adminOrdersRoutes(
                last_toggled_at = CURRENT_TIMESTAMP,
                last_justification = $2,
                updated_at = CURRENT_TIMESTAMP
-           WHERE control_key = 'PAUSE_ORDER_OPERATIONS'`,
+           WHERE control_key IN ('PAUSE_ORDER_OPERATIONS', 'TOTAL_ORDER_LOCKDOWN')`,
           [req.user!.sub, reason.trim()],
         );
 
@@ -967,7 +1008,7 @@ export async function adminOrdersRoutes(
         await db.query(
           `UPDATE platform_feature_flags
            SET is_enabled = false, last_toggled_by = $1, last_toggled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-           WHERE flag_key = 'PAUSE_ORDER_OPERATIONS'`,
+           WHERE flag_key IN ('PAUSE_ORDER_OPERATIONS', 'TOTAL_ORDER_LOCKDOWN')`,
           [req.user!.sub],
         ).catch(() => {});
 

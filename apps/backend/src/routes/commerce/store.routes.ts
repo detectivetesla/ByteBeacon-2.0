@@ -1767,6 +1767,23 @@ export async function storeRoutes(
 
     const cleanPhone = recipientPhone.trim().replace(/\s+/g, '');
 
+    // 0. Check if Total Order Lockdown is active
+    const lockdownCheck = await db.query(
+      `SELECT (
+        EXISTS (
+          SELECT 1 FROM emergency_system_controls
+          WHERE control_key = 'TOTAL_ORDER_LOCKDOWN' AND is_enabled = true
+        )
+        OR EXISTS (
+          SELECT 1 FROM platform_feature_flags
+          WHERE flag_key = 'TOTAL_ORDER_LOCKDOWN' AND is_enabled = true
+        )
+      ) AS is_active`
+    ).catch(() => ({ rows: [] }));
+    if (lockdownCheck.rows[0]?.is_active) {
+      throw new BadRequestError('Storefront checkouts and order placements are currently paused under total platform lockdown.');
+    }
+
     // 1. Verify Active Store
     const storeRes = await db.query(
       `SELECT id, agent_id as "agentId", user_id as "userId", store_name as "storeName",

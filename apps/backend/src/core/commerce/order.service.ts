@@ -27,7 +27,7 @@ import { OrderStateMachine } from './order-state-machine.js';
 import { CatalogService } from './catalog.service.js';
 import { IdempotencyService } from './idempotency.service.js';
 import { FinancialLedgerService } from '../payments/financial-ledger.service.js';
-import { NotFoundError, ForbiddenError, InsufficientBalanceError, BundleInactiveError } from '../errors/app-error.js';
+import { NotFoundError, ForbiddenError, InsufficientBalanceError, BundleInactiveError, BadRequestError } from '../errors/app-error.js';
 import { FulfillmentQueueService } from '../providers/fulfillment-queue.service.js';
 import { FulfillmentWorker } from '../providers/fulfillment-worker.js';
 import { logger } from '../logging/logger.js';
@@ -98,10 +98,40 @@ export class OrderService {
     }
   }
 
+  public async isTotalOrderLockdownActive(): Promise<boolean> {
+    try {
+      const res = await this.db.query(
+        `SELECT (
+          EXISTS (
+            SELECT 1 FROM emergency_system_controls
+            WHERE control_key = 'TOTAL_ORDER_LOCKDOWN'
+              AND is_enabled = true
+          )
+          OR EXISTS (
+            SELECT 1 FROM platform_feature_flags
+            WHERE flag_key = 'TOTAL_ORDER_LOCKDOWN' AND is_enabled = true
+          )
+        ) AS is_active`
+      );
+      return Boolean(res.rows[0]?.is_active);
+    } catch {
+      return false;
+    }
+  }
+
   public async createOrder(
     input: CreateOrderRequest,
     context: CreateOrderContext,
   ): Promise<{ order: OrderDetailsDto; isIdempotentReplay: boolean }> {
+    if (context.actorType !== 'ADMIN') {
+      const isTotalLockdown = await this.isTotalOrderLockdownActive();
+      if (isTotalLockdown) {
+        throw new BadRequestError(
+          'Order placement is completely paused under total platform lockdown. No new orders can be created at this time.',
+        );
+      }
+    }
+
     const requestHash = this.idempotencyService.computeHash(input);
 
     // 1. Idempotency pre-check

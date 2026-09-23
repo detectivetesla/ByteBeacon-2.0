@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpDown,
+  Lock,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
@@ -33,7 +34,7 @@ interface OrderRowData extends OrderDetailsItem {
 export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const { toastSuccess, toastInfo } = useToast();
-  const { isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
+  const { isOrderProcessingPaused, isTotalOrderLockdown, orderProcessingMessage } = usePlatformStatus();
 
   // Filters State
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -361,42 +362,131 @@ export const OrdersPage: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={() => {
-              if (isOrderProcessingPaused) {
-                toastInfo('Orders Paused', orderProcessingMessage || 'Order checkouts are temporarily paused by platform administrators.');
+              if (isTotalOrderLockdown) {
+                toastInfo('Orders Paused', orderProcessingMessage || 'Order placements are temporarily paused under platform lockdown.');
                 return;
               }
               navigate('/app/buy-data');
             }}
-            disabled={isOrderProcessingPaused}
-            title={isOrderProcessingPaused ? 'Order checkouts are temporarily paused' : undefined}
-            leftIcon={<Plus size={15} />}
+            disabled={isTotalOrderLockdown}
+            title={isTotalOrderLockdown ? 'Order placements are temporarily paused' : undefined}
+            leftIcon={isTotalOrderLockdown ? <Lock size={14} /> : <Plus size={15} />}
           >
-            New Purchase
+            {isTotalOrderLockdown ? 'Orders Paused' : 'New Purchase'}
           </Button>
         </div>
       </div>
 
-      {/* Operations Freeze Notice */}
-      {isOrderProcessingPaused && (
+      {/* Total Order Lockdown Notice */}
+      {isTotalOrderLockdown && (
         <div
           role="alert"
           style={{
-            padding: '0.875rem 1.25rem',
+            padding: '0.75rem 1rem',
             borderRadius: 'var(--radius-lg)',
-            backgroundColor: 'rgba(239, 68, 68, 0.12)',
-            border: '1px solid rgba(239, 68, 68, 0.35)',
+            backgroundColor: 'rgba(239, 68, 68, 0.06)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
             color: '#EF4444',
             display: 'flex',
             alignItems: 'center',
             gap: '0.75rem',
             fontSize: 'var(--font-size-sm)',
-            fontWeight: 600,
           }}
         >
-          <AlertCircle size={20} style={{ flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <strong>Order Operations Paused:</strong>{' '}
-            {orderProcessingMessage || 'Platform administrators have temporarily paused order operations and checkouts. Past orders and wallet balances remain accessible.'}
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(239, 68, 68, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#EF4444',
+              flexShrink: 0,
+            }}
+          >
+            <Lock size={16} />
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <strong style={{ fontSize: 'var(--font-size-xs)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Order Placement Suspended
+              </strong>
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 'var(--radius-full)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Total Lockdown
+              </span>
+            </div>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+              {orderProcessingMessage || 'Platform administration has suspended all order creation, bulk purchases, and spreadsheet batch uploads.'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Operations Freeze Notice */}
+      {isOrderProcessingPaused && !isTotalOrderLockdown && (
+        <div
+          role="alert"
+          style={{
+            padding: '0.75rem 1rem',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: 'rgba(245, 158, 11, 0.06)',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            color: '#F59E0B',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            fontSize: 'var(--font-size-sm)',
+          }}
+        >
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#F59E0B',
+              flexShrink: 0,
+            }}
+          >
+            <Clock size={16} />
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <strong style={{ fontSize: 'var(--font-size-xs)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Operational Freeze Active
+              </strong>
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 'var(--radius-full)',
+                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Queued in Flight
+              </span>
+            </div>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
+              {orderProcessingMessage || 'Order fulfillment is temporarily frozen. Any orders placed now will be safely queued in Operational Freeze and dispatched automatically once operations resume.'}
+            </span>
           </div>
         </div>
       )}

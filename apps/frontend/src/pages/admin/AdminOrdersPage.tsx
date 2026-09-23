@@ -33,6 +33,7 @@ import {
   PlayCircle,
   FileSpreadsheet,
   AlertTriangle,
+  Lock,
 } from 'lucide-react';
 import { adminApi, AdminOrderListItem, AdminOrderStats, AdminOrderDetail, AdminOrderProcessingStatusDto } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
@@ -97,6 +98,7 @@ export const AdminOrdersPage: React.FC = () => {
   const [orderProcessingStatus, setOrderProcessingStatus] = useState<AdminOrderProcessingStatusDto | null>(null);
   const [isLoadingProcessingStatus, setIsLoadingProcessingStatus] = useState(false);
   const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
+  const [pauseMode, setPauseMode] = useState<'TOTAL_LOCKDOWN' | 'OPERATIONAL_FREEZE'>('TOTAL_LOCKDOWN');
   const [pauseReason, setPauseReason] = useState('');
   const [isPausing, setIsPausing] = useState(false);
   const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
@@ -333,8 +335,10 @@ export const AdminOrdersPage: React.FC = () => {
     try {
       const res = await adminApi.pauseOrderOperations({
         reason: pauseReason.trim(),
+        mode: pauseMode,
       });
-      toastSuccess(`Order operations paused. ${res.heldOrdersCount || 0} active processing order(s) held in PAUSED status.`);
+      const modeLabel = pauseMode === 'TOTAL_LOCKDOWN' ? 'Total Order Lockdown activated' : 'Operational Freeze activated';
+      toastSuccess(`${modeLabel}. ${res.heldOrdersCount || 0} active processing order(s) held in PAUSED status.`);
       setOrderProcessingStatus(res);
       setIsPauseModalOpen(false);
       setPauseReason('');
@@ -706,204 +710,218 @@ export const AdminOrdersPage: React.FC = () => {
       </div>
 
       {/* 1.5. Operational Control Banner: Pause / Resume & Emergency Export */}
-      <div
-        style={{
-          borderRadius: 'var(--radius-xl)',
-          padding: '1rem 1.35rem',
-          backgroundColor: orderProcessingStatus?.isPaused
-            ? 'rgba(239, 68, 68, 0.08)'
-            : 'rgba(16, 185, 129, 0.06)',
-          border: orderProcessingStatus?.isPaused
-            ? '1.5px solid rgba(239, 68, 68, 0.35)'
-            : '1px solid rgba(16, 185, 129, 0.25)',
-          boxShadow: 'var(--shadow-tactile-sm)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          transition: 'all var(--transition-fast)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          {orderProcessingStatus?.isPaused ? (
-            <div
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '50%',
-                backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <PauseCircle size={22} color="#EF4444" />
-            </div>
-          ) : (
-            <div
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '50%',
-                backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <PlayCircle size={22} color="#10B981" />
-            </div>
-          )}
+      {(() => {
+        const isPaused = Boolean(orderProcessingStatus?.isPaused);
+        const isLockdown = Boolean(orderProcessingStatus?.isTotalLockdown || orderProcessingStatus?.pauseMode === 'TOTAL_LOCKDOWN');
+        return (
+          <div
+            style={{
+              borderRadius: 'var(--radius-xl)',
+              padding: '1rem 1.35rem',
+              backgroundColor: isPaused
+                ? isLockdown
+                  ? 'rgba(239, 68, 68, 0.08)'
+                  : 'rgba(245, 158, 11, 0.08)'
+                : 'rgba(16, 185, 129, 0.06)',
+              border: isPaused
+                ? isLockdown
+                  ? '1.5px solid rgba(239, 68, 68, 0.35)'
+                  : '1.5px solid rgba(245, 158, 11, 0.35)'
+                : '1px solid rgba(16, 185, 129, 0.25)',
+              boxShadow: 'var(--shadow-tactile-sm)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              transition: 'all var(--transition-fast)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+              {isPaused ? (
+                <div
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '50%',
+                    backgroundColor: isLockdown ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  {isLockdown ? <Lock size={20} color="#EF4444" /> : <PauseCircle size={22} color="#F59E0B" />}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <PlayCircle size={22} color="#10B981" />
+                </div>
+              )}
 
-          <div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span
+                    style={{
+                      fontSize: 'var(--font-size-sm)',
+                      fontWeight: 800,
+                      color: isPaused ? (isLockdown ? '#EF4444' : '#F59E0B') : 'var(--color-text-primary)',
+                      letterSpacing: '-0.01em',
+                    }}
+                  >
+                    {isPaused
+                      ? isLockdown
+                        ? 'TOTAL ORDER LOCKDOWN ACTIVE'
+                        : 'OPERATIONAL FREEZE ACTIVE'
+                      : 'Order Processing & Bulk Uploads: ACTIVE'}
+                  </span>
+                  <Badge
+                    variant={isPaused ? (isLockdown ? 'danger' : 'warning') : 'success'}
+                    size="sm"
+                    dot
+                  >
+                    {isPaused ? (isLockdown ? 'LOCKED DOWN' : 'HELD IN FLIGHT') : 'OPERATIONAL'}
+                  </Badge>
+                  {orderProcessingStatus?.heldOrdersCount ? (
+                    <Badge variant="warning" size="sm">
+                      {orderProcessingStatus.heldOrdersCount} in-flight order(s) held
+                    </Badge>
+                  ) : null}
+                </div>
+
+                <p
+                  style={{
+                    margin: '0.2rem 0 0 0',
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-text-secondary)',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {isPaused
+                    ? isLockdown
+                      ? `Total lockdown active${orderProcessingStatus?.reason ? `: "${orderProcessingStatus.reason}"` : ''} • Enacted by: ${orderProcessingStatus?.pausedBy || 'Admin'}${orderProcessingStatus?.pausedAt ? ` at ${new Date(orderProcessingStatus.pausedAt).toLocaleTimeString()}` : ''}. Single, bulk, and spreadsheet batch uploads are completely blocked for all users.`
+                      : `Operational freeze active${orderProcessingStatus?.reason ? `: "${orderProcessingStatus.reason}"` : ''} • Enacted by: ${orderProcessingStatus?.pausedBy || 'Admin'}${orderProcessingStatus?.pausedAt ? ` at ${new Date(orderProcessingStatus.pausedAt).toLocaleTimeString()}` : ''}. In-flight orders held in PAUSED status; new orders are queued safely without telecom dispatch.`
+                    : 'All customer checkouts, agent storefront orders, Excel bulk uploads, and automated telecom dispatches are running normally.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Operational Action Buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <span
-                style={{
-                  fontSize: 'var(--font-size-sm)',
-                  fontWeight: 800,
-                  color: orderProcessingStatus?.isPaused ? '#EF4444' : 'var(--color-text-primary)',
-                  letterSpacing: '-0.01em',
-                }}
-              >
-                {orderProcessingStatus?.isPaused
-                  ? 'ORDER PROCESSING & EXCEL UPLOADS PAUSED'
-                  : 'Order Processing & Bulk Uploads: ACTIVE'}
-              </span>
-              <Badge
-                variant={orderProcessingStatus?.isPaused ? 'danger' : 'success'}
-                size="sm"
-                dot
-              >
-                {orderProcessingStatus?.isPaused ? 'RESTRICTED' : 'OPERATIONAL'}
-              </Badge>
-              {orderProcessingStatus?.heldOrdersCount ? (
-                <Badge variant="warning" size="sm">
-                  {orderProcessingStatus.heldOrdersCount} in-flight order(s) held
-                </Badge>
-              ) : null}
+              {isPaused ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleExportPausedOrders('XLSX')}
+                    disabled={isExportingPaused}
+                    title="Export all orders that were in processing when paused into a native Excel spreadsheet"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      padding: '0.5rem 0.9rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: '#1E293B',
+                      border: '1px solid #334155',
+                      color: '#38BDF8',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 700,
+                      cursor: isExportingPaused ? 'not-allowed' : 'pointer',
+                      boxShadow: 'var(--shadow-tactile-sm)',
+                      transition: 'all var(--transition-fast)',
+                    }}
+                  >
+                    <FileSpreadsheet size={14} />
+                    <span>{isExportingPaused ? 'Exporting...' : 'Export Paused Orders (Excel)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportPausedOrders('CSV')}
+                    disabled={isExportingPaused}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-bg-surface)',
+                      border: '1px solid var(--color-border-subtle)',
+                      color: 'var(--color-text-primary)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 700,
+                      cursor: isExportingPaused ? 'not-allowed' : 'pointer',
+                      boxShadow: 'var(--shadow-tactile-sm)',
+                    }}
+                  >
+                    <Download size={14} />
+                    <span>CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsResumeModalOpen(true)}
+                    disabled={isResuming}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      padding: '0.5rem 1rem',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: '#10B981',
+                      border: '1px solid #059669',
+                      color: '#FFFFFF',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)',
+                      transition: 'all var(--transition-fast)',
+                    }}
+                  >
+                    <PlayCircle size={15} />
+                    <span>Resume Order Operations</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsPauseModalOpen(true)}
+                  disabled={isPausing || isLoadingProcessingStatus}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    padding: '0.5rem 0.95rem',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    color: '#EF4444',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: 'var(--shadow-tactile-sm)',
+                    transition: 'all var(--transition-fast)',
+                  }}
+                >
+                  <PauseCircle size={14} />
+                  <span>Pause Order Operations</span>
+                </button>
+              )}
             </div>
-
-            <p
-              style={{
-                margin: '0.2rem 0 0 0',
-                fontSize: 'var(--font-size-xs)',
-                color: 'var(--color-text-secondary)',
-                lineHeight: 1.4,
-              }}
-            >
-              {orderProcessingStatus?.isPaused
-                ? `Operations frozen${orderProcessingStatus.reason ? `: "${orderProcessingStatus.reason}"` : ''} • Paused by: ${orderProcessingStatus.pausedBy || 'Admin'}${orderProcessingStatus.pausedAt ? ` at ${new Date(orderProcessingStatus.pausedAt).toLocaleTimeString()}` : ''}. All customer checkouts, agent storefront orders, and Excel uploads are held.`
-                : 'All customer checkouts, agent storefront orders, Excel bulk uploads, and automated telecom dispatches are running normally.'}
-            </p>
           </div>
-        </div>
-
-        {/* Operational Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {orderProcessingStatus?.isPaused ? (
-            <>
-              <button
-                type="button"
-                onClick={() => handleExportPausedOrders('XLSX')}
-                disabled={isExportingPaused}
-                title="Export all orders that were in processing when paused into a native Excel spreadsheet"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  padding: '0.5rem 0.9rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: '#1E293B',
-                  border: '1px solid #334155',
-                  color: '#38BDF8',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 700,
-                  cursor: isExportingPaused ? 'not-allowed' : 'pointer',
-                  boxShadow: 'var(--shadow-tactile-sm)',
-                  transition: 'all var(--transition-fast)',
-                }}
-              >
-                <FileSpreadsheet size={14} />
-                <span>{isExportingPaused ? 'Exporting...' : 'Export Paused Orders (Excel)'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleExportPausedOrders('CSV')}
-                disabled={isExportingPaused}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-bg-surface)',
-                  border: '1px solid var(--color-border-subtle)',
-                  color: 'var(--color-text-primary)',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 700,
-                  cursor: isExportingPaused ? 'not-allowed' : 'pointer',
-                  boxShadow: 'var(--shadow-tactile-sm)',
-                }}
-              >
-                <Download size={14} />
-                <span>CSV</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsResumeModalOpen(true)}
-                disabled={isResuming}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  padding: '0.5rem 1rem',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: '#10B981',
-                  border: '1px solid #059669',
-                  color: '#FFFFFF',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.35)',
-                  transition: 'all var(--transition-fast)',
-                }}
-              >
-                <PlayCircle size={15} />
-                <span>Resume Order Operations</span>
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsPauseModalOpen(true)}
-              disabled={isPausing || isLoadingProcessingStatus}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                padding: '0.5rem 0.95rem',
-                borderRadius: 'var(--radius-md)',
-                backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                border: '1px solid rgba(239, 68, 68, 0.4)',
-                color: '#EF4444',
-                fontSize: 'var(--font-size-xs)',
-                fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: 'var(--shadow-tactile-sm)',
-                transition: 'all var(--transition-fast)',
-              }}
-            >
-              <PauseCircle size={14} />
-              <span>Pause Order Operations</span>
-            </button>
-          )}
-        </div>
-      </div>
+        );
+      })()}
 
       {/* 2. Responsive Operational Summary KPI Cards */}
       <div
@@ -2010,22 +2028,128 @@ export const AdminOrdersPage: React.FC = () => {
           title="⚠️ Pause Platform Order Operations & Excel Uploads"
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            {/* Mode Selector */}
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, marginBottom: '0.5rem', color: 'var(--color-text-primary)' }}>
+                Select Pause Mode
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div
+                  onClick={() => setPauseMode('TOTAL_LOCKDOWN')}
+                  style={{
+                    padding: '0.85rem',
+                    borderRadius: 'var(--radius-lg)',
+                    border: pauseMode === 'TOTAL_LOCKDOWN'
+                      ? '2px solid #EF4444'
+                      : '1px solid var(--color-border-subtle)',
+                    backgroundColor: pauseMode === 'TOTAL_LOCKDOWN'
+                      ? 'rgba(239, 68, 68, 0.08)'
+                      : 'var(--color-bg-subtle)',
+                    cursor: 'pointer',
+                    transition: 'all 150ms ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.35rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <Lock size={15} color={pauseMode === 'TOTAL_LOCKDOWN' ? '#EF4444' : 'var(--color-text-muted)'} />
+                      <strong style={{ fontSize: 'var(--font-size-xs)', color: pauseMode === 'TOTAL_LOCKDOWN' ? '#EF4444' : 'var(--color-text-primary)' }}>
+                        Total Order Lockdown
+                      </strong>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: 800,
+                        padding: '1px 5px',
+                        borderRadius: 'var(--radius-full)',
+                        backgroundColor: pauseMode === 'TOTAL_LOCKDOWN' ? 'rgba(239, 68, 68, 0.2)' : 'var(--color-bg-base)',
+                        color: pauseMode === 'TOTAL_LOCKDOWN' ? '#EF4444' : 'var(--color-text-muted)',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Full Block
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', lineHeight: 1.35 }}>
+                    Completely blocks single orders, bulk entries, and Excel batch uploads for all users.
+                  </span>
+                </div>
+
+                <div
+                  onClick={() => setPauseMode('OPERATIONAL_FREEZE')}
+                  style={{
+                    padding: '0.85rem',
+                    borderRadius: 'var(--radius-lg)',
+                    border: pauseMode === 'OPERATIONAL_FREEZE'
+                      ? '2px solid #F59E0B'
+                      : '1px solid var(--color-border-subtle)',
+                    backgroundColor: pauseMode === 'OPERATIONAL_FREEZE'
+                      ? 'rgba(245, 158, 11, 0.08)'
+                      : 'var(--color-bg-subtle)',
+                    cursor: 'pointer',
+                    transition: 'all 150ms ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.35rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <Clock size={15} color={pauseMode === 'OPERATIONAL_FREEZE' ? '#F59E0B' : 'var(--color-text-muted)'} />
+                      <strong style={{ fontSize: 'var(--font-size-xs)', color: pauseMode === 'OPERATIONAL_FREEZE' ? '#F59E0B' : 'var(--color-text-primary)' }}>
+                        Operational Freeze
+                      </strong>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: 800,
+                        padding: '1px 5px',
+                        borderRadius: 'var(--radius-full)',
+                        backgroundColor: pauseMode === 'OPERATIONAL_FREEZE' ? 'rgba(245, 158, 11, 0.2)' : 'var(--color-bg-base)',
+                        color: pauseMode === 'OPERATIONAL_FREEZE' ? '#F59E0B' : 'var(--color-text-muted)',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Soft Hold
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', lineHeight: 1.35 }}>
+                    Pauses telecom dispatch, but orders are accepted and queued into PAUSED status.
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <div
               style={{
                 padding: '0.85rem 1rem',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
+                backgroundColor: pauseMode === 'TOTAL_LOCKDOWN' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                border: `1px solid ${pauseMode === 'TOTAL_LOCKDOWN' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
                 borderRadius: 'var(--radius-md)',
-                color: '#EF4444',
+                color: pauseMode === 'TOTAL_LOCKDOWN' ? '#EF4444' : '#F59E0B',
                 fontSize: 'var(--font-size-xs)',
                 lineHeight: 1.5,
               }}
             >
-              <strong>Caution — Platform Operational Freeze:</strong>
+              <strong>{pauseMode === 'TOTAL_LOCKDOWN' ? 'Caution — Total Order Lockdown:' : 'Caution — Operational Freeze:'}</strong>
               <ul style={{ margin: '0.4rem 0 0 1.1rem', padding: 0 }}>
-                <li>Customer checkouts and agent storefront purchases will be halted immediately.</li>
-                <li>Excel spreadsheet bulk uploads will be rejected with an informative notice.</li>
-                <li>All in-flight orders in <code>PROCESSING</code>, <code>SUBMITTED</code>, or <code>READY_FOR_FULFILLMENT</code> will be held in <code>PAUSED</code> status so upstream telecom APIs are not invoked.</li>
+                {pauseMode === 'TOTAL_LOCKDOWN' ? (
+                  <>
+                    <li>All customer checkouts, agent storefront orders, single purchases, and bulk normal/free submissions are completely blocked.</li>
+                    <li>Excel spreadsheet batch uploads and file processing are completely disabled.</li>
+                    <li>Client UIs display a sleek, non-disruptive lockdown state with locked action buttons.</li>
+                  </>
+                ) : (
+                  <>
+                    <li>Customer checkouts and bulk uploads are accepted and placed into <code>PAUSED</code> status (Paused in Flight).</li>
+                    <li>Orders will be automatically dispatched to telecom providers once operations resume.</li>
+                  </>
+                )}
+                <li>All in-flight orders in <code>PROCESSING</code>, <code>SUBMITTED</code>, or <code>READY_FOR_FULFILLMENT</code> are held in <code>PAUSED</code> status.</li>
                 <li>You can export all paused orders into Excel (.xlsx) or CSV while paused.</li>
               </ul>
             </div>
@@ -2060,7 +2184,11 @@ export const AdminOrdersPage: React.FC = () => {
                 onClick={handlePauseOperations}
                 disabled={isPausing || !pauseReason.trim()}
               >
-                {isPausing ? 'Pausing Operations...' : 'Confirm & Pause Order Operations'}
+                {isPausing
+                  ? 'Pausing Operations...'
+                  : pauseMode === 'TOTAL_LOCKDOWN'
+                  ? 'Activate Total Order Lockdown'
+                  : 'Activate Operational Freeze'}
               </Button>
             </div>
           </div>
