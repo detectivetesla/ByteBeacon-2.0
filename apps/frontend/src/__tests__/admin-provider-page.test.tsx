@@ -302,4 +302,40 @@ describe('Phase 11.9: AdminProviderPage 7-Tab Telecom Control Plane', () => {
 
     expect(await screen.findByText('ALL CHECKS PASSED')).toBeDefined();
   });
+
+  it('updates carrier routing rules from the interactive routing table', async () => {
+    (adminApi.updateTelecomRouting as any).mockResolvedValue({
+      networkCode: NetworkProvider.MTN,
+      primaryProvider: 'GMPL',
+      fallbackProvider: 'DataHouse',
+      status: 'ACTIVE',
+      availableProviders: [],
+    });
+
+    render(<AdminProviderPage />);
+
+    const routingTab = await screen.findByRole('button', { name: /Routing & Switch/i });
+    fireEvent.click(routingTab);
+
+    expect(await screen.findByText('Carrier Fulfillment Routing Rules')).toBeDefined();
+
+    const mtnPrimarySelect = screen.getByLabelText(/Primary provider for MTN/i);
+    expect(mtnPrimarySelect).toBeDefined();
+
+    fireEvent.change(mtnPrimarySelect, { target: { value: 'GMPL' } });
+
+    const saveButtons = screen.getAllByRole('button', { name: /^Save$/i });
+    expect(saveButtons.length).toBeGreaterThan(0);
+
+    fireEvent.click(saveButtons[0]);
+
+    await waitFor(() => {
+      expect(adminApi.updateTelecomRouting).toHaveBeenCalledWith(
+        expect.objectContaining({
+          network: NetworkProvider.MTN,
+          primaryProvider: 'GMPL',
+        }),
+      );
+    });
+  });
 });

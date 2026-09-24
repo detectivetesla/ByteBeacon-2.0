@@ -1909,20 +1909,36 @@ export class TelecomProviderManagementService {
 
     return networks.map((net) => {
       const runtimeRouting = this.registry.getNetworkRouting(net.code);
+      const primaryMatch = providers.find(
+        (p) =>
+          p.name.toLowerCase() === runtimeRouting.primary.toLowerCase() ||
+          p.slug.toLowerCase() === runtimeRouting.primary.toLowerCase() ||
+          (net.primaryProviderName && p.name.toLowerCase() === net.primaryProviderName.toLowerCase()),
+      );
+      const fallbackMatch = providers.find(
+        (p) =>
+          (runtimeRouting.fallback && p.name.toLowerCase() === runtimeRouting.fallback.toLowerCase()) ||
+          (runtimeRouting.fallback && p.slug.toLowerCase() === runtimeRouting.fallback.toLowerCase()) ||
+          (net.fallbackProviderName && p.name.toLowerCase() === net.fallbackProviderName.toLowerCase()),
+      );
+
+      const primaryName = primaryMatch ? primaryMatch.name : (net.primaryProviderName || runtimeRouting.primary || 'DataHouse');
+      const fallbackName = fallbackMatch ? fallbackMatch.name : (net.fallbackProviderName || runtimeRouting.fallback || 'GMPL');
+
       return {
         networkCode: net.code,
-        primaryProvider: runtimeRouting.primary.toUpperCase() || net.primaryProviderName || 'DATAHOUSE',
-        primaryProviderId: net.primaryProviderId || undefined,
-        fallbackProvider: runtimeRouting.fallback?.toUpperCase() || net.fallbackProviderName || 'GMPL',
-        fallbackProviderId: net.fallbackProviderId || undefined,
-        status: net.status,
+        primaryProvider: primaryName,
+        primaryProviderId: primaryMatch?.id || net.primaryProviderId || undefined,
+        fallbackProvider: fallbackName,
+        fallbackProviderId: fallbackMatch?.id || net.fallbackProviderId || undefined,
+        status: net.status || (net.isActive ? TelecomProviderStatus.ACTIVE : TelecomProviderStatus.INACTIVE),
         availableProviders: providers
           .filter((p) => p.supportedNetworks.includes(net.code))
           .map((p) => ({
             id: p.id,
             name: p.name,
-            role: p.name.toLowerCase() === runtimeRouting.primary.toLowerCase() ? 'PRIMARY' : 'AVAILABLE',
-            priority: p.name.toLowerCase() === runtimeRouting.primary.toLowerCase() ? 1 : 2,
+            role: p.name.toLowerCase() === primaryName.toLowerCase() ? 'PRIMARY' : 'AVAILABLE',
+            priority: p.name.toLowerCase() === primaryName.toLowerCase() ? 1 : 2,
             latencyMs: p.avgLatencyMs,
             successRate: p.successRate,
           })),
@@ -1935,24 +1951,75 @@ export class TelecomProviderManagementService {
     actorId?: string,
     correlationId?: string,
   ): Promise<NetworkProviderMappingDto> {
-    const { network, primaryProvider, fallbackProvider, reason } = req;
+    const { network, primaryProvider, fallbackProvider, status, reason } = req;
 
     if (!network || !primaryProvider) {
       throw new BadRequestError('Network and primaryProvider are mandatory');
     }
 
-    // Update in database
-    await this.db.query(
-      `UPDATE telecom_networks 
-       SET primary_provider_name = $1,
-           fallback_provider_name = $2,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE code = $3`,
-      [primaryProvider, fallbackProvider || 'GMPL', network],
-    ).catch(() => {});
+    const providers = await this.getProviders();
+    const primaryObj = providers.find(
+      (p) =>
+        p.name.toLowerCase() === primaryProvider.toLowerCase() ||
+        p.slug.toLowerCase() === primaryProvider.toLowerCase() ||
+        p.id === primaryProvider,
+    );
+    const fallbackObj = fallbackProvider
+      ? providers.find(
+          (p) =>
+            p.name.toLowerCase() === fallbackProvider.toLowerCase() ||
+            p.slug.toLowerCase() === fallbackProvider.toLowerCase() ||
+            p.id === fallbackProvider,
+        )
+      : undefined;
+
+    const resolvedPrimaryName = primaryObj?.name || primaryProvider;
+    const resolvedFallbackName = fallbackObj ? fallbackObj.name : (fallbackProvider || 'GMPL');
+
+    // Update in database with status and is_active if status provided
+    if (status) {
+      const isActive = status === 'ACTIVE' || status === TelecomProviderStatus.ACTIVE;
+      await this.db.query(
+        `UPDATE telecom_networks 
+         SET primary_provider_name = $1,
+             primary_provider_id = $2,
+             fallback_provider_name = $3,
+             fallback_provider_id = $4,
+             status = $5,
+             is_active = $6,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE UPPER(code) = UPPER($7)`,
+        [
+          resolvedPrimaryName,
+          primaryObj?.id || null,
+          resolvedFallbackName,
+          fallbackObj?.id || null,
+          status,
+          isActive,
+          network,
+        ],
+      ).catch(() => {});
+    } else {
+      await this.db.query(
+        `UPDATE telecom_networks 
+         SET primary_provider_name = $1,
+             primary_provider_id = $2,
+             fallback_provider_name = $3,
+             fallback_provider_id = $4,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE UPPER(code) = UPPER($5)`,
+        [
+          resolvedPrimaryName,
+          primaryObj?.id || null,
+          resolvedFallbackName,
+          fallbackObj?.id || null,
+          network,
+        ],
+      ).catch(() => {});
+    }
 
     // Update in runtime registry
-    this.registry.setNetworkRouting(network, primaryProvider, fallbackProvider);
+    this.registry.setNetworkRouting(network, resolvedPrimaryName, resolvedFallbackName);
 
     if (this.auditService && actorId) {
       await this.auditService.logEvent({
@@ -1962,12 +2029,13 @@ export class TelecomProviderManagementService {
         action: 'PROVIDER_ROUTING_CHANGED',
         resourceType: 'provider_routing',
         resourceId: network,
-        metadata: { network, primaryProvider, fallbackProvider, reason },
+        metadata: { network, primaryProvider: resolvedPrimaryName, fallbackProvider: resolvedFallbackName, status, reason },
       });
     }
 
     const matrix = await this.getRoutingMatrix();
-    return matrix.find((m) => m.networkCode === network)!;
+    const found = matrix.find((m) => m.networkCode.toUpperCase() === String(network).toUpperCase());
+    return found || matrix[0];
   }
 
   // =========================================================================

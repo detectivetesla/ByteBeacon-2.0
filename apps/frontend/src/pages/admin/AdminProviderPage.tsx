@@ -94,6 +94,26 @@ const selectStyle: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+const compactSelectStyle: React.CSSProperties = {
+  padding: '0.35rem 0.5rem',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 600,
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border-default)',
+  backgroundColor: 'var(--color-bg-surface-elevated)',
+  color: 'var(--color-text-primary)',
+  minWidth: '130px',
+  cursor: 'pointer',
+};
+
+const getNetworkDisplayName = (code: string): string => {
+  const c = (code || '').toUpperCase();
+  if (c === 'MTN') return 'MTN Ghana';
+  if (c === 'TELECEL') return 'Telecel Ghana';
+  if (c === 'AIRTELTIGO' || c === 'AT') return 'AirtelTigo (AT)';
+  return code;
+};
+
 const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '0.5rem 0.75rem',
@@ -139,7 +159,64 @@ export const AdminProviderPage: React.FC = () => {
   const [selectedRoutingNet, setSelectedRoutingNet] = useState<NetworkProvider>(NetworkProvider.MTN);
   const [selectedPrimary, setSelectedPrimary] = useState('');
   const [selectedFallback, setSelectedFallback] = useState('GMPL');
+  const [selectedRoutingStatus, setSelectedRoutingStatus] = useState<string>('ACTIVE');
   const [isUpdatingRouting, setIsUpdatingRouting] = useState(false);
+  const [tableEdits, setTableEdits] = useState<Record<string, { primaryProvider: string; fallbackProvider: string; status: string }>>({});
+  const [savingRowNet, setSavingRowNet] = useState<string | null>(null);
+
+  useEffect(() => {
+    const current = routingMatrix.find((r) => r.networkCode === selectedRoutingNet);
+    if (current) {
+      if (current.primaryProvider) setSelectedPrimary(current.primaryProvider);
+      if (current.fallbackProvider) setSelectedFallback(current.fallbackProvider);
+      if (current.status) setSelectedRoutingStatus(current.status);
+    } else if (providers.length > 0) {
+      if (!selectedPrimary) setSelectedPrimary(providers[0].name);
+      if (!selectedFallback) setSelectedFallback(providers[1]?.name || providers[0].name);
+    }
+  }, [selectedRoutingNet, routingMatrix, providers]);
+
+  const handleRowChange = (networkCode: string, field: 'primaryProvider' | 'fallbackProvider' | 'status', value: string) => {
+    setTableEdits((prev) => {
+      const currentRow = routingMatrix.find((r) => r.networkCode === networkCode);
+      const existing = prev[networkCode] || {
+        primaryProvider: currentRow?.primaryProvider || providers[0]?.name || 'DataHouse',
+        fallbackProvider: currentRow?.fallbackProvider || 'GMPL',
+        status: currentRow?.status || 'ACTIVE',
+      };
+      return {
+        ...prev,
+        [networkCode]: {
+          ...existing,
+          [field]: value,
+        },
+      };
+    });
+  };
+
+  const handleSaveRow = async (networkCode: NetworkProvider) => {
+    const rowEdit = tableEdits[networkCode];
+    const currentRow = routingMatrix.find((r) => r.networkCode === networkCode);
+    const primary = rowEdit?.primaryProvider || currentRow?.primaryProvider || providers[0]?.name || 'DataHouse';
+    const fallback = rowEdit?.fallbackProvider !== undefined ? rowEdit.fallbackProvider : (currentRow?.fallbackProvider || 'GMPL');
+    const status = rowEdit?.status || currentRow?.status || 'ACTIVE';
+
+    setSavingRowNet(networkCode);
+    try {
+      await adminApi.updateTelecomRouting({
+        network: networkCode,
+        primaryProvider: primary,
+        fallbackProvider: fallback,
+        status,
+      });
+      toastSuccess('Carrier Routing Saved', `Routing rules for ${networkCode} updated successfully.`);
+      await fetchControlPlaneData();
+    } catch (err: any) {
+      toastError('Save Failed', err.message || `Failed to save routing for ${networkCode}`);
+    } finally {
+      setSavingRowNet(null);
+    }
+  };
 
   const fetchControlPlaneData = useCallback(async () => {
     setIsLoading(true);
@@ -211,31 +288,22 @@ export const AdminProviderPage: React.FC = () => {
 
   const handleUpdateRouting = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedPrimary) {
+      toastError('Validation Error', 'Primary Provider is required.');
+      return;
+    }
     setIsUpdatingRouting(true);
     try {
       await adminApi.updateTelecomRouting({
         network: selectedRoutingNet,
         primaryProvider: selectedPrimary,
         fallbackProvider: selectedFallback,
+        status: selectedRoutingStatus,
       });
       toastSuccess('Routing Updated', `Fulfillment routing for ${selectedRoutingNet} updated.`);
-      setRoutingMatrix((prev) =>
-        prev.map((r) =>
-          r.networkCode === selectedRoutingNet
-            ? { ...r, primaryProvider: selectedPrimary, fallbackProvider: selectedFallback }
-            : r
-        )
-      );
-      fetchControlPlaneData();
-    } catch {
-      setRoutingMatrix((prev) =>
-        prev.map((r) =>
-          r.networkCode === selectedRoutingNet
-            ? { ...r, primaryProvider: selectedPrimary, fallbackProvider: selectedFallback }
-            : r
-        )
-      );
-      toastSuccess('Routing Updated', `Fulfillment routing for ${selectedRoutingNet} updated.`);
+      await fetchControlPlaneData();
+    } catch (err: any) {
+      toastError('Update Failed', err.message || 'Failed to update carrier fulfillment routing.');
     } finally {
       setIsUpdatingRouting(false);
     }
@@ -756,29 +824,94 @@ export const AdminProviderPage: React.FC = () => {
               <table style={{ width: '100%', fontSize: 'var(--font-size-xs)', borderCollapse: 'collapse', textAlign: 'left' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--color-border-default)', color: 'var(--color-text-muted)' }}>
-                    <th style={{ padding: '0.625rem 0' }}>Network Carrier</th>
-                    <th style={{ padding: '0.625rem 0' }}>Primary Provider</th>
-                    <th style={{ padding: '0.625rem 0' }}>Fallback Provider</th>
-                    <th style={{ padding: '0.625rem 0' }}>Status</th>
+                    <th style={{ padding: '0.625rem 0.5rem' }}>Network Carrier</th>
+                    <th style={{ padding: '0.625rem 0.5rem' }}>Primary Provider</th>
+                    <th style={{ padding: '0.625rem 0.5rem' }}>Fallback Provider</th>
+                    <th style={{ padding: '0.625rem 0.5rem' }}>Status</th>
+                    <th style={{ padding: '0.625rem 0.5rem', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {routingMatrix.map((r) => (
-                    <tr key={r.networkCode} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <td style={{ padding: '0.75rem 0' }}>
-                        <NetworkBadge network={r.networkCode} size="sm" />
-                      </td>
-                      <td style={{ padding: '0.75rem 0', fontWeight: 700, color: 'var(--color-brand)' }}>
-                        {r.primaryProvider}
-                      </td>
-                      <td style={{ padding: '0.75rem 0', color: 'var(--color-text-secondary)' }}>
-                        {r.fallbackProvider || 'NONE'}
-                      </td>
-                      <td style={{ padding: '0.75rem 0' }}>
-                        <Badge variant="success" size="sm" dot>ACTIVE</Badge>
-                      </td>
-                    </tr>
-                  ))}
+                  {routingMatrix.map((r) => {
+                    const edit = tableEdits[r.networkCode];
+                    const activePrimary = edit?.primaryProvider ?? r.primaryProvider;
+                    const activeFallback = edit?.fallbackProvider ?? (r.fallbackProvider || '');
+                    const activeStatus = edit?.status ?? (r.status || 'ACTIVE');
+                    const isSavingThisRow = savingRowNet === r.networkCode;
+
+                    return (
+                      <tr key={r.networkCode} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <td style={{ padding: '0.75rem 0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <NetworkBadge network={r.networkCode} size="sm" />
+                            <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                              {getNetworkDisplayName(r.networkCode)}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.75rem 0.5rem' }}>
+                          <select
+                            value={activePrimary}
+                            onChange={(e) => handleRowChange(r.networkCode, 'primaryProvider', e.target.value)}
+                            style={compactSelectStyle}
+                            aria-label={`Primary provider for ${r.networkCode}`}
+                          >
+                            {providers.map((p) => (
+                              <option key={p.id} value={p.name}>
+                                {p.name} ({p.providerType})
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ padding: '0.75rem 0.5rem' }}>
+                          <select
+                            value={activeFallback}
+                            onChange={(e) => handleRowChange(r.networkCode, 'fallbackProvider', e.target.value)}
+                            style={compactSelectStyle}
+                            aria-label={`Fallback provider for ${r.networkCode}`}
+                          >
+                            <option value="">None (No Fallback)</option>
+                            {providers.map((p) => (
+                              <option key={p.id} value={p.name}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ padding: '0.75rem 0.5rem' }}>
+                          <select
+                            value={activeStatus}
+                            onChange={(e) => handleRowChange(r.networkCode, 'status', e.target.value)}
+                            style={{
+                              ...compactSelectStyle,
+                              color: activeStatus === 'ACTIVE' ? 'var(--color-success)' : activeStatus === 'MAINTENANCE' ? 'var(--color-warning)' : 'var(--color-danger)',
+                              fontWeight: 700,
+                            }}
+                            aria-label={`Status for ${r.networkCode}`}
+                          >
+                            <option value="ACTIVE">ACTIVE</option>
+                            <option value="INACTIVE">INACTIVE</option>
+                            <option value="MAINTENANCE">MAINTENANCE</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveRow(r.networkCode)}
+                            disabled={isSavingThisRow}
+                            style={{
+                              ...primaryButtonStyle,
+                              padding: '0.35rem 0.75rem',
+                              fontSize: 'var(--font-size-xs)',
+                              opacity: isSavingThisRow ? 0.7 : 1,
+                            }}
+                          >
+                            {isSavingThisRow ? 'Saving...' : 'Save'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -826,11 +959,27 @@ export const AdminProviderPage: React.FC = () => {
                   onChange={(e) => setSelectedFallback(e.target.value)}
                   style={selectStyle}
                 >
+                  <option value="">None (No Fallback)</option>
                   {providers.map((p) => (
                     <option key={p.id} value={p.name}>
                       {p.name}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div style={{ flex: '1 1 130px', minWidth: '130px' }}>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                  Network Status
+                </label>
+                <select
+                  value={selectedRoutingStatus}
+                  onChange={(e) => setSelectedRoutingStatus(e.target.value)}
+                  style={selectStyle}
+                >
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="INACTIVE">INACTIVE</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
                 </select>
               </div>
 

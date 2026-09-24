@@ -50,6 +50,13 @@ export interface NetworkCarrierRouting {
   fallback?: string;
 }
 
+export function normalizeNetworkCode(network: string): string {
+  const n = (network || '').toUpperCase().trim();
+  if (n === 'AT' || n === 'AIRTEL_TIGO' || n === 'AIRTEL-TIGO') return 'AIRTELTIGO';
+  if (n === 'VODAFONE' || n === 'VODA') return 'TELECEL';
+  return n;
+}
+
 /**
  * Dynamic Telecom Provider Registry for ByteBeacon 2.0.
  * Decouples commerce and fulfillment workflows from specific telecom APIs (e.g. DataHouse).
@@ -336,16 +343,13 @@ export class TelecomProviderRegistry implements ITelecomProvider {
       const routingRes = await db.query(`
         SELECT code as "networkCode", primary_provider_name as "primaryProviderName", fallback_provider_name as "fallbackProviderName"
         FROM telecom_networks
-        WHERE is_active = TRUE
       `).catch(() => ({ rows: [] }));
 
       for (const r of routingRes.rows) {
         if (r.primaryProviderName) {
-          if (envAuthoritative) {
-            this.setNetworkRouting(r.networkCode, this.activeProviderName, r.fallbackProviderName || undefined);
-          } else {
-            this.setNetworkRouting(r.networkCode, r.primaryProviderName, r.fallbackProviderName || undefined);
-          }
+          this.setNetworkRouting(r.networkCode, r.primaryProviderName, r.fallbackProviderName || undefined);
+        } else {
+          this.setNetworkRouting(r.networkCode, this.activeProviderName, r.fallbackProviderName || undefined);
         }
       }
 
@@ -438,18 +442,27 @@ export class TelecomProviderRegistry implements ITelecomProvider {
   }
 
   public setNetworkRouting(network: string, primary: string, fallback?: string): void {
-    this.carrierRouting.set(network.toUpperCase(), {
+    const normalized = normalizeNetworkCode(network);
+    const routing: NetworkCarrierRouting = {
       primary: primary.toLowerCase(),
       fallback: fallback ? fallback.toLowerCase() : undefined,
-    });
-    logger.info({ network, primary, fallback }, '[TELECOM_REGISTRY] Updated carrier-to-provider routing');
+    };
+    this.carrierRouting.set(normalized, routing);
+    if (network.toUpperCase() !== normalized) {
+      this.carrierRouting.set(network.toUpperCase(), routing);
+    }
+    logger.info({ network: normalized, primary, fallback }, '[TELECOM_REGISTRY] Updated carrier-to-provider routing');
   }
 
   public getNetworkRouting(network: string): NetworkCarrierRouting {
-    return this.carrierRouting.get(network.toUpperCase()) || {
-      primary: this.activeProviderName,
-      fallback: 'gmpl',
-    };
+    const normalized = normalizeNetworkCode(network);
+    return (
+      this.carrierRouting.get(normalized) ||
+      this.carrierRouting.get(network.toUpperCase()) || {
+        primary: this.activeProviderName,
+        fallback: 'gmpl',
+      }
+    );
   }
 
   public getAllRouting(): Record<string, NetworkCarrierRouting> {
@@ -460,13 +473,21 @@ export class TelecomProviderRegistry implements ITelecomProvider {
     return result;
   }
 
-  public getProviderForNetwork(network: NetworkProvider): ITelecomProvider {
-    const routing = this.getNetworkRouting(network);
+  public getProviderForNetwork(network: NetworkProvider | string): ITelecomProvider {
+    const routing = this.getNetworkRouting(network as string);
     const provider = this.getProvider(routing.primary);
     if (provider) {
       return provider;
     }
     return this.getActiveProvider();
+  }
+
+  public getFallbackProviderForNetwork(network: NetworkProvider | string): ITelecomProvider | undefined {
+    const routing = this.getNetworkRouting(network as string);
+    if (routing.fallback) {
+      return this.getProvider(routing.fallback);
+    }
+    return undefined;
   }
 
   /**
@@ -526,7 +547,24 @@ export class TelecomProviderRegistry implements ITelecomProvider {
 
   public async submitOrder(input: SubmitOrderInput): Promise<SubmitOrderResult> {
     const provider = this.getProviderForNetwork(input.network);
-    return provider.submitOrder(input);
+    try {
+      return await provider.submitOrder(input);
+    } catch (primaryErr: any) {
+      const fallbackProvider = this.getFallbackProviderForNetwork(input.network);
+      if (fallbackProvider && fallbackProvider !== provider) {
+        logger.warn(
+          {
+            network: input.network,
+            primary: provider.providerName,
+            fallback: fallbackProvider.providerName,
+            error: primaryErr.message,
+          },
+          '[TELECOM_REGISTRY] Primary provider submission failed; attempting secondary fallback provider',
+        );
+        return await fallbackProvider.submitOrder(input);
+      }
+      throw primaryErr;
+    }
   }
 
   public async submitBulkOrder(input: SubmitBulkOrderInput): Promise<SubmitBulkOrderResult> {

@@ -2915,6 +2915,7 @@ export interface UpdateNetworkRoutingRequest {
   network: NetworkProvider;
   primaryProvider: string;
   fallbackProvider?: string;
+  status?: TelecomProviderStatus | string;
   reason?: string;
 }
 

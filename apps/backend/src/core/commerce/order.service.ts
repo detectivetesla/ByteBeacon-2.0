@@ -353,14 +353,15 @@ export class OrderService {
          VALUES (
            $1,
            COALESCE(
-             (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1),
-             (SELECT name FROM telecom_providers ORDER BY created_at ASC LIMIT 1),
+             (SELECT primary_provider_name FROM telecom_networks WHERE UPPER(code) = UPPER($2) AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
+             (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
+             (SELECT name FROM telecom_providers WHERE is_active = TRUE OR status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1),
              'DataHouse'
            ),
            'UNKNOWN'
          )
          RETURNING provider_name as "providerName"`,
-        [orderRow.id],
+        [orderRow.id, orderRow.network],
       ).catch(() => ({ rows: [{ providerName: 'DataHouse' }] }));
       const authoritativeProviderName = provInsertRes?.rows?.[0]?.providerName || 'DataHouse';
 

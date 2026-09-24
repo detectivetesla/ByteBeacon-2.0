@@ -185,6 +185,7 @@ export class FulfillmentWorker {
 
       // Resolve specific provider (using current active/routing provider for unsubmitted orders)
       const activeProvider = this.resolveProviderForOrder(order);
+      let usedProvider = activeProvider;
       const deterministicReference = `pst_sub_${order.id}`;
       let reconciledBeforeRetry = false;
 
@@ -210,7 +211,7 @@ export class FulfillmentWorker {
       }
 
       // 4. Submit Order to Provider Protected by Circuit Breaker
-      let submitResult: SubmitOrderResult;
+      let submitResult!: SubmitOrderResult;
       const startMs = Date.now();
 
       // Extract any pre-confirmed ported MSISDNs from pricing snapshot
@@ -227,6 +228,8 @@ export class FulfillmentWorker {
       const confirmedPorted = Array.isArray(snapshotObj?.confirmedPorted)
         ? snapshotObj.confirmedPorted
         : undefined;
+
+      let submissionSucceeded = false;
 
       try {
         submitResult = await this.circuitBreaker.execute(() =>
@@ -249,30 +252,79 @@ export class FulfillmentWorker {
             },
           }),
         );
+        submissionSucceeded = true;
       } catch (err: any) {
-        const latencyMs = Date.now() - startMs;
-        const isRetryable = this.retryPolicy.isRetryable(err);
+        // Multi-carrier failover: If primary provider failed, try fallback provider if configured
+        const registry = this.provider as any;
+        const fallbackProvider = typeof registry.getFallbackProviderForNetwork === 'function'
+          ? registry.getFallbackProviderForNetwork(order.network)
+          : undefined;
 
-        // Record submission attempt failure (non-blocking)
-        await this.db.query(
-          `INSERT INTO provider_submission_attempts (
-              order_id, provider, idempotency_key, attempt_number,
-              status, error_code, error_message, latency_ms
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            order.id,
-            activeProvider.providerName,
-            deterministicReference,
-            currentAttempt,
-            'ERROR',
-            err.errorCode || 'SUBMISSION_ERROR',
-            err.message,
-            latencyMs,
-          ],
-        ).catch(() => {});
+        if (fallbackProvider && fallbackProvider !== activeProvider && fallbackProvider.providerName !== activeProvider.providerName) {
+          logger.warn(
+            {
+              orderId: order.id,
+              network: order.network,
+              primaryProvider: activeProvider.providerName,
+              fallbackProvider: fallbackProvider.providerName,
+              primaryError: err.message,
+            },
+            '[FULFILLMENT_WORKER] Primary provider failed; attempting submission to configured fallback provider',
+          );
+          try {
+            submitResult = await fallbackProvider.submitOrder({
+              orderId: order.id,
+              clientReference: `${deterministicReference}_fb`,
+              network: order.network,
+              recipientPhone: order.recipient_phone,
+              dataAmountMb: order.data_amount_mb,
+              idempotencyKey: `${order.id}_fb`,
+              confirmedPorted,
+              metadata: {
+                correlationId,
+                bundleId: order.providerPlanId || order.providerPlanCode || undefined,
+                providerProductId: order.providerProductCode,
+                sku: order.sku,
+                productName: order.productName,
+                dataAmountMb: order.data_amount_mb,
+                volumeGb: Math.max(1, Math.round(order.data_amount_mb / 1024)),
+                isFallback: true,
+              },
+            });
+            usedProvider = fallbackProvider;
+            submissionSucceeded = true;
+          } catch (fallbackErr: any) {
+            logger.warn(
+              { orderId: order.id, fallbackProvider: fallbackProvider.providerName, fallbackError: fallbackErr.message },
+              '[FULFILLMENT_WORKER] Fallback provider also failed',
+            );
+          }
+        }
 
-        if (!isRetryable || currentAttempt >= this.retryPolicy.getMaxAttempts()) {
-          const userFacingReason = this.classifyUserFacingFailure(err);
+        if (!submissionSucceeded) {
+          const latencyMs = Date.now() - startMs;
+          const isRetryable = this.retryPolicy.isRetryable(err);
+
+          // Record submission attempt failure (non-blocking)
+          await this.db.query(
+            `INSERT INTO provider_submission_attempts (
+                order_id, provider, idempotency_key, attempt_number,
+                status, error_code, error_message, latency_ms
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              order.id,
+              activeProvider.providerName,
+              deterministicReference,
+              currentAttempt,
+              'ERROR',
+              err.errorCode || 'SUBMISSION_ERROR',
+              err.message,
+              latencyMs,
+            ],
+          ).catch(() => {});
+
+          if (!isRetryable || currentAttempt >= this.retryPolicy.getMaxAttempts()) {
+            const userFacingReason = this.classifyUserFacingFailure(err);
 
           // Route to DLQ and mark order failed
           await this.queueService.routeToDlq({
@@ -344,6 +396,7 @@ export class FulfillmentWorker {
 
         throw err;
       }
+    }
 
       const latencyMs = Date.now() - startMs;
 
@@ -355,7 +408,7 @@ export class FulfillmentWorker {
          ) VALUES ($1, $2, $3, $4, 'ACCEPTED', $5, $6)`,
         [
           order.id,
-          activeProvider.providerName,
+          usedProvider.providerName,
           deterministicReference,
           currentAttempt,
           latencyMs,
@@ -389,7 +442,7 @@ export class FulfillmentWorker {
                updated_at = CURRENT_TIMESTAMP
            WHERE order_id = $4`,
           [
-            activeProvider.providerName,
+            usedProvider.providerName,
             submitResult.providerReference,
             initialProviderStatus,
             order.id,
@@ -407,7 +460,7 @@ export class FulfillmentWorker {
                last_synced_at = CURRENT_TIMESTAMP
            WHERE order_id = $4`,
           [
-            activeProvider.providerName,
+            usedProvider.providerName,
             submitResult.providerReference,
             initialProviderStatus,
             order.id,
@@ -441,7 +494,7 @@ export class FulfillmentWorker {
             orderStatus: finalOrderStatus,
             providerStatus: initialProviderStatus,
             providerReference: submitResult.providerReference,
-            providerName: activeProvider.providerName,
+            providerName: usedProvider.providerName,
           }),
         ],
       ).catch(() => {});
@@ -496,8 +549,8 @@ export class FulfillmentWorker {
       await this.checkBulkBatchCompletion(order.id);
 
       logger.info(
-        { orderId: order.id, providerReference: submitResult.providerReference, providerName: activeProvider.providerName, status: finalOrderStatus },
-        `Order processed by ${activeProvider.providerName} and transitioned to ${finalOrderStatus}`,
+        { orderId: order.id, providerReference: submitResult.providerReference, providerName: usedProvider.providerName, status: finalOrderStatus },
+        `Order processed by ${usedProvider.providerName} and transitioned to ${finalOrderStatus}`,
       );
 
       return {
