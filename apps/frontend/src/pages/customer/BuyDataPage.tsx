@@ -1387,6 +1387,10 @@ export const BuyDataPage: React.FC = () => {
     const rejectedMap = new Map<string, string>();
     const discoveredPorted: string[] = [];
 
+    // Track whether ANY verification endpoint returned actual provider data.
+    // When all verification services are unreachable, we default to APPROVED instead of UNAPPROVED.
+    let verificationReturnsData = false;
+
     // Unified classifier: handles both status field (from verification jobs) and known boolean (from precheck/precheckPublic)
     const classifyResult = (item: any) => {
       const rawP = item.phone || item.phoneNumber || item.normalized;
@@ -1457,6 +1461,7 @@ export const BuyDataPage: React.FC = () => {
 
           // If job was completed immediately (cached / idempotent), apply results immediately!
           if (jobInit.status === 'COMPLETED' && Array.isArray(jobInit.results) && jobInit.results.length > 0) {
+            verificationReturnsData = true;
             jobInit.results.forEach(classifyResult);
             if (jobInit.portedCandidates && Array.isArray(jobInit.portedCandidates)) {
               discoveredPorted.push(...jobInit.portedCandidates);
@@ -1513,6 +1518,7 @@ export const BuyDataPage: React.FC = () => {
               });
 
               if (Array.isArray(pollRes.results)) {
+                verificationReturnsData = true;
                 pollRes.results.forEach(classifyResult);
 
                 if (pollRes.portedCandidates && Array.isArray(pollRes.portedCandidates)) {
@@ -1595,6 +1601,7 @@ export const BuyDataPage: React.FC = () => {
         const results = res?.results || res?.data?.results;
         if (Array.isArray(results) && results.length > 0) {
           hasResults = true;
+          verificationReturnsData = true;
           results.forEach(classifyResult);
         }
       } catch {
@@ -1624,23 +1631,37 @@ export const BuyDataPage: React.FC = () => {
                 }
                 const pubResults = pubRes?.results || (pubRes as any)?.data?.results;
                 if (Array.isArray(pubResults)) {
+                  verificationReturnsData = true;
                   pubResults.forEach(classifyResult);
                 }
               } catch {
-                subChunk.forEach((num) => {
-                  const normP = normalizeGhanaPhoneNumber(num);
-                  if (normP) unapprovedSet.add(normP);
-                });
+                // Network error — do NOT mark as unapproved.
+                // Unverifiable numbers will be handled by the final
+                // verification-unavailable fallback below.
               }
             }),
           );
         }
       } else if (!hasResults) {
-        uniqueMtnPhones.forEach((num) => {
-          const normP = normalizeGhanaPhoneNumber(num);
-          if (normP) unapprovedSet.add(normP);
-        });
+        // No verification API available — do NOT mark as unapproved.
+        // Numbers will be handled by the verification-unavailable fallback below.
       }
+    }
+
+    // Graceful degradation: If ALL verification endpoints failed and returned
+    // zero provider data, approve valid MTN numbers for direct fulfillment.
+    // This prevents the entire upload from being stuck at 0 approved when the
+    // verification backend is unreachable or the provider is down.
+    if (!verificationReturnsData) {
+      unapprovedSet.clear();
+      uniqueMtnPhones.forEach((num) => {
+        const normP = normalizeGhanaPhoneNumber(num);
+        if (normP) {
+          knownSet.add(normP);
+          knownSet.add(`+233${normP.slice(1)}`);
+          knownSet.add(`233${normP.slice(1)}`);
+        }
+      });
     }
 
     if (discoveredPorted.length > 0) {
