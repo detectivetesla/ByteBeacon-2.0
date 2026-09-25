@@ -35,6 +35,7 @@ import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { ordersApi } from '../../api/orders.api.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 export type ApprovalStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED';
 export type DetectedChannel = 'Web' | 'API' | 'Single Order' | 'Bulk Order' | 'Excel Upload' | 'Manual Check';
@@ -457,27 +458,33 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
 
   const handleExport = () => {
     setIsExporting(true);
-    setTimeout(() => {
-      setIsExporting(false);
-      const csvHeader = 'Beneficiary Number,Network,Occurrences,Status,Channel,Detected Date,Expires At\n';
-      const rows = filteredRecords
-        .map((r) => {
-          const cleanPhone = r.phoneNumber.replace(/\s+/g, '');
-          const exp = r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : 'N/A';
-          return `${cleanPhone},${r.network},${r.occurrences || 1},${r.status},${r.detectedFrom},${new Date(r.createdAt).toISOString()},${exp}`;
-        })
-        .join('\n');
+    try {
+      const headers = ['Beneficiary Number', 'Network', 'Occurrences', 'Status', 'Channel', 'Detected Date', 'Expires At'];
+      const rows = filteredRecords.map((r) => {
+        const cleanPhone = r.phoneNumber.replace(/\s+/g, '');
+        const exp = r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : 'N/A';
+        return [
+          cleanPhone,
+          r.network,
+          r.occurrences || 1,
+          r.status,
+          r.detectedFrom,
+          new Date(r.createdAt).toISOString(),
+          exp,
+        ];
+      });
 
-      const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `customer_mtn_approvals_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      exportToCSV({
+        filename: `customer_mtn_approvals_${new Date().toISOString().slice(0, 10)}`,
+        headers,
+        rows,
+      });
       toastSuccess('Export Successful', `Exported ${filteredRecords.length} records in MTN Format.`);
-    }, 600);
+    } catch {
+      toastError('Export Failed', 'Could not export pending approvals to CSV.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const [isSyncingWithProvider, setIsSyncingWithProvider] = useState(false);
@@ -739,40 +746,35 @@ export const CustomerPendingApprovalsPage: React.FC = () => {
       </div>
 
       {/* 2. Responsive Summary KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 'var(--space-3)' }}>
+      <div className="bb-kpi-grid">
         <MetricCard
           title="Awaiting Approval"
           value={stats.awaitingApproval.toLocaleString()}
           subvalue="Pending MTN validation"
-          accent="orange"
           icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
         />
         <MetricCard
           title="Approved / Valid"
           value={stats.approvedCount.toLocaleString()}
           subvalue="Whitelisted beneficiaries"
-          accent="green"
           icon={<TactileIcon icon={CheckCircle2} color="security" size="sm" />}
         />
         <MetricCard
           title="Rejected / Invalid"
           value={stats.rejectedCount.toLocaleString()}
           subvalue="Blocked numbers"
-          accent="red"
           icon={<TactileIcon icon={AlertOctagon} color="red" size="sm" />}
         />
         <MetricCard
           title="In-Flight Sync"
           value={stats.processingCount.toLocaleString()}
           subvalue="Carrier background check"
-          accent="cyan"
           icon={<TactileIcon icon={Activity} color="analytics" size="sm" />}
         />
         <MetricCard
           title="Total Registered"
           value={stats.totalBeneficiaries.toLocaleString()}
           subvalue="Known customer recipients"
-          accent="blue"
           icon={<TactileIcon icon={ShieldCheck} color="security" size="sm" />}
         />
       </div>

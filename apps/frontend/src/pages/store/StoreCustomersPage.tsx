@@ -8,6 +8,7 @@ import { ResponsiveTable } from '../../components/ui/responsive/index.js';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 interface StoreCustomerRecord {
   phone: string;
@@ -19,7 +20,7 @@ interface StoreCustomerRecord {
 }
 
 export const StoreCustomersPage: React.FC = () => {
-  const { toastSuccess, toastError } = useToast();
+  const { toastSuccess, toastError, toastInfo } = useToast();
   const [customers, setCustomers] = useState<StoreCustomerRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,23 +109,27 @@ export const StoreCustomersPage: React.FC = () => {
   };
 
   const handleExportCsv = () => {
-    if (!customers.length) return;
-    const header = 'Phone,Total Orders,Total Spent (GHS),Last Purchase,First Purchase,Status\n';
-    const rows = customers
-      .map(
-        (c) =>
-          `${c.phone},${c.totalOrders},${c.totalSpentGhs.toFixed(2)},"${c.lastPurchase || ''}","${c.firstPurchase || ''}",${c.status}`,
-      )
-      .join('\n');
-    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `storefront_customers_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Export Complete', `Exported ${customers.length} customer records.`);
+    if (!customers.length) {
+      toastInfo('No Data', 'There are no customer records to export.');
+      return;
+    }
+    try {
+      exportToCSV({
+        filename: `storefront_customers_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Phone', 'Total Orders', 'Total Spent (GHS)', 'Last Purchase', 'First Purchase', 'Status'],
+        rows: customers.map((c) => [
+          c.phone,
+          c.totalOrders,
+          c.totalSpentGhs.toFixed(2),
+          c.lastPurchase || '',
+          c.firstPurchase || '',
+          c.status,
+        ]),
+      });
+      toastSuccess('Export Complete', `Exported ${customers.length} customer records.`);
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Failed to export customer records');
+    }
   };
 
   const totalSpentAcrossVisible = customers.reduce((sum, c) => sum + (c.totalSpentGhs || 0), 0);

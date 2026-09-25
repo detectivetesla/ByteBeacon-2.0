@@ -16,6 +16,7 @@ export interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectE
   helperText?: string;
   optional?: boolean;
   placeholder?: string;
+  size?: 'sm' | 'md';
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
@@ -28,6 +29,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       helperText,
       optional,
       placeholder,
+      size = 'md',
       id,
       className = '',
       style,
@@ -60,7 +62,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             ref={ref}
             id={selectId}
             required={required}
-            className={`${styles.select} ${error ? styles.error : ''} ${className}`.trim()}
+            className={`${styles.select} ${size === 'sm' ? styles.sm : ''} ${error ? styles.error : ''} ${className}`.trim()}
             aria-invalid={!!error}
             aria-describedby={error ? errorId : displayHint ? hintId : undefined}
             {...props}

@@ -565,24 +565,29 @@ export class BeneficiaryService {
           ),
         );
 
-        // Check local approved records: local DB cache provides authoritative approvals
+        // Check local approved records: genuine manual admin approvals take strict precedence over telecom precheck,
+        // while cached provider validation rows provide fallback only if bypassCache is false and live provider did not return unapproved.
         const approvedRes = await this.db.query(
           `SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
-           FROM beneficiary_validation
-           WHERE phone_number = ANY($1)
-             AND network = 'MTN'
-             AND (
-               validation_status IN ('VALID', 'APPROVED')
-               OR provider_reference = 'ADMIN_APPROVED'
-               OR (validated_at IS NOT NULL AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP))
-             )
-             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-           UNION
-           SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
            FROM pending_beneficiary_approvals
            WHERE phone_number = ANY($1)
              AND network = 'MTN'
-             AND status = 'APPROVED'`,
+             AND status = 'APPROVED'
+           UNION
+           SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
+           FROM beneficiary_validation
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND (provider_reference = 'ADMIN_APPROVED' OR provider_reference LIKE 'ADMIN_%')
+             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+           UNION
+           SELECT phone_number as "phoneNumber", 'VALIDATION' as "source"
+           FROM beneficiary_validation
+           WHERE phone_number = ANY($1)
+             AND network = 'MTN'
+             AND validation_status IN ('VALID', 'APPROVED')
+             AND (provider_reference IS NULL OR (provider_reference != 'ADMIN_APPROVED' AND provider_reference NOT LIKE 'ADMIN_%'))
+             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
           [queryPhones],
         ).catch(() => ({ rows: [] }));
 
@@ -608,29 +613,51 @@ export class BeneficiaryService {
         approvedRows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            // Admin & validated DB records are strictly authoritative over upstream telecom precheck
-            if (norm) {
-              liveUnapprovedSet.delete(norm);
-              liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
-              liveUnapprovedSet.delete(`233${norm.slice(1)}`);
-              knownPhonesSet.add(norm);
-              knownPhonesSet.add(`+233${norm.slice(1)}`);
-              knownPhonesSet.add(`233${norm.slice(1)}`);
-              upstreamOrderableMap.set(norm, true);
+            const isExplicitlyLiveUnapproved = Boolean(
+              (norm && liveUnapprovedSet.has(norm)) ||
+              liveUnapprovedSet.has(r.phoneNumber) ||
+              (norm && upstreamOrderableMap.get(norm) === false) ||
+              (norm && providerQueriedSet.has(norm) && !knownPhonesSet.has(norm))
+            );
+
+            // Genuine human admin approvals take strict precedence over upstream telecom precheck
+            const isGenuineAdminApproval = r.source === 'ADMIN_APPROVAL' || (!r.source && r.source !== 'VALIDATION');
+            if (isGenuineAdminApproval) {
+              if (norm) {
+                liveUnapprovedSet.delete(norm);
+                liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
+                liveUnapprovedSet.delete(`233${norm.slice(1)}`);
+                knownPhonesSet.add(norm);
+                knownPhonesSet.add(`+233${norm.slice(1)}`);
+                knownPhonesSet.add(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, true);
+              }
+              liveUnapprovedSet.delete(r.phoneNumber);
+              knownPhonesSet.add(r.phoneNumber);
+            } else if (!isExplicitlyLiveUnapproved && !bypassCache) {
+              // Cached telecom validation is valid fallback ONLY if:
+              // 1. bypassCache is false
+              // 2. live telecom provider was not queried or did not return unapproved
+              if (norm) {
+                knownPhonesSet.add(norm);
+                knownPhonesSet.add(`+233${norm.slice(1)}`);
+                knownPhonesSet.add(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, true);
+              }
+              knownPhonesSet.add(r.phoneNumber);
             }
-            liveUnapprovedSet.delete(r.phoneNumber);
-            knownPhonesSet.add(r.phoneNumber);
           }
         });
 
-        // Self-heal: ensure beneficiary_validation has VALID status for approved numbers
-        if (approvedRows.length > 0) {
-          const approvedPhones = Array.from(new Set(approvedRows.map((r: any) => r.phoneNumber).filter(Boolean)));
+        // Self-heal: ensure genuine admin-approved numbers have VALID status in beneficiary_validation
+        const adminApprovedRows = approvedRows.filter((r: any) => (r.source === 'ADMIN_APPROVAL' || (!r.source && r.source !== 'VALIDATION')) && Boolean(r.phoneNumber));
+        if (adminApprovedRows.length > 0) {
+          const approvedPhones = Array.from(new Set(adminApprovedRows.map((r: any) => r.phoneNumber)));
           if (approvedPhones.length > 0) {
             await this.db.query(
               `UPDATE beneficiary_validation
                SET validation_status = 'VALID',
-                   provider_reference = COALESCE(provider_reference, 'ADMIN_APPROVED'),
+                   provider_reference = 'ADMIN_APPROVED',
                    validated_at = COALESCE(validated_at, CURRENT_TIMESTAMP),
                    expires_at = COALESCE(expires_at, CURRENT_TIMESTAMP + INTERVAL '30 days'),
                    updated_at = CURRENT_TIMESTAMP
@@ -1303,25 +1330,30 @@ export class BeneficiaryService {
           ),
         );
 
-        // Run both queries in parallel for faster results
+        // Check local approved records: genuine manual admin approvals take strict precedence over telecom precheck,
+        // while cached provider validation rows provide fallback only if bypassCache is false and live provider did not return unapproved.
         const [approvedRes, pendingRes] = await Promise.all([
           this.db.query(
             `SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
-             FROM beneficiary_validation
-             WHERE phone_number = ANY($1)
-               AND network = 'MTN'
-               AND (
-                 validation_status IN ('VALID', 'APPROVED')
-                 OR provider_reference = 'ADMIN_APPROVED'
-                 OR (validated_at IS NOT NULL AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP))
-               )
-               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-             UNION
-             SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
              FROM pending_beneficiary_approvals
              WHERE phone_number = ANY($1)
                AND network = 'MTN'
-               AND status = 'APPROVED'`,
+               AND status = 'APPROVED'
+             UNION
+             SELECT phone_number as "phoneNumber", 'ADMIN_APPROVAL' as "source"
+             FROM beneficiary_validation
+             WHERE phone_number = ANY($1)
+               AND network = 'MTN'
+               AND (provider_reference = 'ADMIN_APPROVED' OR provider_reference LIKE 'ADMIN_%')
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+             UNION
+             SELECT phone_number as "phoneNumber", 'VALIDATION' as "source"
+             FROM beneficiary_validation
+             WHERE phone_number = ANY($1)
+               AND network = 'MTN'
+               AND validation_status IN ('VALID', 'APPROVED')
+               AND (provider_reference IS NULL OR (provider_reference != 'ADMIN_APPROVED' AND provider_reference NOT LIKE 'ADMIN_%'))
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
             [queryPhones],
           ).catch(() => ({ rows: [] })),
           this.db.query(
@@ -1362,28 +1394,51 @@ export class BeneficiaryService {
         approvedRows.forEach((r: any) => {
           if (r.phoneNumber) {
             const norm = this.normalizeGhanaPhone(r.phoneNumber).normalized;
-            if (norm) {
-              liveUnapprovedSet.delete(norm);
-              liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
-              liveUnapprovedSet.delete(`233${norm.slice(1)}`);
-              knownPhonesSet.add(norm);
-              knownPhonesSet.add(`+233${norm.slice(1)}`);
-              knownPhonesSet.add(`233${norm.slice(1)}`);
-              upstreamOrderableMap.set(norm, true);
+            const isExplicitlyLiveUnapproved = Boolean(
+              (norm && liveUnapprovedSet.has(norm)) ||
+              liveUnapprovedSet.has(r.phoneNumber) ||
+              (norm && upstreamOrderableMap.get(norm) === false) ||
+              (norm && providerQueriedSet.has(norm) && !knownPhonesSet.has(norm))
+            );
+
+            // Genuine human admin approvals take strict precedence over upstream telecom precheck
+            const isGenuineAdminApproval = r.source === 'ADMIN_APPROVAL' || (!r.source && r.source !== 'VALIDATION');
+            if (isGenuineAdminApproval) {
+              if (norm) {
+                liveUnapprovedSet.delete(norm);
+                liveUnapprovedSet.delete(`+233${norm.slice(1)}`);
+                liveUnapprovedSet.delete(`233${norm.slice(1)}`);
+                knownPhonesSet.add(norm);
+                knownPhonesSet.add(`+233${norm.slice(1)}`);
+                knownPhonesSet.add(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, true);
+              }
+              liveUnapprovedSet.delete(r.phoneNumber);
+              knownPhonesSet.add(r.phoneNumber);
+            } else if (!isExplicitlyLiveUnapproved && !bypassCache) {
+              // Cached telecom validation is valid fallback ONLY if:
+              // 1. bypassCache is false
+              // 2. live telecom provider was not queried or did not return unapproved
+              if (norm) {
+                knownPhonesSet.add(norm);
+                knownPhonesSet.add(`+233${norm.slice(1)}`);
+                knownPhonesSet.add(`233${norm.slice(1)}`);
+                upstreamOrderableMap.set(norm, true);
+              }
+              knownPhonesSet.add(r.phoneNumber);
             }
-            liveUnapprovedSet.delete(r.phoneNumber);
-            knownPhonesSet.add(r.phoneNumber);
           }
         });
 
-        // Self-heal: ensure beneficiary_validation has VALID status for approved numbers
-        if (approvedRows.length > 0) {
-          const approvedPhones = Array.from(new Set(approvedRows.map((r: any) => r.phoneNumber).filter(Boolean)));
+        // Self-heal: ensure genuine admin-approved numbers have VALID status in beneficiary_validation
+        const adminApprovedRows = approvedRows.filter((r: any) => (r.source === 'ADMIN_APPROVAL' || (!r.source && r.source !== 'VALIDATION')) && Boolean(r.phoneNumber));
+        if (adminApprovedRows.length > 0) {
+          const approvedPhones = Array.from(new Set(adminApprovedRows.map((r: any) => r.phoneNumber)));
           if (approvedPhones.length > 0) {
             await this.db.query(
               `UPDATE beneficiary_validation
                SET validation_status = 'VALID',
-                   provider_reference = COALESCE(provider_reference, 'ADMIN_APPROVED'),
+                   provider_reference = 'ADMIN_APPROVED',
                    validated_at = COALESCE(validated_at, CURRENT_TIMESTAMP),
                    expires_at = COALESCE(expires_at, CURRENT_TIMESTAMP + INTERVAL '30 days'),
                    updated_at = CURRENT_TIMESTAMP

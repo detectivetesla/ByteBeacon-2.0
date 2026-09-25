@@ -85,6 +85,13 @@ export const Button: React.FC<ButtonProps> = ({
 
   const getSizeStyles = (): React.CSSProperties => {
     switch (size) {
+      case 'xs':
+        return {
+          minHeight: '28px',
+          padding: '0 10px',
+          fontSize: 'var(--font-size-2xs)',
+          borderRadius: 'var(--radius-xs)',
+        };
       case 'sm':
         return {
           minHeight: '36px',
@@ -102,7 +109,7 @@ export const Button: React.FC<ButtonProps> = ({
       case 'md':
       default:
         return {
-          minHeight: '44px',
+          minHeight: '42px',
           padding: '0 18px',
           fontSize: 'var(--font-size-sm)',
           borderRadius: 'var(--radius-sm)',
@@ -124,7 +131,7 @@ export const Button: React.FC<ButtonProps> = ({
         gap: '0.5rem',
         cursor: isDisabled ? 'not-allowed' : 'pointer',
         opacity: isDisabled ? 0.6 : 1,
-        transition: 'transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast)',
+        transition: 'transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast)',
         fontFamily: 'var(--font-sans)',
         letterSpacing: '-0.01em',
         userSelect: 'none',
@@ -141,6 +148,11 @@ export const Button: React.FC<ButtonProps> = ({
           } else if (variant === 'hero-secondary') {
             e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
             e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+          } else if (variant === 'outline') {
+            e.currentTarget.style.backgroundColor = 'var(--color-bg-surface-hover)';
+            e.currentTarget.style.borderColor = 'var(--color-border-hover)';
+          } else if (variant === 'secondary') {
+            e.currentTarget.style.backgroundColor = 'var(--color-bg-surface-hover)';
           }
         }
       }}
@@ -153,6 +165,11 @@ export const Button: React.FC<ButtonProps> = ({
           } else if (variant === 'hero-secondary') {
             e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
             e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.18)';
+          } else if (variant === 'outline') {
+            e.currentTarget.style.backgroundColor = 'transparent';
+            e.currentTarget.style.borderColor = 'var(--color-border-default)';
+          } else if (variant === 'secondary') {
+            e.currentTarget.style.background = 'linear-gradient(180deg, var(--color-bg-surface-elevated) 0%, var(--color-bg-surface) 100%)';
           }
         }
       }}

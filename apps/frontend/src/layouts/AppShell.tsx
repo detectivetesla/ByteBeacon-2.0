@@ -247,24 +247,25 @@ export const AppShell: React.FC<AppShellProps> = ({
     if (permittedItems.length === 0) return null;
 
     return (
-      <div key={group.title} style={{ marginBottom: 'var(--space-4)' }}>
+      <div key={group.title} style={{ marginBottom: 'var(--space-3)' }}>
         {(!collapsed || isMobile) && (
           <div
             style={{
-              fontSize: 'var(--font-size-3xs)',
-              fontWeight: 800,
+              fontSize: 'var(--sidebar-group-label-size, 0.625rem)',
+              fontWeight: 700,
               textTransform: 'uppercase',
-              letterSpacing: '0.09em',
+              letterSpacing: '0.08em',
               color: 'var(--sidebar-text-muted)',
+              opacity: 0.65,
               padding: '0 0.75rem',
-              marginBottom: '0.45rem',
+              marginBottom: '0.35rem',
             }}
           >
             {group.title}
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sidebar-item-gap, 2px)' }}>
           {permittedItems.map((item) => {
             const isActive = location.pathname === item.path || (item.path !== '/app/dashboard' && item.path !== '/agent/dashboard' && item.path !== '/admin/dashboard' && location.pathname.startsWith(item.path));
             const isPendingMtnItem = item.path.includes('pending-approvals');
@@ -286,15 +287,16 @@ export const AppShell: React.FC<AppShellProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.75rem',
-                  padding: collapsed && !isMobile ? '0.625rem 0' : '0.55rem 0.75rem',
+                  gap: '0.7rem',
+                  padding: collapsed && !isMobile ? '0.5rem 0' : '0.45rem 0.75rem',
                   justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: isActive ? 700 : 500,
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.8125rem',
+                  fontWeight: isActive ? 650 : 475,
                   color: isActive ? 'var(--sidebar-item-active-text)' : 'var(--sidebar-text)',
                   backgroundColor: isActive ? 'var(--sidebar-item-active-bg)' : 'transparent',
                   border: isActive ? '1px solid var(--sidebar-item-active-border)' : '1px solid transparent',
+                  borderLeft: isActive ? '3px solid var(--sidebar-indicator-dot)' : '3px solid transparent',
                   textDecoration: 'none',
                   transition: 'all var(--transition-fast)',
                   position: 'relative',
@@ -859,21 +861,28 @@ export const AppShell: React.FC<AppShellProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.3rem 0.75rem',
-                  backgroundColor: 'var(--color-warning-surface)',
-                  border: '1px solid var(--color-warning-border)',
+                  gap: '0.45rem',
+                  padding: '0.28rem 0.65rem',
+                  backgroundColor: 'var(--color-bg-surface)',
+                  border: '1px solid var(--color-border-default)',
                   borderRadius: 'var(--radius-full)',
-                  color: 'var(--color-warning)',
+                  color: 'var(--color-text-primary)',
                   fontSize: 'var(--font-size-xs)',
-                  fontWeight: 700,
+                  fontWeight: 600,
                   cursor: onTopUpClick ? 'pointer' : 'default',
+                  transition: 'border-color var(--transition-fast)',
                 }}
                 onClick={onTopUpClick}
                 title={onTopUpClick ? 'Click to fund wallet' : undefined}
+                onMouseEnter={(e) => {
+                  if (onTopUpClick) e.currentTarget.style.borderColor = 'var(--color-border-hover)';
+                }}
+                onMouseLeave={(e) => {
+                  if (onTopUpClick) e.currentTarget.style.borderColor = 'var(--color-border-default)';
+                }}
               >
-                <Wallet size={14} strokeWidth={2.4} />
-                <span style={{ fontFamily: 'var(--font-data)' }}>{formatBalance(balancePesewas)}</span>
+                <Wallet size={13} color="var(--color-warning)" strokeWidth={2.4} />
+                <span style={{ fontFamily: 'var(--font-data)', fontWeight: 650 }}>{formatBalance(balancePesewas)}</span>
               </div>
             )}
 

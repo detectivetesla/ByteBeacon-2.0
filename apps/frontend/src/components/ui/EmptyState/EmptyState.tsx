@@ -41,25 +41,24 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         textAlign: 'center',
-        padding: 'var(--space-12) var(--space-6)',
-        backgroundColor: 'var(--color-bg-surface)',
-        border: '1px dashed var(--color-border-hover)',
-        borderRadius: 'var(--radius-xl)',
-        boxShadow: 'var(--shadow-tactile-sm)',
+        padding: 'var(--space-8) var(--space-4)',
+        backgroundColor: 'transparent',
+        borderRadius: 'var(--radius-lg)',
+        border: '1px dashed var(--color-border-subtle)',
         ...style,
       }}
     >
-      <div style={{ marginBottom: 'var(--space-4)' }}>
+      <div style={{ marginBottom: 'var(--space-3)' }}>
         {renderIcon()}
       </div>
 
       <h3
         style={{
-          fontSize: 'var(--font-size-lg)',
-          fontWeight: 800,
+          fontSize: 'var(--font-size-base)',
+          fontWeight: 700,
           color: 'var(--color-text-primary)',
           fontFamily: 'var(--font-display)',
-          marginBottom: '0.375rem',
+          marginBottom: '0.25rem',
         }}
       >
         {title}
@@ -67,10 +66,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 
       <p
         style={{
-          fontSize: 'var(--font-size-sm)',
+          fontSize: 'var(--font-size-xs)',
           color: 'var(--color-text-secondary)',
-          maxWidth: '380px',
-          marginBottom: actionText ? 'var(--space-6)' : 0,
+          maxWidth: '360px',
+          marginBottom: actionText ? 'var(--space-4)' : 0,
           lineHeight: 1.5,
         }}
       >

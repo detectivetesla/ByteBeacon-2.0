@@ -29,6 +29,7 @@ import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { apiClient } from '../../api/httpClient.js';
 import { walletApi } from '../../api/wallet.api.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 export type WalletTransactionType = 'DEPOSIT' | 'PURCHASE' | 'REFUND' | 'ADJUSTMENT';
 export type TransactionStatus = 'SUCCESSFUL' | 'PENDING' | 'FAILED' | 'REVERSED';
@@ -237,22 +238,29 @@ export const AgentWalletPage: React.FC = () => {
   };
 
   const handleExportTransactions = () => {
-    const csvHeader = 'Transaction ID,Type,Method,Description,Amount (GHS),Fee (GHS),Status,Date\n';
-    const rows = transactions
-      .map(
-        (t) =>
-          `${t.id},${t.type},${t.method},"${t.description}",${(t.amountPesewas / 100).toFixed(2)},${(t.feePesewas / 100).toFixed(2)},${t.status},"${t.date}"`,
-      )
-      .join('\n');
-    const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `wallet_transactions_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Export Complete', 'Recent transactions exported to CSV.');
+    try {
+      if (transactions.length === 0) {
+        toastInfo('No Data', 'There are no transactions to export.');
+        return;
+      }
+      exportToCSV({
+        filename: `wallet_transactions_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Transaction ID', 'Type', 'Method', 'Description', 'Amount (GHS)', 'Fee (GHS)', 'Status', 'Date'],
+        rows: transactions.map((t) => [
+          t.id,
+          t.type,
+          t.method,
+          t.description,
+          (t.amountPesewas / 100).toFixed(2),
+          (t.feePesewas / 100).toFixed(2),
+          t.status,
+          t.date,
+        ]),
+      });
+      toastSuccess('Export Complete', 'Recent transactions exported to CSV.');
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Failed to export transactions');
+    }
   };
 
   const handleProceedToPaystack = async (e: React.FormEvent) => {

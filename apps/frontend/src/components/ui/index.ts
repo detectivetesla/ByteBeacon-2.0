@@ -34,4 +34,5 @@ export * from './Spinner/Spinner.js';
 export * from './Stack/Stack.js';
 export * from './Avatar/Avatar.js';
 export * from './WhatsAppFloat.js';
+export * from './FilterBar/index.js';
 export * from './responsive/index.js';

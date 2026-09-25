@@ -169,40 +169,36 @@ export const WalletPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-        <div>
-          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)' }}>
-            Prepaid Balance
-          </span>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.125rem' }}>
-            My Wallet
-          </h1>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
+      <div className="bb-page-header">
+        <div className="bb-page-header-info">
+          <h1>My Wallet</h1>
+          <p>
             Manage your prepaid balance for one-click checkout and seamless bulk dispatch.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <Button variant="outline" size="md" onClick={fetchWalletData} isLoading={isLoading} leftIcon={<RefreshCw size={15} />}>
+        <div className="bb-page-header-actions">
+          <Button variant="outline" size="sm" onClick={fetchWalletData} isLoading={isLoading} leftIcon={<RefreshCw size={14} />}>
             Refresh
           </Button>
-          <Button variant="primary" size="md" onClick={() => setIsTopUpModalOpen(true)} leftIcon={<Plus size={16} />}>
+          <Button variant="primary" size="sm" onClick={() => setIsTopUpModalOpen(true)} leftIcon={<Plus size={15} />}>
             Top Up Wallet
           </Button>
         </div>
       </div>
 
       {/* Balance Card & Quick Actions */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 'var(--space-6)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 'var(--space-4)' }}>
         <Card
           style={{
-            padding: 'var(--space-6)',
-            background: 'linear-gradient(135deg, var(--color-bg-surface) 0%, var(--color-bg-surface-elevated) 100%)',
-            border: '1px solid var(--color-border-default)',
+            padding: 'var(--space-5) var(--space-6)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: 'var(--border-card-default)',
+            boxShadow: 'var(--shadow-card-default)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            minHeight: '180px',
+            minHeight: '160px',
           }}
         >
           <div>

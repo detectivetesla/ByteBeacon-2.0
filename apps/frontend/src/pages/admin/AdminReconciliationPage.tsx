@@ -26,6 +26,7 @@ import {
   ReconciliationCaseDto,
 } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 
 export const AdminReconciliationPage: React.FC = () => {
   const { toastSuccess, toastError } = useToast();
@@ -167,13 +168,7 @@ export const AdminReconciliationPage: React.FC = () => {
   const handleExportCases = async () => {
     try {
       const blob = await adminApi.exportReconciliationCases({ status: statusFilter !== 'ALL' ? statusFilter : undefined });
-      const url = window.URL.createObjectURL(new Blob([blob as any]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `reconciliation-cases-${Date.now()}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      downloadFileFromResponse(blob, `reconciliation-cases-${Date.now()}.csv`, 'csv');
       toastSuccess('Reconciliation cases exported successfully.');
     } catch {
       toastError('Failed to export reconciliation cases.');

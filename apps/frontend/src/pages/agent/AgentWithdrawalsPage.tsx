@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext.js';
 import { useWalletBalance } from '../../hooks/useWalletBalance.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { walletApi, AgentWithdrawalLimitsDto } from '../../api/wallet.api.js';
+import { exportToCSV, exportToExcel } from '../../utils/exportUtils.js';
 import {
   Calendar,
   ArrowDownToLine,
@@ -23,7 +24,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpDown,
-  Clock,
 } from 'lucide-react';
 
 export const GHANA_BANKS = [
@@ -339,22 +339,43 @@ export const AgentWithdrawalsPage: React.FC = () => {
   };
 
   const handleExportPayouts = (format: 'CSV' | 'EXCEL') => {
-    const csvHeader = 'Withdrawal ID,Reference,Amount (GHS),Fee (GHS),Payout Method,Recipient Account,Recipient Name,Status,Date\n';
-    const rows = filteredPayouts
-      .map(
-        (p) =>
-          `${p.id},${p.reference},${(p.amountPesewas / 100).toFixed(2)},${(p.feePesewas / 100).toFixed(2)},"${p.method}","${p.recipientAccount}","${p.recipientName}",${p.status},"${p.date}"`,
-      )
-      .join('\n');
-    const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `payout_history_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Export Complete', `Payout history exported to ${format}.`);
+    try {
+      if (filteredPayouts.length === 0) {
+        toastInfo('No Data', 'There are no payout records matching your filters to export.');
+        return;
+      }
+      const headers = ['Withdrawal ID', 'Reference', 'Amount (GHS)', 'Fee (GHS)', 'Payout Method', 'Recipient Account', 'Recipient Name', 'Status', 'Date'];
+      const rows = filteredPayouts.map((p) => [
+        p.id,
+        p.reference,
+        (p.amountPesewas / 100).toFixed(2),
+        (p.feePesewas / 100).toFixed(2),
+        p.method,
+        p.recipientAccount,
+        p.recipientName,
+        p.status,
+        p.date,
+      ]);
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      if (format === 'EXCEL') {
+        exportToExcel({
+          filename: `payout_history_${dateStr}.xlsx`,
+          sheetName: 'Payouts',
+          headers,
+          rows,
+        });
+      } else {
+        exportToCSV({
+          filename: `payout_history_${dateStr}.csv`,
+          headers,
+          rows,
+        });
+      }
+      toastSuccess('Export Complete', `Payout history exported to ${format}.`);
+    } catch (err: any) {
+      toastError('Export Failed', err.message || `Failed to export payouts to ${format}`);
+    }
   };
 
   const handleRefresh = () => {

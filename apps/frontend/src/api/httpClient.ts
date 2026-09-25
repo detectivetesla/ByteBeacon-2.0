@@ -291,6 +291,20 @@ export class HttpClient {
         return (shouldSkipSanitize ? textData : sanitizeText(textData)) as unknown as T;
       }
 
+      // Automatically handle file downloads / attachment responses even if caller omitted responseType: 'blob'
+      const contentType = (typeof response.headers?.get === 'function' ? response.headers.get('content-type') : '') || '';
+      const contentDisposition = (typeof response.headers?.get === 'function' ? response.headers.get('content-disposition') : '') || '';
+      const isFileDownload =
+        contentDisposition.includes('attachment') ||
+        contentType.includes('text/csv') ||
+        contentType.includes('application/octet-stream') ||
+        contentType.includes('application/vnd.openxmlformats') ||
+        contentType.includes('application/pdf');
+
+      if (isFileDownload && typeof response.blob === 'function') {
+        return (await response.blob()) as unknown as T;
+      }
+
       // Parse JSON response
       let responseBody: any;
       const text = await response.text();

@@ -104,9 +104,9 @@ export function Table<T = any>(props: TableProps<T>) {
           textAlign: 'center',
           color: 'var(--color-text-muted)',
           fontSize: 'var(--font-size-sm)',
-          backgroundColor: 'var(--color-bg-surface-elevated)',
+          backgroundColor: 'var(--color-bg-surface)',
           borderRadius: 'var(--radius-lg)',
-          border: '1px dashed var(--color-border-default)',
+          border: '1px dashed var(--color-border-subtle)',
           ...style,
         }}
       >
@@ -133,7 +133,7 @@ export function Table<T = any>(props: TableProps<T>) {
             .bb-table-mobile-cards {
               display: flex !important;
               flex-direction: column;
-              gap: var(--space-3);
+              gap: var(--space-2);
               width: 100%;
             }
           ` : `
@@ -154,19 +154,20 @@ export function Table<T = any>(props: TableProps<T>) {
           }}
         >
           <thead>
-            <tr style={{ borderBottom: '1px solid var(--color-border-default)', backgroundColor: 'var(--color-bg-surface-elevated)' }}>
+            <tr style={{ borderBottom: '1px solid var(--color-border-subtle)', backgroundColor: 'var(--color-bg-section, var(--color-bg-surface-elevated))' }}>
               {columns.map((col, i) => (
                 <th
                   key={i}
                   style={{
-                    padding: 'var(--space-3) var(--space-4)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 700,
+                    padding: '0.625rem 0.875rem',
+                    fontSize: 'var(--font-size-2xs)',
+                    fontWeight: 650,
                     textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
+                    letterSpacing: '0.05em',
                     color: 'var(--color-text-secondary)',
                     width: col.width,
                     textAlign: col.align || 'left',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   {col.header}
@@ -195,8 +196,8 @@ export function Table<T = any>(props: TableProps<T>) {
                   <td
                     key={i}
                     style={{
-                      padding: 'var(--space-4)',
-                      fontSize: 'var(--font-size-sm)',
+                      padding: '0.6875rem 0.875rem',
+                      fontSize: 'var(--font-size-xs)',
                       color: 'var(--color-text-primary)',
                       textAlign: col.align || 'left',
                     }}
@@ -222,16 +223,16 @@ export function Table<T = any>(props: TableProps<T>) {
               key={keyExtractor(row)}
               onClick={() => onRowClick?.(row)}
               style={{
-                backgroundColor: 'var(--color-bg-surface-elevated)',
-                border: '1px solid var(--color-border-default)',
-                borderRadius: 'var(--radius-lg)',
-                padding: 'var(--space-4)',
-                boxShadow: 'var(--shadow-tactile-sm)',
+                backgroundColor: 'var(--color-bg-surface)',
+                border: 'var(--border-card-default)',
+                borderRadius: 'var(--radius-md)',
+                padding: 'var(--space-3) var(--space-4)',
+                boxShadow: 'var(--shadow-card-default)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 'var(--space-2)',
                 cursor: onRowClick ? 'pointer' : 'default',
-                transition: 'border-color var(--transition-fast), background-color var(--transition-fast)',
+                transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)',
               }}
               onMouseEnter={(e) => {
                 if (onRowClick) e.currentTarget.style.borderColor = 'var(--color-brand)';
@@ -258,7 +259,7 @@ export function Table<T = any>(props: TableProps<T>) {
                         alignItems: 'center',
                         flexWrap: 'wrap',
                         gap: '0.5rem',
-                        paddingBottom: idx < columns.length - 1 ? '0.35rem' : 0,
+                        paddingBottom: idx < columns.length - 1 ? '0.3rem' : 0,
                         borderBottom: idx < columns.length - 1 ? '1px dashed var(--color-border-subtle)' : 'none',
                       }}
                     >
@@ -275,7 +276,7 @@ export function Table<T = any>(props: TableProps<T>) {
                       </span>
                       <div
                         style={{
-                          fontSize: 'var(--font-size-sm)',
+                          fontSize: 'var(--font-size-xs)',
                           fontWeight: 600,
                           color: 'var(--color-text-primary)',
                           textAlign: 'right',
@@ -318,7 +319,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: 'var(--space-4) 0',
+        padding: 'var(--space-3) 0',
         fontSize: 'var(--font-size-xs)',
         color: 'var(--color-text-secondary)',
         ...style,
@@ -329,17 +330,21 @@ export const Pagination: React.FC<PaginationProps> = ({
         {totalItems !== undefined && ` (${totalItems} total)`}
       </span>
 
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', gap: '0.375rem' }}>
         <button
           disabled={currentPage <= 1}
           onClick={() => onPageChange(currentPage - 1)}
           style={{
-            padding: '0.375rem 0.75rem',
-            backgroundColor: 'var(--color-bg-surface-elevated)',
-            border: '1px solid var(--color-border-default)',
+            padding: '0.3rem 0.65rem',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: 'var(--border-card-default)',
             borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 500,
             color: currentPage <= 1 ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
             cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+            opacity: currentPage <= 1 ? 0.5 : 1,
+            transition: 'background-color var(--transition-fast)',
           }}
         >
           Previous
@@ -349,12 +354,16 @@ export const Pagination: React.FC<PaginationProps> = ({
           disabled={currentPage >= totalPages}
           onClick={() => onPageChange(currentPage + 1)}
           style={{
-            padding: '0.375rem 0.75rem',
-            backgroundColor: 'var(--color-bg-surface-elevated)',
-            border: '1px solid var(--color-border-default)',
+            padding: '0.3rem 0.65rem',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: 'var(--border-card-default)',
             borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 500,
             color: currentPage >= totalPages ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
             cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+            opacity: currentPage >= totalPages ? 0.5 : 1,
+            transition: 'background-color var(--transition-fast)',
           }}
         >
           Next

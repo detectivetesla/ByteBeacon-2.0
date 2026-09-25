@@ -14,6 +14,7 @@ import {
   StoreStatus,
   StorePayoutDto,
 } from '../../api/admin.api.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 import {
   Store,
   CheckCircle,
@@ -470,8 +471,10 @@ export const AdminStoresPage: React.FC = () => {
   // Export CSV
   const handleExport = async () => {
     try {
-      toastSuccess('Exporting Stores', 'Downloading store records CSV...');
-      await adminApi.exportStores({ format: 'csv', status: statusFilter });
+      const res = await adminApi.exportStores({ format: 'csv', status: statusFilter });
+      const fallbackFilename = `bytebeacon-stores-${new Date().toISOString().slice(0, 10)}.csv`;
+      downloadFileFromResponse(res, fallbackFilename, 'csv');
+      toastSuccess('Export Ready', 'Store records downloaded.');
     } catch (err: any) {
       toastError('Export Failed', err.message || 'Could not export stores');
     }

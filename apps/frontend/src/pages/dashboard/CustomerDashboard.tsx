@@ -167,45 +167,16 @@ export const CustomerDashboard: React.FC = () => {
         }
       `}</style>
       {/* Header Bar */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '1rem',
-          marginBottom: 'var(--space-6)',
-        }}
-      >
+      <div className="bb-page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
           <Avatar name={displayName} role="customer" status="online" size="md" />
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-                Welcome, {displayName}
-              </h1>
-              <span
-                style={{
-                  fontSize: 'var(--font-size-3xs)',
-                  fontWeight: 800,
-                  padding: '0.12rem 0.45rem',
-                  borderRadius: 'var(--radius-full)',
-                  backgroundColor: 'var(--color-info-surface)',
-                  border: '1px solid var(--color-info-border)',
-                  color: 'var(--color-info)',
-                  textTransform: 'uppercase',
-                }}
-              >
-                CUSTOMER
-              </span>
-            </div>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.2rem 0 0 0' }}>
-              {user?.email || 'Instant multi-network data fulfillment'}
-            </p>
+          <div className="bb-page-header-info">
+            <h1>Welcome, {displayName}</h1>
+            <p>{user?.email || 'Instant multi-network data fulfillment'}</p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.625rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="bb-page-header-actions">
           <Button variant="outline" size="sm" onClick={() => (window.location.href = '/app/wallet')}>
             Fund Wallet
           </Button>
@@ -219,19 +190,11 @@ export const CustomerDashboard: React.FC = () => {
       <LatestSuccessfulOrderBanner style={{ marginBottom: 'var(--space-5)' }} />
 
       {/* Top 4 Metric Cards */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
-          gap: 'var(--space-4)',
-          marginBottom: 'var(--space-6)',
-        }}
-      >
+      <div className="bb-kpi-grid">
         <MetricCard
           title="Wallet Balance"
           value={`GH₵ ${balanceGhs.toFixed(2)}`}
           subtitle="Instant checkout balance"
-          accent="amber"
           icon={<TactileIcon icon={Wallet} color="wallet" size="sm" />}
         />
 
@@ -239,7 +202,6 @@ export const CustomerDashboard: React.FC = () => {
           title="Total Orders"
           value={String(totalOrders)}
           subtitle="Lifetime purchases"
-          accent="blue"
           icon={<TactileIcon icon={Smartphone} color="orders" size="sm" />}
         />
 
@@ -247,7 +209,6 @@ export const CustomerDashboard: React.FC = () => {
           title="Delivered"
           value={String(deliveredOrders)}
           subtitle={totalOrders > 0 ? `${Math.round((deliveredOrders / totalOrders) * 100)}% delivery rate` : '100% SLA'}
-          accent="green"
           icon={<TactileIcon icon={CheckCircle2} color="security" size="sm" />}
         />
 
@@ -255,7 +216,6 @@ export const CustomerDashboard: React.FC = () => {
           title="In-Progress"
           value={String(pendingOrders)}
           subtitle="Awaiting carrier"
-          accent="orange"
           icon={<TactileIcon icon={Clock} color="speed" size="sm" />}
         />
       </div>

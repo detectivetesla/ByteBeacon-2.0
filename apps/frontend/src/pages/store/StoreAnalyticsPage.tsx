@@ -6,6 +6,7 @@ import { Select } from '../../components/ui/index.js';
 import { Download, Loader2, RotateCcw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
+import { downloadBlob } from '../../utils/exportUtils.js';
 
 interface AnalyticsData {
   monthlyRevenueGhs: number;
@@ -126,14 +127,8 @@ export const StoreAnalyticsPage: React.FC = () => {
     const carrierHeader = '\n\nNetwork Carrier,Orders,Revenue (GHS),Share (%)\n';
     const carrierRows = data.networkBreakdown.map((n) => `${n.network},${n.orderCount},${n.revenueGhs.toFixed(2)},${n.percentage.toFixed(1)}%`).join('\n');
     
-    const blob = new Blob([header + trendRows + carrierHeader + carrierRows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `store_analytics_${period}_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const blob = new Blob(['\uFEFF' + header + trendRows + carrierHeader + carrierRows], { type: 'text/csv;charset=utf-8;' });
+    downloadBlob(blob, `store_analytics_${period}_${new Date().toISOString().slice(0, 10)}.csv`);
     toastSuccess('Report Exported', `Analytics report for ${period} downloaded.`);
   };
 

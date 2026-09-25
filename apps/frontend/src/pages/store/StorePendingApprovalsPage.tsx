@@ -7,7 +7,6 @@ import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Modal } from '../../components/ui/Modal/Modal.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { ResponsiveTable } from '../../components/ui/responsive/index.js';
-import type { ResponsiveTableColumn } from '../../components/ui/responsive/index.js';
 import {
   Clock,
   RefreshCw,
@@ -33,6 +32,7 @@ import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { ordersApi } from '../../api/orders.api.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 export type ApprovalStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED';
 export type DetectedChannel = 'Storefront' | 'Web' | 'API' | 'Single Order' | 'Bulk Order' | 'Excel Upload' | 'Manual Check';
@@ -485,29 +485,27 @@ export const StorePendingApprovalsPage: React.FC = () => {
   const handleExport = () => {
     setIsExporting(true);
     try {
-      const headers = ['Phone Number', 'Network', 'Bundle Size', 'Status', 'Detected From', 'Occurrences', 'Created At', 'Provider Ref'];
-      const rows = filteredRecords.map((r) => [
-        r.phoneNumber,
-        r.network,
-        r.dataSize || '—',
-        r.status,
-        r.detectedFrom,
-        r.occurrences || 1,
-        new Date(r.createdAt).toLocaleString(),
-        r.providerReference || 'DH-AUTO',
-      ]);
-
-      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement('a');
-      link.setAttribute('href', encodedUri);
-      link.setAttribute('download', `store-pending-approvals-${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (filteredRecords.length === 0) {
+        toastInfo('No Data', 'There are no pending approval records to export.');
+        return;
+      }
+      exportToCSV({
+        filename: `store-pending-approvals-${new Date().toISOString().split('T')[0]}.csv`,
+        headers: ['Phone Number', 'Network', 'Bundle Size', 'Status', 'Detected From', 'Occurrences', 'Created At', 'Provider Ref'],
+        rows: filteredRecords.map((r) => [
+          r.phoneNumber,
+          r.network,
+          r.dataSize || '—',
+          r.status,
+          r.detectedFrom,
+          r.occurrences || 1,
+          new Date(r.createdAt).toLocaleString(),
+          r.providerReference || 'DH-AUTO',
+        ]),
+      });
       toastSuccess('Export Complete', 'Exported pending MTN records to CSV.');
-    } catch {
-      toastError('Export Failed', 'Could not export pending approvals CSV.');
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Could not export pending approvals CSV.');
     } finally {
       setIsExporting(false);
     }

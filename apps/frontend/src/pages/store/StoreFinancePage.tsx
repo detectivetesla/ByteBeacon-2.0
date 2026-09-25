@@ -8,6 +8,7 @@ import { ResponsiveTable, ResponsiveTableColumn } from '../../components/ui/resp
 import { Download, Loader2, ArrowDownToLine, Calendar, History, RotateCcw } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi } from '../../api/stores.api.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 export const StoreFinancePage: React.FC = () => {
   const navigate = useNavigate();
@@ -70,22 +71,22 @@ export const StoreFinancePage: React.FC = () => {
       toastError('No Data', 'No transaction settlements to export.');
       return;
     }
-    const header = 'Reference,Type,Amount (GHS),Entry Type,Date\n';
-    const rows = data.transactions
-      .map(
-        (tx: any) =>
-          `"${tx.referenceId}","${tx.referenceType}",${(tx.amountPesewas / 100).toFixed(2)},${tx.entryType},"${new Date(tx.createdAt).toLocaleString()}"`,
-      )
-      .join('\n');
-    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `store_settlements_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Statement Exported', 'Store settlements statement downloaded.');
+    try {
+      exportToCSV({
+        filename: `store_settlements_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Reference', 'Type', 'Amount (GHS)', 'Entry Type', 'Date'],
+        rows: data.transactions.map((tx: any) => [
+          tx.referenceId,
+          tx.referenceType,
+          (tx.amountPesewas / 100).toFixed(2),
+          tx.entryType,
+          new Date(tx.createdAt).toLocaleString(),
+        ]),
+      });
+      toastSuccess('Statement Exported', 'Store settlements statement downloaded.');
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Failed to export store settlements statement');
+    }
   };
 
   const columns: ResponsiveTableColumn<any>[] = [

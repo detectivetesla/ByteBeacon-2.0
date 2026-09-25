@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card/Card.js';
 import { Button } from '../../components/ui/Button/Button.js';
-import { Input } from '../../components/ui/index.js';
+import { Input, Badge } from '../../components/ui/index.js';
 import {
   User,
   ShieldCheck,
@@ -109,8 +109,8 @@ export const CustomerProfilePage: React.FC = () => {
   return (
     <div style={{ maxWidth: '1080px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* 1. Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
+      <div className="bb-page-header">
+        <div className="bb-page-header-info">
           <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)' }}>
             Account Overview
           </span>
@@ -122,7 +122,7 @@ export const CustomerProfilePage: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div className="bb-page-header-actions">
           <Button variant="outline" size="sm" onClick={() => navigate('/app/settings')} leftIcon={<Settings size={14} />}>
             Preferences
           </Button>
@@ -137,8 +137,9 @@ export const CustomerProfilePage: React.FC = () => {
         style={{
           padding: 'var(--space-6)',
           backgroundColor: 'var(--color-bg-surface)',
-          border: '1px solid var(--color-border-default)',
-          borderRadius: 'var(--radius-2xl)',
+          border: '1px solid var(--border-card-default)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-card-default)',
         }}
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
@@ -146,17 +147,17 @@ export const CustomerProfilePage: React.FC = () => {
             {/* Avatar Initials Badge */}
             <div
               style={{
-                width: '64px',
-                height: '64px',
+                width: '56px',
+                height: '56px',
                 borderRadius: '50%',
                 backgroundColor: 'var(--color-primary)',
                 color: '#FFFFFF',
-                fontSize: 'var(--font-size-xl)',
+                fontSize: 'var(--font-size-lg)',
                 fontWeight: 900,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: 'var(--shadow-tactile-sm)',
+                boxShadow: 'var(--shadow-sm)',
                 flexShrink: 0,
               }}
             >
@@ -168,19 +169,7 @@ export const CustomerProfilePage: React.FC = () => {
                 <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 900, color: 'var(--color-text-primary)', margin: 0 }}>
                   {customerName}
                 </h2>
-                <span
-                  style={{
-                    fontSize: 'var(--font-size-3xs)',
-                    fontWeight: 800,
-                    padding: '0.12rem 0.5rem',
-                    borderRadius: 'var(--radius-full)',
-                    backgroundColor: 'rgba(34, 197, 94, 0.12)',
-                    color: 'var(--color-success)',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  Active Customer
-                </span>
+                <Badge variant="success" size="sm" dot>Active Customer</Badge>
               </div>
 
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1rem', marginTop: '0.35rem', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
@@ -301,8 +290,9 @@ export const CustomerProfilePage: React.FC = () => {
           style={{
             padding: 'var(--space-6)',
             backgroundColor: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border-default)',
+            border: '1px solid var(--border-card-default)',
             borderRadius: 'var(--radius-xl)',
+            boxShadow: 'var(--shadow-card-default)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
@@ -339,9 +329,10 @@ export const CustomerProfilePage: React.FC = () => {
       <Card
         style={{
           padding: 'var(--space-6)',
-          backgroundColor: 'var(--color-bg-surface-elevated)',
-          border: '1px solid var(--color-border-subtle)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--border-card-default)',
           borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-card-default)',
         }}
       >
         <h2 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -350,7 +341,7 @@ export const CustomerProfilePage: React.FC = () => {
         </h2>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
-          <div style={{ padding: 'var(--space-3) var(--space-4)', backgroundColor: 'var(--color-bg-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-default)' }}>
+          <div style={{ padding: 'var(--space-3) var(--space-4)', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-card-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Email Address</span>
               <CheckCircle2 size={13} color="var(--color-success)" />
@@ -359,7 +350,7 @@ export const CustomerProfilePage: React.FC = () => {
             <span style={{ display: 'block', fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', marginTop: '2px' }}>Verified for security notifications</span>
           </div>
 
-          <div style={{ padding: 'var(--space-3) var(--space-4)', backgroundColor: 'var(--color-bg-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-default)' }}>
+          <div style={{ padding: 'var(--space-3) var(--space-4)', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-card-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Phone Number</span>
               <CheckCircle2 size={13} color="var(--color-success)" />
@@ -368,7 +359,7 @@ export const CustomerProfilePage: React.FC = () => {
             <span style={{ display: 'block', fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', marginTop: '2px' }}>Verified for instant bundle top-ups</span>
           </div>
 
-          <div style={{ padding: 'var(--space-3) var(--space-4)', backgroundColor: 'var(--color-bg-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border-default)' }}>
+          <div style={{ padding: 'var(--space-3) var(--space-4)', backgroundColor: 'var(--color-bg-surface-elevated)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-card-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
               <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Account Security</span>
               <Lock size={13} color="#10B981" />
@@ -382,7 +373,7 @@ export const CustomerProfilePage: React.FC = () => {
       {/* 5. Quick Account Action Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
         <Card
-          style={{ padding: 'var(--space-4)', cursor: 'pointer', transition: 'all 150ms ease' }}
+          style={{ padding: 'var(--space-4)', cursor: 'pointer', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)', borderRadius: 'var(--radius-xl)', transition: 'all 150ms ease' }}
           onClick={() => navigate('/app/settings')}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -397,7 +388,7 @@ export const CustomerProfilePage: React.FC = () => {
         </Card>
 
         <Card
-          style={{ padding: 'var(--space-4)', cursor: 'pointer', transition: 'all 150ms ease' }}
+          style={{ padding: 'var(--space-4)', cursor: 'pointer', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)', borderRadius: 'var(--radius-xl)', transition: 'all 150ms ease' }}
           onClick={() => navigate('/app/settings')}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -412,7 +403,7 @@ export const CustomerProfilePage: React.FC = () => {
         </Card>
 
         <Card
-          style={{ padding: 'var(--space-4)', cursor: 'pointer', transition: 'all 150ms ease' }}
+          style={{ padding: 'var(--space-4)', cursor: 'pointer', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)', borderRadius: 'var(--radius-xl)', transition: 'all 150ms ease' }}
           onClick={() => toastSuccess('Support Desk', 'Redirecting to customer support channel...')}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -428,7 +419,7 @@ export const CustomerProfilePage: React.FC = () => {
       </div>
 
       {/* 6. Danger Zone: Close / Delete Account */}
-      <Card style={{ padding: 'var(--space-5)', border: '1px solid rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.03)', borderRadius: 'var(--radius-xl)' }}>
+      <Card style={{ padding: 'var(--space-5)', border: '1px solid var(--color-danger-border)', backgroundColor: 'var(--color-danger-surface)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-card-default)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-danger)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>

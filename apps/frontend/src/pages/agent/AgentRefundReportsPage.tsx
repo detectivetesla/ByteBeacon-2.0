@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { apiClient } from '../../api/httpClient.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 export type RefundStatus = 'Pending' | 'Processing' | 'Completed' | 'Failed' | 'Rejected';
 export type PaymentMethod = 'Paystack' | 'Mobile Money' | 'Card' | 'Bank Transfer' | 'Wallet';
@@ -87,7 +88,7 @@ export const PaymentMethodBadge: React.FC<{ method: PaymentMethod }> = ({ method
 
 export const AgentRefundReportsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { toastSuccess } = useToast();
+  const { toastSuccess, toastInfo, toastError } = useToast();
 
   const [refunds, setRefunds] = useState<RefundRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -200,22 +201,28 @@ export const AgentRefundReportsPage: React.FC = () => {
   }, [filteredRefunds, currentPage, itemsPerPage]);
 
   const handleExport = () => {
-    const csvHeader = 'Refund ID,Order,Amount,Payment Method,Reason,Status,Date\n';
-    const rows = filteredRefunds
-      .map(
-        (r) =>
-          `${r.id},${r.orderId},GH₵ ${(r.amountPesewas / 100).toFixed(2)},${r.paymentMethod},"${r.reason}",${r.status},${r.requestedAt}`,
-      )
-      .join('\n');
-    const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `refunds_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Export Complete', `Exported ${filteredRefunds.length} refund records.`);
+    try {
+      if (filteredRefunds.length === 0) {
+        toastInfo('No Data', 'There are no refund records matching your filters to export.');
+        return;
+      }
+      exportToCSV({
+        filename: `refunds_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Refund ID', 'Order', 'Amount', 'Payment Method', 'Reason', 'Status', 'Date'],
+        rows: filteredRefunds.map((r) => [
+          r.id,
+          r.orderId,
+          `GH₵ ${(r.amountPesewas / 100).toFixed(2)}`,
+          r.paymentMethod,
+          r.reason,
+          r.status,
+          r.requestedAt,
+        ]),
+      });
+      toastSuccess('Export Complete', `Exported ${filteredRefunds.length} refund records.`);
+    } catch (err: any) {
+      toastError?.('Export Failed', err.message || 'Failed to export refunds');
+    }
   };
 
   return (

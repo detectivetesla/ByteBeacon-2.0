@@ -18,6 +18,7 @@ import {
   AgentAccountStatus,
   AgentWithdrawalPolicyDto,
 } from '../../api/admin.api.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 import {
   Users,
   Store,
@@ -40,11 +41,7 @@ import {
   X,
   FileText,
   CheckCircle2,
-  AlertTriangle,
   Layers,
-  Calendar,
-  Check,
-  Ban,
 } from 'lucide-react';
 
 export const AdminAgentsPage: React.FC = () => {
@@ -645,7 +642,7 @@ export const AdminAgentsPage: React.FC = () => {
         withdrawalsEnabled: customWithdrawalsEnabled,
         allowAnytimeWithdrawals: customAllowAnytime,
         reason: limitChangeReason.trim() || 'Updated agent profit withdrawal limits and controls',
-      });
+      } as any);
 
       toastSuccess(
         'Agent Controls Updated',
@@ -816,8 +813,10 @@ export const AdminAgentsPage: React.FC = () => {
   // Export CSV
   const handleExport = async () => {
     try {
-      toastSuccess('Exporting Agents', 'Downloading agent records CSV...');
-      await adminApi.exportAgents({ format: 'csv', status: statusFilter });
+      const res = await adminApi.exportAgents({ format: 'csv', status: statusFilter });
+      const fallbackFilename = `bytebeacon-agents-${new Date().toISOString().slice(0, 10)}.csv`;
+      downloadFileFromResponse(res, fallbackFilename, 'csv');
+      toastSuccess('Export Ready', 'Agent records downloaded.');
     } catch (err: any) {
       toastError('Export Failed', err.message || 'Could not export agents data');
     }

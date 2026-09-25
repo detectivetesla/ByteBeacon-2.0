@@ -38,6 +38,7 @@ import {
   FinancialSafetySettingsDto,
   ReprocessPreviewDto,
 } from '../../api/admin.api.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 
 // Standardized Tactile Button & Input Styles
 const tactileButtonStyle: React.CSSProperties = {
@@ -495,13 +496,9 @@ export const AdminPaymentsPage: React.FC = () => {
         startDate: reportStartDate || undefined,
         endDate: reportEndDate || undefined,
       });
-      const url = window.URL.createObjectURL(new Blob([blob as any]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `financial-report-${reportType.toLowerCase()}-${Date.now()}.${reportFormat}`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const ext = reportFormat.toLowerCase() as 'csv' | 'xlsx' | 'json';
+      const fallbackFilename = `financial-report-${reportType.toLowerCase()}-${Date.now()}.${ext}`;
+      downloadFileFromResponse(blob, fallbackFilename, ext);
       toastSuccess('Export Downloaded', `${reportType} report successfully generated.`);
     } catch {
       toastError('Export Failed', 'Failed to generate report export.');

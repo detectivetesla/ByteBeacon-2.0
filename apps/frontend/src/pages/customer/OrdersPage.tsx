@@ -26,6 +26,7 @@ import {
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { ordersApi } from '../../api/orders.api.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 interface OrderRowData extends OrderDetailsItem {
   createdAtMs?: number;
@@ -33,7 +34,7 @@ interface OrderRowData extends OrderDetailsItem {
 
 export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
-  const { toastSuccess, toastInfo } = useToast();
+  const { toastSuccess, toastInfo, toastError } = useToast();
   const { isOrderProcessingPaused, isTotalOrderLockdown, orderProcessingMessage } = usePlatformStatus();
 
   // Filters State
@@ -299,22 +300,29 @@ export const OrdersPage: React.FC = () => {
 
   const handleExport = () => {
     setIsExporting(true);
-    setTimeout(() => {
-      setIsExporting(false);
-      const csvHeader = 'Order ID,Size,Recipient,Network,Status,Source,Paid,Date\n';
-      const rows = filteredOrders
-        .map((o) => `${o.orderNumber},${o.dataDisplay},${o.recipient},${o.network},${o.orderStatus},${o.source || 'Wallet'},${o.paidDisplay || o.amountDisplay},${o.dateDisplay}`)
-        .join('\n');
-      const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `bytebeacon_my_orders_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    try {
+      const headers = ['Order ID', 'Size', 'Recipient', 'Network', 'Status', 'Source', 'Paid (GHS)', 'Date'];
+      const rows = filteredOrders.map((o) => [
+        o.orderNumber,
+        o.dataDisplay,
+        o.recipient,
+        o.network,
+        o.orderStatus,
+        o.source || 'Wallet',
+        o.paidDisplay || o.amountDisplay,
+        o.dateDisplay,
+      ]);
+      exportToCSV({
+        filename: `bytebeacon_my_orders_${new Date().toISOString().slice(0, 10)}`,
+        headers,
+        rows,
+      });
       toastSuccess('Export Ready', `Exported ${filteredOrders.length} orders to CSV.`);
-    }, 800);
+    } catch {
+      toastError('Export Failed', 'Could not export orders to CSV.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleViewDetails = (order: OrderRowData) => {
@@ -491,32 +499,30 @@ export const OrdersPage: React.FC = () => {
         </div>
       )}
 
-      {/* 2. Four Premium Distinct Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
-        {/* Card 1: Revenue (Deep Emerald - Interactive Sort Toggle) */}
+      {/* 2. Key Metrics Cards (Interactive Filters) */}
+      <div className="bb-kpi-grid">
+        {/* Card 1: Revenue */}
         <div
           onClick={() => setSortBy((prev) => (prev === 'highest' ? 'lowest' : 'highest'))}
           title="Click to sort by amount (Highest / Lowest)"
           style={{
-            padding: 'var(--space-5)',
-            borderRadius: 'var(--radius-xl)',
-            background: (sortBy === 'highest' || sortBy === 'lowest')
-              ? 'linear-gradient(145deg, var(--color-success-surface), var(--color-bg-surface-elevated))'
-              : 'linear-gradient(145deg, var(--color-success-surface), var(--color-bg-surface))',
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: 'var(--color-bg-surface)',
             border: (sortBy === 'highest' || sortBy === 'lowest')
-              ? '2px solid var(--color-success)'
-              : '1px solid var(--color-success-border)',
-            boxShadow: 'var(--shadow-tactile-sm)',
+              ? '1.5px solid var(--color-success)'
+              : 'var(--border-card-default)',
+            boxShadow: 'var(--shadow-card-default)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            minHeight: '130px',
+            gap: 'var(--space-3)',
             cursor: 'pointer',
-            transition: 'all 150ms ease',
+            transition: 'border-color var(--transition-fast)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-secondary)' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               Revenue
             </span>
             <div
@@ -532,44 +538,42 @@ export const OrdersPage: React.FC = () => {
                 justifyContent: 'center',
               }}
             >
-              <Wallet size={16} strokeWidth={2.5} />
+              <Wallet size={15} strokeWidth={2.4} />
             </div>
           </div>
 
           <div>
-            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
               {metrics.revenueDisplay}
             </div>
-            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
+            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 600, marginTop: '2px', display: 'block' }}>
               {revenueSubtitle}
             </span>
           </div>
         </div>
 
-        {/* Card 2: Orders (Deep Royal Blue - Interactive View All) */}
+        {/* Card 2: Orders */}
         <div
           onClick={() => setStatusFilter('ALL')}
           title="Click to view all orders"
           style={{
-            padding: 'var(--space-5)',
-            borderRadius: 'var(--radius-xl)',
-            background: statusFilter === 'ALL'
-              ? 'linear-gradient(145deg, var(--color-info-surface), var(--color-bg-surface-elevated))'
-              : 'linear-gradient(145deg, var(--color-info-surface), var(--color-bg-surface))',
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: 'var(--color-bg-surface)',
             border: statusFilter === 'ALL'
-              ? '2px solid var(--color-info)'
-              : '1px solid var(--color-info-border)',
-            boxShadow: 'var(--shadow-tactile-sm)',
+              ? '1.5px solid var(--color-brand)'
+              : 'var(--border-card-default)',
+            boxShadow: 'var(--shadow-card-default)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            minHeight: '130px',
+            gap: 'var(--space-3)',
             cursor: 'pointer',
-            transition: 'all 150ms ease',
+            transition: 'border-color var(--transition-fast)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-secondary)' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               Orders
             </span>
             <div
@@ -585,40 +589,42 @@ export const OrdersPage: React.FC = () => {
                 justifyContent: 'center',
               }}
             >
-              <Package size={16} strokeWidth={2.5} />
+              <Package size={15} strokeWidth={2.4} />
             </div>
           </div>
 
           <div>
-            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
               {metrics.ordersCount}
             </div>
-            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
+            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 600, marginTop: '2px', display: 'block' }}>
               {ordersSubtitle}
             </span>
           </div>
         </div>
 
-        {/* Card 3: Processing (Deep Amber - Interactive Quick Filter) */}
+        {/* Card 3: Processing */}
         <div
           onClick={() => setStatusFilter(statusFilter === OrderStatus.PROCESSING ? 'ALL' : OrderStatus.PROCESSING)}
           title="Click to filter by Processing"
           style={{
-            padding: 'var(--space-5)',
-            borderRadius: 'var(--radius-xl)',
-            background: statusFilter === OrderStatus.PROCESSING ? 'var(--color-warning-surface)' : 'linear-gradient(145deg, var(--color-warning-surface), var(--color-bg-surface))',
-            border: statusFilter === OrderStatus.PROCESSING ? '2px solid var(--color-warning)' : '1px solid var(--color-warning-border)',
-            boxShadow: 'var(--shadow-tactile-sm)',
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: statusFilter === OrderStatus.PROCESSING
+              ? '1.5px solid var(--color-warning)'
+              : 'var(--border-card-default)',
+            boxShadow: 'var(--shadow-card-default)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            minHeight: '130px',
+            gap: 'var(--space-3)',
             cursor: 'pointer',
-            transition: 'all 150ms ease',
+            transition: 'border-color var(--transition-fast)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-secondary)' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               Processing
             </span>
             <div
@@ -635,18 +641,17 @@ export const OrdersPage: React.FC = () => {
                 position: 'relative',
               }}
             >
-              <Clock size={16} strokeWidth={2.5} />
+              <Clock size={15} strokeWidth={2.4} />
               {metrics.processingCount > 0 && (
                 <span
                   style={{
                     position: 'absolute',
                     top: '-2px',
                     right: '-2px',
-                    width: '7px',
-                    height: '7px',
+                    width: '6px',
+                    height: '6px',
                     borderRadius: '50%',
                     backgroundColor: 'var(--color-warning)',
-                    boxShadow: '0 0 6px var(--color-warning)',
                   }}
                 />
               )}
@@ -654,35 +659,37 @@ export const OrdersPage: React.FC = () => {
           </div>
 
           <div>
-            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
               {metrics.processingCount}
             </div>
-            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
-              {statusFilter === OrderStatus.PROCESSING ? 'Filtered: Processing' : 'Currently processing'}
+            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 600, marginTop: '2px', display: 'block' }}>
+              {statusFilter === OrderStatus.PROCESSING ? 'Filtered: Processing' : 'Active queue'}
             </span>
           </div>
         </div>
 
-        {/* Card 4: Failed (Deep Crimson - Interactive Quick Filter) */}
+        {/* Card 4: Failed */}
         <div
           onClick={() => setStatusFilter(statusFilter === OrderStatus.FAILED ? 'ALL' : OrderStatus.FAILED)}
           title="Click to filter by Failed"
           style={{
-            padding: 'var(--space-5)',
-            borderRadius: 'var(--radius-xl)',
-            background: statusFilter === OrderStatus.FAILED ? 'var(--color-danger-surface)' : 'linear-gradient(145deg, var(--color-danger-surface), var(--color-bg-surface))',
-            border: statusFilter === OrderStatus.FAILED ? '2px solid var(--color-danger)' : '1px solid var(--color-danger-border)',
-            boxShadow: 'var(--shadow-tactile-sm)',
+            padding: 'var(--space-4) var(--space-5)',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: statusFilter === OrderStatus.FAILED
+              ? '1.5px solid var(--color-danger)'
+              : 'var(--border-card-default)',
+            boxShadow: 'var(--shadow-card-default)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            minHeight: '130px',
+            gap: 'var(--space-3)',
             cursor: 'pointer',
-            transition: 'all 150ms ease',
+            transition: 'border-color var(--transition-fast)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-text-secondary)' }}>
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               Failed
             </span>
             <div
@@ -698,15 +705,15 @@ export const OrdersPage: React.FC = () => {
                 justifyContent: 'center',
               }}
             >
-              <AlertCircle size={16} strokeWidth={2.5} />
+              <AlertCircle size={15} strokeWidth={2.4} />
             </div>
           </div>
 
           <div>
-            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+            <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
               {metrics.failedCount}
             </div>
-            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 700, marginTop: '2px', display: 'block' }}>
+            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', fontWeight: 600, marginTop: '2px', display: 'block' }}>
               {statusFilter === OrderStatus.FAILED ? 'Filtered: Failed' : 'Requires attention'}
             </span>
           </div>

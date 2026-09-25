@@ -21,6 +21,7 @@ import { useToast } from '../../context/ToastContext.js';
 import { storesApi, StoreTransactionRecordDto } from '../../api/stores.api.js';
 import { ResponsiveTable, ResponsiveTableColumn } from '../../components/ui/responsive/ResponsiveTable.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 export const StoreTransactionsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -134,28 +135,25 @@ export const StoreTransactionsPage: React.FC = () => {
       return;
     }
 
-    const headers = ['Reference', 'Type', 'Details', 'Customer / Destination', 'Gross Amount (GHS)', 'Profit (GHS)', 'Status', 'Date'];
-    const rows = transactions.map((t) => [
-      `"${t.reference}"`,
-      `"${t.typeLabel || t.type}"`,
-      `"${t.details}"`,
-      `"${t.recipient}"`,
-      t.grossAmountGhs.toFixed(2),
-      t.profitGhs.toFixed(2),
-      `"${t.status}"`,
-      `"${new Date(t.createdAt).toLocaleString()}"`,
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `store_transactions_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Export Complete', 'Transactions ledger exported successfully.');
+    try {
+      exportToCSV({
+        filename: `store_transactions_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Reference', 'Type', 'Details', 'Customer / Destination', 'Gross Amount (GHS)', 'Profit (GHS)', 'Status', 'Date'],
+        rows: transactions.map((t) => [
+          t.reference,
+          t.typeLabel || t.type,
+          t.details,
+          t.recipient,
+          t.grossAmountGhs.toFixed(2),
+          t.profitGhs.toFixed(2),
+          t.status,
+          new Date(t.createdAt).toLocaleString(),
+        ]),
+      });
+      toastSuccess('Export Complete', 'Transactions ledger exported successfully.');
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Failed to export transactions');
+    }
   };
 
   const columns: ResponsiveTableColumn<StoreTransactionRecordDto>[] = [

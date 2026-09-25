@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { adminApi, AdminOrderListItem, AdminOrderStats, AdminOrderDetail, AdminOrderProcessingStatusDto } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 
 export const AdminOrdersPage: React.FC = () => {
   const navigate = useNavigate();
@@ -260,23 +261,10 @@ export const AdminOrdersPage: React.FC = () => {
         format,
       } as any);
 
-      if (format === 'JSON') {
-        const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `bytebeacon-orders-${new Date().toISOString().slice(0, 10)}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        const blob = new Blob([res as any], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `bytebeacon-orders-${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const ext = format === 'JSON' ? 'json' : 'csv';
+      const fallbackFilename = `bytebeacon-orders-${dateStr}.${ext}`;
+      downloadFileFromResponse(res, fallbackFilename, ext);
       toastSuccess(`Exported platform orders as ${format}.`);
     } catch (err: any) {
       toastError(err?.message || 'Failed to export orders.');
@@ -429,17 +417,10 @@ export const AdminOrdersPage: React.FC = () => {
   const handleExportPausedOrders = async (format: 'XLSX' | 'CSV' = 'XLSX') => {
     setIsExportingPaused(true);
     try {
-      const blob = await adminApi.exportPausedOrders({ format });
-      const mimeType = format === 'XLSX'
-        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : 'text/csv;charset=utf-8;';
-      const fileBlob = new Blob([blob], { type: mimeType });
-      const url = URL.createObjectURL(fileBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bytebeacon-paused-orders-${new Date().toISOString().slice(0, 10)}.${format.toLowerCase()}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const res = await adminApi.exportPausedOrders({ format });
+      const ext = format === 'XLSX' ? 'xlsx' : 'csv';
+      const fallbackFilename = `bytebeacon-paused-orders-${new Date().toISOString().slice(0, 10)}.${ext}`;
+      downloadFileFromResponse(res, fallbackFilename, ext);
       toastSuccess(`Exported paused orders as ${format}.`);
     } catch (err: any) {
       toastError(err?.message || 'Failed to export paused orders.');

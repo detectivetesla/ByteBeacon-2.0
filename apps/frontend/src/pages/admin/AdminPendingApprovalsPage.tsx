@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { adminApi, AdminPendingApprovalItem, AdminPendingApprovalStats, AdminPendingApprovalDetail } from '../../api/admin.api.js';
 import { useToast } from '../../context/ToastContext.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 
 export const AdminPendingApprovalsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -228,7 +229,9 @@ export const AdminPendingApprovalsPage: React.FC = () => {
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      await adminApi.exportPendingApprovals();
+      const res = await adminApi.exportPendingApprovals();
+      const fallbackFilename = `pending-approvals-${new Date().toISOString().slice(0, 10)}.csv`;
+      downloadFileFromResponse(res, fallbackFilename, 'csv');
       toastSuccess('Beneficiary approvals exported successfully.');
     } catch {
       toastError('Failed to export beneficiary approvals.');

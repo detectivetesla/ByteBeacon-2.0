@@ -25,6 +25,7 @@ import {
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
 import { ordersApi } from '../../api/orders.api.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 interface OrderRowData extends OrderDetailsItem {
   createdAtMs?: number;
@@ -32,7 +33,7 @@ interface OrderRowData extends OrderDetailsItem {
 
 export const AgentOrdersPage: React.FC = () => {
   const navigate = useNavigate();
-  const { toastSuccess, toastInfo } = useToast();
+  const { toastSuccess, toastInfo, toastError } = useToast();
   const { isOrderProcessingPaused, orderProcessingMessage } = usePlatformStatus();
 
   // Filters State
@@ -348,22 +349,31 @@ export const AgentOrdersPage: React.FC = () => {
 
   const handleExport = () => {
     setIsExporting(true);
-    setTimeout(() => {
-      setIsExporting(false);
-      const csvHeader = 'Order ID,Size,Recipient,Network,Status,Source,Paid,Date\n';
-      const rows = filteredOrders
-        .map((o) => `${o.orderNumber},${o.dataDisplay},${o.recipient},${o.network},${o.orderStatus},${o.source || 'Wallet'},${o.paidDisplay || o.amountDisplay},${o.dateDisplay}`)
-        .join('\n');
-      const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `bytebeacon_orders_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    try {
+      if (filteredOrders.length === 0) {
+        toastInfo('No Data', 'There are no orders matching your filters to export.');
+        return;
+      }
+      exportToCSV({
+        filename: `bytebeacon_orders_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Order ID', 'Size', 'Recipient', 'Network', 'Status', 'Source', 'Paid', 'Date'],
+        rows: filteredOrders.map((o) => [
+          o.orderNumber,
+          o.dataDisplay,
+          o.recipient,
+          o.network,
+          o.orderStatus,
+          o.source || 'Wallet',
+          o.paidDisplay || o.amountDisplay,
+          o.dateDisplay,
+        ]),
+      });
       toastSuccess('Export Ready', `Exported ${filteredOrders.length} orders to CSV.`);
-    }, 800);
+    } catch (err: any) {
+      toastError?.('Export Failed', err.message || 'Failed to export orders');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleViewDetails = (order: OrderRowData) => {

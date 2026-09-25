@@ -153,20 +153,22 @@ export const SettingsPage: React.FC = () => {
   return (
     <div style={{ maxWidth: '1080px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* 1. Header & Identity Capsule */}
-      <div>
-        <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)' }}>
-          Preferences & Controls
-        </span>
-        <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
-          Account Settings
-        </h1>
-        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
-          Manage your personal details, login credentials, notification channels, and privacy preferences.
-        </p>
+      <div className="bb-page-header">
+        <div className="bb-page-header-info">
+          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)' }}>
+            Preferences & Controls
+          </span>
+          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-text-primary)', margin: '0.125rem 0 0 0', letterSpacing: '-0.02em' }}>
+            Account Settings
+          </h1>
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.25rem 0 0 0' }}>
+            Manage your personal details, login credentials, notification channels, and privacy preferences.
+          </p>
+        </div>
       </div>
 
       {/* 2. Customer Identity Capsule */}
-      <Card style={{ padding: 'var(--space-4) var(--space-5)', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-xl)' }}>
+      <Card style={{ padding: 'var(--space-4) var(--space-5)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--border-card-default)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-card-default)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div
@@ -181,9 +183,10 @@ export const SettingsPage: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                boxShadow: 'var(--shadow-sm)',
               }}
             >
-              CM
+              {fullName.charAt(0).toUpperCase() || 'C'}
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -198,9 +201,9 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.6rem', backgroundColor: 'rgba(34, 197, 94, 0.12)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(34, 197, 94, 0.25)' }}>
-            <Shield size={13} color="var(--color-success)" />
-            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-success)', textTransform: 'uppercase' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.6rem', backgroundColor: 'var(--color-brand-surface)', borderRadius: 'var(--radius-full)', border: '1px solid var(--color-brand-border)' }}>
+            <Shield size={13} color="var(--color-brand)" />
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 800, color: 'var(--color-brand)', textTransform: 'uppercase' }}>
               Standard Tier Customer
             </span>
           </div>
@@ -212,7 +215,7 @@ export const SettingsPage: React.FC = () => {
         style={{
           display: 'flex',
           gap: '0.35rem',
-          borderBottom: '1px solid var(--color-border-default)',
+          borderBottom: '1px solid var(--border-card-default)',
           paddingBottom: '2px',
           overflowX: 'auto',
         }}
@@ -260,7 +263,7 @@ export const SettingsPage: React.FC = () => {
 
       {/* TAB 1: PERSONAL INFORMATION */}
       {activeTab === 'personal' && (
-        <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+        <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
           <div style={{ marginBottom: 'var(--space-5)' }}>
             <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
               Personal Identity & Contact
@@ -320,7 +323,7 @@ export const SettingsPage: React.FC = () => {
       {activeTab === 'security' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           {/* Password Change Card */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <div style={{ marginBottom: 'var(--space-5)' }}>
               <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
                 Change Password
@@ -369,7 +372,7 @@ export const SettingsPage: React.FC = () => {
           </Card>
 
           {/* 2FA Toggle Card */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
                 <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
@@ -394,7 +397,7 @@ export const SettingsPage: React.FC = () => {
           </Card>
 
           {/* Active Sessions List */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div>
                 <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
@@ -420,7 +423,7 @@ export const SettingsPage: React.FC = () => {
                     padding: 'var(--space-3) var(--space-4)',
                     backgroundColor: 'var(--color-bg-surface-elevated)',
                     borderRadius: 'var(--radius-lg)',
-                    border: '1px solid var(--color-border-subtle)',
+                    border: '1px solid var(--border-card-subtle)',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -467,7 +470,7 @@ export const SettingsPage: React.FC = () => {
       {activeTab === 'appearance' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           {/* Theme Mode Card */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)' }}>
               Color Scheme & Theme
             </h2>
@@ -489,8 +492,8 @@ export const SettingsPage: React.FC = () => {
                     style={{
                       padding: 'var(--space-4)',
                       borderRadius: 'var(--radius-lg)',
-                      border: isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border-default)',
-                      backgroundColor: isSelected ? 'rgba(34, 197, 94, 0.06)' : 'var(--color-bg-surface-elevated)',
+                      border: isSelected ? '2px solid var(--color-primary)' : '1px solid var(--border-card-default)',
+                      backgroundColor: isSelected ? 'var(--color-brand-surface)' : 'var(--color-bg-surface-elevated)',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -507,7 +510,7 @@ export const SettingsPage: React.FC = () => {
           </Card>
 
           {/* Text Sizing Card */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)' }}>
               Text Size & Legibility
             </h2>
@@ -524,8 +527,8 @@ export const SettingsPage: React.FC = () => {
                   style={{
                     padding: 'var(--space-4)',
                     borderRadius: 'var(--radius-lg)',
-                    border: textSize === sz.id ? '2px solid var(--color-primary)' : '1px solid var(--color-border-default)',
-                    backgroundColor: textSize === sz.id ? 'rgba(34, 197, 94, 0.06)' : 'var(--color-bg-surface-elevated)',
+                    border: textSize === sz.id ? '2px solid var(--color-primary)' : '1px solid var(--border-card-default)',
+                    backgroundColor: textSize === sz.id ? 'var(--color-brand-surface)' : 'var(--color-bg-surface-elevated)',
                     cursor: 'pointer',
                   }}
                 >
@@ -538,7 +541,7 @@ export const SettingsPage: React.FC = () => {
           </Card>
 
           {/* Accessibility Toggles */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)' }}>
               Accessibility Adjustments
             </h2>
@@ -573,7 +576,7 @@ export const SettingsPage: React.FC = () => {
       {activeTab === 'notifications' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           {/* Notification Channels */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)' }}>
               Delivery Channels
             </h2>
@@ -603,7 +606,7 @@ export const SettingsPage: React.FC = () => {
           </Card>
 
           {/* Notification Categories */}
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)' }}>
               Subscribed Topics & Events
             </h2>
@@ -644,7 +647,7 @@ export const SettingsPage: React.FC = () => {
       {/* TAB 5: PRIVACY */}
       {activeTab === 'privacy' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-2xl)' }}>
+          <Card style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-card-default)', boxShadow: 'var(--shadow-card-default)' }}>
             <h2 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)', marginBottom: 'var(--space-4)' }}>
               Data & Privacy Controls
             </h2>
@@ -667,7 +670,7 @@ export const SettingsPage: React.FC = () => {
           </Card>
 
           {/* Privacy Commitment Card */}
-          <Card style={{ padding: 'var(--space-5)', backgroundColor: 'var(--color-bg-surface-elevated)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-xl)' }}>
+          <Card style={{ padding: 'var(--space-5)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--border-card-default)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-card-default)' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
               <CheckCircle2 size={18} color="var(--color-success)" style={{ flexShrink: 0, marginTop: '2px' }} />
               <div>
@@ -680,7 +683,7 @@ export const SettingsPage: React.FC = () => {
           </Card>
 
           {/* Danger Zone: Delete Customer Account */}
-          <Card style={{ padding: 'var(--space-5)', border: '1px solid rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.03)', borderRadius: 'var(--radius-xl)' }}>
+          <Card style={{ padding: 'var(--space-5)', border: '1px solid var(--color-danger-border)', backgroundColor: 'var(--color-danger-surface)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-card-default)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
                 <h3 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-danger)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>

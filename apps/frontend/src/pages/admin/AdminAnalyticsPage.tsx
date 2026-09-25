@@ -6,6 +6,7 @@ import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { Select } from '../../components/ui/Select/Select.js';
 import { SearchInput } from '../../components/ui/Input/SearchInput.js';
 import { adminApi, AdminAnalyticsOverview, AdminAnalyticsFilterParams } from '../../api/admin.api.js';
+import { downloadBlob } from '../../utils/exportUtils.js';
 import {
   BarChart3,
   TrendingUp,
@@ -388,14 +389,8 @@ export const AdminAnalyticsPage: React.FC = () => {
         csvRows.push(`"${pt.date || pt.label}",${pt.orders},${pt.revenueGhs.toFixed(2)}`);
       });
 
-      const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `bytebeacon-telemetry-report-${range}-${timestamp}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      downloadBlob(blob, `bytebeacon-telemetry-report-${range}-${timestamp}.csv`);
     } catch (err) {
       console.error('[ADMIN_ANALYTICS] Failed to export CSV:', err);
     } finally {

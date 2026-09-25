@@ -7,6 +7,7 @@ import { ResponsiveTable } from '../../components/ui/responsive/ResponsiveTable.
 import { useToast } from '../../context/ToastContext.js';
 import { storesApi, StoreOrdersResponseDto, StoreOrderRecordDto } from '../../api/stores.api.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 import {
   ShoppingBag,
   Download,
@@ -36,7 +37,7 @@ const formatBundleSize = (mb: number) => {
 };
 
 export const StoreOrdersPage: React.FC = () => {
-  const { toastSuccess, toastError } = useToast();
+  const { toastSuccess, toastError, toastInfo } = useToast();
   
   const [data, setData] = useState<StoreOrdersResponseDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,23 +121,33 @@ export const StoreOrdersPage: React.FC = () => {
   const pagination = data?.pagination || { page: 1, limit, total: 0, totalPages: 1 };
 
   const handleExportCsv = () => {
-    if (!orders.length) return;
-    const header = 'Order ID,Recipient Phone,Network,Bundle,Amount (GHS),Reseller Profit (GHS),Payment Status,Fulfillment Status,Date\n';
-    const rows = orders
-      .map((o) => {
-        const profit = o.profitGhs !== undefined ? o.profitGhs : (o.profitPesewas ? o.profitPesewas / 100 : 0);
-        return `${o.publicId},${o.recipientPhone},${o.network},${formatBundleSize(o.dataAmountMb)},${(o.amountPesewas / 100).toFixed(2)},${profit.toFixed(2)},${o.paymentStatus},${o.orderStatus},"${new Date(o.createdAt).toLocaleString()}"`;
-      })
-      .join('\n');
-    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `store_orders_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Export Complete', 'Storefront orders exported to CSV.');
+    if (!orders.length) {
+      toastInfo('No Data', 'There are no storefront orders to export.');
+      return;
+    }
+    try {
+      exportToCSV({
+        filename: `store_orders_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Order ID', 'Recipient Phone', 'Network', 'Bundle', 'Amount (GHS)', 'Reseller Profit (GHS)', 'Payment Status', 'Fulfillment Status', 'Date'],
+        rows: orders.map((o) => {
+          const profit = o.profitGhs !== undefined ? o.profitGhs : (o.profitPesewas ? o.profitPesewas / 100 : 0);
+          return [
+            o.publicId,
+            o.recipientPhone,
+            o.network,
+            formatBundleSize(o.dataAmountMb),
+            (o.amountPesewas / 100).toFixed(2),
+            profit.toFixed(2),
+            o.paymentStatus,
+            o.orderStatus,
+            new Date(o.createdAt).toLocaleString(),
+          ];
+        }),
+      });
+      toastSuccess('Export Complete', 'Storefront orders exported to CSV.');
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Failed to export store orders');
+    }
   };
 
   const getNetworkBadge = (network: string) => {

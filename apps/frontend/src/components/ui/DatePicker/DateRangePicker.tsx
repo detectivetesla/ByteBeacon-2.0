@@ -5,7 +5,7 @@ import styles from '../Input/Input.module.css';
 export interface DateRangeValue {
   startDate: string;
   endDate: string;
-  preset?: 'TODAY' | '7D' | '30D' | '90D' | '1Y' | 'CUSTOM';
+  preset?: 'TODAY' | 'YESTERDAY' | '7D' | '30D' | 'THIS_MONTH' | 'CUSTOM';
 }
 
 export interface DateRangePickerProps {
@@ -31,6 +31,10 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
     switch (preset) {
       case 'TODAY':
         return { startDate: end, endDate: end, preset: 'TODAY' as const };
+      case 'YESTERDAY': {
+        const y = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        return { startDate: y, endDate: y, preset: 'YESTERDAY' as const };
+      }
       case '7D': {
         const start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
         return { startDate: start, endDate: end, preset: '7D' as const };
@@ -39,20 +43,17 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
         return { startDate: start, endDate: end, preset: '30D' as const };
       }
-      case '90D': {
-        const start = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        return { startDate: start, endDate: end, preset: '90D' as const };
-      }
-      case '1Y': {
-        const start = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        return { startDate: start, endDate: end, preset: '1Y' as const };
+      case 'THIS_MONTH': {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+        return { startDate: start, endDate: end, preset: 'THIS_MONTH' as const };
       }
       default:
         return { startDate: value?.startDate || end, endDate: value?.endDate || end, preset: 'CUSTOM' as const };
     }
   };
 
-  const handlePresetClick = (preset: 'TODAY' | '7D' | '30D' | '90D' | '1Y' | 'CUSTOM') => {
+  const handlePresetClick = (preset: 'TODAY' | 'YESTERDAY' | '7D' | '30D' | 'THIS_MONTH' | 'CUSTOM') => {
     setSelectedPreset(preset);
     if (preset !== 'CUSTOM') {
       const dates = getPresetDates(preset);
@@ -90,10 +91,10 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
         {[
           { id: 'TODAY', label: 'Today' },
+          { id: 'YESTERDAY', label: 'Yesterday' },
           { id: '7D', label: '7 days' },
           { id: '30D', label: '30 days' },
-          { id: '90D', label: '90 days' },
-          { id: '1Y', label: '1 year' },
+          { id: 'THIS_MONTH', label: 'This month' },
           { id: 'CUSTOM', label: 'Custom' },
         ].map((p) => {
           const isSelected = selectedPreset === p.id;
@@ -103,19 +104,19 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
               type="button"
               onClick={() => handlePresetClick(p.id as any)}
               style={{
-                padding: '3px 8px',
+                padding: '4px 9px',
                 borderRadius: 'var(--radius-sm)',
                 border: isSelected
-                  ? '1px solid var(--color-primary)'
+                  ? '1px solid var(--color-brand)'
                   : '1px solid var(--color-border-default)',
                 backgroundColor: isSelected
-                  ? 'rgba(0, 102, 255, 0.12)'
-                  : 'var(--color-bg-surface-elevated)',
-                color: isSelected ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                  ? 'var(--color-brand-surface)'
+                  : 'var(--color-bg-surface)',
+                color: isSelected ? 'var(--color-brand)' : 'var(--color-text-secondary)',
                 fontSize: 'var(--font-size-2xs)',
-                fontWeight: 700,
+                fontWeight: isSelected ? 700 : 500,
                 cursor: 'pointer',
-                transition: 'all 120ms ease',
+                transition: 'all var(--transition-fast)',
               }}
             >
               {p.label}

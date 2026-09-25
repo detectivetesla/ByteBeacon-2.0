@@ -170,16 +170,8 @@ export const NotificationsPage: React.FC = () => {
       }}
     >
       {/* Page Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-          gap: '1rem',
-        }}
-      >
-        <div>
+      <div className="bb-page-header">
+        <div className="bb-page-header-info">
           <span
             style={{
               fontSize: 'var(--font-size-3xs)',
@@ -213,7 +205,7 @@ export const NotificationsPage: React.FC = () => {
         </div>
 
         {/* Action Buttons: Mark all read & Clear */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div className="bb-page-header-actions">
           <Button
             variant="outline"
             size="sm"
@@ -221,7 +213,6 @@ export const NotificationsPage: React.FC = () => {
             disabled={unreadTotal === 0}
             leftIcon={<CheckCheck size={14} />}
             title="Mark all notifications as read"
-            style={{ minHeight: '38px' }}
           >
             Mark all read
           </Button>
@@ -233,7 +224,6 @@ export const NotificationsPage: React.FC = () => {
             disabled={notifications.length === 0 || isClearing}
             leftIcon={<Trash2 size={14} />}
             title="Clear all notifications"
-            style={{ minHeight: '38px' }}
           >
             Clear
           </Button>
@@ -260,7 +250,7 @@ export const NotificationsPage: React.FC = () => {
             gap: 'var(--space-2)',
             padding: '3px',
             backgroundColor: 'var(--color-bg-surface-elevated)',
-            border: '1px solid var(--color-border-default)',
+            border: '1px solid var(--border-card-default)',
             borderRadius: 'var(--radius-lg)',
             maxWidth: '100%',
           }}
@@ -274,7 +264,7 @@ export const NotificationsPage: React.FC = () => {
               gap: '6px',
               padding: '6px 14px',
               borderRadius: 'var(--radius-md)',
-              border: statusTab === 'all' ? '1px solid var(--color-brand)' : '1px solid transparent',
+              border: statusTab === 'all' ? '1px solid var(--border-card-default)' : '1px solid transparent',
               backgroundColor: statusTab === 'all' ? 'var(--color-bg-surface)' : 'transparent',
               color: statusTab === 'all' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
               fontWeight: statusTab === 'all' ? 800 : 600,
@@ -309,7 +299,7 @@ export const NotificationsPage: React.FC = () => {
               gap: '6px',
               padding: '6px 14px',
               borderRadius: 'var(--radius-md)',
-              border: statusTab === 'unread' ? '1px solid var(--color-brand)' : '1px solid transparent',
+              border: statusTab === 'unread' ? '1px solid var(--border-card-default)' : '1px solid transparent',
               backgroundColor: statusTab === 'unread' ? 'var(--color-bg-surface)' : 'transparent',
               color: statusTab === 'unread' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
               fontWeight: statusTab === 'unread' ? 800 : 600,
@@ -357,7 +347,7 @@ export const NotificationsPage: React.FC = () => {
                   fontSize: '11px',
                   fontWeight: isSelected ? 700 : 500,
                   borderRadius: 'var(--radius-full)',
-                  border: isSelected ? '1px solid var(--color-brand)' : '1px solid var(--color-border-default)',
+                  border: isSelected ? '1px solid var(--color-brand)' : '1px solid var(--border-card-default)',
                   backgroundColor: isSelected ? 'var(--color-brand-surface)' : 'var(--color-bg-surface)',
                   color: isSelected ? 'var(--color-brand)' : 'var(--color-text-secondary)',
                   cursor: 'pointer',
@@ -374,13 +364,12 @@ export const NotificationsPage: React.FC = () => {
 
       {/* Notifications List Card */}
       <Card
-        elevated
         style={{
           padding: 'clamp(0.5rem, 2vw, var(--space-4))',
           backgroundColor: 'var(--color-bg-surface)',
-          border: '1px solid var(--color-border-default)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-tactile-sm)',
+          border: '1px solid var(--border-card-default)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-card-default)',
         }}
       >
         {isLoading ? (
@@ -401,12 +390,14 @@ export const NotificationsPage: React.FC = () => {
                   gap: 'clamp(0.5rem, 2vw, var(--space-4))',
                   padding: 'clamp(0.75rem, 2vw, var(--space-4))',
                   borderRadius: 'var(--radius-lg)',
-                  backgroundColor: item.unread ? 'var(--color-bg-surface-elevated)' : 'transparent',
-                  border: item.unread ? '1px solid var(--color-border-hover)' : '1px solid var(--color-border-subtle)',
+                  backgroundColor: item.unread ? 'var(--color-bg-surface-elevated)' : 'var(--color-bg-surface)',
+                  border: item.unread ? '1px solid var(--color-border-hover)' : '1px solid var(--border-card-subtle)',
+                  borderLeft: item.unread ? '3px solid var(--color-brand)' : '1px solid var(--border-card-subtle)',
                   cursor: 'pointer',
                   transition: 'all var(--transition-fast)',
                   position: 'relative',
                   minWidth: 0,
+                  boxShadow: item.unread ? 'var(--shadow-sm)' : 'none',
                 }}
               >
                 <div style={{ flexShrink: 0 }}>
@@ -506,7 +497,7 @@ export const NotificationsPage: React.FC = () => {
             ))}
           </div>
         ) : (
-          <div style={{ padding: 'var(--space-12) var(--space-4)', textAlign: 'center' }}>
+          <div className="bb-empty-state" style={{ padding: 'var(--space-12) var(--space-4)', textAlign: 'center' }}>
             <TactileIcon icon={Bell} color="orders" size="lg" style={{ marginBottom: 'var(--space-3)' }} />
             <h3
               style={{

@@ -50,6 +50,7 @@ import {
   RecipientRowStatus,
   DEFAULT_FALLBACK_BUNDLES,
 } from '../../utils/spreadsheetParser.js';
+import { downloadBlob, exportToCSV } from '../../utils/exportUtils.js';
 
 type OrderMode = 'single' | 'bulk' | 'excel';
 type BulkSubMode = 'normal' | 'free';
@@ -76,25 +77,25 @@ const NETWORK_THEMES: Record<
     brandColor: '#FFCC00',
     buttonBg: '#FFCC00',
     buttonTextColor: '#000000',
-    accentBg: 'rgba(255, 204, 0, 0.08)',
-    borderColor: 'rgba(255, 204, 0, 0.35)',
-    glowColor: 'rgba(255, 204, 0, 0.25)',
+    accentBg: 'rgba(255, 204, 0, 0.06)',
+    borderColor: 'rgba(255, 204, 0, 0.22)',
+    glowColor: 'rgba(255, 204, 0, 0.12)',
   },
   [NetworkProvider.TELECEL]: {
     brandColor: '#E7192D',
     buttonBg: '#E7192D',
     buttonTextColor: '#FFFFFF',
-    accentBg: 'rgba(231, 25, 45, 0.08)',
-    borderColor: 'rgba(231, 25, 45, 0.35)',
-    glowColor: 'rgba(231, 25, 45, 0.25)',
+    accentBg: 'rgba(231, 25, 45, 0.06)',
+    borderColor: 'rgba(231, 25, 45, 0.22)',
+    glowColor: 'rgba(231, 25, 45, 0.12)',
   },
   [NetworkProvider.AIRTELTIGO]: {
     brandColor: '#0066B2',
     buttonBg: '#0066B2',
     buttonTextColor: '#FFFFFF',
-    accentBg: 'rgba(0, 102, 178, 0.08)',
-    borderColor: 'rgba(0, 102, 178, 0.35)',
-    glowColor: 'rgba(0, 102, 178, 0.25)',
+    accentBg: 'rgba(0, 102, 178, 0.06)',
+    borderColor: 'rgba(0, 102, 178, 0.22)',
+    glowColor: 'rgba(0, 102, 178, 0.12)',
   },
 };
 
@@ -1305,14 +1306,7 @@ export const BuyDataPage: React.FC = () => {
   // Excel Template Downloads
   const handleDownloadTemplate = (format: 'xlsx' | 'csv', type: 'simple' | 'full') => {
     const { blob, filename } = generateSpreadsheetTemplate(format, type);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
     toastSuccess('Template Downloaded', `${filename} downloaded successfully.`);
   };
 
@@ -1991,14 +1985,7 @@ export const BuyDataPage: React.FC = () => {
     if (rowsToExport.length === 0) return;
     const prefix = type === 'unapproved' ? 'unvalidated_mtn_set_aside' : 'different_network_set_aside';
     const { blob, filename } = generateSetAsideSpreadsheet(rowsToExport, prefix);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
     toastSuccess('Set-Aside Downloaded', `${filename} downloaded successfully.`);
   };
 
@@ -2020,28 +2007,21 @@ export const BuyDataPage: React.FC = () => {
         ? excelParsedRows
         : excelParsedRows.filter((r) => r.status === filter);
 
-    const headers = ['Beneficiary Msisdn', 'Network', 'Data Volume (GB)', 'Status', 'Verification Reason'];
-    const csvRows = [headers.join(',')];
-
-    targetRows.forEach((r) => {
-      const cleanPhone = r.phone.replace(/[\s+]/g, '');
-      const dataGb = r.data || '5GB';
-      const statusLabel = r.status;
-      const reason = (r.statusReason || '').replace(/"/g, '""');
-      csvRows.push(`"${cleanPhone}","${r.network || 'MTN'}","${dataGb}","${statusLabel}","${reason}"`);
-    });
-
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
     const timestamp = new Date().toISOString().slice(0, 10);
     const filename = `order_verification_${filter.toLowerCase()}_${timestamp}.csv`;
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    exportToCSV({
+      filename,
+      headers: ['Beneficiary Msisdn', 'Network', 'Data Volume (GB)', 'Status', 'Verification Reason'],
+      rows: targetRows.map((r) => [
+        r.phone.replace(/[\s+]/g, ''),
+        r.network || 'MTN',
+        r.data || '5GB',
+        r.status,
+        r.statusReason || '',
+      ]),
+    });
+
     toastSuccess('Report Downloaded', `${filename} downloaded successfully.`);
   };
 

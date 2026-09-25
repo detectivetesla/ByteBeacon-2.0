@@ -101,24 +101,24 @@ export const Card: React.FC<CardProps> = ({
 
     if (variant === 'accent' || accentColor) {
       return {
-        boxShadow: 'var(--shadow-tactile-sm)',
-        border: bordered ? '1px solid var(--color-border-default)' : 'none',
+        boxShadow: 'var(--shadow-card-default)',
+        border: bordered ? 'var(--border-card-default)' : 'none',
         ...getAccentStyles(),
       };
     }
 
     if (elevated || variant === 'elevated') {
       return {
-        background: 'linear-gradient(145deg, var(--color-bg-surface-elevated) 0%, var(--color-bg-surface) 100%)',
-        boxShadow: 'var(--shadow-tactile-md)',
-        border: bordered ? '1px solid var(--color-border-default)' : 'none',
+        backgroundColor: 'var(--color-bg-surface)',
+        boxShadow: 'var(--shadow-card-elevated)',
+        border: bordered ? 'var(--border-card-default)' : 'none',
       };
     }
 
     return {
-      background: 'linear-gradient(145deg, var(--color-bg-surface-elevated) 0%, var(--color-bg-surface) 100%)',
-      boxShadow: 'var(--shadow-tactile-sm)',
-      border: bordered ? '1px solid var(--color-border-default)' : 'none',
+      backgroundColor: 'var(--color-bg-surface)',
+      boxShadow: 'var(--shadow-card-default)',
+      border: bordered ? 'var(--border-card-default)' : 'none',
     };
   };
 
@@ -199,17 +199,17 @@ export const MetricCard: React.FC<MetricCardProps> = ({
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        minHeight: '120px',
+        gap: 'var(--space-3)',
         cursor: onClick ? 'pointer' : undefined,
         ...style,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-2)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <span
           style={{
             fontSize: 'var(--font-size-xs)',
             fontWeight: 600,
-            color: 'var(--color-text-secondary)',
+            color: 'var(--color-text-muted)',
             letterSpacing: '0.02em',
           }}
         >
@@ -226,6 +226,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
             fontFamily: 'var(--font-data)',
             color: 'var(--color-text-primary)',
             letterSpacing: '-0.02em',
+            lineHeight: 1.1,
           }}
         >
           {value}

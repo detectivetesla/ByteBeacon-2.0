@@ -10,6 +10,7 @@ import { Avatar } from '../../components/ui/Avatar/Avatar.js';
 import { Modal } from '../../components/ui/Modal/Modal.js';
 import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { adminApi, AdminUserDetail, UserCustomPricingItemDto } from '../../api/admin.api.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { useToast } from '../../context/ToastContext.js';
 import { parseUserAgent, formatRelativeTime, formatIpInfo } from '../../utils/ua-parser.js';
@@ -564,22 +565,10 @@ export const AdminUserDetailPage: React.FC = () => {
     setIsExporting(true);
     try {
       const res = await adminApi.exportUserDossier(id, exportFormat);
-      const dataStr =
-        exportFormat === 'JSON'
-          ? JSON.stringify((res as any)?.data || res, null, 2)
-          : typeof res === 'string'
-          ? res
-          : JSON.stringify(res);
-      const blob = new Blob([dataStr], { type: exportFormat === 'JSON' ? 'application/json' : 'text/csv' });
-      const downloadUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
       const safeEmail = (userDetail?.user?.email || id).replace(/[^a-zA-Z0-9_-]/g, '_');
-      a.download = `user_dossier_${safeEmail}_${new Date().toISOString().slice(0, 10)}.${exportFormat.toLowerCase()}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
+      const ext = exportFormat.toLowerCase() as 'csv' | 'json';
+      const fallbackFilename = `user_dossier_${safeEmail}_${new Date().toISOString().slice(0, 10)}.${ext}`;
+      downloadFileFromResponse(res, fallbackFilename, ext);
 
       toastSuccess('Dossier Exported', `User data successfully downloaded in ${exportFormat} format.`);
       setIsExportModalOpen(false);

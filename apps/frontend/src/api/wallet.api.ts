@@ -52,6 +52,7 @@ export interface AgentWithdrawalLimitsDto {
   isCustomLimit?: boolean;
   withdrawalsPaused?: boolean;
   withdrawalsPausedReason?: string;
+  pausedReason?: string;
   customMinWithdrawalPesewas?: number | null;
   customWithdrawalLimitPesewas?: number | null;
   customDailyLimitPesewas?: number | null;

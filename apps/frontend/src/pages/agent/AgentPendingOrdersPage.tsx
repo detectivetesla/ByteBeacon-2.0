@@ -36,6 +36,7 @@ import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { beneficiaryApi } from '../../api/beneficiary.api.js';
 import { ordersApi } from '../../api/orders.api.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 export type ApprovalStatus = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED';
 export type DetectedChannel = 'Web' | 'API' | 'Single Order' | 'Bulk Order' | 'Excel Upload' | 'Manual Check';
@@ -459,27 +460,34 @@ export const AgentPendingOrdersPage: React.FC = () => {
 
   const handleExport = () => {
     setIsExporting(true);
-    setTimeout(() => {
-      setIsExporting(false);
-      const csvHeader = 'Beneficiary Number,Network,Occurrences,Status,Channel,Detected Date,Expires At\n';
-      const rows = filteredRecords
-        .map((r) => {
+    try {
+      if (filteredRecords.length === 0) {
+        toastInfo('No Data', 'There are no records matching your filters to export.');
+        return;
+      }
+      exportToCSV({
+        filename: `agent_mtn_approvals_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Beneficiary Number', 'Network', 'Occurrences', 'Status', 'Channel', 'Detected Date', 'Expires At'],
+        rows: filteredRecords.map((r) => {
           const cleanPhone = r.phoneNumber.replace(/\s+/g, '');
           const exp = r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : 'N/A';
-          return `${cleanPhone},${r.network},${r.occurrences || 1},${r.status},${r.detectedFrom},${new Date(r.createdAt).toISOString()},${exp}`;
-        })
-        .join('\n');
-
-      const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `agent_mtn_approvals_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+          return [
+            cleanPhone,
+            r.network,
+            r.occurrences || 1,
+            r.status,
+            r.detectedFrom,
+            new Date(r.createdAt).toISOString(),
+            exp,
+          ];
+        }),
+      });
       toastSuccess('Export Successful', `Exported ${filteredRecords.length} records in MTN Format.`);
-    }, 600);
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Failed to export approvals');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const [isSyncingWithProvider, setIsSyncingWithProvider] = useState(false);

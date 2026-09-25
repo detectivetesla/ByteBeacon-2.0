@@ -39,16 +39,15 @@ export const OrderHealthProgressBar: React.FC<OrderHealthProgressBarProps> = ({
 
   return (
     <Card
-      elevated
       style={{
-        padding: 'var(--space-card-p, var(--space-6))',
+        padding: 'var(--space-4) var(--space-5)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 'var(--space-4)',
-        border: '1px solid var(--color-border-default)',
-        borderRadius: 'var(--radius-xl)',
-        background: 'linear-gradient(145deg, var(--color-bg-surface-elevated), var(--color-bg-surface))',
-        boxShadow: 'var(--shadow-tactile-md)',
+        gap: 'var(--space-3)',
+        border: 'var(--border-card-default)',
+        borderRadius: 'var(--radius-lg)',
+        backgroundColor: 'var(--color-bg-surface)',
+        boxShadow: 'var(--shadow-card-default)',
         position: 'relative',
         maxWidth: '100%',
         boxSizing: 'border-box',
@@ -214,7 +213,7 @@ export const OrderHealthProgressBar: React.FC<OrderHealthProgressBarProps> = ({
         )}
       </div>
 
-      {/* Order Health Legend (Clean, Compact, Responsive Grid with Zero Paragraph Clutter) */}
+      {/* Order Health Legend (Integrated status breakdown with subtle borders instead of nested cards) */}
       <div className="health-legend-grid">
         {/* Delivered Item */}
         <div
@@ -223,18 +222,18 @@ export const OrderHealthProgressBar: React.FC<OrderHealthProgressBarProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: 'var(--space-2) var(--space-3)',
-            backgroundColor: 'var(--color-bg-base)',
+            backgroundColor: 'var(--color-bg-section, var(--color-bg-surface-elevated))',
             border: '1px solid var(--color-border-subtle)',
-            borderRadius: 'var(--radius-md)',
+            borderRadius: 'var(--radius-sm)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22C55E', boxShadow: '0 0 6px #22C55E' }} />
-            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Delivered</span>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#22C55E' }} />
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>Delivered</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
             <strong style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>{data.delivered}</strong>
-            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 800 }}>({deliveredDisplay})</span>
+            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-success)', fontWeight: 700 }}>({deliveredDisplay})</span>
           </div>
         </div>
 
@@ -245,18 +244,18 @@ export const OrderHealthProgressBar: React.FC<OrderHealthProgressBarProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: 'var(--space-2) var(--space-3)',
-            backgroundColor: 'var(--color-bg-base)',
+            backgroundColor: 'var(--color-bg-section, var(--color-bg-surface-elevated))',
             border: '1px solid var(--color-border-subtle)',
-            borderRadius: 'var(--radius-md)',
+            borderRadius: 'var(--radius-sm)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B', boxShadow: '0 0 6px #F59E0B' }} />
-            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Pending</span>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#F59E0B' }} />
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>Pending</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
             <strong style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>{data.pending}</strong>
-            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-warning)', fontWeight: 800 }}>({pendingDisplay})</span>
+            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-warning)', fontWeight: 700 }}>({pendingDisplay})</span>
           </div>
         </div>
 
@@ -267,18 +266,18 @@ export const OrderHealthProgressBar: React.FC<OrderHealthProgressBarProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: 'var(--space-2) var(--space-3)',
-            backgroundColor: 'var(--color-bg-base)',
+            backgroundColor: 'var(--color-bg-section, var(--color-bg-surface-elevated))',
             border: '1px solid var(--color-border-subtle)',
-            borderRadius: 'var(--radius-md)',
+            borderRadius: 'var(--radius-sm)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#EF4444', boxShadow: '0 0 6px #EF4444' }} />
-            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Failed</span>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#EF4444' }} />
+            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>Failed</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
             <strong style={{ fontSize: 'var(--font-size-xs)', fontFamily: 'var(--font-data)', color: 'var(--color-text-primary)' }}>{data.failed}</strong>
-            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-danger)', fontWeight: 800 }}>({failedDisplay})</span>
+            <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-danger)', fontWeight: 700 }}>({failedDisplay})</span>
           </div>
         </div>
       </div>

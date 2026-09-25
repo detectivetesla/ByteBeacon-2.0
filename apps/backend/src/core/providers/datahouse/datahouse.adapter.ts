@@ -38,6 +38,7 @@ import {
   DataHouseApiAccessStatus,
   DataHouseApiAccessPaymentInitiation,
 } from './datahouse.types.js';
+import { logger } from '../../logging/logger.js';
 
 export class DataHouseAdapter implements ITelecomProvider {
   public readonly providerName = 'DATAHOUSE';
@@ -324,7 +325,55 @@ export class DataHouseAdapter implements ITelecomProvider {
     try {
       if (input.phoneNumbers.length <= 500) {
         const dhResp = await this.client.precheckBeneficiaries(input, correlationId);
-        return DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network, input.phoneNumbers);
+        const mapped = DataHouseMapper.toDataHousePrecheckResult(dhResp, input.network, input.phoneNumbers);
+
+        // Check if DataHouse returned truncated/sample gating data without full per-recipient resolution:
+        // E.g., blockedCount reported (e.g. 193) > enumerated blocked items (e.g. 12), and placeableSet is empty.
+        // In this case, DataHouse provided only aggregate counts, so we must execute chunked public precheck
+        // to obtain exact, authoritative per-recipient status from the telecom gateway.
+        const payload: any =
+          dhResp && typeof dhResp === 'object' && 'data' in dhResp && (dhResp as any).data && typeof (dhResp as any).data === 'object' && !Array.isArray((dhResp as any).data)
+            ? (dhResp as any).data
+            : dhResp;
+        const dataObj = payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data : {};
+        const blockedCountVal = payload?.blockedCount ?? payload?.blocked_count ?? dataObj?.blockedCount ?? dataObj?.blocked_count;
+        const unvalidatedCountVal = payload?.unvalidatedCount ?? payload?.unvalidated_count ?? dataObj?.unvalidatedCount ?? dataObj?.unvalidated_count;
+        const totalBlockedReported = Number(blockedCountVal || 0) + Number(unvalidatedCountVal || 0);
+
+        const blockedEnumerated =
+          (Array.isArray(payload?.blockedFirstTime) ? payload.blockedFirstTime.length : 0) +
+          (Array.isArray(payload?.blocked) ? payload.blocked.length : 0) +
+          (Array.isArray(payload?.unvalidated) ? payload.unvalidated.length : 0) +
+          (Array.isArray(dataObj?.blockedFirstTime) ? dataObj.blockedFirstTime.length : 0) +
+          (Array.isArray(dataObj?.blocked) ? dataObj.blocked.length : 0) +
+          (Array.isArray(dataObj?.unvalidated) ? dataObj.unvalidated.length : 0);
+
+        const placeableEnumerated =
+          (Array.isArray(payload?.placeable) ? payload.placeable.length : 0) +
+          (Array.isArray(payload?.placeableBeneficiaries) ? payload.placeableBeneficiaries.length : 0) +
+          (Array.isArray(payload?.approved) ? payload.approved.length : 0) +
+          (Array.isArray(dataObj?.placeable) ? dataObj.placeable.length : 0) +
+          (Array.isArray(dataObj?.placeableBeneficiaries) ? dataObj.placeableBeneficiaries.length : 0) +
+          (Array.isArray(dataObj?.approved) ? dataObj.approved.length : 0);
+
+        if (
+          input.network === NetworkProvider.MTN &&
+          totalBlockedReported > blockedEnumerated &&
+          placeableEnumerated === 0
+        ) {
+          logger.info(
+            {
+              totalBlockedReported,
+              blockedEnumerated,
+              placeableEnumerated,
+              totalRequested: input.phoneNumbers.length,
+            },
+            '[DataHouseAdapter] Agent precheck returned aggregate summary with sample blockedFirstTime; executing chunked public precheck for exact per-recipient gating',
+          );
+          return this.executeChunkedPublicPrecheck(input.phoneNumbers, input.network, correlationId, Boolean(input.record));
+        }
+
+        return mapped;
       }
 
       // For larger lists (e.g. > 500), chunk into 500-number batches and execute in parallel

@@ -27,6 +27,7 @@ import {
 
 
 import { useToast } from '../../context/ToastContext.js';
+import { exportToCSV, exportToExcel } from '../../utils/exportUtils.js';
 
 type DatePeriod = 'today' | '7d' | '30d' | '90d' | '1y' | 'custom';
 type Granularity = 'daily' | 'weekly' | 'monthly';
@@ -64,7 +65,7 @@ interface TrendDataPoint {
 }
 
 export const AgentAnalyticsPage: React.FC = () => {
-  const { toastSuccess, toastInfo } = useToast();
+  const { toastSuccess, toastInfo, toastError } = useToast();
 
   // Filters State
   const [period, setPeriod] = useState<DatePeriod>('30d');
@@ -236,19 +237,41 @@ export const AgentAnalyticsPage: React.FC = () => {
 
 
   const handleExport = (format: 'CSV' | 'EXCEL') => {
-    const csvHeader = 'Bundle Name,Network,Orders,Sales (GHS),Cost (GHS),Gross Profit (GHS),Margin (%)\n';
-    const rows = filteredBundles
-      .map((b) => `"${b.name}",${b.network},${b.orders},${(b.salesPesewas / 100).toFixed(2)},${(b.costPesewas / 100).toFixed(2)},${(b.profitPesewas / 100).toFixed(2)},${b.marginPercent}%`)
-      .join('\n');
-    const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `sales_margin_analytics_${period}_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Report Exported', `Sales & Margin Analytics downloaded in ${format} format.`);
+    try {
+      if (filteredBundles.length === 0) {
+        toastInfo('No Data', 'There are no bundle analytics records matching your filters to export.');
+        return;
+      }
+      const headers = ['Bundle Name', 'Network', 'Orders', 'Sales (GHS)', 'Cost (GHS)', 'Gross Profit (GHS)', 'Margin (%)'];
+      const rows = filteredBundles.map((b) => [
+        b.name,
+        b.network,
+        b.orders,
+        (b.salesPesewas / 100).toFixed(2),
+        (b.costPesewas / 100).toFixed(2),
+        (b.profitPesewas / 100).toFixed(2),
+        `${b.marginPercent}%`,
+      ]);
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      if (format === 'EXCEL') {
+        exportToExcel({
+          filename: `sales_margin_analytics_${period}_${dateStr}.xlsx`,
+          sheetName: 'Margin Analytics',
+          headers,
+          rows,
+        });
+      } else {
+        exportToCSV({
+          filename: `sales_margin_analytics_${period}_${dateStr}.csv`,
+          headers,
+          rows,
+        });
+      }
+      toastSuccess('Report Exported', `Sales & Margin Analytics downloaded in ${format} format.`);
+    } catch (err: any) {
+      toastError?.('Export Failed', err.message || `Failed to export analytics to ${format}`);
+    }
   };
 
   const handleResetFilters = () => {

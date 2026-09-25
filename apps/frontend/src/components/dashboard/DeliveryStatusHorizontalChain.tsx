@@ -131,17 +131,16 @@ export const DeliveryStatusHorizontalChain: React.FC<DeliveryStatusHorizontalCha
 
   return (
     <Card
-      elevated
       className={`delivery-status-chain-card role-${role}`}
       style={{
-        padding: 'var(--space-5) var(--space-6)',
-        borderRadius: 'var(--radius-xl)',
-        border: '1px solid var(--color-border-default)',
-        background: 'linear-gradient(145deg, var(--color-bg-surface-elevated), var(--color-bg-surface))',
-        boxShadow: 'var(--shadow-tactile-md)',
+        padding: 'var(--space-4) var(--space-5)',
+        borderRadius: 'var(--radius-lg)',
+        border: 'var(--border-card-default)',
+        backgroundColor: 'var(--color-bg-surface)',
+        boxShadow: 'var(--shadow-card-default)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 'var(--space-5)',
+        gap: 'var(--space-4)',
         width: '100%',
         boxSizing: 'border-box',
         overflow: 'hidden',
@@ -424,17 +423,17 @@ export const DeliveryStatusHorizontalChain: React.FC<DeliveryStatusHorizontalCha
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, marginBottom: 'var(--space-3)' }}>
                   <div
                     style={{
-                      width: '42px',
-                      height: '42px',
+                      width: '36px',
+                      height: '36px',
                       borderRadius: '50%',
                       backgroundColor: isCompleted
-                        ? 'rgba(34, 197, 94, 0.18)'
+                        ? 'rgba(34, 197, 94, 0.10)'
                         : isActive
-                        ? 'rgba(245, 158, 11, 0.18)'
+                        ? 'rgba(245, 158, 11, 0.10)'
                         : isStepFailed
-                        ? 'rgba(239, 68, 68, 0.18)'
+                        ? 'rgba(239, 68, 68, 0.10)'
                         : 'var(--color-bg-surface-elevated)',
-                      border: `2px solid ${
+                      border: `1.5px solid ${
                         isCompleted
                           ? '#22C55E'
                           : isActive
@@ -454,9 +453,9 @@ export const DeliveryStatusHorizontalChain: React.FC<DeliveryStatusHorizontalCha
                       alignItems: 'center',
                       justifyContent: 'center',
                       boxShadow: isCompleted
-                        ? '0 0 12px rgba(34, 197, 94, 0.35)'
+                        ? '0 0 8px rgba(34, 197, 94, 0.20)'
                         : isActive
-                        ? '0 0 12px rgba(245, 158, 11, 0.35)'
+                        ? '0 0 8px rgba(245, 158, 11, 0.20)'
                         : 'none',
                       transition: 'all 200ms ease',
                     }}

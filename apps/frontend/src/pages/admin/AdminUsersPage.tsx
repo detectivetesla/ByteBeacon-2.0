@@ -11,6 +11,7 @@ import { TactileIcon } from '../../components/ui/TactileIcon/TactileIcon.js';
 import { useToast } from '../../context/ToastContext.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { adminApi, AdminUserListItem, AdminUserStats } from '../../api/admin.api.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 import {
   Users,
   Plus,
@@ -180,25 +181,11 @@ export const AdminUsersPage: React.FC = () => {
         search: searchQuery.trim() || undefined,
       });
 
-      if (exportFormat === 'CSV') {
-        const blob = new Blob([res], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `bytebeacon-users-${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      } else {
-        const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `bytebeacon-users-${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const ext = exportFormat === 'CSV' ? 'csv' : 'json';
+      const fallbackFilename = `bytebeacon-users-${dateStr}.${ext}`;
+      downloadFileFromResponse(res, fallbackFilename, ext);
+
       toastSuccess('Export Ready', `Downloaded user data in ${exportFormat} format.`);
       setIsExportModalOpen(false);
     } catch (err: any) {

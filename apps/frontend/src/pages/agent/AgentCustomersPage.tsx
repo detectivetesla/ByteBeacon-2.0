@@ -31,6 +31,7 @@ import {
 import { useToast } from '../../context/ToastContext.js';
 import { NetworkProvider } from '@bytebeacon/shared';
 import { walletApi } from '../../api/wallet.api.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 // Feature Availability Flag: Set to true when ready to make Sub-Agent page fully available to agents
 export const SUB_AGENTS_FEATURE_AVAILABLE = false;
@@ -233,22 +234,32 @@ export const AgentCustomersPage: React.FC = () => {
   };
 
   const handleExport = () => {
-    const csvHeader = 'Agent ID,Name,Email,Phone,Store Name,Orders,Total Sales,Commission,Balance,Status,Date Joined\n';
-    const rows = filteredSubAgents
-      .map(
-        (a) =>
-          `${a.agentId},${a.name},${a.email},${a.phone.replace(/\s+/g, '')},${a.storeName},${a.ordersCount},GH₵ ${(a.totalSalesPesewas / 100).toFixed(2)},GH₵ ${(a.totalCommissionPesewas / 100).toFixed(2)},GH₵ ${(a.balancePesewas / 100).toFixed(2)},${a.status},${a.dateJoined}`,
-      )
-      .join('\n');
-    const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `sub_agents_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toastSuccess('Export Complete', `Exported ${filteredSubAgents.length} sub-agents to CSV.`);
+    try {
+      if (filteredSubAgents.length === 0) {
+        toastInfo('No Data', 'There are no sub-agents matching your filters to export.');
+        return;
+      }
+      exportToCSV({
+        filename: `sub_agents_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers: ['Agent ID', 'Name', 'Email', 'Phone', 'Store Name', 'Orders', 'Total Sales', 'Commission', 'Balance', 'Status', 'Date Joined'],
+        rows: filteredSubAgents.map((a) => [
+          a.agentId,
+          a.name,
+          a.email,
+          a.phone.replace(/\s+/g, ''),
+          a.storeName,
+          a.ordersCount,
+          `GH₵ ${(a.totalSalesPesewas / 100).toFixed(2)}`,
+          `GH₵ ${(a.totalCommissionPesewas / 100).toFixed(2)}`,
+          `GH₵ ${(a.balancePesewas / 100).toFixed(2)}`,
+          a.status,
+          a.dateJoined,
+        ]),
+      });
+      toastSuccess('Export Complete', `Exported ${filteredSubAgents.length} sub-agents to CSV.`);
+    } catch (err: any) {
+      toastError('Export Failed', err.message || 'Failed to export sub-agents');
+    }
   };
 
   const handleCreateSubAgent = async (e: React.FormEvent) => {

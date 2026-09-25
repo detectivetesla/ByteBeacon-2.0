@@ -453,15 +453,15 @@ export const ApplyAgentPage: React.FC = () => {
             style={{
               padding: '0.65rem 1.15rem',
               borderRadius: 'var(--radius-lg)',
-              backgroundColor: 'rgba(34, 197, 94, 0.08)',
-              border: '1px solid rgba(34, 197, 94, 0.3)',
+              backgroundColor: 'var(--color-brand-surface)',
+              border: '1px solid var(--color-brand-border, rgba(34, 197, 94, 0.3))',
               textAlign: 'right',
             }}
           >
-            <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-primary-bright, #22C55E)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-brand)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               One-Time Application Fee
             </div>
-            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: '#FFFFFF', marginTop: '0.15rem' }}>
+            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.15rem' }}>
               GH₵ {feeGhs.toFixed(2)}
             </div>
           </div>
@@ -537,7 +537,7 @@ export const ApplyAgentPage: React.FC = () => {
       </div>
 
       {/* Application Form & Payment Box */}
-      <Card elevated accentColor="brand" style={{ padding: 'var(--space-8)' }}>
+      <Card style={{ padding: 'var(--space-8)' }}>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           <div style={{ borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-4)' }}>
             <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>

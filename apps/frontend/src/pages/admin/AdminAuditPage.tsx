@@ -46,6 +46,8 @@ import {
   SecurityIncidentStatus,
   SecurityHealthStatus,
 } from '../../api/admin.api.js';
+import { useToast } from '../../context/ToastContext.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 
 type ActiveTab = 'stream' | 'incidents' | 'integrity' | 'classification' | 'emergency' | 'export';
 
@@ -154,6 +156,7 @@ const getActionCategoryInfo = (action: string, _category?: string) => {
 
 export const AdminAuditPage: React.FC = () => {
   const navigate = useNavigate();
+  const { toastSuccess, toastError } = useToast();
   const [activeTab, setActiveTab] = useState<ActiveTab>('stream');
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -550,22 +553,17 @@ export const AdminAuditPage: React.FC = () => {
         search: searchQuery || undefined,
       });
 
-      if (exportFormat === 'CSV' && typeof res === 'string') {
-        const blob = new Blob([res], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `bytebeacon-audit-${Date.now()}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const ext = exportFormat.toLowerCase() as 'csv' | 'json';
+      const fallbackFilename = `bytebeacon-audit-${dateStr}.${ext}`;
+      downloadFileFromResponse(res, fallbackFilename, ext);
 
+      toastSuccess('Export Ready', `Downloaded audit records in ${exportFormat} format.`);
       setExportSuccessMsg(`Successfully exported audit records in ${exportFormat} format. Export operation has been recorded in the immutable audit stream.`);
       setIsQuickExportOpen(false);
       fetchOverview();
     } catch (e: any) {
-      alert(e?.message || 'Failed to export audit logs');
+      toastError('Export Failed', e?.message || 'Failed to export audit logs');
     } finally {
       setIsExporting(false);
     }

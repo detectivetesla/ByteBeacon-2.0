@@ -623,11 +623,15 @@ export class DataHouseMapper {
           isKnownRaw = false;
         } else if (placeableSet.size > 0) {
           isKnownRaw = isInPlaceableSet && !isPorted && !isExplicitlyBlocked;
-        } else if (blockedSet.size > 0) {
-          // Blocked numbers are explicitly enumerated; unblocked numbers that match selected are placeable
+        } else if (
+          blockedSet.size > 0 &&
+          (blockedCountVal === undefined || blockedSet.size >= (blockedCountVal || 0)) &&
+          (placeableCountVal === undefined || placeableCountVal >= (effectiveRows.length - blockedSet.size))
+        ) {
+          // Blocked numbers are explicitly and completely enumerated; unblocked numbers that match selected are placeable
           isKnownRaw = !isExplicitlyBlocked && !isPorted && r.matchesSelected !== false && r.matches_selected !== false;
         } else if ((blockedCountVal && blockedCountVal > 0) || (unvalidatedCountVal && unvalidatedCountVal > 0)) {
-          // Blocked count > 0 but items were not enumerated: safe fallback to unapproved
+          // Blocked count > 0 but items were not completely enumerated: safe fallback to unapproved
           isKnownRaw = false;
         } else {
           isKnownRaw = !isExplicitlyBlocked && !isPorted && r.matchesSelected !== false && r.matches_selected !== false;

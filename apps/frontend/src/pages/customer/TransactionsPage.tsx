@@ -16,6 +16,8 @@ import {
   History,
 } from 'lucide-react';
 import { walletApi, WalletTransactionDto } from '../../api/wallet.api.js';
+import { useToast } from '../../context/ToastContext.js';
+import { exportToCSV } from '../../utils/exportUtils.js';
 
 interface TransactionRow {
   id: string;
@@ -32,6 +34,7 @@ interface TransactionRow {
 }
 
 export const TransactionsPage: React.FC = () => {
+  const { toastSuccess, toastError } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [dateRange, setDateRange] = useState<string>('30d');
@@ -161,40 +164,40 @@ export const TransactionsPage: React.FC = () => {
   }, [filtered]);
 
   const handleExportStatement = () => {
-    const csvHeader = 'Reference,Type,Description,Amount,Balance After,Status,Date\n';
-    const rows = filtered
-      .map(
-        (t) =>
-          `"${t.reference}","${t.type}","${t.channel}","${t.amountDisplay}","${t.balanceAfter}","${t.status}","${t.dateDisplay}"`,
-      )
-      .join('\n');
-    const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `statement_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      const headers = ['Reference', 'Type', 'Description', 'Amount', 'Balance After', 'Status', 'Date'];
+      const rows = filtered.map((t) => [
+        t.reference,
+        t.type,
+        t.channel,
+        t.amountDisplay,
+        t.balanceAfter,
+        t.status,
+        t.dateDisplay,
+      ]);
+      exportToCSV({
+        filename: `statement_${new Date().toISOString().slice(0, 10)}`,
+        headers,
+        rows,
+      });
+      toastSuccess('Export Ready', `Exported ${filtered.length} transactions to CSV.`);
+    } catch {
+      toastError('Export Failed', 'Could not export transaction statement.');
+    }
   };
 
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-        <div>
-          <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)' }}>
-            Financial Ledger
-          </span>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '0.125rem' }}>
-            Transactions History
-          </h1>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
+      <div className="bb-page-header">
+        <div className="bb-page-header-info">
+          <h1>Transactions History</h1>
+          <p>
             Comprehensive audit record of all deposits, order payments, and reversals.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <div className="bb-page-header-actions">
           <Button variant="outline" size="sm" onClick={fetchTransactions} isLoading={isLoading} leftIcon={<RefreshCw size={14} />}>
             Refresh
           </Button>
@@ -205,14 +208,14 @@ export const TransactionsPage: React.FC = () => {
       </div>
 
       {/* Summary KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
+      <div className="bb-kpi-grid">
         <Card style={{ padding: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-          <div style={{ padding: '0.625rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
-            <History size={20} />
+          <div style={{ padding: '0.5rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
+            <History size={18} />
           </div>
           <div>
-            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
-              Ledger Entries ({dateRange === '30d' ? '30 days' : dateRange === '7d' ? '7 days' : dateRange === 'today' ? 'Today' : dateRange === '90d' ? '90 days' : 'All time'})
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+              Ledger Entries
             </span>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '2px' }}>
               {filtered.length}
@@ -221,12 +224,12 @@ export const TransactionsPage: React.FC = () => {
         </Card>
 
         <Card style={{ padding: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-          <div style={{ padding: '0.625rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(34, 197, 94, 0.12)', color: 'var(--color-primary)' }}>
-            <TrendingDown size={20} />
+          <div style={{ padding: '0.5rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(34, 197, 94, 0.10)', color: 'var(--color-primary)' }}>
+            <TrendingDown size={18} />
           </div>
           <div>
-            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
-              Inflow ({dateRange === '30d' ? '30 days' : dateRange === '7d' ? '7 days' : dateRange === 'today' ? 'Today' : dateRange === '90d' ? '90 days' : 'All time'})
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+              Total Inflow
             </span>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-primary)', marginTop: '2px', fontFamily: 'var(--font-data)' }}>
               GH₵ {totalInflowGhs.toFixed(2)}
@@ -235,12 +238,12 @@ export const TransactionsPage: React.FC = () => {
         </Card>
 
         <Card style={{ padding: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-          <div style={{ padding: '0.625rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: 'var(--color-accent-red)' }}>
-            <TrendingUp size={20} />
+          <div style={{ padding: '0.5rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(239, 68, 68, 0.10)', color: 'var(--color-accent-red)' }}>
+            <TrendingUp size={18} />
           </div>
           <div>
-            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
-              Outflow ({dateRange === '30d' ? '30 days' : dateRange === '7d' ? '7 days' : dateRange === 'today' ? 'Today' : dateRange === '90d' ? '90 days' : 'All time'})
+            <span style={{ fontSize: 'var(--font-size-3xs)', fontWeight: 600, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>
+              Total Outflow
             </span>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)', marginTop: '2px', fontFamily: 'var(--font-data)' }}>
               GH₵ {totalOutflowGhs.toFixed(2)}

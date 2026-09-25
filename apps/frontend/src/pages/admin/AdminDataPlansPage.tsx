@@ -12,6 +12,7 @@ import {
   ProviderCatalogSyncBatchDto,
 } from '@bytebeacon/shared';
 import { adminApi } from '../../api/admin.api.js';
+import { downloadFileFromResponse } from '../../utils/exportUtils.js';
 import { Card, MetricCard } from '../../components/ui/Card/Card.js';
 import { Badge } from '../../components/ui/Badge/Badge.js';
 import { Table } from '../../components/ui/Table/Table.js';
@@ -551,22 +552,10 @@ export const AdminDataPlansPage: React.FC = () => {
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
       });
 
-      if (format === 'csv') {
-        const blob = new Blob([res as any], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `bytebeacon-catalog-${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-      } else {
-        const jsonStr = JSON.stringify(res.data, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `bytebeacon-catalog-${new Date().toISOString().slice(0, 10)}.json`;
-        a.click();
-      }
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const fallbackFilename = `bytebeacon-catalog-${dateStr}.${format}`;
+      downloadFileFromResponse(res, fallbackFilename, format);
+
       toastSuccess('Export Successful', `Catalog exported as ${format.toUpperCase()}`);
     } catch (err: any) {
       toastError('Export Failed', err.message);
