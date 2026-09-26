@@ -200,4 +200,85 @@ describe('Agent Order Lifecycle Webhook Dispatching', () => {
       }),
     );
   });
+
+  it('fulfills all beneficiaries when order contains multiple recipients in pricingSnapshot', async () => {
+    const mockProvider = {
+      providerName: 'DataHouse',
+      submitBulkOrder: vi.fn().mockResolvedValue({
+        providerOrderId: 'sub_bulk_123',
+        providerReference: 'BLK-MULTI1',
+        providerStatus: ProviderStatus.COMPLETED,
+        totalRecipients: 3,
+        acceptedRecipients: 3,
+        rejectedRecipients: 0,
+        queuedRecipients: 0,
+      }),
+      submitOrder: vi.fn(),
+      getOrderStatus: vi.fn(),
+    } as unknown as ITelecomProvider;
+
+    const mockDb = {
+      query: vi.fn().mockImplementation((q: string) => {
+        if (q.includes('FROM orders o')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'ord_multi_1',
+                public_id: 'ord_pub_multi_1',
+                user_id: 'usr_agent_1',
+                agent_id: 'agent_uuid_1',
+                recipient_phone: '0241111111',
+                network: NetworkProvider.MTN,
+                data_amount_mb: 2048,
+                payment_status: PaymentStatus.PAID,
+                order_status: OrderStatus.READY_FOR_FULFILLMENT,
+                providerOrderId: null,
+                providerName: 'DataHouse',
+                providerReference: null,
+                providerStatus: ProviderStatus.UNKNOWN,
+                pricingSnapshot: {
+                  sizeGb: 2,
+                  beneficiaries: [
+                    { phoneNumber: '0241111111', dataVolumeGb: 2 },
+                    { phoneNumber: '0242222222', dataVolumeGb: 2 },
+                    { phoneNumber: '0243333333', dataVolumeGb: 2 },
+                  ],
+                },
+                pricing_snapshot: {
+                  sizeGb: 2,
+                  beneficiaries: [
+                    { phoneNumber: '0241111111', dataVolumeGb: 2 },
+                    { phoneNumber: '0242222222', dataVolumeGb: 2 },
+                    { phoneNumber: '0243333333', dataVolumeGb: 2 },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+    } as unknown as pg.Pool;
+
+    const cb = new CircuitBreaker({ failureThreshold: 5, cooldownPeriodMs: 30000, providerName: 'DataHouse' });
+    const retryPolicy = new RetryPolicy();
+    const queueService = new FulfillmentQueueService(mockDb, null);
+
+    const worker = new FulfillmentWorker(mockDb, mockProvider, cb, retryPolicy, queueService);
+
+    const result = await worker.processOrderFulfillment('ord_multi_1', 'corr_multi_1');
+
+    expect(result.success).toBe(true);
+    expect(result.orderStatus).toBe(OrderStatus.COMPLETED);
+    expect(mockProvider.submitBulkOrder).toHaveBeenCalledTimes(1);
+    expect(mockProvider.submitBulkOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipients: expect.arrayContaining([
+          expect.objectContaining({ phoneNumber: '0241111111' }),
+          expect.objectContaining({ phoneNumber: '0242222222' }),
+          expect.objectContaining({ phoneNumber: '0243333333' }),
+        ]),
+      }),
+    );
+  });
 });

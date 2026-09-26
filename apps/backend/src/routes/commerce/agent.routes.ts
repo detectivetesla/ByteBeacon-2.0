@@ -213,203 +213,182 @@ export async function agentRoutes(
     handleGetAgentOrder,
   );
 
-  // 0.2 PLACE SINGLE AGENT ORDER: POST /agent/orders
-  app.post<{
-    Body: {
-      bundleId: string;
-      phoneNumber: string;
-      idempotencyKey: string;
-      email?: string;
+  // 0.2 PLACE AGENT ORDER (SINGLE OR CONCURRENT BATCH): POST /agent/orders, /agent/orders/batch, /agent/orders/multi
+  const handleCreateAgentOrder = async (req: FastifyRequest, reply: FastifyReply) => {
+    const rawBody = (req.body || {}) as any;
+    const isBatch =
+      Array.isArray(rawBody) ||
+      Array.isArray(rawBody.orders) ||
+      Array.isArray(rawBody.items) ||
+      Array.isArray(rawBody.recipients);
+
+    const apiKeyHeader = extractApiKeyFromRequest(req) || '';
+    const isSandbox =
+      Boolean((req as any).apiKey?.isSandbox) ||
+      Boolean((req.user as any)?.isSandbox) ||
+      apiKeyHeader.startsWith('ak_test_');
+
+    const ghanaPhoneRegex = /^(?:\+233|0)[235]\d{8}$/;
+    const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    // Helper: validate MTN recipient against approvals / prior orders / live precheck
+    const ensureMtnValidated = async (cleanPhone: string, normalizedLocal: string, bundleId: string) => {
+      const queryPhones = Array.from(
+        new Set([
+          normalizedLocal,
+          `+233${normalizedLocal.slice(1)}`,
+          `233${normalizedLocal.slice(1)}`,
+          cleanPhone,
+        ].filter(Boolean)),
+      );
+
+      let bundleSizeGb: number | null = null;
+      try {
+        const bundleRes = await db.query(
+          `SELECT data_amount_mb FROM catalog_products WHERE id = $1 LIMIT 1`,
+          [bundleId],
+        );
+        if (bundleRes.rows[0]?.data_amount_mb) {
+          bundleSizeGb = Math.round((bundleRes.rows[0].data_amount_mb / 1024) * 100) / 100;
+        }
+      } catch {}
+
+      const validatedCheck = await db.query(
+        `SELECT 1 FROM beneficiary_validation
+         WHERE phone_number = ANY($1)
+           AND network = 'MTN'
+           AND validation_status IN ('VALID', 'APPROVED')
+           AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+         UNION
+         SELECT 1 FROM pending_beneficiary_approvals
+         WHERE phone_number = ANY($1)
+           AND network = 'MTN'
+           AND status = 'APPROVED'
+         UNION
+         SELECT 1 FROM orders
+         WHERE recipient_phone = ANY($1)
+           AND network = 'MTN'
+           AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
+         LIMIT 1`,
+        [queryPhones],
+      );
+
+      if (validatedCheck.rows.length === 0 && beneficiaryService) {
+        try {
+          const liveCheck = await beneficiaryService.precheckPublicBeneficiaries({
+            network: NetworkProvider.MTN,
+            phoneNumbers: [normalizedLocal],
+            record: false,
+            userId: req.user?.sub,
+          });
+          const firstResult = liveCheck.results?.[0];
+          if (firstResult && (firstResult.known || firstResult.isKnown || firstResult.status === 'APPROVED')) {
+            await db.query(
+              `INSERT INTO beneficiary_validation (
+                  phone_number, network, validation_status, attempt_count,
+                  last_bundle_size_gb, agent_id, created_at, updated_at
+               ) VALUES ($1, 'MTN', 'VALID', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT (phone_number, network) DO UPDATE
+               SET validation_status = 'VALID',
+                   updated_at = CURRENT_TIMESTAMP`,
+              [normalizedLocal, bundleSizeGb, req.user?.sub],
+            ).catch(() => {});
+            validatedCheck.rows.push({ dummy: 1 } as any);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (validatedCheck.rows.length === 0) {
+        await db.query(
+          `INSERT INTO pending_beneficiary_approvals (
+              phone_number, network, agent_id, status, attempt_count,
+              last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
+           ) VALUES ($1, 'MTN', $2, 'PENDING', 1, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (agent_id, phone_number, network) DO UPDATE
+           SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
+               last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
+               last_detected_at = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP`,
+          [normalizedLocal, req.user!.sub, bundleSizeGb],
+        ).catch(() => {});
+
+        await db.query(
+          `INSERT INTO beneficiary_validation (
+              phone_number, network, validation_status, attempt_count,
+              last_bundle_size_gb, agent_id, created_at, updated_at
+           ) VALUES ($1, 'MTN', 'PENDING', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (phone_number, network) DO UPDATE
+           SET attempt_count = beneficiary_validation.attempt_count + 1,
+               last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
+               updated_at = CURRENT_TIMESTAMP`,
+          [normalizedLocal, bundleSizeGb, req.user!.sub],
+        ).catch(() => {});
+
+        throw new BeneficiaryNotValidatedError(
+          'First-time MTN number not yet validated — recorded for MTN approval; precheck first.',
+        );
+      }
     };
-  }>(
-    '/agent/orders',
-    {
-      preHandler: [
-        authHooks.authenticate(Permission.ORDERS_CREATE),
-        authHooks.requirePermission(Permission.ORDERS_CREATE),
-        maintenanceHook,
-      ],
-    },
-    async (req, reply) => {
-      const { bundleId, phoneNumber, idempotencyKey, email } = req.body || {};
 
-      if (!bundleId) {
-        throw new BadRequestError('bundleId is required');
-      }
-      if (!phoneNumber) {
-        throw new BadRequestError('phoneNumber is required');
-      }
-
-      // Ghanaian MSISDN validation (0XXXXXXXXX or +233XXXXXXXXX)
-      const cleanPhone = String(phoneNumber).trim().replace(/\s+/g, '');
-      const ghanaPhoneRegex = /^(?:\+233|0)[235]\d{8}$/;
-      if (!ghanaPhoneRegex.test(cleanPhone)) {
-        throw new InvalidPhoneError('Phone not a Ghanaian MSISDN');
-      }
-
-      // idempotencyKey is required and must be a UUID v4
-      const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      if (!idempotencyKey || !uuidV4Regex.test(idempotencyKey)) {
-        throw new BadRequestError('idempotencyKey is required and must be a UUID v4');
-      }
-
-      const apiKeyHeader = extractApiKeyFromRequest(req) || '';
-      const isSandbox =
-        Boolean((req as any).apiKey?.isSandbox) ||
-        Boolean((req.user as any)?.isSandbox) ||
-        apiKeyHeader.startsWith('ak_test_');
-
-      // First-time MTN validation check
-      const normalizedLocal = cleanPhone.startsWith('+233') ? `0${cleanPhone.slice(4)}` : cleanPhone;
+    // Helper: simulate sandbox order
+    const simulateSandboxOrder = (
+      cleanPhone: string,
+      normalizedLocal: string,
+      bundleId: string,
+      itemKey: string,
+      email?: string,
+    ) => {
+      const isSimulatedFailure = cleanPhone.endsWith('0000');
+      const sandboxRef = `SBX-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+      const sandboxPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
+      const simulatedStatus = isSimulatedFailure ? 'fulfillment_failed' : 'fulfilled';
       const isMtn = /^(?:\+233|0)(?:24|25|54|55|59)\d{7}$/.test(cleanPhone);
 
-      if (isMtn && !isSandbox) {
-        const queryPhones = Array.from(
-          new Set([
-            normalizedLocal,
-            `+233${normalizedLocal.slice(1)}`,
-            `233${normalizedLocal.slice(1)}`,
-            cleanPhone,
-          ].filter(Boolean)),
-        );
+      const sandboxDispatcher = new AgentWebhookDispatcherService(db);
+      sandboxDispatcher.dispatchAgentEvent(req.user!.sub, 'order.received', {
+        id: sandboxPublicId,
+        order_id: sandboxPublicId,
+        public_id: sandboxPublicId,
+        reference: sandboxRef,
+        bundle_id: bundleId,
+        phone_number: normalizedLocal,
+        network: isMtn ? 'MTN' : 'TELECEL',
+        amount: '21.00',
+        status: 'received',
+        created_at: new Date().toISOString(),
+      }).catch(() => {});
 
-        let bundleSizeGb: number | null = null;
-        try {
-          const bundleRes = await db.query(
-            `SELECT data_amount_mb FROM catalog_products WHERE id = $1 LIMIT 1`,
-            [bundleId],
-          );
-          if (bundleRes.rows[0]?.data_amount_mb) {
-            bundleSizeGb = Math.round((bundleRes.rows[0].data_amount_mb / 1024) * 100) / 100;
-          }
-        } catch {}
+      return {
+        id: sandboxPublicId,
+        publicId: sandboxPublicId,
+        referenceCode: sandboxRef,
+        idempotencyKey: itemKey,
+        userId: req.user!.sub,
+        agentId: req.user!.sub,
+        channel: 'agent_api',
+        bundleId,
+        amount: '21.00',
+        network: isMtn ? 'MTN' : 'TELECEL',
+        bundleType: 'DATA',
+        groupSizeGb: '5.00',
+        phoneNumber: normalizedLocal,
+        email: email || null,
+        status: simulatedStatus,
+        isSandbox: true,
+        createdAt: new Date().toISOString(),
+      };
+    };
 
-        const validatedCheck = await db.query(
-          `SELECT 1 FROM beneficiary_validation
-           WHERE phone_number = ANY($1)
-             AND network = 'MTN'
-             AND validation_status IN ('VALID', 'APPROVED')
-             AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-           UNION
-           SELECT 1 FROM pending_beneficiary_approvals
-           WHERE phone_number = ANY($1)
-             AND network = 'MTN'
-             AND status = 'APPROVED'
-           UNION
-           SELECT 1 FROM orders
-           WHERE recipient_phone = ANY($1)
-             AND network = 'MTN'
-             AND order_status IN ('COMPLETED', 'DELIVERED', 'PROCESSING', 'SUBMITTED', 'READY_FOR_FULFILLMENT')
-           LIMIT 1`,
-          [queryPhones],
-        );
-
-        if (validatedCheck.rows.length === 0 && beneficiaryService) {
-          try {
-            const liveCheck = await beneficiaryService.precheckPublicBeneficiaries({
-              network: NetworkProvider.MTN,
-              phoneNumbers: [normalizedLocal],
-              record: false,
-              userId: req.user?.sub,
-            });
-            const firstResult = liveCheck.results?.[0];
-            if (firstResult && (firstResult.known || firstResult.isKnown || firstResult.status === 'APPROVED')) {
-              await db.query(
-                `INSERT INTO beneficiary_validation (
-                    phone_number, network, validation_status, attempt_count,
-                    last_bundle_size_gb, agent_id, created_at, updated_at
-                 ) VALUES ($1, 'MTN', 'VALID', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                 ON CONFLICT (phone_number, network) DO UPDATE
-                 SET validation_status = 'VALID',
-                     updated_at = CURRENT_TIMESTAMP`,
-                [normalizedLocal, bundleSizeGb, req.user?.sub],
-              ).catch(() => {});
-              validatedCheck.rows.push({ dummy: 1 } as any);
-            }
-          } catch {
-            // ignore
-          }
-        }
-
-        if (validatedCheck.rows.length === 0) {
-          await db.query(
-            `INSERT INTO pending_beneficiary_approvals (
-                phone_number, network, agent_id, status, attempt_count,
-                last_bundle_size_gb, first_detected_at, last_detected_at, created_at, updated_at
-             ) VALUES ($1, 'MTN', $2, 'PENDING', 1, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-             ON CONFLICT (agent_id, phone_number, network) DO UPDATE
-             SET attempt_count = pending_beneficiary_approvals.attempt_count + 1,
-                 last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, pending_beneficiary_approvals.last_bundle_size_gb),
-                 last_detected_at = CURRENT_TIMESTAMP,
-                 updated_at = CURRENT_TIMESTAMP`,
-            [normalizedLocal, req.user!.sub, bundleSizeGb],
-          ).catch(() => {});
-
-          await db.query(
-            `INSERT INTO beneficiary_validation (
-                phone_number, network, validation_status, attempt_count,
-                last_bundle_size_gb, agent_id, created_at, updated_at
-             ) VALUES ($1, 'MTN', 'PENDING', 1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-             ON CONFLICT (phone_number, network) DO UPDATE
-             SET attempt_count = beneficiary_validation.attempt_count + 1,
-                 last_bundle_size_gb = COALESCE(EXCLUDED.last_bundle_size_gb, beneficiary_validation.last_bundle_size_gb),
-                 updated_at = CURRENT_TIMESTAMP`,
-            [normalizedLocal, bundleSizeGb, req.user!.sub],
-          ).catch(() => {});
-
-          throw new BeneficiaryNotValidatedError(
-            'First-time MTN number not yet validated — recorded for MTN approval; precheck first.',
-          );
-        }
-      }
-
-      // Sandbox key short-circuit
-      if (isSandbox) {
-        const isSimulatedFailure = cleanPhone.endsWith('0000');
-        const sandboxRef = `SBX-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-        const sandboxPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
-        const simulatedStatus = isSimulatedFailure ? 'fulfillment_failed' : 'fulfilled';
-
-        const sandboxDispatcher = new AgentWebhookDispatcherService(db);
-        sandboxDispatcher.dispatchAgentEvent(req.user!.sub, 'order.received', {
-          id: sandboxPublicId,
-          order_id: sandboxPublicId,
-          public_id: sandboxPublicId,
-          reference: sandboxRef,
-          bundle_id: bundleId,
-          phone_number: normalizedLocal,
-          network: isMtn ? 'MTN' : 'TELECEL',
-          amount: '21.00',
-          status: 'received',
-          created_at: new Date().toISOString(),
-        }).catch(() => {});
-
-        return reply.status(201).send({
-          success: true,
-          statusCode: 201,
-          message: 'Order placed and queued for processing.',
-          data: {
-            id: sandboxPublicId,
-            publicId: sandboxPublicId,
-            referenceCode: sandboxRef,
-            idempotencyKey,
-            userId: req.user!.sub,
-            agentId: req.user!.sub,
-            channel: 'agent_api',
-            bundleId,
-            amount: '21.00',
-            network: isMtn ? 'MTN' : 'TELECEL',
-            bundleType: 'DATA',
-            groupSizeGb: '5.00',
-            phoneNumber: normalizedLocal,
-            email: email || null,
-            status: simulatedStatus,
-            isSandbox: true,
-            createdAt: new Date().toISOString(),
-          },
-        });
-      }
-
+    // Helper: process a single item submission (live)
+    const executeLiveOrder = async (
+      bundleId: string,
+      normalizedLocal: string,
+      itemKey: string,
+      itemCorrelationId: string,
+      email?: string,
+    ) => {
       if (!orderService) {
         throw new BadRequestError('Order service is unavailable');
       }
@@ -418,13 +397,13 @@ export async function agentRoutes(
         {
           productId: bundleId,
           recipientPhone: normalizedLocal,
-          idempotencyKey,
+          idempotencyKey: itemKey,
           paymentMethod: PaymentMethod.WALLET,
           agentId: req.user!.sub,
         },
         {
           userId: req.user!.sub,
-          correlationId: req.id,
+          correlationId: itemCorrelationId,
           actorType: 'AGENT',
           agentId: req.user!.sub,
           ipAddress: req.ip,
@@ -435,7 +414,6 @@ export async function agentRoutes(
       const amountGhs = (Number(order.amountPesewas || 0) / 100).toFixed(2);
       const groupSizeGb = (Number(order.dataAmountMb || 1024) / 1024).toFixed(2);
 
-      // Dispatch order.received webhook event to agent only on fresh order submissions
       const targetAgentId = order.agentId || req.user!.sub;
       if (targetAgentId && !isIdempotentReplay) {
         const dispatcher = new AgentWebhookDispatcherService(db);
@@ -457,15 +435,14 @@ export async function agentRoutes(
         ? OrderStateMachine.mapToAgentLifecycleStatus(order.orderStatus, order.paymentStatus, order.refundStatus)
         : 'received';
 
-      return reply.status(isIdempotentReplay ? 200 : 201).send({
-        success: true,
-        statusCode: isIdempotentReplay ? 200 : 201,
-        message: isIdempotentReplay ? 'Order already placed.' : 'Order placed and queued for processing.',
+      return {
+        order,
+        isIdempotentReplay,
         data: {
           id: order.id,
           publicId: order.publicId,
           referenceCode: refCode,
-          idempotencyKey,
+          idempotencyKey: itemKey,
           userId: order.userId,
           agentId: order.agentId || req.user!.sub,
           channel: 'agent_api',
@@ -480,9 +457,194 @@ export async function agentRoutes(
           isSandbox: false,
           createdAt: order.createdAt,
         },
+      };
+    };
+
+    // ----------------------------------------------------
+    // BRANCH A: BATCH ORDER SUBMISSION (Concurrent processing)
+    // ----------------------------------------------------
+    if (isBatch) {
+      let rawList: any[] = [];
+      if (Array.isArray(rawBody)) {
+        rawList = rawBody;
+      } else if (Array.isArray(rawBody.orders)) {
+        rawList = rawBody.orders;
+      } else if (Array.isArray(rawBody.items)) {
+        rawList = rawBody.items;
+      } else if (Array.isArray(rawBody.recipients)) {
+        const commonBundleId = rawBody.bundleId;
+        rawList = rawBody.recipients.map((r: any) => ({
+          bundleId: r.bundleId || commonBundleId,
+          phoneNumber: r.phoneNumber || r.phone || r.recipient,
+          idempotencyKey: r.idempotencyKey,
+          email: r.email || rawBody.email,
+        }));
+      }
+
+      if (rawList.length === 0) {
+        throw new BadRequestError('Batch payload must contain at least one order');
+      }
+      if (rawList.length > 500) {
+        throw new BadRequestError('Batch payload cannot exceed 500 orders per request');
+      }
+
+      const processBatchItem = async (item: any, index: number) => {
+        const { bundleId, phoneNumber, email } = item || {};
+        if (!bundleId) {
+          throw new BadRequestError(`Item #${index + 1}: bundleId is required`);
+        }
+        if (!phoneNumber) {
+          throw new BadRequestError(`Item #${index + 1}: phoneNumber is required`);
+        }
+
+        const cleanPhone = String(phoneNumber).trim().replace(/\s+/g, '');
+        if (!ghanaPhoneRegex.test(cleanPhone)) {
+          throw new InvalidPhoneError(`Item #${index + 1}: Phone '${phoneNumber}' not a Ghanaian MSISDN`);
+        }
+
+        let itemKey = item.idempotencyKey;
+        if (!itemKey || !uuidV4Regex.test(itemKey)) {
+          itemKey = crypto.randomUUID();
+        }
+
+        const normalizedLocal = cleanPhone.startsWith('+233') ? `0${cleanPhone.slice(4)}` : cleanPhone;
+        const isMtn = /^(?:\+233|0)(?:24|25|54|55|59)\d{7}$/.test(cleanPhone);
+
+        if (isMtn && !isSandbox) {
+          await ensureMtnValidated(cleanPhone, normalizedLocal, bundleId);
+        }
+
+        if (isSandbox) {
+          return simulateSandboxOrder(cleanPhone, normalizedLocal, bundleId, itemKey, email);
+        }
+
+        const result = await executeLiveOrder(
+          bundleId,
+          normalizedLocal,
+          itemKey,
+          `${req.id}_${index}`,
+          email,
+        );
+        return result.data;
+      };
+
+      const settled = await Promise.allSettled(
+        rawList.map((item, idx) => processBatchItem(item, idx)),
+      );
+
+      const successfulOrders: any[] = [];
+      const failures: any[] = [];
+
+      settled.forEach((res, idx) => {
+        if (res.status === 'fulfilled') {
+          successfulOrders.push(res.value);
+        } else {
+          failures.push({
+            index: idx,
+            phoneNumber: rawList[idx]?.phoneNumber || rawList[idx]?.phone,
+            bundleId: rawList[idx]?.bundleId,
+            error: res.reason?.message || 'Order processing failed',
+            code: res.reason?.errorCode || res.reason?.code || 'ORDER_FAILED',
+          });
+        }
       });
-    },
-  );
+
+      const isFullFailure = successfulOrders.length === 0;
+      const statusCode = isFullFailure ? 422 : 201;
+
+      return reply.status(statusCode).send({
+        success: !isFullFailure,
+        statusCode,
+        message: isFullFailure
+          ? 'All orders in the batch failed to process.'
+          : `Batch processed: ${successfulOrders.length} succeeded, ${failures.length} failed.`,
+        data: {
+          batch: true,
+          total: rawList.length,
+          successfulCount: successfulOrders.length,
+          failedCount: failures.length,
+          orders: successfulOrders,
+          failures: failures.length > 0 ? failures : undefined,
+        },
+      });
+    }
+
+    // ----------------------------------------------------
+    // BRANCH B: SINGLE ORDER SUBMISSION (100% Backward Compatible)
+    // ----------------------------------------------------
+    const { bundleId, phoneNumber, idempotencyKey, email } = rawBody;
+
+    if (!bundleId) {
+      throw new BadRequestError('bundleId is required');
+    }
+    if (!phoneNumber) {
+      throw new BadRequestError('phoneNumber is required');
+    }
+
+    const cleanPhone = String(phoneNumber).trim().replace(/\s+/g, '');
+    if (!ghanaPhoneRegex.test(cleanPhone)) {
+      throw new InvalidPhoneError('Phone not a Ghanaian MSISDN');
+    }
+
+    if (!idempotencyKey || !uuidV4Regex.test(idempotencyKey)) {
+      throw new BadRequestError('idempotencyKey is required and must be a UUID v4');
+    }
+
+    const normalizedLocal = cleanPhone.startsWith('+233') ? `0${cleanPhone.slice(4)}` : cleanPhone;
+    const isMtn = /^(?:\+233|0)(?:24|25|54|55|59)\d{7}$/.test(cleanPhone);
+
+    if (isMtn && !isSandbox) {
+      await ensureMtnValidated(cleanPhone, normalizedLocal, bundleId);
+    }
+
+    if (isSandbox) {
+      const sandboxData = simulateSandboxOrder(cleanPhone, normalizedLocal, bundleId, idempotencyKey, email);
+      return reply.status(201).send({
+        success: true,
+        statusCode: 201,
+        message: 'Order placed and queued for processing.',
+        data: sandboxData,
+      });
+    }
+
+    const liveResult = await executeLiveOrder(
+      bundleId,
+      normalizedLocal,
+      idempotencyKey,
+      req.id,
+      email,
+    );
+
+    return reply.status(liveResult.isIdempotentReplay ? 200 : 201).send({
+      success: true,
+      statusCode: liveResult.isIdempotentReplay ? 200 : 201,
+      message: liveResult.isIdempotentReplay ? 'Order already placed.' : 'Order placed and queued for processing.',
+      data: liveResult.data,
+    });
+  };
+
+  const agentOrderRoutes = [
+    '/agent/orders',
+    '/agents/orders',
+    '/agent/orders/batch',
+    '/agents/orders/batch',
+    '/agent/orders/multi',
+    '/agents/orders/multi',
+  ];
+
+  for (const path of agentOrderRoutes) {
+    app.post(
+      path,
+      {
+        preHandler: [
+          authHooks.authenticate(Permission.ORDERS_CREATE),
+          authHooks.requirePermission(Permission.ORDERS_CREATE),
+          maintenanceHook,
+        ],
+      },
+      handleCreateAgentOrder,
+    );
+  }
 
   // 0.3 GET AGENT PROFILE ME: GET /agent/me & GET /agents/me
   const handleGetAgentMe = async (req: FastifyRequest, reply: FastifyReply) => {
@@ -3641,6 +3803,10 @@ export async function agentRoutes(
     const offset = (pageNum - 1) * limitNum;
     const currentUserId = req.user!.sub;
 
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    reply.header('Pragma', 'no-cache');
+    reply.header('Expires', '0');
+
     // 1. Resolve all candidate user and agent IDs for this authenticated session
     const candidateUserIds: string[] = [currentUserId];
     try {
@@ -3656,17 +3822,19 @@ export async function agentRoutes(
       // Non-blocking fallback
     }
 
-    // 2. Resolve all API key IDs owned by this agent
+    // 2. Resolve all API key IDs and prefixes owned by this agent
     const candidateKeyIds: string[] = [];
+    const candidateKeyPrefixes: string[] = [];
     try {
       const keysCheck = await db.query(
-        `SELECT id::text FROM api_keys 
+        `SELECT id::text, key_prefix FROM api_keys 
          WHERE agent_id::text = ANY($1::text[]) 
             OR owner_user_id::text = ANY($1::text[])`,
         [candidateUserIds],
       );
       for (const row of keysCheck.rows) {
         if (row.id && !candidateKeyIds.includes(row.id)) candidateKeyIds.push(row.id);
+        if (row.key_prefix && !candidateKeyPrefixes.includes(row.key_prefix)) candidateKeyPrefixes.push(row.key_prefix);
       }
     } catch {
       // Non-blocking fallback
@@ -3681,7 +3849,7 @@ export async function agentRoutes(
     }
 
     let specificKeyClause = '';
-    const queryParams: any[] = [candidateUserIds, candidateKeyIds];
+    const queryParams: any[] = [candidateUserIds, candidateKeyIds, candidateKeyPrefixes];
     if (keyId && candidateKeyIds.includes(keyId)) {
       queryParams.push(keyId);
       specificKeyClause = `AND m.key_id = $${queryParams.length}`;
@@ -3701,7 +3869,11 @@ export async function agentRoutes(
       WHERE (
         (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
         OR
+        (m.agent_id IS NOT NULL AND m.agent_id::text = ANY($1::text[]))
+        OR
         (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+        OR
+        (m.key_prefix IS NOT NULL AND m.key_prefix = ANY($3::text[]))
       ) ${specificKeyClause}
       AND m.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'`,
       queryParams,
@@ -3728,7 +3900,11 @@ export async function agentRoutes(
         AND (
           (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
           OR
+          (m.agent_id IS NOT NULL AND m.agent_id::text = ANY($1::text[]))
+          OR
           (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+          OR
+          (m.key_prefix IS NOT NULL AND m.key_prefix = ANY($3::text[]))
         ) ${specificKeyClause}
       GROUP BY d.day
       ORDER BY d.day ASC`,
@@ -3770,7 +3946,11 @@ export async function agentRoutes(
       WHERE (
         (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
         OR
+        (m.agent_id IS NOT NULL AND m.agent_id::text = ANY($1::text[]))
+        OR
         (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+        OR
+        (m.key_prefix IS NOT NULL AND m.key_prefix = ANY($3::text[]))
       ) ${specificKeyClause}
       AND m.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
       GROUP BY m.method, m.endpoint
@@ -3825,7 +4005,11 @@ export async function agentRoutes(
       WHERE (
         (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
         OR
+        (m.agent_id IS NOT NULL AND m.agent_id::text = ANY($1::text[]))
+        OR
         (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+        OR
+        (m.key_prefix IS NOT NULL AND m.key_prefix = ANY($3::text[]))
       ) ${envClause} ${specificKeyClause}`,
       queryParams,
     ).catch(() => ({ rows: [{ total: '0' }] }));
@@ -3860,9 +4044,13 @@ export async function agentRoutes(
       WHERE (
         (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
         OR
+        (m.agent_id IS NOT NULL AND m.agent_id::text = ANY($1::text[]))
+        OR
         (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+        OR
+        (m.key_prefix IS NOT NULL AND m.key_prefix = ANY($3::text[]))
       ) ${envClause} ${specificKeyClause}
-      ORDER BY m.created_at DESC
+      ORDER BY m.created_at DESC, m.id DESC
       LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
       recentItemsParams,
     ).catch(async () => {
@@ -3886,9 +4074,13 @@ export async function agentRoutes(
         WHERE (
           (m.user_id IS NOT NULL AND m.user_id::text = ANY($1::text[]))
           OR
+          (m.agent_id IS NOT NULL AND m.agent_id::text = ANY($1::text[]))
+          OR
           (m.key_id IS NOT NULL AND m.key_id::text = ANY($2::text[]))
+          OR
+          (m.key_prefix IS NOT NULL AND m.key_prefix = ANY($3::text[]))
         ) ${envClause} ${specificKeyClause}
-        ORDER BY m.created_at DESC
+        ORDER BY m.created_at DESC, m.id DESC
         LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
         recentItemsParams,
       ).catch(() => ({ rows: [] }));

@@ -76,8 +76,17 @@ export const apiKeysApi = {
     if (params?.keyId) query.set('keyId', params.keyId);
     if (params?.page) query.set('page', String(params.page));
     if (params?.limit) query.set('limit', String(params.limit));
+    query.set('_t', String(Date.now()));
     const qs = query.toString() ? `?${query.toString()}` : '';
-    const res = await apiClient.get<AgentApiUsageResponse | { data: AgentApiUsageResponse }>(`/agent/api-usage${qs}`);
+    const res = await apiClient.get<AgentApiUsageResponse | { data: AgentApiUsageResponse }>(
+      `/agent/api-usage${qs}`,
+      {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      },
+    );
     if (res && 'data' in res && (res as any).data?.overview) {
       return (res as any).data;
     }

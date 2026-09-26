@@ -102,7 +102,38 @@ export async function bulkOrderRoutes(
     },
   );
 
-  // 3. PLACE AGENT BULK ORDER (JSON API-Key): POST /agent/orders/bulk
+  // 3. PLACE AGENT BULK ORDER (JSON API-Key): POST /agent/orders/bulk & POST /agents/orders/bulk
+  const handlePlaceAgentBulkOrder = async (
+    req: FastifyRequest<{ Body: AgentBulkOrderRequest }>,
+    reply: FastifyReply,
+  ) => {
+    const apiKeyHeader = extractApiKeyFromRequest(req) || '';
+    const isSandbox =
+      Boolean((req as any).apiKey?.isSandbox) ||
+      Boolean((req.user as any)?.isSandbox) ||
+      apiKeyHeader.startsWith('ak_test_');
+
+    const idempotencyKey =
+      req.body?.idempotencyKey || (req.headers['idempotency-key'] as string) || '';
+
+    const result = await bulkOrderService.placeAgentBulkOrder({
+      agentOrUserId: req.user!.sub,
+      isSandbox,
+      network: req.body.network,
+      recipients: req.body.recipients,
+      idempotencyKey,
+      confirmedPorted: req.body.confirmedPorted,
+      onUnvalidated: req.body.onUnvalidated,
+    });
+
+    return reply.status(201).send({
+      success: true,
+      statusCode: 201,
+      message: 'Bulk order placed and queued for processing.',
+      data: result,
+    });
+  };
+
   app.post<{ Body: AgentBulkOrderRequest }>(
     '/agent/orders/bulk',
     {
@@ -114,33 +145,21 @@ export async function bulkOrderRoutes(
         orderPauseHook,
       ],
     },
-    async (req: FastifyRequest<{ Body: AgentBulkOrderRequest }>, reply: FastifyReply) => {
-      const apiKeyHeader = extractApiKeyFromRequest(req) || '';
-      const isSandbox =
-        Boolean((req as any).apiKey?.isSandbox) ||
-        Boolean((req.user as any)?.isSandbox) ||
-        apiKeyHeader.startsWith('ak_test_');
+    handlePlaceAgentBulkOrder,
+  );
 
-      const idempotencyKey =
-        req.body?.idempotencyKey || (req.headers['idempotency-key'] as string) || '';
-
-      const result = await bulkOrderService.placeAgentBulkOrder({
-        agentOrUserId: req.user!.sub,
-        isSandbox,
-        network: req.body.network,
-        recipients: req.body.recipients,
-        idempotencyKey,
-        confirmedPorted: req.body.confirmedPorted,
-        onUnvalidated: req.body.onUnvalidated,
-      });
-
-      return reply.status(201).send({
-        success: true,
-        statusCode: 201,
-        message: 'Bulk order placed and queued for processing.',
-        data: result,
-      });
+  app.post<{ Body: AgentBulkOrderRequest }>(
+    '/agents/orders/bulk',
+    {
+      preHandler: [
+        bulkRateLimit,
+        authHooks.authenticate(Permission.ORDERS_CREATE),
+        authHooks.requirePermission(Permission.ORDERS_CREATE),
+        maintenanceHook,
+        orderPauseHook,
+      ],
     },
+    handlePlaceAgentBulkOrder,
   );
 
   // 4. AGENT DASHBOARD FILE UPLOAD (JWT Mirror): POST /me/agent/orders/bulk

@@ -6,6 +6,7 @@ import { RbacService } from '../../core/security/rbac.service.js';
 import { AuditService } from '../../core/security/audit.service.js';
 import { createAuthHooks } from '../../plugins/auth.plugin.js';
 import { BadRequestError } from '../../core/errors/app-error.js';
+import type { ApiUsageTelemetryService } from '../../core/security/api-usage-telemetry.service.js';
 import {
   CreateApiKeyRequest,
   ApiKeyCreatedDto,
@@ -21,6 +22,7 @@ export interface DeveloperApiKeyRouteDependencies {
   tokenService: TokenService;
   rbacService: RbacService;
   auditService: AuditService;
+  apiUsageTelemetryService?: ApiUsageTelemetryService;
 }
 
 function normalizeApiKeyEnvironment(env?: string): ApiKeyEnvironment {
@@ -116,6 +118,8 @@ export async function developerApiKeyRoutes(
       });
     } catch {}
 
+    deps.apiUsageTelemetryService?.invalidateKeyCache();
+
     const responseData: ApiKeyCreatedDto = {
       id: generated.id,
       name: generated.name,
@@ -191,6 +195,8 @@ export async function developerApiKeyRoutes(
       });
     } catch {}
 
+    deps.apiUsageTelemetryService?.invalidateKeyCache();
+
     const responseData: ApiKeyCreatedDto = {
       id: rolled.id,
       name: rolled.name,
@@ -230,6 +236,8 @@ export async function developerApiKeyRoutes(
         ipAddress: req.ip,
       });
     } catch {}
+
+    deps.apiUsageTelemetryService?.invalidateKeyCache();
 
     return reply.send({ success: true, message: 'API key revoked successfully' });
   };

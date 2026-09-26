@@ -123,6 +123,17 @@ export class ApiUsageTelemetryService {
   }
 
   /**
+   * Clears the API key cache, either for a specific key prefix or entirely.
+   */
+  public invalidateKeyCache(keyPrefix?: string): void {
+    if (keyPrefix) {
+      this.keyCache.delete(keyPrefix);
+    } else {
+      this.keyCache.clear();
+    }
+  }
+
+  /**
    * Safely formats and validates a string as a valid UUID, returning null if invalid.
    */
   public safeUuid(val: unknown): string | null {

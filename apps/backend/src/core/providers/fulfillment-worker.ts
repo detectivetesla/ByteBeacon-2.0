@@ -215,44 +215,188 @@ export class FulfillmentWorker {
       const startMs = Date.now();
 
       // Extract any pre-confirmed ported MSISDNs from pricing snapshot
+      const rawSnapshot = order.pricingSnapshot || order.pricing_snapshot;
       const snapshotObj =
-        typeof order.pricingSnapshot === 'string'
+        typeof rawSnapshot === 'string'
           ? (() => {
               try {
-                return JSON.parse(order.pricingSnapshot);
+                return JSON.parse(rawSnapshot);
               } catch {
                 return null;
               }
             })()
-          : order.pricingSnapshot;
+          : rawSnapshot;
       const confirmedPorted = Array.isArray(snapshotObj?.confirmedPorted)
         ? snapshotObj.confirmedPorted
         : undefined;
 
+      const beneficiaries: Array<{
+        id?: string;
+        phoneNumber?: string;
+        recipient_phone?: string;
+        dataVolumeGb?: string | number;
+        amount?: string | number;
+        network?: string;
+        isPorted?: boolean;
+      }> = Array.isArray(snapshotObj?.beneficiaries) && snapshotObj.beneficiaries.length > 1
+        ? snapshotObj.beneficiaries
+        : [];
+
       let submissionSucceeded = false;
 
       try {
-        submitResult = await this.circuitBreaker.execute(() =>
-          activeProvider.submitOrder({
-            orderId: order.id,
-            clientReference: deterministicReference,
-            network: order.network,
-            recipientPhone: order.recipient_phone,
-            dataAmountMb: order.data_amount_mb,
-            idempotencyKey: order.id,
-            confirmedPorted,
-            metadata: {
-              correlationId,
-              bundleId: order.providerPlanId || order.providerPlanCode || undefined,
-              providerProductId: order.providerProductCode,
-              sku: order.sku,
-              productName: order.productName,
+        if (beneficiaries.length > 1) {
+          logger.info(
+            { orderId: order.id, beneficiaryCount: beneficiaries.length, provider: activeProvider.providerName },
+            '[FULFILLMENT_WORKER] Processing multi-beneficiary bulk order fulfillment',
+          );
+
+          let bulkError: any = null;
+
+          // Attempt submitBulkOrder if supported by active provider
+          if (typeof activeProvider.submitBulkOrder === 'function') {
+            try {
+              const bulkRes = await this.circuitBreaker.execute(() =>
+                activeProvider.submitBulkOrder!({
+                  network: order.network,
+                  recipients: beneficiaries.map((b) => ({
+                    phoneNumber: b.phoneNumber || b.recipient_phone || order.recipient_phone,
+                    dataSizeGb: Number(b.dataVolumeGb || snapshotObj.sizeGb || snapshotObj.groupSizeGb || (order.data_amount_mb / 1024)),
+                    bundleId: order.providerPlanId || order.providerPlanCode || undefined,
+                  })),
+                  idempotencyKey: deterministicReference,
+                  confirmedPorted,
+                  onUnvalidated: 'set_aside',
+                  metadata: {
+                    correlationId,
+                    orderId: order.id,
+                    bundleId: order.providerPlanId || order.providerPlanCode || undefined,
+                    providerProductId: order.providerProductCode,
+                    sku: order.sku,
+                    productName: order.productName,
+                  },
+                }),
+              );
+
+              submitResult = {
+                providerOrderId: bulkRes.providerOrderId || deterministicReference,
+                providerReference: bulkRes.providerReference || deterministicReference,
+                providerStatus: bulkRes.providerStatus || ProviderStatus.RECEIVED,
+                rawResponse: bulkRes.rawResponse || (bulkRes as any),
+              };
+              submissionSucceeded = true;
+            } catch (err: any) {
+              logger.warn(
+                { orderId: order.id, err: err?.message, provider: activeProvider.providerName },
+                '[FULFILLMENT_WORKER] submitBulkOrder failed; falling back to parallel single order submissions',
+              );
+              bulkError = err;
+            }
+          }
+
+          // If bulk endpoint wasn't available or failed, submit beneficiaries concurrently
+          if (!submissionSucceeded) {
+            const itemPromises = beneficiaries.map(async (b, idx) => {
+              const targetPhone = b.phoneNumber || b.recipient_phone || order.recipient_phone;
+              const volMb = Math.round(
+                Number(b.dataVolumeGb || snapshotObj.sizeGb || snapshotObj.groupSizeGb || (order.data_amount_mb / 1024)) * 1024,
+              );
+              return activeProvider.submitOrder({
+                orderId: `${order.id}_${idx}`,
+                clientReference: `${deterministicReference}_${idx + 1}`,
+                network: order.network,
+                recipientPhone: targetPhone,
+                dataAmountMb: volMb,
+                idempotencyKey: `${order.id}_ben_${idx}`,
+                confirmedPorted,
+                metadata: {
+                  correlationId,
+                  beneficiaryId: b.id,
+                  bundleId: order.providerPlanId || order.providerPlanCode || undefined,
+                  providerProductId: order.providerProductCode,
+                  sku: order.sku,
+                  productName: order.productName,
+                  dataAmountMb: volMb,
+                  volumeGb: Math.max(1, Math.round(volMb / 1024)),
+                },
+              });
+            });
+
+            const settled = await Promise.allSettled(itemPromises);
+            const successful = settled.filter(
+              (s): s is PromiseFulfilledResult<SubmitOrderResult> => s.status === 'fulfilled',
+            );
+            const failed = settled.filter(
+              (s): s is PromiseRejectedResult => s.status === 'rejected',
+            );
+
+            // Update bulk_submission_items per-beneficiary
+            for (let i = 0; i < beneficiaries.length; i++) {
+              const bPhone = beneficiaries[i]?.phoneNumber || beneficiaries[i]?.recipient_phone;
+              const sResult = settled[i];
+              if (sResult && bPhone) {
+                if (sResult.status === 'fulfilled') {
+                  await this.db.query(
+                    `UPDATE bulk_submission_items
+                     SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP
+                     WHERE order_id = $1 AND recipient_phone = $2`,
+                    [order.id, bPhone],
+                  ).catch(() => {});
+                } else {
+                  await this.db.query(
+                    `UPDATE bulk_submission_items
+                     SET status = 'FAILED', error_message = $3, updated_at = CURRENT_TIMESTAMP
+                     WHERE order_id = $1 AND recipient_phone = $2`,
+                    [order.id, bPhone, sResult.reason?.message || 'Fulfillment error'],
+                  ).catch(() => {});
+                }
+              }
+            }
+
+            if (successful.length > 0) {
+              const firstSuccess = successful[0].value;
+              submitResult = {
+                providerOrderId: firstSuccess.providerOrderId || deterministicReference,
+                providerReference: firstSuccess.providerReference || deterministicReference,
+                providerStatus:
+                  failed.length === 0
+                    ? firstSuccess.providerStatus || ProviderStatus.RECEIVED
+                    : ProviderStatus.PARTIALLY_DELIVERED,
+                rawResponse: {
+                  totalBeneficiaries: beneficiaries.length,
+                  successfulCount: successful.length,
+                  failedCount: failed.length,
+                } as any,
+              };
+              submissionSucceeded = true;
+            } else {
+              throw bulkError || failed[0]?.reason || new Error('All beneficiaries in batch fulfillment failed');
+            }
+          }
+        } else {
+          // Standard single order submission
+          submitResult = await this.circuitBreaker.execute(() =>
+            activeProvider.submitOrder({
+              orderId: order.id,
+              clientReference: deterministicReference,
+              network: order.network,
+              recipientPhone: order.recipient_phone,
               dataAmountMb: order.data_amount_mb,
-              volumeGb: Math.max(1, Math.round(order.data_amount_mb / 1024)),
-            },
-          }),
-        );
-        submissionSucceeded = true;
+              idempotencyKey: order.id,
+              confirmedPorted,
+              metadata: {
+                correlationId,
+                bundleId: order.providerPlanId || order.providerPlanCode || undefined,
+                providerProductId: order.providerProductCode,
+                sku: order.sku,
+                productName: order.productName,
+                dataAmountMb: order.data_amount_mb,
+                volumeGb: Math.max(1, Math.round(order.data_amount_mb / 1024)),
+              },
+            }),
+          );
+          submissionSucceeded = true;
+        }
       } catch (err: any) {
         // Multi-carrier failover: If primary provider failed, try fallback provider if configured
         const registry = this.provider as any;
@@ -272,27 +416,71 @@ export class FulfillmentWorker {
             '[FULFILLMENT_WORKER] Primary provider failed; attempting submission to configured fallback provider',
           );
           try {
-            submitResult = await fallbackProvider.submitOrder({
-              orderId: order.id,
-              clientReference: `${deterministicReference}_fb`,
-              network: order.network,
-              recipientPhone: order.recipient_phone,
-              dataAmountMb: order.data_amount_mb,
-              idempotencyKey: `${order.id}_fb`,
-              confirmedPorted,
-              metadata: {
-                correlationId,
-                bundleId: order.providerPlanId || order.providerPlanCode || undefined,
-                providerProductId: order.providerProductCode,
-                sku: order.sku,
-                productName: order.productName,
+            if (beneficiaries.length > 1) {
+              const fbPromises = beneficiaries.map(async (b, idx) => {
+                const targetPhone = b.phoneNumber || b.recipient_phone || order.recipient_phone;
+                const volMb = Math.round(
+                  Number(b.dataVolumeGb || snapshotObj.sizeGb || snapshotObj.groupSizeGb || (order.data_amount_mb / 1024)) * 1024,
+                );
+                return fallbackProvider.submitOrder({
+                  orderId: `${order.id}_fb_${idx}`,
+                  clientReference: `${deterministicReference}_fb_${idx + 1}`,
+                  network: order.network,
+                  recipientPhone: targetPhone,
+                  dataAmountMb: volMb,
+                  idempotencyKey: `${order.id}_fb_ben_${idx}`,
+                  confirmedPorted,
+                  metadata: {
+                    correlationId,
+                    beneficiaryId: b.id,
+                    bundleId: order.providerPlanId || order.providerPlanCode || undefined,
+                    providerProductId: order.providerProductCode,
+                    sku: order.sku,
+                    productName: order.productName,
+                    dataAmountMb: volMb,
+                    volumeGb: Math.max(1, Math.round(volMb / 1024)),
+                    isFallback: true,
+                  },
+                });
+              });
+              const fbSettled = await Promise.allSettled(fbPromises);
+              const fbSuccess = fbSettled.filter(
+                (s): s is PromiseFulfilledResult<SubmitOrderResult> => s.status === 'fulfilled',
+              );
+              if (fbSuccess.length > 0) {
+                const firstFb = fbSuccess[0].value;
+                submitResult = {
+                  providerOrderId: firstFb.providerOrderId || `${deterministicReference}_fb`,
+                  providerReference: firstFb.providerReference || `${deterministicReference}_fb`,
+                  providerStatus: firstFb.providerStatus || ProviderStatus.RECEIVED,
+                  rawResponse: { fallback: true, total: beneficiaries.length, success: fbSuccess.length } as any,
+                };
+                usedProvider = fallbackProvider;
+                submissionSucceeded = true;
+              }
+            } else {
+              submitResult = await fallbackProvider.submitOrder({
+                orderId: order.id,
+                clientReference: `${deterministicReference}_fb`,
+                network: order.network,
+                recipientPhone: order.recipient_phone,
                 dataAmountMb: order.data_amount_mb,
-                volumeGb: Math.max(1, Math.round(order.data_amount_mb / 1024)),
-                isFallback: true,
-              },
-            });
-            usedProvider = fallbackProvider;
-            submissionSucceeded = true;
+                idempotencyKey: `${order.id}_fb`,
+                confirmedPorted,
+                metadata: {
+                  correlationId,
+                  bundleId: order.providerPlanId || order.providerPlanCode || undefined,
+                  providerProductId: order.providerProductCode,
+                  sku: order.sku,
+                  productName: order.productName,
+                  dataAmountMb: order.data_amount_mb,
+                  volumeGb: Math.max(1, Math.round(order.data_amount_mb / 1024)),
+                  isFallback: true,
+                },
+              });
+              usedProvider = fallbackProvider;
+              submissionSucceeded = true;
+            }
           } catch (fallbackErr: any) {
             logger.warn(
               { orderId: order.id, fallbackProvider: fallbackProvider.providerName, fallbackError: fallbackErr.message },

@@ -622,6 +622,7 @@ export function createApp(options: AppOptions = {}) {
         tokenService,
         rbacService,
         auditService,
+        apiUsageTelemetryService,
       });
     },
     { prefix: '/api/v1' },
