@@ -647,6 +647,9 @@ export interface BeneficiaryValidationDto {
 export interface BulkSubmissionItemInput {
   recipientPhone: string;
   productId: string;
+  amountPesewas?: number;
+  network?: string;
+  dataAmountMb?: number;
 }
 
 export interface CreateBulkSubmissionRequest {

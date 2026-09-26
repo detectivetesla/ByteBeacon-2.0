@@ -947,10 +947,21 @@ export const BuyDataPage: React.FC = () => {
     const approvedRecipients = cleanedRecipients.filter((r) => approvedPhones.has(r.cleanPhone));
 
     const bulkItems: BulkOrderItem[] = approvedRecipients.map((r) => {
-      const b = availableBundles.find((pkg) => pkg.id === r.bundleId) || currentSingleBundle;
+      let b = availableBundles.find((pkg) => pkg.id === r.bundleId) || currentSingleBundle;
+      let finalProductId = b.id || currentSingleBundle.id;
+      if (!finalProductId || finalProductId.startsWith('fallback-') || finalProductId.startsWith('custom-bundle-')) {
+        const matched =
+          availableBundles.find(
+            (pkg) => !pkg.id.startsWith('fallback-') && !pkg.id.startsWith('custom-bundle-'),
+          ) || currentSingleBundle;
+        if (matched?.id && !matched.id.startsWith('fallback-') && !matched.id.startsWith('custom-bundle-')) {
+          finalProductId = matched.id;
+          b = matched;
+        }
+      }
       return {
         recipientPhone: r.cleanPhone,
-        productId: b.id || currentSingleBundle.id,
+        productId: finalProductId,
         dataDisplay: b.dataDisplay,
         pricePesewas: b.pricePesewas,
       };
@@ -1255,12 +1266,32 @@ export const BuyDataPage: React.FC = () => {
       return approvedPhones.has(norm) || approvedPhones.has(e.phone);
     });
 
-    const bulkItems: BulkOrderItem[] = approvedEntries.map((e) => ({
-      recipientPhone: e.phone,
-      productId: e.bundleId,
-      dataDisplay: e.sizeStr,
-      pricePesewas: e.pricePesewas,
-    }));
+    const bulkItems: BulkOrderItem[] = approvedEntries.map((e) => {
+      let finalProductId = e.bundleId;
+      if (!finalProductId || finalProductId.startsWith('fallback-') || finalProductId.startsWith('custom-bundle-')) {
+        const matched =
+          availableBundles.find(
+            (b) =>
+              !b.id.startsWith('fallback-') &&
+              !b.id.startsWith('custom-bundle-') &&
+              (b.dataDisplay === e.sizeStr ||
+                b.dataAmountMb === matchBundleVolume(e.sizeStr, availableBundles, selectedNetwork)?.dataAmountMb),
+          ) ||
+          availableBundles.find((b) => !b.id.startsWith('fallback-') && !b.id.startsWith('custom-bundle-')) ||
+          currentSingleBundle;
+
+        if (matched?.id && !matched.id.startsWith('fallback-') && !matched.id.startsWith('custom-bundle-')) {
+          finalProductId = matched.id;
+        }
+      }
+
+      return {
+        recipientPhone: e.phone,
+        productId: finalProductId,
+        dataDisplay: e.sizeStr,
+        pricePesewas: e.pricePesewas,
+      };
+    });
 
     if (unapprovedFreeNumbers.length > 0 && approvedEntries.length > 0) {
       toastInfo(
@@ -2147,12 +2178,39 @@ export const BuyDataPage: React.FC = () => {
     }
 
     const targetRows = approvedExcelRows;
-    const bulkItems: BulkOrderItem[] = targetRows.map((r) => ({
-      recipientPhone: r.phone.replace(/\s+/g, ''),
-      productId: r.bundleId,
-      dataDisplay: r.data,
-      pricePesewas: r.pricePesewas,
-    }));
+    const bulkItems: BulkOrderItem[] = targetRows.map((r) => {
+      let finalProductId = r.bundleId;
+      if (!finalProductId || finalProductId.startsWith('fallback-') || finalProductId.startsWith('custom-bundle-')) {
+        const pool = allCatalogBundles.length > 0 ? allCatalogBundles : availableBundles;
+        const matched =
+          pool.find(
+            (b) =>
+              !b.id.startsWith('fallback-') &&
+              !b.id.startsWith('custom-bundle-') &&
+              (b.network === r.network || !r.network) &&
+              (b.dataDisplay === r.data || b.dataAmountMb === r.dataAmountMb),
+          ) ||
+          pool.find(
+            (b) =>
+              !b.id.startsWith('fallback-') &&
+              !b.id.startsWith('custom-bundle-') &&
+              (b.network === r.network || !r.network),
+          ) ||
+          pool.find((b) => !b.id.startsWith('fallback-') && !b.id.startsWith('custom-bundle-')) ||
+          currentSingleBundle;
+
+        if (matched?.id && !matched.id.startsWith('fallback-') && !matched.id.startsWith('custom-bundle-')) {
+          finalProductId = matched.id;
+        }
+      }
+
+      return {
+        recipientPhone: r.phone.replace(/\s+/g, ''),
+        productId: finalProductId,
+        dataDisplay: r.data,
+        pricePesewas: r.pricePesewas,
+      };
+    });
 
     if (unapprovedExcelRows.length > 0) {
       toastInfo(
@@ -2166,7 +2224,7 @@ export const BuyDataPage: React.FC = () => {
       packageSummary: `${targetRows.length} Packages (Bulk Batch)`,
       recipientSummary: `${targetRows.length} Recipients (${excelFile.name})`,
       amountDisplay: `GH₵ ${(excelTotalPesewas / 100).toFixed(2)}`,
-      bundleId: targetRows[0]?.bundleId || currentSingleBundle.id,
+      bundleId: bulkItems[0]?.productId || currentSingleBundle.id,
       bulkItems,
       confirmedPorted:
         confirmedPortedNumbers.length > 0

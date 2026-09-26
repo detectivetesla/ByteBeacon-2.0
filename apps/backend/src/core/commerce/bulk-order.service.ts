@@ -113,22 +113,154 @@ export class BulkOrderService {
     try {
       await client.query('BEGIN');
 
+      // Check if user is an agent for correct pricing
+      let isUserAgent = false;
+      try {
+        const agentCheck = await client.query(
+          `SELECT 1 FROM agents WHERE user_id = $1 AND (is_active = TRUE)
+           UNION
+           SELECT 1 FROM users WHERE id = $1 AND role = 'agent'`,
+          [userId],
+        );
+        isUserAgent = agentCheck.rows.length > 0;
+      } catch {}
+
       // 1. Resolve each item's product price from server catalog
       let totalAmountPesewas = 0;
       const itemsToInsert: Array<{
         recipientPhone: string;
         productId: string;
+        product: any;
         amountPesewas: number;
       }> = [];
 
       for (const item of input.items) {
-        const product = await this.catalogService.getProductById(item.productId);
+        let product: any = null;
+        const isFallbackId =
+          typeof item.productId === 'string' &&
+          (item.productId.startsWith('fallback-') || item.productId.startsWith('custom-bundle-'));
+
+        if (!isFallbackId) {
+          try {
+            product = await this.catalogService.getProductById(item.productId);
+          } catch {
+            // Product ID not found in catalog — will attempt fallback resolution below
+          }
+        }
+
+        // Fallback resolution: parse network + volume from ID or item metadata
+        if (!product) {
+          const fallbackMatch = (item.productId || '').match(
+            /^(?:fallback-(\w+)-|custom-bundle-)(\d+(?:\.\d+)?)gb$/i,
+          );
+          const fbNetwork = fallbackMatch?.[1]
+            ? fallbackMatch[1].toUpperCase()
+            : (item as any).network?.toUpperCase() || 'MTN';
+          const fbVolumeMb = fallbackMatch?.[2]
+            ? Math.round(parseFloat(fallbackMatch[2]) * 1024)
+            : (item as any).dataAmountMb || 1024;
+
+          try {
+            // 1) Try exact match on network and volume
+            const fbRes = await client.query(
+              `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
+                      base_price_pesewas as "basePricePesewas",
+                      agent_price_pesewas as "agentPricePesewas",
+                      is_active as "isActive"
+               FROM catalog_products
+               WHERE UPPER(network) = $1 AND data_amount_mb = $2 AND is_active = TRUE
+               ORDER BY base_price_pesewas ASC
+               LIMIT 1`,
+              [fbNetwork, fbVolumeMb],
+            );
+            if (fbRes.rows.length > 0) {
+              const r = fbRes.rows[0];
+              product = {
+                id: r.id,
+                sku: r.sku,
+                network: r.network,
+                name: r.name,
+                dataAmountMb: parseInt(r.dataAmountMb, 10),
+                basePricePesewas: parseInt(r.basePricePesewas, 10),
+                agentPricePesewas: r.agentPricePesewas ? parseInt(r.agentPricePesewas, 10) : null,
+                isActive: r.isActive,
+              };
+            } else {
+              // 2) Try closest active bundle for the network
+              const closestRes = await client.query(
+                `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
+                        base_price_pesewas as "basePricePesewas",
+                        agent_price_pesewas as "agentPricePesewas",
+                        is_active as "isActive"
+                 FROM catalog_products
+                 WHERE UPPER(network) = $1 AND is_active = TRUE
+                 ORDER BY ABS(data_amount_mb - $2) ASC
+                 LIMIT 1`,
+                [fbNetwork, fbVolumeMb],
+              );
+              if (closestRes.rows.length > 0) {
+                const r = closestRes.rows[0];
+                product = {
+                  id: r.id,
+                  sku: r.sku,
+                  network: r.network,
+                  name: r.name,
+                  dataAmountMb: parseInt(r.dataAmountMb, 10),
+                  basePricePesewas: parseInt(r.basePricePesewas, 10),
+                  agentPricePesewas: r.agentPricePesewas ? parseInt(r.agentPricePesewas, 10) : null,
+                  isActive: r.isActive,
+                };
+              } else {
+                // 3) Fallback to any active product
+                const anyRes = await client.query(
+                  `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
+                          base_price_pesewas as "basePricePesewas",
+                          agent_price_pesewas as "agentPricePesewas",
+                          is_active as "isActive"
+                   FROM catalog_products
+                   WHERE is_active = TRUE
+                   ORDER BY base_price_pesewas ASC
+                   LIMIT 1`,
+                );
+                if (anyRes.rows.length > 0) {
+                  const r = anyRes.rows[0];
+                  product = {
+                    id: r.id,
+                    sku: r.sku,
+                    network: r.network,
+                    name: r.name,
+                    dataAmountMb: parseInt(r.dataAmountMb, 10),
+                    basePricePesewas: parseInt(r.basePricePesewas, 10),
+                    agentPricePesewas: r.agentPricePesewas ? parseInt(r.agentPricePesewas, 10) : null,
+                    isActive: r.isActive,
+                  };
+                }
+              }
+            }
+          } catch {
+            // Fallback query failed — product stays null
+          }
+        }
+
+        if (!product) {
+          throw new BadRequestError(
+            `Product '${item.productId}' could not be resolved to an active catalog product. Please refresh your bundles and try again.`,
+          );
+        }
+
         const cleanPhone = item.recipientPhone.trim().replace(/\s+/g, '');
-        let itemPrice = product.basePricePesewas;
+        let itemPrice =
+          isUserAgent && product.agentPricePesewas ? product.agentPricePesewas : product.basePricePesewas;
+
+        if (!itemPrice || itemPrice <= 0) {
+          itemPrice = item.amountPesewas || (item as any).pricePesewas || 0;
+        }
 
         try {
           const userPriceRes = await client.query(
-            `SELECT custom_price_pesewas FROM user_pricing WHERE user_id = $1 AND product_id = $2 AND is_active = TRUE`,
+            `SELECT custom_price_pesewas FROM user_pricing WHERE user_id = $1 AND product_id = $2 AND is_active = TRUE
+             UNION
+             SELECT custom_price_pesewas FROM agent_pricing WHERE (agent_id = $1 OR agent_id IN (SELECT id FROM agents WHERE user_id = $1)) AND product_id = $2 AND is_active = TRUE`,
             [userId, product.id],
           );
           if (userPriceRes?.rows?.length > 0 && userPriceRes.rows[0]?.custom_price_pesewas) {
@@ -138,11 +270,17 @@ export class BulkOrderService {
           // ignore fallback to base price
         }
 
+        if (!itemPrice || isNaN(itemPrice) || itemPrice <= 0) {
+          const sizeGb = (product.dataAmountMb || 1024) / 1024;
+          itemPrice = Math.max(100, Math.round(sizeGb * 450));
+        }
+
         totalAmountPesewas += itemPrice;
 
         itemsToInsert.push({
           recipientPhone: cleanPhone,
           productId: product.id,
+          product,
           amountPesewas: itemPrice,
         });
       }
@@ -172,14 +310,14 @@ export class BulkOrderService {
           const have = (currentBalancePesewas / 100).toFixed(2);
           const need = (totalAmountPesewas / 100).toFixed(2);
           throw new InsufficientBalanceError(
-            `Insufficient agent wallet balance: have ${have} GHS, need ${need} GHS`,
+            `Insufficient wallet balance: have ${have} GHS, need ${need} GHS`,
           );
         }
 
         await client.query(
           `UPDATE users
-           SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
-               wallet_balance = GREATEST(0, ROUND((COALESCE(wallet_balance_pesewas, 0) - $1) / 100.0, 2)),
+           SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0)::numeric * 100, 0)) - $1),
+               wallet_balance = GREATEST(0, ROUND((COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0)::numeric * 100, 0)) - $1) / 100.0, 2)),
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $2`,
           [totalAmountPesewas, userId],
@@ -203,7 +341,7 @@ export class BulkOrderService {
         input.name.trim(),
         itemsToInsert.length,
         totalAmountPesewas,
-        isPaused ? 'PAUSED' : isWalletPayment ? 'PROCESSING' : 'PENDING',
+        isWalletPayment ? 'PROCESSING' : 'PENDING',
         input.idempotencyKey || null,
       ]);
       const subRow = subRes.rows[0];
@@ -226,7 +364,7 @@ export class BulkOrderService {
         let childOrderId: string | null = null;
 
         if (isWalletPayment) {
-          const product = await this.catalogService.getProductById(item.productId);
+          const product = item.product || (await this.catalogService.getProductById(item.productId));
           const childPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
           const childRef = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
@@ -313,11 +451,25 @@ export class BulkOrderService {
       }
 
       if (isWalletPayment) {
+        // Determine if user is an agent for correct ledger account type
+        let walletAccountType = LedgerAccountType.CUSTOMER_WALLET;
+        try {
+          const agentCheck = await client.query(
+            `SELECT 1 FROM agents WHERE user_id = $1 AND is_active = TRUE LIMIT 1`,
+            [userId],
+          );
+          if (agentCheck.rows.length > 0) {
+            walletAccountType = LedgerAccountType.AGENT_WALLET;
+          }
+        } catch {
+          // Default to CUSTOMER_WALLET if agents table doesn't exist or query fails
+        }
+
         const platformSystemAccountId = '00000000-0000-0000-0000-000000000000';
         await this.ledgerService.recordJournalEntries(client, [
           {
             entryType: LedgerEntryType.DEBIT,
-            accountType: LedgerAccountType.CUSTOMER_WALLET,
+            accountType: walletAccountType,
             accountId: userId,
             amountPesewas: totalAmountPesewas,
             currency: Currency.GHS,
@@ -335,7 +487,12 @@ export class BulkOrderService {
             referenceId: subRow.id,
             description: `Platform escrow credited for bulk submission ${subRow.id}`,
           },
-        ]);
+        ]).catch((ledgerErr) => {
+          logger.warn(
+            { err: ledgerErr?.message, submissionId: subRow.id },
+            '[BULK_ORDER_SERVICE] Ledger journal entry failed — order proceeds without audit log',
+          );
+        });
       }
 
       await client.query('COMMIT');
@@ -779,8 +936,8 @@ export class BulkOrderService {
       // Debit agent wallet for the grand total
       await client.query(
         `UPDATE users
-         SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, 0) - $1),
-             wallet_balance = GREATEST(0, ROUND((COALESCE(wallet_balance_pesewas, 0) - $1) / 100.0, 2)),
+         SET wallet_balance_pesewas = GREATEST(0, COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0)::numeric * 100, 0)) - $1),
+             wallet_balance = GREATEST(0, ROUND((COALESCE(wallet_balance_pesewas, ROUND(COALESCE(wallet_balance, 0)::numeric * 100, 0)) - $1) / 100.0, 2)),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $2`,
         [grandTotalPesewas, userId],
@@ -800,7 +957,7 @@ export class BulkOrderService {
           `Bulk ${netUpper} (${acceptedRecipients.length} recipients)`,
           acceptedRecipients.length,
           grandTotalPesewas,
-          isPaused ? 'PAUSED' : 'PROCESSING',
+          'PROCESSING',
           params.idempotencyKey,
         ],
       );
@@ -926,7 +1083,7 @@ export class BulkOrderService {
       await this.ledgerService.recordJournalEntries(client, [
         {
           entryType: LedgerEntryType.DEBIT,
-          accountType: LedgerAccountType.CUSTOMER_WALLET,
+          accountType: LedgerAccountType.AGENT_WALLET,
           accountId: userId,
           amountPesewas: grandTotalPesewas,
           currency: Currency.GHS,
@@ -944,7 +1101,12 @@ export class BulkOrderService {
           referenceId: submissionPublicId,
           description: `Platform escrow credited for bulk submission ${submissionPublicId}`,
         },
-      ]);
+      ]).catch((ledgerErr) => {
+        logger.warn(
+          { err: ledgerErr?.message, submissionId: submissionPublicId },
+          '[BULK_ORDER_SERVICE] Agent bulk ledger journal entry failed — order proceeds without audit log',
+        );
+      });
 
       const bulkResult: AgentBulkOrderResult = {
         id: submissionPublicId,
