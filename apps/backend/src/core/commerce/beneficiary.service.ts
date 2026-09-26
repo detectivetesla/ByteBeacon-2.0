@@ -591,7 +591,9 @@ export class BeneficiaryService {
             );
 
             // Genuine human admin approvals take strict precedence over upstream telecom precheck
-            const isGenuineAdminApproval = r.source === 'ADMIN_APPROVAL' || (!r.source && r.source !== 'VALIDATION');
+            // IMPORTANT: Only records with explicit 'ADMIN_APPROVAL' source qualify.
+            // Records without a source (from telecom precheck persistence) must NOT override live unapproved status.
+            const isGenuineAdminApproval = r.source === 'ADMIN_APPROVAL';
             if (isGenuineAdminApproval) {
               if (norm) {
                 liveUnapprovedSet.delete(norm);
@@ -620,7 +622,7 @@ export class BeneficiaryService {
         });
 
         // Self-heal: ensure genuine admin-approved numbers have VALID status in beneficiary_validation
-        const adminApprovedRows = approvedRows.filter((r: any) => (r.source === 'ADMIN_APPROVAL' || (!r.source && r.source !== 'VALIDATION')) && Boolean(r.phoneNumber));
+        const adminApprovedRows = approvedRows.filter((r: any) => r.source === 'ADMIN_APPROVAL' && Boolean(r.phoneNumber));
         if (adminApprovedRows.length > 0) {
           const approvedPhones = Array.from(new Set(adminApprovedRows.map((r: any) => r.phoneNumber)));
           if (approvedPhones.length > 0) {
@@ -1341,7 +1343,7 @@ export class BeneficiaryService {
             );
 
             // Genuine human admin approvals take strict precedence over upstream telecom precheck
-            const isGenuineAdminApproval = r.source === 'ADMIN_APPROVAL' || (!r.source && r.source !== 'VALIDATION');
+            const isGenuineAdminApproval = r.source === 'ADMIN_APPROVAL';
             if (isGenuineAdminApproval) {
               if (norm) {
                 liveUnapprovedSet.delete(norm);
@@ -1370,7 +1372,7 @@ export class BeneficiaryService {
         });
 
         // Self-heal: ensure genuine admin-approved numbers have VALID status in beneficiary_validation
-        const adminApprovedRows = approvedRows.filter((r: any) => (r.source === 'ADMIN_APPROVAL' || (!r.source && r.source !== 'VALIDATION')) && Boolean(r.phoneNumber));
+        const adminApprovedRows = approvedRows.filter((r: any) => r.source === 'ADMIN_APPROVAL' && Boolean(r.phoneNumber));
         if (adminApprovedRows.length > 0) {
           const approvedPhones = Array.from(new Set(adminApprovedRows.map((r: any) => r.phoneNumber)));
           if (approvedPhones.length > 0) {
