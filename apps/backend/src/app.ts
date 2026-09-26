@@ -276,6 +276,24 @@ export function createApp(options: AppOptions = {}) {
   // 4. Register Global Error Handler
   app.setErrorHandler(errorHandler);
 
+  // 4a. Route Normalization / Prefix Rewrite Hook
+  // Automatically maps root-level /agent/*, /agents/*, /catalog/*, and /orders/* requests to /api/v1/*
+  // so external developers and Postman requests calling https://api.bytebeacon.online/agent/... without /api/v1 succeed.
+  app.addHook('onRequest', async (req, _reply) => {
+    const rawUrl = req.raw.url || '';
+    if (
+      rawUrl.startsWith('/agent/') ||
+      rawUrl.startsWith('/agents/') ||
+      rawUrl.startsWith('/catalog/') ||
+      rawUrl.startsWith('/orders/') ||
+      rawUrl.startsWith('/bulk-orders') ||
+      rawUrl === '/agent' ||
+      rawUrl === '/agents'
+    ) {
+      req.raw.url = `/api/v1${rawUrl}`;
+    }
+  });
+
   // 4b. Non-Admin Vendor Information Leak Protection Hook
   // Sanitizes outgoing HTTP response payloads so that Customer and Agent systems
   // never transmit upstream telecom vendor strings (DataHouse, GMPL, GetMorePayLess, Portal-02) over the network.

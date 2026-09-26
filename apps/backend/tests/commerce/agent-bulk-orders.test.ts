@@ -245,6 +245,40 @@ describe('Agent Bulk Orders Suite (POST /agent/orders/bulk & POST /me/agent/orde
       expect(json.error.message).toContain('sandbox');
     });
 
+    it('should successfully execute simulated bulk order on sandbox API keys when simulate: true is passed', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/agent/orders/bulk',
+        headers: {
+          'x-api-key': 'ak_test_sandbox_123456',
+          'content-type': 'application/json',
+        },
+        payload: {
+          network: 'MTN',
+          simulate: true,
+          idempotencyKey: '7f4c9a10-3b2e-4d5f-8a1b-2c3d4e5f6a7c',
+          recipients: [
+            { phoneNumber: '0241112222', dataSizeGb: 2 },
+            { phoneNumber: '0242223333', dataSizeGb: 2 },
+            { phoneNumber: '0553334444', dataSizeGb: 5 },
+          ],
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const json = JSON.parse(res.body);
+      expect(json.success).toBe(true);
+      expect(json.data.beneficiaryCount).toBe(3);
+      expect(json.data.groupCount).toBe(2);
+      expect(json.data.orders.length).toBe(2);
+      expect(json.data.orders[0].sizeGb).toBe(2);
+      expect(json.data.orders[0].beneficiaryCount).toBe(2);
+      expect(json.data.orders[1].sizeGb).toBe(5);
+      expect(json.data.orders[1].beneficiaryCount).toBe(1);
+      expect(json.data.isSandbox).toBe(true);
+      expect(json.data.status).toBe('fulfilled');
+    });
+
     it('should fail with 422 if onUnvalidated is "reject" and unknown MTN numbers exist', async () => {
       const res = await app.inject({
         method: 'POST',

@@ -620,8 +620,10 @@ export class BulkOrderService {
    * POST /agent/orders/bulk
    */
   public async placeAgentBulkOrder(params: {
-    agentOrUserId: string;
+    agentOrUserId?: string;
+    userId?: string;
     isSandbox?: boolean;
+    simulate?: boolean;
     network: NetworkProvider | string;
     recipients: Array<{ phoneNumber: string; dataSizeGb: number }>;
     idempotencyKey: string;
@@ -635,10 +637,12 @@ export class BulkOrderService {
       );
     }
 
-    // 1. Sandbox key check
-    if (params.isSandbox) {
+    const isSimulate = Boolean(params.simulate);
+
+    // 1. Sandbox key check — allow simulation with test keys or guide developer
+    if (params.isSandbox && !isSimulate) {
       throw new BulkNotOnSandboxError(
-        'Bulk orders cannot be executed with sandbox test keys (ak_test_...). Please use a live API key.',
+        'Bulk orders cannot be executed with sandbox test keys (ak_test_...). To simulate 1,000-recipient bulk testing in sandbox, pass "simulate": true in your request body or header "x-simulate: true". For live carrier fulfillment, please use a live API key (ak_live_...).',
       );
     }
 
@@ -657,12 +661,13 @@ export class BulkOrderService {
     }
 
     // Resolve agent and user ID
-    let agentId = params.agentOrUserId;
-    let userId = params.agentOrUserId;
+    const effectiveTargetId = params.agentOrUserId || params.userId || '';
+    let agentId = effectiveTargetId;
+    let userId = effectiveTargetId;
     try {
       const agentRes = await this.db.query(
         'SELECT id, user_id as "userId" FROM agents WHERE id = $1 OR user_id = $1',
-        [params.agentOrUserId],
+        [effectiveTargetId],
       );
       if (agentRes.rows.length > 0) {
         agentId = agentRes.rows[0].id;
@@ -736,7 +741,7 @@ export class BulkOrderService {
       isPorted?: boolean;
     }> = [];
 
-    if (netUpper === 'MTN') {
+    if (netUpper === 'MTN' && !isSimulate) {
       const allPhones = Array.from(new Set(normalizedRecipients.map((r) => r.normalizedPhone)));
       const knownPhones = new Set<string>();
 
@@ -883,6 +888,70 @@ export class BulkOrderService {
     const sortedSizes = Array.from(sizeMap.keys()).sort((a, b) => a - b);
     const childOrders: AgentBulkChildOrderDto[] = [];
     let grandTotalPesewas = 0;
+
+    if (isSimulate) {
+      const submissionPublicId = `sub_sbx_${crypto.randomBytes(12).toString('hex')}`;
+      const submissionRef = `BLK-SBX-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+      for (const sizeGb of sortedSizes) {
+        const recipientsForSize = sizeMap.get(sizeGb)!;
+        const count = recipientsForSize.length;
+        const unitPricePesewas = Math.round(sizeGb * 420);
+        const groupAmountPesewas = count * unitPricePesewas;
+        grandTotalPesewas += groupAmountPesewas;
+
+        const childPublicId = `ord_sbx_${crypto.randomBytes(12).toString('hex')}`;
+        const childRef = `SBX-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+        childOrders.push({
+          id: childPublicId,
+          publicId: childPublicId,
+          referenceCode: childRef,
+          sizeGb,
+          beneficiaryCount: count,
+          amount: (groupAmountPesewas / 100).toFixed(2),
+          status: 'fulfilled',
+        });
+      }
+
+      const bulkResult: AgentBulkOrderResult = {
+        id: submissionPublicId,
+        referenceCode: submissionRef,
+        network: netUpper,
+        amount: (grandTotalPesewas / 100).toFixed(2),
+        status: 'fulfilled',
+        createdAt: new Date().toISOString(),
+        beneficiaryCount: acceptedRecipients.length,
+        groupCount: childOrders.length,
+        orders: childOrders,
+        blocked: [],
+        isSandbox: true,
+      };
+
+      if (this.idempotencyService && params.idempotencyKey) {
+        try {
+          const simClient = await this.db.connect();
+          if (simClient) {
+            try {
+              await this.idempotencyService.saveResponse(simClient, {
+                key: params.idempotencyKey,
+                userId,
+                endpoint: '/agent/orders/bulk',
+                requestHash,
+                responseStatus: 201,
+                responseBody: bulkResult,
+              });
+            } catch {} finally {
+              simClient.release?.();
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      return bulkResult;
+    }
 
     const client = await this.db.connect();
     try {

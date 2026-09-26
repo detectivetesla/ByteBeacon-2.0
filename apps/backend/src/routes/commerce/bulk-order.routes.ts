@@ -113,12 +113,20 @@ export async function bulkOrderRoutes(
       Boolean((req.user as any)?.isSandbox) ||
       apiKeyHeader.startsWith('ak_test_');
 
+    const simulate =
+      Boolean((req.body as any)?.simulate) ||
+      Boolean((req.body as any)?.dryRun) ||
+      req.headers['x-simulate'] === 'true' ||
+      req.headers['x-dry-run'] === 'true' ||
+      (req.query as any)?.simulate === 'true';
+
     const idempotencyKey =
       req.body?.idempotencyKey || (req.headers['idempotency-key'] as string) || '';
 
     const result = await bulkOrderService.placeAgentBulkOrder({
       agentOrUserId: req.user!.sub,
       isSandbox,
+      simulate,
       network: req.body.network,
       recipients: req.body.recipients,
       idempotencyKey,
