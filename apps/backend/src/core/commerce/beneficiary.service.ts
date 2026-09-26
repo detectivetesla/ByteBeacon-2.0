@@ -307,41 +307,11 @@ export class BeneficiaryService {
       };
     }
 
-    // Provider-aware enforcement check: if the active provider does not support precheck,
-    // treat MTN numbers the same as non-MTN — all valid numbers are orderable.
-    if (!this.providerSupportsPrecheckEnforcement()) {
-      const results = parsedItems.map((item) => ({
-        phone: item.raw,
-        phoneNumber: item.raw,
-        normalized: item.normalized,
-        valid: item.valid,
-        isValid: item.valid,
-        known: item.valid,
-        isKnown: item.valid,
-        orderable: item.valid,
-        status: item.valid ? 'APPROVED' : 'REJECTED',
-        message: item.valid ? 'Provider does not require beneficiary pre-validation' : 'Invalid Ghanaian phone number format',
-      }));
-      return {
-        network: net,
-        enforced: false,
-        sandbox: false,
-        recorded: false,
-        reason: 'provider_no_precheck',
-        summary: {
-          requested: phoneNumbers.length,
-          unique: parsedItems.length,
-          valid: results.filter((r) => r.valid).length,
-          invalid: results.filter((r) => !r.valid).length,
-          known: results.filter((r) => r.known).length,
-          unknown: 0,
-          orderable: results.filter((r) => r.orderable).length,
-        },
-        unknown: [],
-        portedCandidates: [],
-        results,
-      };
-    }
+    // NOTE: Even when the live telecom provider does not support precheck methods,
+    // we must still run DB-backed validation (cache + beneficiary_validation table +
+    // pending_beneficiary_approvals) to correctly classify numbers as APPROVED/UNAPPROVED.
+    // The live provider query guard below already handles gracefully skipping the
+    // telecom call when precheckBeneficiaries/precheckPublicBeneficiaries are unavailable.
 
     const knownPhonesSet = new Set<string>();
     const accountNamesMap = new Map<string, string>();
@@ -993,42 +963,11 @@ export class BeneficiaryService {
       };
     }
 
-    // 2b. Provider-aware enforcement check: if the active provider does not support precheck,
-    // treat MTN numbers the same as non-MTN — all valid numbers are orderable.
-    if (!this.providerSupportsPrecheckEnforcement()) {
-      const results = uniqueItems.map((item) => ({
-        phone: item.phone,
-        phoneNumber: item.phone,
-        normalized: item.normalized,
-        valid: item.valid,
-        isValid: item.valid,
-        known: item.valid,
-        isKnown: item.valid,
-        orderable: item.valid,
-        status: item.valid ? 'APPROVED' : 'REJECTED',
-        message: item.valid ? 'Provider does not require beneficiary pre-validation' : 'Invalid Ghanaian phone number format',
-      }));
-
-      return {
-        network: net,
-        enforced: false,
-        sandbox: false,
-        recorded: false,
-        reason: 'provider_no_precheck',
-        summary: {
-          requested: requestedCount,
-          unique: uniqueItems.length,
-          valid: results.filter((r) => r.valid).length,
-          invalid: results.filter((r) => !r.valid).length,
-          known: results.filter((r) => r.known).length,
-          unknown: 0,
-          orderable: results.filter((r) => r.orderable).length,
-        },
-        unknown: [],
-        portedCandidates: [],
-        results,
-      };
-    }
+    // NOTE: Even when the live telecom provider does not support precheck methods,
+    // we must still run DB-backed validation (cache + beneficiary_validation table +
+    // pending_beneficiary_approvals) to correctly classify MTN numbers.
+    // The live provider query guard below already handles gracefully skipping the
+    // telecom call when precheckBeneficiaries/precheckPublicBeneficiaries are unavailable.
 
     // 3. Check Global Kill Switch (enforcement_off)
     const isEnforcementOff =
