@@ -47,9 +47,9 @@ const SECTIONS: SectionNavItem[] = [
   { id: 'sec-agent-me', title: '4. GET /agent/me (Profile)', category: 'Endpoints', badge: 'GET' },
   { id: 'sec-api-access', title: '5. GET /me/agent/api-access/status', category: 'Endpoints', badge: 'GET' },
   { id: 'sec-scopes', title: '6. Scopes & Adaptive Rate Limits', category: 'Core Concepts' },
-  { id: 'sec-single-orders', title: '7. POST /agent/orders (Single Order)', category: 'Endpoints', badge: 'POST' },
+  { id: 'sec-single-orders', title: '7. POST /agent/orders (Single & Batch)', category: 'Endpoints', badge: 'POST' },
   { id: 'sec-bundles', title: '8. GET /agent/bundles (Wholesale Catalog)', category: 'Endpoints', badge: 'GET' },
-  { id: 'sec-bulk-orders', title: '9. POST /agent/orders/bulk (JSON Batch)', category: 'Endpoints', badge: 'POST' },
+  { id: 'sec-bulk-orders', title: '9. POST /agent/orders/bulk (1,000 Recipients)', category: 'Endpoints', badge: 'POST' },
   { id: 'sec-bulk-xlsx', title: '10. POST /me/agent/orders/bulk (XLSX Upload)', category: 'Endpoints', badge: 'POST' },
   { id: 'sec-public-precheck', title: '11. POST /orders/beneficiaries/precheck', category: 'Endpoints', badge: 'POST' },
   { id: 'sec-agent-precheck', title: '12. POST /agent/beneficiaries/precheck', category: 'Endpoints', badge: 'POST' },
@@ -110,7 +110,7 @@ export const DeveloperPortal: React.FC = () => {
     if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
       return envUrl.trim().replace(/\/+$/, '').replace(/\/api\/v1$/, '');
     }
-    return 'https://bytebeacon-2-0.onrender.com';
+    return 'https://api.bytebeacon.online';
   }, []);
 
   const swaggerUrl = `${backendBase}/docs`;
@@ -801,15 +801,15 @@ export const DeveloperPortal: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-3)', margin: '1rem 0' }}>
                 <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)' }}>
                   <div style={{ fontSize: '11px', fontWeight: 800, color: '#10B981' }}>AUTHORITATIVE PRODUCTION (PRIMARY)</div>
-                  <code style={{ fontSize: '12px', color: 'var(--color-text-primary)' }}>https://bytebeacon-2-0.onrender.com/api/v1</code>
+                  <code style={{ fontSize: '12px', color: 'var(--color-text-primary)' }}>https://api.bytebeacon.online/api/v1</code>
                 </div>
                 <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#8B5CF6' }}>CUSTOM DOMAIN ROUTE</div>
-                  <code style={{ fontSize: '12px', color: 'var(--color-text-primary)' }}>https://api.bytebeacon.online/api/v1</code>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#8B5CF6' }}>TRANSPARENT GATEWAY ROUTING</div>
+                  <code style={{ fontSize: '12px', color: 'var(--color-text-primary)' }}>https://api.bytebeacon.online</code>
                 </div>
               </div>
               <p style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)' }}>
-                * Note: All connections require TLS 1.3 encryption. HTTP calls are rejected with 301 Permanent Redirect to HTTPS.
+                * Note: Both <code>/api/v1/agent/...</code> and root direct routes <code>/agent/...</code> are supported seamlessly. All connections require TLS 1.3 encryption. HTTP calls are rejected with 301 Permanent Redirect to HTTPS.
               </p>
             </Card>
           </section>
@@ -877,12 +877,12 @@ export const DeveloperPortal: React.FC = () => {
               <div style={{ marginTop: '0.75rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL)</span>
-                  <button onClick={() => handleCopy(`curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \\\n  -H "x-api-key: ak_live_REDACTED_EXAMPLE"`, 'c-agent-me')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                  <button onClick={() => handleCopy(`curl https://api.bytebeacon.online/api/v1/agent/me \\\n  -H "x-api-key: ak_live_REDACTED_EXAMPLE"`, 'c-agent-me')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
                     {copiedKey === 'c-agent-me' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                   </button>
                 </div>
                 <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
-curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
+curl https://api.bytebeacon.online/api/v1/agent/me \
   -H "x-api-key: ak_live_REDACTED_EXAMPLE"
                 </pre>
               </div>
@@ -1023,66 +1023,76 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Badge variant="brand" size="sm">POST</Badge>
                   <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
-                    /agent/orders — Place Single Order
+                    /agent/orders — Single & Concurrent Batch Orders
                   </h3>
                 </div>
                 <Badge variant="purple" size="sm">Scope: orders:write</Badge>
               </div>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-                Atomically debits the agent wallet at wholesale price and queues the order for immediate delivery. Returns HTTP 201 Created with status <code>received</code>.
+                Dispatches telecom data bundles to recipient MSISDNs. This endpoint natively supports <strong>both single orders</strong> and <strong>concurrent batch orders</strong> (up to 100 orders per request).
               </p>
 
-              <div style={{ margin: '0.75rem 0' }}>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Parameters (JSON Body)</div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginTop: '4px' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--color-border-default)', textAlign: 'left', color: 'var(--color-text-muted)' }}>
-                        <th style={{ padding: '6px' }}>Name</th>
-                        <th style={{ padding: '6px' }}>Type</th>
-                        <th style={{ padding: '6px' }}>Required</th>
-                        <th style={{ padding: '6px' }}>Description</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
-                        <td style={{ padding: '6px' }}><code>bundleId</code></td>
-                        <td style={{ padding: '6px' }}>UUID</td>
-                        <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>Bundle ID resolved from <code>GET /agent/bundles</code></td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
-                        <td style={{ padding: '6px' }}><code>phoneNumber</code></td>
-                        <td style={{ padding: '6px' }}>string</td>
-                        <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>Ghanaian MSISDN format (e.g. <code>0240000000</code> or <code>+233240000000</code>)</td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
-                        <td style={{ padding: '6px' }}><code>idempotencyKey</code></td>
-                        <td style={{ padding: '6px' }}>UUID</td>
-                        <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>Unique UUID v4 to prevent duplicate billing on retries</td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
-                        <td style={{ padding: '6px' }}><code>email</code></td>
-                        <td style={{ padding: '6px' }}>string</td>
-                        <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>optional</td>
-                        <td style={{ padding: '6px' }}>Optional notification email</td>
-                      </tr>
-                    </tbody>
-                  </table>
+              {/* Subsection A: Single Order */}
+              <div style={{ border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', padding: '1rem', margin: '0.75rem 0', backgroundColor: 'var(--color-bg-surface)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.5rem' }}>
+                  <Badge variant="brand" size="sm">MODE 1</Badge>
+                  <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>Single Data Order (JSON Object)</h4>
                 </div>
-              </div>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem 0' }}>
+                  Send a single JSON object to <code>POST /agent/orders</code>. Atomically debits the agent wallet at wholesale price and queues the order for immediate delivery.
+                </p>
 
-              <div style={{ marginTop: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL)</span>
-                  <button onClick={() => handleCopy(`curl -X POST https://bytebeacon-2-0.onrender.com/api/v1/agent/orders \\\n  -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "bundleId": "550e8400-e29b-41d4-a716-446655440000",\n    "phoneNumber": "+233240000000",\n    "idempotencyKey": "b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f",\n    "email": "customer@example.com"\n  }'`, 'c-single-order')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
-                    {copiedKey === 'c-single-order' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
-                  </button>
+                <div style={{ margin: '0.5rem 0' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Parameters (JSON Object)</div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginTop: '4px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--color-border-default)', textAlign: 'left', color: 'var(--color-text-muted)' }}>
+                          <th style={{ padding: '6px' }}>Name</th>
+                          <th style={{ padding: '6px' }}>Type</th>
+                          <th style={{ padding: '6px' }}>Required</th>
+                          <th style={{ padding: '6px' }}>Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
+                          <td style={{ padding: '6px' }}><code>bundleId</code></td>
+                          <td style={{ padding: '6px' }}>UUID</td>
+                          <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
+                          <td style={{ padding: '6px' }}>Bundle ID resolved from <code>GET /agent/bundles</code></td>
+                        </tr>
+                        <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
+                          <td style={{ padding: '6px' }}><code>phoneNumber</code></td>
+                          <td style={{ padding: '6px' }}>string</td>
+                          <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
+                          <td style={{ padding: '6px' }}>Ghanaian MSISDN format (e.g. <code>0240000000</code> or <code>+233240000000</code>)</td>
+                        </tr>
+                        <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
+                          <td style={{ padding: '6px' }}><code>idempotencyKey</code></td>
+                          <td style={{ padding: '6px' }}>UUID</td>
+                          <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
+                          <td style={{ padding: '6px' }}>Unique UUID v4 to prevent duplicate billing on retries</td>
+                        </tr>
+                        <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
+                          <td style={{ padding: '6px' }}><code>email</code></td>
+                          <td style={{ padding: '6px' }}>string</td>
+                          <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>optional</td>
+                          <td style={{ padding: '6px' }}>Optional notification email</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-                <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
-{`curl -X POST https://bytebeacon-2-0.onrender.com/api/v1/agent/orders \\
+
+                <div style={{ marginTop: '0.75rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL)</span>
+                    <button onClick={() => handleCopy(`curl -X POST https://api.bytebeacon.online/api/v1/agent/orders \\\n  -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "bundleId": "550e8400-e29b-41d4-a716-446655440000",\n    "phoneNumber": "+233240000000",\n    "idempotencyKey": "b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f",\n    "email": "customer@example.com"\n  }'`, 'c-single-order')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                      {copiedKey === 'c-single-order' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                    </button>
+                  </div>
+                  <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
+{`curl -X POST https://api.bytebeacon.online/api/v1/agent/orders \\
   -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -1091,12 +1101,12 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
     "idempotencyKey": "b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f",
     "email": "customer@example.com"
   }'`}
-                </pre>
-              </div>
+                  </pre>
+                </div>
 
-              <div style={{ marginTop: '0.75rem' }}>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '4px' }}>RESPONSE (201 CREATED)</div>
-                <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: '#10B981' }}>
+                <div style={{ marginTop: '0.75rem' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '4px' }}>RESPONSE (201 CREATED)</div>
+                  <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: '#10B981' }}>
 {`{
   "success": true,
   "statusCode": 201,
@@ -1121,11 +1131,105 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
     "createdAt": "2026-07-07T12:00:00.000Z"
   }
 }`}
-                </pre>
+                  </pre>
+                </div>
+              </div>
+
+              {/* Subsection B: Concurrent Multiple Orders (Batch API) */}
+              <div style={{ border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)', padding: '1rem', margin: '0.75rem 0', backgroundColor: 'var(--color-bg-surface)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.5rem' }}>
+                  <Badge variant="brand" size="sm">MODE 2</Badge>
+                  <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                    Multiple Orders at a Go (Concurrent Batch API)
+                  </h4>
+                </div>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem 0', lineHeight: 1.6 }}>
+                  To dispatch multiple data orders across different bundles and recipients at once, send a <strong>JSON array</strong> directly to <code>POST /agent/orders</code> or the dedicated aliases:
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '0.5rem 0' }}>
+                  <code style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)' }}>POST /api/v1/agent/orders</code>
+                  <code style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)' }}>POST /api/v1/agent/orders/batch</code>
+                  <code style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)' }}>POST /api/v1/agent/orders/multi</code>
+                </div>
+                <ul style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.8, paddingLeft: '1.25rem', margin: '0.5rem 0' }}>
+                  <li><strong>Concurrent Non-Blocking Execution:</strong> Up to <strong>100 orders</strong> are processed concurrently via parallel threads. A failure in one order (e.g. invalid recipient or unvalidated MTN) never blocks the remaining orders.</li>
+                  <li><strong>Per-Order Idempotency:</strong> Each order item has its own <code>idempotencyKey</code>, protecting against duplicate charging during network retries.</li>
+                  <li><strong>Detailed Outcome Breakdown:</strong> Returns HTTP 201 with individual order envelopes and a summary <code>meta: {'{ total, successful, failed }'}</code> block.</li>
+                </ul>
+
+                <div style={{ marginTop: '0.75rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL — Multiple Orders Array)</span>
+                    <button onClick={() => handleCopy(`curl -X POST https://api.bytebeacon.online/api/v1/agent/orders/batch \\\n  -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\\n  -H "Content-Type: application/json" \\\n  -d '[\n    {\n      "bundleId": "550e8400-e29b-41d4-a716-446655440000",\n      "phoneNumber": "0240000000",\n      "idempotencyKey": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",\n      "email": "customer1@example.com"\n    },\n    {\n      "bundleId": "660e8400-e29b-41d4-a716-446655440001",\n      "phoneNumber": "0200000000",\n      "idempotencyKey": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",\n      "email": "customer2@example.com"\n    }\n  ]'`, 'c-batch-orders')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                      {copiedKey === 'c-batch-orders' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                    </button>
+                  </div>
+                  <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
+{`curl -X POST https://api.bytebeacon.online/api/v1/agent/orders/batch \\
+  -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\
+  -H "Content-Type: application/json" \\
+  -d '[
+    {
+      "bundleId": "550e8400-e29b-41d4-a716-446655440000",
+      "phoneNumber": "0240000000",
+      "idempotencyKey": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "email": "customer1@example.com"
+    },
+    {
+      "bundleId": "660e8400-e29b-41d4-a716-446655440001",
+      "phoneNumber": "0200000000",
+      "idempotencyKey": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "email": "customer2@example.com"
+    }
+  ]'`}
+                  </pre>
+                </div>
+
+                <div style={{ marginTop: '0.75rem' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '4px' }}>RESPONSE (201 CREATED)</div>
+                  <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: '#10B981' }}>
+{`{
+  "success": true,
+  "statusCode": 201,
+  "message": "Batch processed: 2 successful, 0 failed.",
+  "data": [
+    {
+      "success": true,
+      "order": {
+        "id": "ord_01J8K9P2X4",
+        "publicId": "ord_01J8K9P2X4",
+        "referenceCode": "TXN-7GH2K9",
+        "idempotencyKey": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+        "phoneNumber": "0240000000",
+        "amount": "21.00",
+        "status": "received"
+      }
+    },
+    {
+      "success": true,
+      "order": {
+        "id": "ord_02K8L9Q3Y5",
+        "publicId": "ord_02K8L9Q3Y5",
+        "referenceCode": "TXN-8HJ3L0",
+        "idempotencyKey": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+        "phoneNumber": "0200000000",
+        "amount": "18.50",
+        "status": "received"
+      }
+    }
+  ],
+  "meta": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  }
+}`}
+                  </pre>
+                </div>
               </div>
 
               <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', color: '#F59E0B', fontSize: '12px' }}>
-                <strong>First-time MTN Rule:</strong> A single order for an unapproved MTN number returns HTTP 422 <code>BENEFICIARY_NOT_VALIDATED</code>. The number is recorded for MTN admin approval. Once approved, the order can be retried. Call <code>POST /agent/beneficiaries/precheck</code> prior to placing orders.
+                <strong>First-time MTN Rule:</strong> A single order for an unapproved MTN number returns HTTP 422 <code>BENEFICIARY_NOT_VALIDATED</code>. In batch mode, unapproved numbers are individually reported in the response without canceling valid orders. Call <code>POST /agent/beneficiaries/precheck</code> prior to placing orders.
               </div>
             </Card>
           </section>
@@ -1181,14 +1285,19 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Badge variant="brand" size="sm">POST</Badge>
                   <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}>
-                    /agent/orders/bulk — Multi-Recipient Batch Order
+                    /agent/orders/bulk — High-Volume Bulk Order Submission (Up to 1,000 Recipients)
                   </h3>
                 </div>
                 <Badge variant="purple" size="sm">Scope: orders:write</Badge>
               </div>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-                Order for up to 1,000 recipients in a single submission. Automatically groups recipients and creates per-bundle-size child orders. Debits wallet linear per-GB total once.
+                High-throughput bulk dispatch endpoint supporting <strong>up to 1,000 recipients</strong> in a single API call on either <strong>MTN</strong> or <strong>TELECEL</strong>. The backend automatically groups recipients by data package size, creates individual child fulfillment orders, validates balances, and debits your wallet in a single atomic transaction.
               </p>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '0.5rem 0' }}>
+                <code style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)' }}>POST https://api.bytebeacon.online/api/v1/agent/orders/bulk</code>
+                <code style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)' }}>POST https://api.bytebeacon.online/agent/orders/bulk</code>
+              </div>
 
               <div style={{ margin: '0.75rem 0' }}>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Parameters (JSON Body)</div>
@@ -1207,35 +1316,105 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
                         <td style={{ padding: '6px' }}><code>network</code></td>
                         <td style={{ padding: '6px' }}>MTN | TELECEL</td>
                         <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>One network for the entire bulk submission</td>
+                        <td style={{ padding: '6px' }}>Target network provider for the entire bulk submission batch</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>recipients</code></td>
-                        <td style={{ padding: '6px' }}>array (1–1000)</td>
+                        <td style={{ padding: '6px' }}>array (1–1,000)</td>
                         <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>Array of <code>{'{ phoneNumber, dataSizeGb }'}</code> objects</td>
+                        <td style={{ padding: '6px' }}>Array of objects with <code>phoneNumber</code> (string) and <code>dataSizeGb</code> (number e.g. <code>1</code>, <code>2</code>, <code>5</code>, <code>10</code>)</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>idempotencyKey</code></td>
-                        <td style={{ padding: '6px' }}>string (8–36)</td>
+                        <td style={{ padding: '6px' }}>string (UUID)</td>
                         <td style={{ padding: '6px', color: '#EF4444', fontWeight: 700 }}>yes</td>
-                        <td style={{ padding: '6px' }}>Dedupes the entire bulk submission batch</td>
+                        <td style={{ padding: '6px' }}>Unique deduplication key for this bulk submission batch</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
+                        <td style={{ padding: '6px' }}><code>simulate</code></td>
+                        <td style={{ padding: '6px' }}>boolean</td>
+                        <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>sandbox: required</td>
+                        <td style={{ padding: '6px' }}>When <code>true</code>, runs a full dry-run simulation of up to 1,000 recipients at 0 cost. Required for <code>ak_test_...</code> keys (or header <code>x-simulate: true</code>).</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>confirmedPorted</code></td>
                         <td style={{ padding: '6px' }}>string[]</td>
-                        <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>no</td>
-                        <td style={{ padding: '6px' }}>Numbers on other network prefixes confirmed ported</td>
+                        <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>optional</td>
+                        <td style={{ padding: '6px' }}>Numbers on other network prefixes confirmed ported to target network</td>
                       </tr>
                       <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                         <td style={{ padding: '6px' }}><code>onUnvalidated</code></td>
-                        <td style={{ padding: '6px' }}>"set_aside" | "reject"</td>
-                        <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>no</td>
-                        <td style={{ padding: '6px' }}>Default <code>"set_aside"</code> partial success; <code>"reject"</code> strict 422</td>
+                        <td style={{ padding: '6px' }}>string</td>
+                        <td style={{ padding: '6px', color: 'var(--color-text-muted)' }}>optional</td>
+                        <td style={{ padding: '6px' }}>Strategy for MTN: <code>"set_aside"</code> (default, excludes unapproved numbers from charge) or <code>"reject"</code> (strict 422 if any unapproved)</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              {/* Sandbox Simulation Guide & Resolution */}
+              <div style={{ padding: '0.85rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', margin: '1rem 0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.4rem' }}>
+                  <Badge variant="brand" size="sm">SANDBOX TESTING</Badge>
+                  <strong style={{ fontSize: '12.5px', color: 'var(--color-text-primary)' }}>Testing 1,000 Recipients on Sandbox (`ak_test_...`)</strong>
+                </div>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: '0 0 0.5rem 0' }}>
+                  <strong>Why did Postman return <code>BULK_NOT_ON_SANDBOX</code>?</strong> To protect real telecom queues, bulk carrier execution is prohibited with test keys unless simulation is explicitly requested. Simply pass <code>"simulate": true</code> in your JSON body or send the HTTP header <code>x-simulate: true</code>.
+                </p>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: 0 }}>
+                  In simulation mode: The entire 1,000-recipient payload is validated, grouped into package sizes, child orders are created with <code>isSandbox: true</code>, webhook events are dispatched, and <strong>costs 0 GHS</strong>.
+                </p>
+              </div>
+
+              {/* cURL Example: Sandbox Simulation */}
+              <div style={{ marginTop: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL — Sandbox 1,000-Recipient Simulation)</span>
+                  <button onClick={() => handleCopy(`curl -X POST https://api.bytebeacon.online/api/v1/agent/orders/bulk \\\n  -H "x-api-key: ak_test_XXXXXXXXXXXXXXXX" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "network": "MTN",\n    "simulate": true,\n    "idempotencyKey": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",\n    "recipients": [\n      { "phoneNumber": "0240000000", "dataSizeGb": 1 },\n      { "phoneNumber": "0240000001", "dataSizeGb": 2 },\n      { "phoneNumber": "0240000002", "dataSizeGb": 5 }\n    ]\n  }'`, 'c-bulk-sandbox')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                    {copiedKey === 'c-bulk-sandbox' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                  </button>
+                </div>
+                <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
+{`curl -X POST https://api.bytebeacon.online/api/v1/agent/orders/bulk \\
+  -H "x-api-key: ak_test_XXXXXXXXXXXXXXXX" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "network": "MTN",
+    "simulate": true,
+    "idempotencyKey": "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f",
+    "recipients": [
+      { "phoneNumber": "0240000000", "dataSizeGb": 1 },
+      { "phoneNumber": "0240000001", "dataSizeGb": 2 },
+      { "phoneNumber": "0240000002", "dataSizeGb": 5 }
+    ]
+  }'`}
+                </pre>
+              </div>
+
+              {/* cURL Example: Live Production Execution */}
+              <div style={{ marginTop: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>REQUEST (cURL — Live Production Execution)</span>
+                  <button onClick={() => handleCopy(`curl -X POST https://api.bytebeacon.online/api/v1/agent/orders/bulk \\\n  -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "network": "MTN",\n    "idempotencyKey": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",\n    "onUnvalidated": "set_aside",\n    "recipients": [\n      { "phoneNumber": "0240000000", "dataSizeGb": 1 },\n      { "phoneNumber": "0240000001", "dataSizeGb": 2 },\n      { "phoneNumber": "0240000002", "dataSizeGb": 5 }\n    ]\n  }'`, 'c-bulk-live')} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}>
+                    {copiedKey === 'c-bulk-live' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                  </button>
+                </div>
+                <pre style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border-default)', fontSize: '12px', overflowX: 'auto', color: 'var(--color-text-primary)' }}>
+{`curl -X POST https://api.bytebeacon.online/api/v1/agent/orders/bulk \\
+  -H "x-api-key: ak_live_REDACTED_EXAMPLE" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "network": "MTN",
+    "idempotencyKey": "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a",
+    "onUnvalidated": "set_aside",
+    "recipients": [
+      { "phoneNumber": "0240000000", "dataSizeGb": 1 },
+      { "phoneNumber": "0240000001", "dataSizeGb": 2 },
+      { "phoneNumber": "0240000002", "dataSizeGb": 5 }
+    ]
+  }'`}
+                </pre>
               </div>
 
               <div style={{ marginTop: '0.75rem' }}>
@@ -1252,32 +1431,46 @@ curl https://bytebeacon-2-0.onrender.com/api/v1/agent/me \
     "amount": "48.00",
     "status": "received",
     "createdAt": "2026-07-07T12:00:00.000Z",
-    "beneficiaryCount": 2,
-    "groupCount": 2,
+    "beneficiaryCount": 1000,
+    "groupCount": 3,
+    "isSandbox": true,
     "orders": [
       {
         "id": "ord_a1b2c3d4",
         "publicId": "ord_a1b2c3d4",
         "referenceCode": "TXN-AAA111",
-        "sizeGb": 2,
-        "beneficiaryCount": 1,
-        "amount": "8.40",
+        "sizeGb": 1,
+        "beneficiaryCount": 500,
+        "amount": "2100.00",
         "status": "received"
       },
       {
         "id": "ord_e5f6g7h8",
         "publicId": "ord_e5f6g7h8",
         "referenceCode": "TXN-BBB222",
+        "sizeGb": 2,
+        "beneficiaryCount": 300,
+        "amount": "2520.00",
+        "status": "received"
+      },
+      {
+        "id": "ord_j9k0l1m2",
+        "publicId": "ord_j9k0l1m2",
+        "referenceCode": "TXN-CCC333",
         "sizeGb": 5,
-        "beneficiaryCount": 1,
-        "amount": "21.00",
+        "beneficiaryCount": 200,
+        "amount": "4200.00",
         "status": "received"
       }
     ],
-    "blocked": ["0559990000"]
+    "blocked": []
   }
 }`}
                 </pre>
+              </div>
+
+              <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', color: '#F59E0B', fontSize: '12px' }}>
+                <strong>Carrier Differences:</strong> For <strong>MTN</strong>, recipients not yet eligible under Up2U are set aside or submitted for verification depending on <code>onUnvalidated</code>. For <strong>TELECEL</strong>, no pre-registration is needed—all valid 020/050 MSISDNs are dispatched directly.
               </div>
             </Card>
           </section>

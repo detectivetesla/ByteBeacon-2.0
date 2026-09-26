@@ -24,7 +24,7 @@ export default async function handler(req: any, res: any) {
       .replace(/'/g, '&apos;');
   };
 
-  const backendBase = process.env.API_BASE_URL || process.env.VITE_API_BASE_URL || 'https://bytebeacon-2-0.onrender.com/api/v1';
+  const backendBase = process.env.API_BASE_URL || process.env.VITE_API_BASE_URL || 'https://api.bytebeacon.online/api/v1';
 
   let store: any = null;
   if (slug) {

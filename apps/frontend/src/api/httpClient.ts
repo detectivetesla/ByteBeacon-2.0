@@ -22,7 +22,7 @@ export class HttpClient {
         if (import.meta.env.DEV) {
           return '/api/v1';
         }
-        return 'https://bytebeacon-2-0.onrender.com/api/v1';
+        return 'https://api.bytebeacon.online/api/v1';
       })(),
       getAccessToken: () => {
         try {

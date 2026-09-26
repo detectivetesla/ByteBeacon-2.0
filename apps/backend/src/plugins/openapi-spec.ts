@@ -276,22 +276,22 @@ export const openApiPaths: Record<string, any> = {
     },
   },
 
-  // 3. ORDER DISPATCH (SINGLE & BULK)
+  // 3. ORDER DISPATCH (SINGLE, CONCURRENT BATCH & BULK)
   '/api/v1/agent/orders': {
     post: {
       tags: ['Orders'],
-      summary: 'Create Single Data Bundle Order',
+      summary: 'Create Single or Concurrent Batch Data Bundle Orders',
       description:
-        'Dispatches a telecom data bundle to a recipient MSISDN. Validates wallet balance and enforces idempotency to prevent duplicate charges.',
+        'Dispatches telecom data bundle(s) to recipient Ghanaian MSISDN(s). Accepts either a single order payload object OR an array of up to 100 order objects for concurrent batch processing. Validates wallet balance and enforces idempotency per order.',
       operationId: 'createAgentOrder',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       parameters: [
         {
           name: 'Idempotency-Key',
           in: 'header',
-          required: true,
+          required: false,
           schema: { type: 'string', format: 'uuid' },
-          description: 'Unique UUID v4 to prevent duplicate billing on network retries',
+          description: 'Unique UUID v4 to prevent duplicate billing on network retries (optional if included in body)',
         },
       ],
       requestBody: {
@@ -299,22 +299,41 @@ export const openApiPaths: Record<string, any> = {
         content: {
           'application/json': {
             schema: {
-              type: 'object',
-              required: ['bundleId', 'phoneNumber', 'network'],
-              properties: {
-                bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000' },
-                phoneNumber: { type: 'string', example: '0240000000' },
-                network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
-                idempotencyKey: { type: 'string', format: 'uuid' },
-                email: { type: 'string', example: 'customer@example.com' },
-              },
+              oneOf: [
+                {
+                  type: 'object',
+                  required: ['bundleId', 'phoneNumber'],
+                  properties: {
+                    bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000', description: 'UUID from GET /agent/bundles' },
+                    phoneNumber: { type: 'string', example: '0240000000', description: 'Ghanaian MSISDN format (e.g. 0240000000 or +233240000000)' },
+                    network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
+                    idempotencyKey: { type: 'string', format: 'uuid', description: 'UUID v4 deduplication key' },
+                    email: { type: 'string', example: 'customer@example.com' },
+                  },
+                },
+                {
+                  type: 'array',
+                  description: 'Batch of up to 100 orders processed concurrently with individual fulfillment tracking',
+                  items: {
+                    type: 'object',
+                    required: ['bundleId', 'phoneNumber'],
+                    properties: {
+                      bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000' },
+                      phoneNumber: { type: 'string', example: '0240000000' },
+                      network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
+                      idempotencyKey: { type: 'string', format: 'uuid' },
+                      email: { type: 'string', example: 'customer@example.com' },
+                    },
+                  },
+                },
+              ],
             },
           },
         },
       },
       responses: {
         '201': {
-          description: 'Order created and queued for fulfillment',
+          description: 'Order(s) created and queued for fulfillment. Batch submissions return an array with meta stats.',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/OrderEnvelope' },
@@ -339,6 +358,68 @@ export const openApiPaths: Record<string, any> = {
       ],
       responses: {
         '200': { description: 'List of orders' },
+      },
+    },
+  },
+
+  '/api/v1/agent/orders/batch': {
+    post: {
+      tags: ['Orders'],
+      summary: 'Concurrent Batch Order Processing',
+      description:
+        'Submits up to 100 individual data bundle orders processed concurrently. Each order is individually debited, validated, and idempotently handled. Returns overall batch results with successful and failed counts.',
+      operationId: 'createAgentOrderBatch',
+      security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['bundleId', 'phoneNumber'],
+                properties: {
+                  bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000' },
+                  phoneNumber: { type: 'string', example: '0240000000' },
+                  network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
+                  idempotencyKey: { type: 'string', format: 'uuid' },
+                  email: { type: 'string', example: 'customer@example.com' },
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        '201': {
+          description: 'Batch orders processed concurrently',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  statusCode: { type: 'integer', example: 201 },
+                  message: { type: 'string', example: 'Batch processed: 2 successful, 0 failed.' },
+                  data: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/OrderEnvelope' },
+                  },
+                  meta: {
+                    type: 'object',
+                    properties: {
+                      total: { type: 'integer', example: 2 },
+                      successful: { type: 'integer', example: 2 },
+                      failed: { type: 'integer', example: 0 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        '400': { description: 'Bad Request - batch exceeds 100 items or invalid payload' },
       },
     },
   },
@@ -370,9 +451,9 @@ export const openApiPaths: Record<string, any> = {
   '/api/v1/agent/orders/bulk': {
     post: {
       tags: ['Orders'],
-      summary: 'Bulk Order Dispatch',
+      summary: 'High-Volume Bulk Order Submission (Up to 1,000 Recipients)',
       description:
-        'Submits a batch of data bundle dispatches for multiple recipients. Validates available balance and queues orders for fulfillment.',
+        'Submits a high-throughput telecom bulk submission for up to 1,000 recipients on a single network (MTN or TELECEL). The engine automatically groups recipients by data package size, creates child fulfillment orders, and performs a single wallet debit. For sandbox testing with ak_test_... keys, pass simulate: true to run a full dry-run without debiting your wallet.',
       operationId: 'createBulkOrders',
       security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
       requestBody: {
@@ -381,26 +462,47 @@ export const openApiPaths: Record<string, any> = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['network', 'recipients'],
+              required: ['network', 'recipients', 'idempotencyKey'],
               properties: {
-                network: { type: 'string', enum: ['MTN', 'TELECEL', 'AIRTELTIGO'], example: 'MTN' },
+                network: {
+                  type: 'string',
+                  enum: ['MTN', 'TELECEL'],
+                  example: 'MTN',
+                  description: 'Target telecom network provider for this bulk dispatch',
+                },
                 recipients: {
                   type: 'array',
+                  description: 'List of recipient phone numbers and package sizes (up to 1,000 items)',
                   items: {
                     type: 'object',
-                    required: ['phoneNumber', 'bundleId'],
+                    required: ['phoneNumber'],
                     properties: {
-                      phoneNumber: { type: 'string', example: '0240000000' },
-                      bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000' },
-                      pricePesewas: { type: 'integer' },
+                      phoneNumber: { type: 'string', example: '0240000000', description: 'Ghanaian MSISDN format' },
+                      dataSizeGb: { type: 'number', example: 5, description: 'Data quota in GB (e.g. 1, 2, 5, 10)' },
+                      bundleId: { type: 'string', example: '550e8400-e29b-41d4-a716-446655440000', description: 'Alternative: bundle UUID' },
                     },
                   },
                 },
-                idempotencyKey: { type: 'string' },
+                idempotencyKey: {
+                  type: 'string',
+                  example: 'b71b5b4a-2a8a-4b56-91a4-2e3f9a0a0c4f',
+                  description: 'Unique deduplication key for this bulk submission',
+                },
+                simulate: {
+                  type: 'boolean',
+                  default: false,
+                  description: 'When true, simulates full bulk execution without debiting wallet or dispatching carrier orders. REQUIRED when using ak_test_... sandbox keys.',
+                },
+                confirmedPorted: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Numbers on non-native prefixes that are confirmed ported to this network',
+                },
                 onUnvalidated: {
                   type: 'string',
-                  enum: ['HOLD_FOR_APPROVAL', 'REJECT_ALL', 'CONTINUE_VALID_ONLY'],
-                  default: 'HOLD_FOR_APPROVAL',
+                  enum: ['set_aside', 'reject', 'HOLD_FOR_APPROVAL', 'REJECT_ALL', 'CONTINUE_VALID_ONLY'],
+                  default: 'set_aside',
+                  description: 'Strategy for MTN recipients not yet validated: set_aside excludes them from charge; reject fails the entire batch with 422.',
                 },
               },
             },
@@ -408,7 +510,36 @@ export const openApiPaths: Record<string, any> = {
         },
       },
       responses: {
-        '202': { description: 'Bulk order accepted for processing' },
+        '201': {
+          description: 'Bulk order accepted and queued for processing (or simulated)',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  statusCode: { type: 'integer', example: 201 },
+                  message: { type: 'string', example: 'Bulk order placed and queued for processing.' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string', example: 'sub_01J8K9P2X4' },
+                      referenceCode: { type: 'string', example: 'BLK-7GH2K9ABCDEF' },
+                      network: { type: 'string', example: 'MTN' },
+                      amount: { type: 'string', example: '48.00' },
+                      status: { type: 'string', example: 'received' },
+                      beneficiaryCount: { type: 'integer', example: 1000 },
+                      groupCount: { type: 'integer', example: 2 },
+                      orders: { type: 'array', items: { type: 'object' } },
+                      blocked: { type: 'array', items: { type: 'string' } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        '400': { description: 'Bad Request - invalid phone format or BULK_NOT_ON_SANDBOX (pass simulate: true for sandbox testing)' },
         '402': { description: 'Insufficient wallet balance for bulk dispatch' },
       },
     },
