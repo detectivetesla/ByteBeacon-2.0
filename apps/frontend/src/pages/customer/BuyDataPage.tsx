@@ -46,6 +46,9 @@ import {
   generateSpreadsheetTemplate,
   generateSetAsideSpreadsheet,
   normalizeGhanaPhoneNumber,
+  isValidGhanaPhoneNumber,
+  detectGhanaNetwork,
+  matchBundleVolume,
   ParsedSpreadsheetRow,
   RecipientRowStatus,
   DEFAULT_FALLBACK_BUNDLES,
@@ -1054,38 +1057,65 @@ export const BuyDataPage: React.FC = () => {
     let totalPesewas = 0;
 
     const entries = lines.map((line, idx) => {
-      const parts = line.split(/[,\t]+/).map((s) => s.trim());
-      const phone = parts[0] || '';
-      const rawSize = parts[1] || '5GB';
-
-      const cleanPhone = phone.replace(/\s+/g, '');
-      const isValidPhone = /^(0|\+?233)[25][0-9]{8}$/.test(cleanPhone);
-
-      // Normalize volume in GB: e.g. "5GB", "5 GB", "5.0", "5" -> 5
-      const cleanSize = rawSize.toLowerCase().replace(/\s+/g, '').replace(/gb$/, '');
-      const numVal = parseFloat(cleanSize);
-
-      let matchingBundle = availableBundles.find((b) => {
-        const gbAmount = b.dataAmountMb / 1024;
-        return (
-          b.dataDisplay.toLowerCase().replace(/\s+/g, '') === rawSize.toLowerCase().replace(/\s+/g, '') ||
-          (!isNaN(numVal) && Math.abs(gbAmount - numVal) < 0.05)
-        );
-      });
-
-      if (!matchingBundle) {
-        matchingBundle = availableBundles[2] || availableBundles[0];
+      // Support flexible delimiters: comma, tab, semicolon, colon, pipe, or dash with spaces
+      let parts: string[] = [];
+      if (/[,\t;:|]/.test(line)) {
+        parts = line.split(/[,\t;:|]+/).map((s) => s.trim()).filter(Boolean);
+      } else if (/\s+-\s+/.test(line)) {
+        parts = line.split(/\s+-\s+/).map((s) => s.trim()).filter(Boolean);
+      } else {
+        parts = line.split(/\s+/).map((s) => s.trim()).filter(Boolean);
       }
 
-      const price = matchingBundle ? matchingBundle.pricePesewas : 0;
-      totalPesewas += price;
+      let rawPhone = parts[0] || '';
+      let rawSize = parts[1] || '';
+
+      // If the first part looks like a data size (e.g. "5GB" or "5") and the second is a phone
+      if (parts.length >= 2 && !/^[0-9+()\-.\s]{7,}$/.test(rawPhone) && /^[0-9+()\-.\s]{7,}$/.test(rawSize)) {
+        const tmp = rawPhone;
+        rawPhone = rawSize;
+        rawSize = tmp;
+      }
+
+      const normPhone = normalizeGhanaPhoneNumber(rawPhone);
+      const isValidPhone = isValidGhanaPhoneNumber(normPhone);
+
+      // Check for carrier mismatch
+      const detectedCarrier = detectGhanaNetwork(normPhone);
+      const isCarrierMismatch = detectedCarrier !== 'UNKNOWN' && detectedCarrier !== selectedNetwork;
+
+      // Default bundle if no volume specified
+      const fallbackBundle = currentSingleBundle || availableBundles[2] || availableBundles[0];
+      const matchedBundle = rawSize
+        ? matchBundleVolume(rawSize, availableBundles, selectedNetwork) || fallbackBundle
+        : fallbackBundle;
+
+      const price = matchedBundle ? matchedBundle.pricePesewas : 0;
+      const isValid = isValidPhone && Boolean(matchedBundle?.id) && !isCarrierMismatch;
+
+      if (isValid) {
+        totalPesewas += price;
+      }
+
+      let errorReason: string | undefined;
+      if (!isValidPhone) {
+        errorReason = 'Invalid Ghana number';
+      } else if (isCarrierMismatch) {
+        errorReason = `${detectedCarrier} on ${selectedNetwork}`;
+      } else if (!matchedBundle?.id) {
+        errorReason = 'No matching package';
+      }
 
       return {
         id: idx,
-        phone: cleanPhone || phone,
-        bundleId: matchingBundle?.id || '',
-        sizeStr: matchingBundle ? matchingBundle.dataDisplay : `${rawSize}`,
-        isValid: isValidPhone && Boolean(matchingBundle?.id),
+        rawPhone,
+        phone: normPhone || rawPhone,
+        bundleId: matchedBundle?.id || '',
+        sizeStr: matchedBundle ? matchedBundle.dataDisplay : (rawSize || '5 GB'),
+        isValid,
+        errorReason,
+        detectedCarrier,
+        isCarrierMismatch,
         pricePesewas: price,
       };
     });
@@ -1096,7 +1126,7 @@ export const BuyDataPage: React.FC = () => {
       validCount: entries.filter((e) => e.isValid).length,
       invalidCount: entries.filter((e) => !e.isValid).length,
     };
-  }, [freePasteText, availableBundles]);
+  }, [freePasteText, availableBundles, selectedNetwork, currentSingleBundle]);
 
   const handleBulkFreeSubmit = async () => {
     if (isMaintenanceMode) {
@@ -1117,7 +1147,7 @@ export const BuyDataPage: React.FC = () => {
       );
     }
     if (parsedFreeEntries.invalidCount > 0) {
-      toastError('Invalid Entries', 'Please fix any invalid recipient phone numbers before proceeding.');
+      toastError('Invalid Entries', 'Please fix any invalid recipient phone numbers or package mismatches before proceeding.');
       return;
     }
     if (parsedFreeEntries.entries.length === 0) {
@@ -1127,23 +1157,33 @@ export const BuyDataPage: React.FC = () => {
 
     // MTN beneficiary precheck for free-paste recipients
     const isMtnBulk = selectedNetwork === NetworkProvider.MTN;
-    let approvedPhones = new Set<string>(parsedFreeEntries.entries.map((e) => e.phone));
+    let approvedPhones = new Set<string>();
     const unapprovedFreeNumbers: string[] = [];
 
     if (isMtnBulk) {
       try {
         setIsCheckingBeneficiary(true);
         const phones = parsedFreeEntries.entries.map((e) => e.phone);
-        const precheckRes = await beneficiaryApi.precheckPublic({
-          network: NetworkProvider.MTN,
-          phoneNumbers: phones,
-        });
-        const isEnforced = precheckRes?.enforced !== false;
 
-        if (isEnforced && precheckRes?.results) {
-          approvedPhones = new Set<string>();
-          for (const result of precheckRes.results) {
-            const phone = result.normalized || result.phone || result.phoneNumber || '';
+        // Precheck in chunks of 10 to strictly adhere to public endpoint limits
+        const CHUNK_SIZE = 10;
+        const allPrecheckResults: any[] = [];
+
+        for (let i = 0; i < phones.length; i += CHUNK_SIZE) {
+          const chunk = phones.slice(i, i + CHUNK_SIZE);
+          const chunkRes = await beneficiaryApi.precheckPublic({
+            network: NetworkProvider.MTN,
+            phoneNumbers: chunk,
+          });
+          if (chunkRes?.results && Array.isArray(chunkRes.results)) {
+            allPrecheckResults.push(...chunkRes.results);
+          }
+        }
+
+        if (allPrecheckResults.length > 0) {
+          for (const result of allPrecheckResults) {
+            const rawPhone = result.phone || result.phoneNumber || result.normalized || '';
+            const normP = normalizeGhanaPhoneNumber(rawPhone);
             const isExplicitApproved = result.status === 'APPROVED';
             const isOrderable =
               isExplicitApproved
@@ -1159,9 +1199,11 @@ export const BuyDataPage: React.FC = () => {
               result.status === 'PENDING');
 
             if (isUnapproved) {
-              unapprovedFreeNumbers.push(phone);
+              if (normP) unapprovedFreeNumbers.push(normP);
+              else if (rawPhone) unapprovedFreeNumbers.push(rawPhone);
             } else {
-              approvedPhones.add(phone);
+              if (normP) approvedPhones.add(normP);
+              if (rawPhone) approvedPhones.add(rawPhone);
             }
           }
 
@@ -1169,7 +1211,7 @@ export const BuyDataPage: React.FC = () => {
           if (unapprovedFreeNumbers.length > 0) {
             beneficiaryApi.recordUnapproved?.({
               items: unapprovedFreeNumbers.map((phone) => {
-                const entry = parsedFreeEntries.entries.find((e) => e.phone === phone);
+                const entry = parsedFreeEntries.entries.find((e) => normalizeGhanaPhoneNumber(e.phone) === phone || e.phone === phone);
                 return {
                   phoneNumber: phone,
                   network: NetworkProvider.MTN,
@@ -1192,17 +1234,26 @@ export const BuyDataPage: React.FC = () => {
             );
             return;
           }
+        } else {
+          // If no results returned from precheck, safely treat all as approved
+          parsedFreeEntries.entries.forEach((e) => approvedPhones.add(e.phone));
         }
       } catch {
-        // Non-fatal: proceed with all recipients if precheck fails
-        approvedPhones = new Set<string>(parsedFreeEntries.entries.map((e) => e.phone));
+        // Non-fatal: proceed with all recipients if precheck network error occurs
+        parsedFreeEntries.entries.forEach((e) => approvedPhones.add(e.phone));
       } finally {
         setIsCheckingBeneficiary(false);
       }
+    } else {
+      // Non-MTN carriers (Telecel, AirtelTigo/AT) do not require precheck
+      parsedFreeEntries.entries.forEach((e) => approvedPhones.add(e.phone));
     }
 
     // Filter to only approved entries
-    const approvedEntries = parsedFreeEntries.entries.filter((e) => approvedPhones.has(e.phone));
+    const approvedEntries = parsedFreeEntries.entries.filter((e) => {
+      const norm = normalizeGhanaPhoneNumber(e.phone);
+      return approvedPhones.has(norm) || approvedPhones.has(e.phone);
+    });
 
     const bulkItems: BulkOrderItem[] = approvedEntries.map((e) => ({
       recipientPhone: e.phone,
@@ -1240,7 +1291,7 @@ export const BuyDataPage: React.FC = () => {
     const validPhones = parsedFreeEntries.entries
       .filter((e) => e.isValid)
       .map((e) => normalizeGhanaPhoneNumber(e.phone))
-      .filter((p) => /^(0|\+?233)[25][0-9]{8}$/.test(p) && p.length === 10);
+      .filter((p) => isValidGhanaPhoneNumber(p) && p.length === 10);
 
     const uninspectedPhones = Array.from(new Set(validPhones)).filter(
       (p) => !recordedUnapprovedPhonesRef.current.has(p),
@@ -1251,46 +1302,52 @@ export const BuyDataPage: React.FC = () => {
     let isCancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const res = await beneficiaryApi.precheckPublic({
-          network: NetworkProvider.MTN,
-          phoneNumbers: uninspectedPhones,
-        });
-        if (isCancelled || !res?.results) return;
+        const CHUNK_SIZE = 10;
+        for (let i = 0; i < uninspectedPhones.length; i += CHUNK_SIZE) {
+          if (isCancelled) break;
+          const chunk = uninspectedPhones.slice(i, i + CHUNK_SIZE);
+          const res = await beneficiaryApi.precheckPublic({
+            network: NetworkProvider.MTN,
+            phoneNumbers: chunk,
+          });
+          if (isCancelled || !res?.results) continue;
 
-        const unapprovedToRecord: string[] = [];
-        for (const item of res.results) {
-          const ph = item.normalized || item.phone || item.phoneNumber || '';
-          const isOrderable =
-            item.orderable !== undefined
-              ? item.orderable
-              : Boolean(item.known && item.valid);
-          const isUnapproved =
-            !isOrderable ||
-            !item.known ||
-            item.status === 'UNAPPROVED' ||
-            item.status === 'PENDING';
+          const unapprovedToRecord: string[] = [];
+          for (const item of res.results) {
+            const rawPh = item.normalized || item.phone || item.phoneNumber || '';
+            const ph = normalizeGhanaPhoneNumber(rawPh) || rawPh;
+            const isOrderable =
+              item.orderable !== undefined
+                ? item.orderable
+                : Boolean(item.known && item.valid);
+            const isUnapproved =
+              !isOrderable ||
+              !item.known ||
+              item.status === 'UNAPPROVED' ||
+              item.status === 'PENDING';
 
-          if (isUnapproved && ph && !recordedUnapprovedPhonesRef.current.has(ph)) {
-            recordedUnapprovedPhonesRef.current.add(ph);
-            unapprovedToRecord.push(ph);
+            if (isUnapproved && ph && !recordedUnapprovedPhonesRef.current.has(ph)) {
+              recordedUnapprovedPhonesRef.current.add(ph);
+              unapprovedToRecord.push(ph);
+            }
           }
-        }
 
-        if (unapprovedToRecord.length > 0) {
-          beneficiaryApi
-            .recordUnapproved?.({
-              items: unapprovedToRecord.map((ph) => {
-                const entry = parsedFreeEntries.entries.find((e) => normalizeGhanaPhoneNumber(e.phone) === ph);
-                return {
-                  phoneNumber: ph,
-                  network: NetworkProvider.MTN,
-                  dataSize: entry?.sizeStr,
-                  pricePesewas: entry?.pricePesewas,
-                  detectedFrom: 'Bulk Order',
-                };
-              }),
-            })
-            ?.catch?.(() => {});
+          if (unapprovedToRecord.length > 0) {
+            beneficiaryApi
+              .recordUnapproved?.({
+                items: unapprovedToRecord.map((ph) => {
+                  const entry = parsedFreeEntries.entries.find((e) => normalizeGhanaPhoneNumber(e.phone) === ph);
+                  return {
+                    phoneNumber: ph,
+                    network: NetworkProvider.MTN,
+                    dataSize: entry?.sizeStr,
+                    pricePesewas: entry?.pricePesewas,
+                    detectedFrom: 'Bulk Order',
+                  };
+                }),
+              })
+              ?.catch?.(() => {});
+          }
         }
       } catch {
         // ignore background detection errors
@@ -3159,7 +3216,7 @@ export const BuyDataPage: React.FC = () => {
                     Paste Bulk Entries
                   </h3>
                   <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '0.2rem 0 0 0' }}>
-                    Enter one recipient per line in format: <code>Phone, Volume in GB</code> (e.g. 0241234567, 5GB)
+                    Enter one recipient per line in format: <code>Phone, Volume</code> (e.g. 0241234567, 5GB). Supports commas, spaces, or dashes. Omit volume to use selected package.
                   </p>
                 </div>
 
@@ -3167,7 +3224,7 @@ export const BuyDataPage: React.FC = () => {
                   rows={8}
                   value={freePasteText}
                   onChange={(e) => setFreePasteText(e.target.value)}
-                  placeholder={'0241234567, 5GB\n0551234567, 10GB\n0201234567, 2.5GB'}
+                  placeholder={'0241234567, 5GB\n0551234567 10GB\n0591234567 - 2GB\n0541234567'}
                   style={{
                     fontFamily: 'var(--font-mono)',
                     fontSize: 'var(--font-size-xs)',
@@ -3221,10 +3278,33 @@ export const BuyDataPage: React.FC = () => {
                             border: item.isValid ? '1px solid var(--color-border-subtle)' : '1px solid var(--color-danger-border)',
                           }}
                         >
-                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: item.isValid ? 'var(--color-text-primary)' : 'var(--color-danger)' }}>
-                            {item.phone}
-                          </span>
-                          <span style={{ fontWeight: 800, color: 'var(--color-text-secondary)' }}>{item.sizeStr}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: item.isValid ? 'var(--color-text-primary)' : 'var(--color-danger)' }}>
+                              {item.phone || item.rawPhone}
+                            </span>
+                            {item.errorReason && (
+                              <span
+                                style={{
+                                  fontSize: 'var(--font-size-3xs)',
+                                  color: 'var(--color-danger)',
+                                  backgroundColor: 'var(--color-danger-surface)',
+                                  padding: '1px 6px',
+                                  borderRadius: 'var(--radius-xs)',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {item.errorReason}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 800, color: 'var(--color-text-secondary)' }}>{item.sizeStr}</span>
+                            {item.isValid && item.pricePesewas > 0 && (
+                              <span style={{ fontWeight: 700, color: 'var(--color-text-muted)', fontSize: 'var(--font-size-3xs)', fontFamily: 'var(--font-data)' }}>
+                                GH₵ {(item.pricePesewas / 100).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))
                     )}
@@ -3242,19 +3322,19 @@ export const BuyDataPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleBulkFreeSubmit}
-                    disabled={parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown}
+                    disabled={parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary}
                     style={{
                       width: '100%',
                       padding: '0.6rem',
                       borderRadius: 'var(--radius-md)',
                       border: 'none',
-                      backgroundColor: isMaintenanceMode || isTotalOrderLockdown || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
-                      color: isMaintenanceMode || isTotalOrderLockdown || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-text-muted)' : theme.buttonTextColor,
+                      backgroundColor: isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-bg-surface-muted)' : theme.buttonBg,
+                      color: isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary || parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 ? 'var(--color-text-muted)' : theme.buttonTextColor,
                       fontWeight: 900,
                       fontSize: 'var(--font-size-sm)',
-                      cursor: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown ? 'not-allowed' : 'pointer',
-                      opacity: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown ? 0.6 : 1,
-                      boxShadow: !isMaintenanceMode && !isTotalOrderLockdown && parsedFreeEntries.invalidCount === 0 && parsedFreeEntries.entries.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
+                      cursor: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary ? 'not-allowed' : 'pointer',
+                      opacity: parsedFreeEntries.invalidCount > 0 || parsedFreeEntries.entries.length === 0 || isMaintenanceMode || isTotalOrderLockdown || isCheckingBeneficiary ? 0.6 : 1,
+                      boxShadow: !isMaintenanceMode && !isTotalOrderLockdown && !isCheckingBeneficiary && parsedFreeEntries.invalidCount === 0 && parsedFreeEntries.entries.length > 0 ? `0 2px 8px ${theme.glowColor}` : 'none',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -3268,6 +3348,13 @@ export const BuyDataPage: React.FC = () => {
                       </>
                     ) : isMaintenanceMode ? (
                       'Platform in Maintenance'
+                    ) : isCheckingBeneficiary ? (
+                      <>
+                        <Loader2 className="animate-spin" size={15} />
+                        <span>Verifying MTN Recipients...</span>
+                      </>
+                    ) : parsedFreeEntries.invalidCount > 0 ? (
+                      `Fix ${parsedFreeEntries.invalidCount} Invalid ${parsedFreeEntries.invalidCount > 1 ? 'Entries' : 'Entry'}`
                     ) : (
                       'Continue to Payment →'
                     )}

@@ -47,6 +47,11 @@ describe('Agent Bulk Orders Suite (POST /agent/orders/bulk & POST /me/agent/orde
             });
           }
           if (sql.includes('INSERT INTO orders')) {
+            const placeholders = sql.match(/\$\d+/g) || [];
+            const highestPlaceholder = Math.max(...placeholders.map((p) => parseInt(p.substring(1), 10)));
+            if (params && params.length !== highestPlaceholder) {
+              throw new Error(`bind message supplies ${params.length} parameters, but prepared statement requires ${highestPlaceholder}`);
+            }
             return Promise.resolve({
               rows: [{ id: 'ord_db_uuid_1' }],
             });
