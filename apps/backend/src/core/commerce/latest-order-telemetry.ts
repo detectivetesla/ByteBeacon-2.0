@@ -94,6 +94,7 @@ export async function getLatestSuccessfulOrdersTelemetry(
         OR o.provider_status IN ('COMPLETED', 'FULFILLED')
       )
       AND o.updated_at >= o.created_at
+      AND o.updated_at >= CURRENT_TIMESTAMP - INTERVAL '6 hours'
       ORDER BY o.updated_at DESC
       LIMIT 50
     `);
