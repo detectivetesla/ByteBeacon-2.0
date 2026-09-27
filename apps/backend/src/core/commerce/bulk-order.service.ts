@@ -125,7 +125,52 @@ export class BulkOrderService {
         isUserAgent = agentCheck.rows.length > 0;
       } catch {}
 
-      // 1. Resolve each item's product price from server catalog
+      // 1. Pre-cache ALL active catalog products in one query (eliminates per-item DB lookups)
+      const catalogRes = await client.query(
+        `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
+                base_price_pesewas as "basePricePesewas",
+                agent_price_pesewas as "agentPricePesewas",
+                is_active as "isActive"
+         FROM catalog_products
+         WHERE is_active = TRUE
+         ORDER BY base_price_pesewas ASC`,
+      );
+      const allProducts = catalogRes.rows.map((r: any) => ({
+        id: r.id,
+        sku: r.sku,
+        network: (r.network || '').toUpperCase(),
+        name: r.name,
+        dataAmountMb: parseInt(r.dataAmountMb, 10),
+        basePricePesewas: parseInt(r.basePricePesewas, 10),
+        agentPricePesewas: r.agentPricePesewas ? parseInt(r.agentPricePesewas, 10) : null,
+        isActive: r.isActive,
+      }));
+      // Build lookup maps for fast in-memory resolution
+      const productById = new Map(allProducts.map((p: any) => [p.id, p]));
+      const productByNetVol = new Map(allProducts.map((p: any) => [`${p.network}:${p.dataAmountMb}`, p]));
+
+      // Pre-cache user/agent custom pricing in one query
+      const allProductIds = allProducts.map((p: any) => p.id);
+      const userPricingMap = new Map<string, number>();
+      if (allProductIds.length > 0) {
+        try {
+          const pricingRes = await client.query(
+            `SELECT product_id, custom_price_pesewas FROM user_pricing WHERE user_id = $1 AND product_id = ANY($2) AND is_active = TRUE
+             UNION
+             SELECT product_id, custom_price_pesewas FROM agent_pricing WHERE (agent_id = $1 OR agent_id IN (SELECT id FROM agents WHERE user_id = $1)) AND product_id = ANY($2) AND is_active = TRUE`,
+            [userId, allProductIds],
+          );
+          for (const row of pricingRes.rows) {
+            if (row.custom_price_pesewas) {
+              userPricingMap.set(row.product_id, parseInt(row.custom_price_pesewas, 10));
+            }
+          }
+        } catch {
+          // ignore — fall back to base/agent pricing
+        }
+      }
+
+      // 2. Resolve each item's product price from in-memory cache (zero additional DB queries per item)
       let totalAmountPesewas = 0;
       const itemsToInsert: Array<{
         recipientPhone: string;
@@ -140,15 +185,20 @@ export class BulkOrderService {
           typeof item.productId === 'string' &&
           (item.productId.startsWith('fallback-') || item.productId.startsWith('custom-bundle-'));
 
+        // Try direct ID lookup from in-memory cache
         if (!isFallbackId) {
-          try {
-            product = await this.catalogService.getProductById(item.productId);
-          } catch {
-            // Product ID not found in catalog — will attempt fallback resolution below
+          product = productById.get(item.productId) || null;
+          // If not in cache, try the catalog service as last resort
+          if (!product) {
+            try {
+              product = await this.catalogService.getProductById(item.productId);
+            } catch {
+              // Product ID not found in catalog — will attempt fallback resolution below
+            }
           }
         }
 
-        // Fallback resolution: parse network + volume from ID or item metadata
+        // Fallback resolution: parse network + volume from ID or item metadata, resolve in-memory
         if (!product) {
           const fallbackMatch = (item.productId || '').match(
             /^(?:fallback-(\w+)-|custom-bundle-)(\d+(?:\.\d+)?)gb$/i,
@@ -160,85 +210,22 @@ export class BulkOrderService {
             ? Math.round(parseFloat(fallbackMatch[2]) * 1024)
             : (item as any).dataAmountMb || 1024;
 
-          try {
-            // 1) Try exact match on network and volume
-            const fbRes = await client.query(
-              `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
-                      base_price_pesewas as "basePricePesewas",
-                      agent_price_pesewas as "agentPricePesewas",
-                      is_active as "isActive"
-               FROM catalog_products
-               WHERE UPPER(network) = $1 AND data_amount_mb = $2 AND is_active = TRUE
-               ORDER BY base_price_pesewas ASC
-               LIMIT 1`,
-              [fbNetwork, fbVolumeMb],
-            );
-            if (fbRes.rows.length > 0) {
-              const r = fbRes.rows[0];
-              product = {
-                id: r.id,
-                sku: r.sku,
-                network: r.network,
-                name: r.name,
-                dataAmountMb: parseInt(r.dataAmountMb, 10),
-                basePricePesewas: parseInt(r.basePricePesewas, 10),
-                agentPricePesewas: r.agentPricePesewas ? parseInt(r.agentPricePesewas, 10) : null,
-                isActive: r.isActive,
-              };
-            } else {
-              // 2) Try closest active bundle for the network
-              const closestRes = await client.query(
-                `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
-                        base_price_pesewas as "basePricePesewas",
-                        agent_price_pesewas as "agentPricePesewas",
-                        is_active as "isActive"
-                 FROM catalog_products
-                 WHERE UPPER(network) = $1 AND is_active = TRUE
-                 ORDER BY ABS(data_amount_mb - $2) ASC
-                 LIMIT 1`,
-                [fbNetwork, fbVolumeMb],
+          // 1) Exact match on network + volume from cache
+          product = productByNetVol.get(`${fbNetwork}:${fbVolumeMb}`) || null;
+
+          if (!product) {
+            // 2) Closest volume match for the same network (in-memory)
+            const sameNetwork = allProducts.filter((p: any) => p.network === fbNetwork);
+            if (sameNetwork.length > 0) {
+              product = sameNetwork.reduce((closest: any, p: any) =>
+                Math.abs(p.dataAmountMb - fbVolumeMb) < Math.abs(closest.dataAmountMb - fbVolumeMb) ? p : closest,
               );
-              if (closestRes.rows.length > 0) {
-                const r = closestRes.rows[0];
-                product = {
-                  id: r.id,
-                  sku: r.sku,
-                  network: r.network,
-                  name: r.name,
-                  dataAmountMb: parseInt(r.dataAmountMb, 10),
-                  basePricePesewas: parseInt(r.basePricePesewas, 10),
-                  agentPricePesewas: r.agentPricePesewas ? parseInt(r.agentPricePesewas, 10) : null,
-                  isActive: r.isActive,
-                };
-              } else {
-                // 3) Fallback to any active product
-                const anyRes = await client.query(
-                  `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
-                          base_price_pesewas as "basePricePesewas",
-                          agent_price_pesewas as "agentPricePesewas",
-                          is_active as "isActive"
-                   FROM catalog_products
-                   WHERE is_active = TRUE
-                   ORDER BY base_price_pesewas ASC
-                   LIMIT 1`,
-                );
-                if (anyRes.rows.length > 0) {
-                  const r = anyRes.rows[0];
-                  product = {
-                    id: r.id,
-                    sku: r.sku,
-                    network: r.network,
-                    name: r.name,
-                    dataAmountMb: parseInt(r.dataAmountMb, 10),
-                    basePricePesewas: parseInt(r.basePricePesewas, 10),
-                    agentPricePesewas: r.agentPricePesewas ? parseInt(r.agentPricePesewas, 10) : null,
-                    isActive: r.isActive,
-                  };
-                }
-              }
             }
-          } catch {
-            // Fallback query failed — product stays null
+          }
+
+          if (!product && allProducts.length > 0) {
+            // 3) Any active product as absolute fallback
+            product = allProducts[0];
           }
         }
 
@@ -253,21 +240,13 @@ export class BulkOrderService {
           isUserAgent && product.agentPricePesewas ? product.agentPricePesewas : product.basePricePesewas;
 
         if (!itemPrice || itemPrice <= 0) {
-          itemPrice = item.amountPesewas || (item as any).pricePesewas || 0;
+          itemPrice = (item as any).amountPesewas || (item as any).pricePesewas || 0;
         }
 
-        try {
-          const userPriceRes = await client.query(
-            `SELECT custom_price_pesewas FROM user_pricing WHERE user_id = $1 AND product_id = $2 AND is_active = TRUE
-             UNION
-             SELECT custom_price_pesewas FROM agent_pricing WHERE (agent_id = $1 OR agent_id IN (SELECT id FROM agents WHERE user_id = $1)) AND product_id = $2 AND is_active = TRUE`,
-            [userId, product.id],
-          );
-          if (userPriceRes?.rows?.length > 0 && userPriceRes.rows[0]?.custom_price_pesewas) {
-            itemPrice = parseInt(userPriceRes.rows[0].custom_price_pesewas, 10);
-          }
-        } catch {
-          // ignore fallback to base price
+        // Check user-specific pricing from pre-cached map (zero DB queries)
+        const customPrice = userPricingMap.get(product.id);
+        if (customPrice && customPrice > 0) {
+          itemPrice = customPrice;
         }
 
         if (!itemPrice || isNaN(itemPrice) || itemPrice <= 0) {
@@ -360,94 +339,188 @@ export class BulkOrderService {
       }> = [];
       const dispatchedOrderIds: string[] = [];
 
-      for (const item of itemsToInsert) {
-        let childOrderId: string | null = null;
+      // Pre-resolve default provider and per-network provider mapping (eliminates per-row subqueries)
+      let defaultProviderName = 'DataHouse';
+      try {
+        const provRes = await client.query(
+          `SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1`,
+        );
+        if (provRes.rows.length > 0 && provRes.rows[0].name) {
+          defaultProviderName = provRes.rows[0].name;
+        }
+      } catch {}
+
+      const networkProviderMap = new Map<string, string>();
+      try {
+        const netRes = await client.query(
+          `SELECT UPPER(code) as code, primary_provider_name FROM telecom_networks WHERE is_active = TRUE OR status = 'ACTIVE'`,
+        );
+        for (const r of netRes.rows) {
+          if (r.primary_provider_name) {
+            networkProviderMap.set(r.code, r.primary_provider_name);
+          }
+        }
+      } catch {}
+
+      const BATCH_SIZE = 50;
+      for (let c = 0; c < itemsToInsert.length; c += BATCH_SIZE) {
+        const chunk = itemsToInsert.slice(c, c + BATCH_SIZE);
 
         if (isWalletPayment) {
-          const product = item.product || (await this.catalogService.getProductById(item.productId));
-          const childPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
-          const childRef = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+          // 3a. Batch Insert orders
+          const orderValues: any[] = [];
+          const orderPlaceholders: string[] = [];
 
-          const childOrderRes = await client.query(
+          chunk.forEach((item, i) => {
+            const childPublicId = `ord_${crypto.randomBytes(12).toString('hex')}`;
+            const baseIdx = i * 13;
+            orderPlaceholders.push(
+              `($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, $${baseIdx + 5}, $${baseIdx + 6}, $${baseIdx + 7}, 'GHS', $${baseIdx + 8}, 'PAID', $${baseIdx + 9}, 'UNKNOWN', 'NONE', $${baseIdx + 10}, $${baseIdx + 11}, $${baseIdx + 12}, $${baseIdx + 13})`,
+            );
+            orderValues.push(
+              childPublicId,
+              userId,
+              item.product.id,
+              item.recipientPhone,
+              item.product.network,
+              item.product.dataAmountMb,
+              item.amountPesewas,
+              JSON.stringify({
+                productId: item.product.id,
+                dataAmountMb: item.product.dataAmountMb,
+                pricePesewas: item.amountPesewas,
+                confirmedPorted: input.confirmedPorted,
+                placedDuringFreeze: isPaused ? true : undefined,
+              }),
+              isPaused ? 'PAUSED' : 'READY_FOR_FULFILLMENT',
+              `${subRow.id}_${item.recipientPhone}_${Date.now()}_${c + i}`,
+              isPaused,
+              isPaused ? new Date() : null,
+              isPaused ? 'READY_FOR_FULFILLMENT' : null,
+            );
+          });
+
+          const ordersRes = await client.query(
             `INSERT INTO orders (
               public_id, user_id, product_id, recipient_phone,
               network, data_amount_mb, amount_pesewas, currency,
               pricing_snapshot, payment_status, order_status, provider_status,
               refund_status, idempotency_key, is_paused, paused_at, paused_from_status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'GHS', $8, 'PAID', $9, 'UNKNOWN', 'NONE', $10, $11, $12, $13)
-            RETURNING id`,
-            [
-              childPublicId,
-              userId,
-              product.id,
-              item.recipientPhone,
-              product.network,
-              product.dataAmountMb,
-              item.amountPesewas,
-              JSON.stringify({
-                productId: product.id,
-                dataAmountMb: product.dataAmountMb,
-                pricePesewas: item.amountPesewas,
-                confirmedPorted: input.confirmedPorted,
-                placedDuringFreeze: isPaused ? true : undefined,
-              }),
-              isPaused ? 'PAUSED' : 'READY_FOR_FULFILLMENT',
-              `${subRow.id}_${item.recipientPhone}_${Date.now()}`,
-              isPaused,
-              isPaused ? new Date() : null,
-              isPaused ? 'READY_FOR_FULFILLMENT' : null,
-            ],
+            VALUES ${orderPlaceholders.join(', ')}
+            RETURNING id, public_id, recipient_phone`,
+            orderValues,
           );
-          childOrderId = childOrderRes.rows[0].id;
-          if (childOrderId) {
-            dispatchedOrderIds.push(childOrderId);
-          }
 
+          const insertedOrderIds = ordersRes.rows.map((r: any) => r.id);
+          dispatchedOrderIds.push(...insertedOrderIds);
+
+          // 3b. Batch Insert order_items
+          const orderItemValues: any[] = [];
+          const orderItemPlaceholders: string[] = [];
+          chunk.forEach((item, i) => {
+            const orderId = insertedOrderIds[i];
+            const baseIdx = i * 3;
+            orderItemPlaceholders.push(`($${baseIdx + 1}, $${baseIdx + 2}, 1, $${baseIdx + 3}, $${baseIdx + 3})`);
+            orderItemValues.push(orderId, item.product.id, item.amountPesewas);
+          });
           await client.query(
             `INSERT INTO order_items (order_id, product_id, quantity, unit_price_pesewas, total_pesewas)
-             VALUES ($1, $2, 1, $3, $3)`,
-            [childOrderId, product.id, item.amountPesewas],
+             VALUES ${orderItemPlaceholders.join(', ')}`,
+            orderItemValues,
           ).catch(() => {});
 
+          // 3c. Batch Insert provider_orders
+          const providerValues: any[] = [];
+          const providerPlaceholders: string[] = [];
+          chunk.forEach((item, i) => {
+            const orderId = insertedOrderIds[i];
+            const childRef = `TXN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+            const providerName = networkProviderMap.get(item.product.network) || defaultProviderName;
+            const baseIdx = i * 3;
+            providerPlaceholders.push(`($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, 'UNKNOWN')`);
+            providerValues.push(orderId, providerName, childRef);
+          });
           await client.query(
             `INSERT INTO provider_orders (order_id, provider_name, provider_reference, provider_status)
-             VALUES (
-               $1,
-               COALESCE(
-                 (SELECT primary_provider_name FROM telecom_networks WHERE UPPER(code) = UPPER($3) AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
-                 (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE AND (is_active = TRUE OR status = 'ACTIVE') LIMIT 1),
-                 (SELECT name FROM telecom_providers WHERE is_active = TRUE OR status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1),
-                 'DataHouse'
-               ),
-               $2,
-               'UNKNOWN'
-             )`,
-            [childOrderId, childRef, product.network],
+             VALUES ${providerPlaceholders.join(', ')}`,
+            providerValues,
           ).catch(() => {});
-        }
 
-        const itemRes = await client.query(
-          `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, submission_id as "submissionId", order_id as "orderId",
-                     recipient_phone as "recipientPhone", product_id as "productId",
-                     amount_pesewas as "amountPesewas", status, error_message as "errorMessage",
-                     created_at as "createdAt"`,
-          [subRow.id, childOrderId, item.recipientPhone, item.productId, item.amountPesewas, isWalletPayment ? 'READY_FOR_FULFILLMENT' : 'CREATED'],
-        );
-        const ir = itemRes.rows[0];
-        createdItems.push({
-          id: ir.id,
-          submissionId: ir.submissionId,
-          orderId: ir.orderId,
-          recipientPhone: ir.recipientPhone,
-          productId: ir.productId,
-          amountPesewas: parseInt(ir.amountPesewas, 10),
-          status: ir.status as OrderStatus,
-          errorMessage: ir.errorMessage,
-          createdAt: new Date(ir.createdAt).toISOString(),
-        });
+          // 3d. Batch Insert bulk_submission_items
+          const subItemValues: any[] = [];
+          const subItemPlaceholders: string[] = [];
+          chunk.forEach((item, i) => {
+            const orderId = insertedOrderIds[i];
+            const baseIdx = i * 6;
+            subItemPlaceholders.push(
+              `($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, $${baseIdx + 5}, $${baseIdx + 6})`,
+            );
+            subItemValues.push(
+              subRow.id,
+              orderId,
+              item.recipientPhone,
+              item.productId,
+              item.amountPesewas,
+              'READY_FOR_FULFILLMENT',
+            );
+          });
+          const subItemsRes = await client.query(
+            `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)
+             VALUES ${subItemPlaceholders.join(', ')}
+             RETURNING id, submission_id as "submissionId", order_id as "orderId",
+                       recipient_phone as "recipientPhone", product_id as "productId",
+                       amount_pesewas as "amountPesewas", status, error_message as "errorMessage",
+                       created_at as "createdAt"`,
+            subItemValues,
+          );
+          for (const ir of subItemsRes.rows) {
+            createdItems.push({
+              id: ir.id,
+              submissionId: ir.submissionId,
+              orderId: ir.orderId,
+              recipientPhone: ir.recipientPhone,
+              productId: ir.productId,
+              amountPesewas: parseInt(ir.amountPesewas, 10),
+              status: ir.status as OrderStatus,
+              errorMessage: ir.errorMessage,
+              createdAt: new Date(ir.createdAt).toISOString(),
+            });
+          }
+        } else {
+          // Non-wallet bulk submission items insert
+          const subItemValues: any[] = [];
+          const subItemPlaceholders: string[] = [];
+          chunk.forEach((item, i) => {
+            const baseIdx = i * 6;
+            subItemPlaceholders.push(
+              `($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, $${baseIdx + 5}, $${baseIdx + 6})`,
+            );
+            subItemValues.push(subRow.id, null, item.recipientPhone, item.productId, item.amountPesewas, 'CREATED');
+          });
+          const subItemsRes = await client.query(
+            `INSERT INTO bulk_submission_items (submission_id, order_id, recipient_phone, product_id, amount_pesewas, status)
+             VALUES ${subItemPlaceholders.join(', ')}
+             RETURNING id, submission_id as "submissionId", order_id as "orderId",
+                       recipient_phone as "recipientPhone", product_id as "productId",
+                       amount_pesewas as "amountPesewas", status, error_message as "errorMessage",
+                       created_at as "createdAt"`,
+            subItemValues,
+          );
+          for (const ir of subItemsRes.rows) {
+            createdItems.push({
+              id: ir.id,
+              submissionId: ir.submissionId,
+              orderId: ir.orderId,
+              recipientPhone: ir.recipientPhone,
+              productId: ir.productId,
+              amountPesewas: parseInt(ir.amountPesewas, 10),
+              status: ir.status as OrderStatus,
+              errorMessage: ir.errorMessage,
+              createdAt: new Date(ir.createdAt).toISOString(),
+            });
+          }
+        }
       }
 
       if (isWalletPayment) {

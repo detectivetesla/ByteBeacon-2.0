@@ -47,7 +47,7 @@ export const ordersApi = {
     input: CreateBulkSubmissionRequest,
     idempotencyKey?: string,
   ): Promise<BulkSubmissionDetailsDto> => {
-    return apiClient.post<BulkSubmissionDetailsDto>('/bulk-orders', input, { idempotencyKey });
+    return apiClient.post<BulkSubmissionDetailsDto>('/bulk-orders', input, { idempotencyKey, timeoutMs: 120000 });
   },
 
   getBulkSubmission: async (submissionId: string): Promise<BulkSubmissionDetailsDto> => {

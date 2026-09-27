@@ -282,6 +282,7 @@ export class FulfillmentWorker {
                 providerOrderId: bulkRes.providerOrderId || deterministicReference,
                 providerReference: bulkRes.providerReference || deterministicReference,
                 providerStatus: bulkRes.providerStatus || ProviderStatus.RECEIVED,
+                acceptedAt: new Date().toISOString(),
                 rawResponse: bulkRes.rawResponse || (bulkRes as any),
               };
               submissionSucceeded = true;
@@ -361,7 +362,8 @@ export class FulfillmentWorker {
                 providerStatus:
                   failed.length === 0
                     ? firstSuccess.providerStatus || ProviderStatus.RECEIVED
-                    : ProviderStatus.PARTIALLY_DELIVERED,
+                    : ProviderStatus.PROCESSING,
+                acceptedAt: firstSuccess.acceptedAt || new Date().toISOString(),
                 rawResponse: {
                   totalBeneficiaries: beneficiaries.length,
                   successfulCount: successful.length,
@@ -453,6 +455,7 @@ export class FulfillmentWorker {
                   providerOrderId: firstFb.providerOrderId || `${deterministicReference}_fb`,
                   providerReference: firstFb.providerReference || `${deterministicReference}_fb`,
                   providerStatus: firstFb.providerStatus || ProviderStatus.RECEIVED,
+                  acceptedAt: firstFb.acceptedAt || new Date().toISOString(),
                   rawResponse: { fallback: true, total: beneficiaries.length, success: fbSuccess.length } as any,
                 };
                 usedProvider = fallbackProvider;

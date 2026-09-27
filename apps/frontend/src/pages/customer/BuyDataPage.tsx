@@ -1176,18 +1176,50 @@ export const BuyDataPage: React.FC = () => {
         setIsCheckingBeneficiary(true);
         const phones = parsedFreeEntries.entries.map((e) => e.phone);
 
-        // Precheck in chunks of 10 to strictly adhere to public endpoint limits
-        const CHUNK_SIZE = 10;
+        // Try unified bulk precheck first (single call, supports up to 1,000 numbers)
         const allPrecheckResults: any[] = [];
+        let precheckSucceeded = false;
 
-        for (let i = 0; i < phones.length; i += CHUNK_SIZE) {
-          const chunk = phones.slice(i, i + CHUNK_SIZE);
-          const chunkRes = await beneficiaryApi.precheckPublic({
+        try {
+          const directRes = await beneficiaryApi.precheck({
             network: NetworkProvider.MTN,
-            phoneNumbers: chunk,
+            phoneNumbers: phones,
           });
-          if (chunkRes?.results && Array.isArray(chunkRes.results)) {
-            allPrecheckResults.push(...chunkRes.results);
+          const resList = directRes?.results || (directRes as any)?.data?.results;
+          if (Array.isArray(resList) && resList.length > 0) {
+            allPrecheckResults.push(...resList);
+            precheckSucceeded = true;
+          }
+        } catch {
+          // Fall back to precheckPublic below
+        }
+
+        if (!precheckSucceeded) {
+          // Precheck in concurrent chunks of 10 to adhere to public endpoint limits
+          const CHUNK_SIZE = 10;
+          const chunks: string[][] = [];
+          for (let i = 0; i < phones.length; i += CHUNK_SIZE) {
+            chunks.push(phones.slice(i, i + CHUNK_SIZE));
+          }
+
+          const concurrency = 4;
+          for (let i = 0; i < chunks.length; i += concurrency) {
+            const batch = chunks.slice(i, i + concurrency);
+            const batchResults = await Promise.all(
+              batch.map((chunk) =>
+                beneficiaryApi
+                  .precheckPublic({
+                    network: NetworkProvider.MTN,
+                    phoneNumbers: chunk,
+                  })
+                  .catch(() => null),
+              ),
+            );
+            for (const chunkRes of batchResults) {
+              if (chunkRes?.results && Array.isArray(chunkRes.results)) {
+                allPrecheckResults.push(...chunkRes.results);
+              }
+            }
           }
         }
 

@@ -828,6 +828,8 @@ export const PurchaseModal: React.FC<PurchaseModalProps> = ({
         setStep(3);
         await refreshWalletBalance();
         window.dispatchEvent(new CustomEvent('wallet-updated'));
+        window.dispatchEvent(new CustomEvent('orders-updated'));
+        window.dispatchEvent(new CustomEvent('order-created'));
         toastSuccess(
           'Bulk Order Confirmed',
           `Paid GH₵ ${numericPrice.toFixed(2)} from wallet for ${bulkItems.length} recipients. Reference: ${subRef}.`,

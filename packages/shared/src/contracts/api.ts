@@ -3146,6 +3146,7 @@ export interface AgentBulkOrderResult {
   groupCount: number;
   orders: AgentBulkChildOrderDto[];
   blocked: string[];
+  isSandbox?: boolean;
 }
 
 // --- Provider Operation Testing Contracts ---
