@@ -1353,20 +1353,6 @@ curl https://api.bytebeacon.online/api/v1/agent/me \
                 </div>
               </div>
 
-              {/* Sandbox Simulation Guide & Resolution */}
-              <div style={{ padding: '0.85rem', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', margin: '1rem 0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.4rem' }}>
-                  <Badge variant="brand" size="sm">SANDBOX TESTING</Badge>
-                  <strong style={{ fontSize: '12.5px', color: 'var(--color-text-primary)' }}>Testing 1,000 Recipients on Sandbox (`ak_test_...`)</strong>
-                </div>
-                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: '0 0 0.5rem 0' }}>
-                  <strong>Why did Postman return <code>BULK_NOT_ON_SANDBOX</code>?</strong> To protect real telecom queues, bulk carrier execution is prohibited with test keys unless simulation is explicitly requested. Simply pass <code>"simulate": true</code> in your JSON body or send the HTTP header <code>x-simulate: true</code>.
-                </p>
-                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: 0 }}>
-                  In simulation mode: The entire 1,000-recipient payload is validated, grouped into package sizes, child orders are created with <code>isSandbox: true</code>, webhook events are dispatched, and <strong>costs 0 GHS</strong>.
-                </p>
-              </div>
-
               {/* cURL Example: Sandbox Simulation */}
               <div style={{ marginTop: '0.75rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
