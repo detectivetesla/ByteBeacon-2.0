@@ -133,8 +133,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
     cat << EOF > "$ENV_FILE"
 NODE_ENV=production
 PORT=3000
-APP_VERSION=2.0.0
-CORS_ORIGINS=https://bytebeacon.online,https://www.bytebeacon.online,https://api.bytebeacon.online,https://frontend-byte-beacon.vercel.app,https://frontend-hazel-six-10.vercel.app,http://localhost:5173
+CORS_ORIGINS=https://bytebeacon.online,https://www.bytebeacon.online,https://api.bytebeacon.online,https://frontend-byte-beacon.vercel.app,https://frontend-hazel-six-10.vercel.app
 
 # Database & Redis (Local VPS)
 DATABASE_URL=postgresql://bytebeacon_user:${DB_PASS}@127.0.0.1:5432/bytebeacon_production
