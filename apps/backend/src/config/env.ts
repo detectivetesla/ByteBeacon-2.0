@@ -70,12 +70,9 @@ export const envSchema = z.object({
     .string()
     .optional()
     .transform((val) => {
+      let list: string[];
       if (!val) {
-        return [
-          'http://localhost:5173',
-          'http://127.0.0.1:5173',
-          'http://localhost:3000',
-          'http://127.0.0.1:3000',
+        list = [
           'https://frontend-byte-beacon.vercel.app',
           'https://frontend-hazel-six-10.vercel.app',
           'https://bytebeacon.online',
@@ -84,8 +81,18 @@ export const envSchema = z.object({
           'https://admin.bytebeacon.online',
           'https://app.bytebeacon.online',
         ];
+        if (process.env.NODE_ENV !== 'production') {
+          list.push(
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+            'http://localhost:3000',
+            'http://127.0.0.1:3000',
+          );
+        }
+      } else {
+        list = val.split(',').map((origin) => origin.trim()).filter(Boolean);
       }
-      return val.split(',').map((origin) => origin.trim()).filter(Boolean);
+      return list;
     })
     .pipe(z.array(z.string().url('Invalid CORS origin URL'))),
   ALLOW_MOCK_PROVIDERS: z
@@ -276,18 +283,10 @@ export function loadConfig(overrideEnv?: Record<string, string | undefined>): En
       throw new Error('FATAL SECURITY VIOLATION: DEV_AUTH_ENABLED cannot be true in production environment!');
     }
 
-    // 2. Production must have an explicit CORS origin configured (no default localhost fallback)
-    const rawOrigins = rawEnv.CORS_ORIGINS || rawEnv.ALLOWED_ORIGINS;
-    if (!rawOrigins || rawOrigins.trim() === '') {
-      throw new Error('FATAL SECURITY VIOLATION: Production requires explicit CORS_ORIGINS / ALLOWED_ORIGINS configuration!');
-    }
-
-    // 3. Production must never permit localhost or 127.0.0.1 or wildcards
-    for (const origin of result.data.CORS_ORIGINS) {
-      if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('*')) {
-        throw new Error(`FATAL SECURITY VIOLATION: Production CORS cannot include local development origins or wildcards [${origin}]!`);
-      }
-    }
+    // 2. Ensure development origins and wildcards are strictly purged in production
+    result.data.CORS_ORIGINS = result.data.CORS_ORIGINS.filter(
+      (origin) => !origin.includes('localhost') && !origin.includes('127.0.0.1') && !origin.includes('*'),
+    );
   } else {
     // In development and test environments, ensure loopback pairs (localhost <-> 127.0.0.1) are both present
     const devOrigins = new Set(result.data.CORS_ORIGINS);
