@@ -175,10 +175,9 @@ fi
 # STEP 5: Install Dependencies & Build Packages
 # ------------------------------------------------------------------------------
 echo ""
-echo -e "${YELLOW}${BOLD}[5/7] Installing Dependencies & Compiling Backend...${NC}"
-cd "${APP_DIR}"
-
-pnpm install
+# Install dependencies using npm workspaces (uses package-lock.json and resolves local @bytebeacon/shared)
+echo -e "${CYAN}Installing workspace dependencies via npm...${NC}"
+npm ci || npm install
 
 echo -e "${CYAN}Building @bytebeacon/shared...${NC}"
 npm run build -w @bytebeacon/shared
