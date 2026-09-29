@@ -149,12 +149,14 @@ BEGIN
    END IF;
 END
 \$\$;
-
-SELECT 'CREATE DATABASE ${DB_NAME} OWNER ${DB_USER}'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${DB_NAME}')\gexec
-
-GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
 EOSQL
+
+# Check and create database if not exists
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'" | grep -q 1; then
+    sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
+fi
+
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};"
 
 # Enable required extensions and schema permissions inside bytebeacon_production
 sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 << EOSQL
