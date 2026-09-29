@@ -35,14 +35,19 @@ export function createOptimizedDatabasePool(options: DatabasePoolOptions = {}): 
     }
   }
 
+  const isLocal =
+    rawConnStr.includes('127.0.0.1') ||
+    rawConnStr.includes('localhost') ||
+    process.env.DB_SSL === 'false';
+
   const isRemote =
-    rawConnStr.includes('supabase.co') ||
-    rawConnStr.includes('supabase.com') ||
-    rawConnStr.includes('render.com') ||
-    rawConnStr.includes('amazonaws.com') ||
-    rawConnStr.includes('pooler.supabase') ||
-    isProduction ||
-    process.env.DB_SSL === 'true';
+    !isLocal &&
+    (rawConnStr.includes('supabase.co') ||
+      rawConnStr.includes('supabase.com') ||
+      rawConnStr.includes('render.com') ||
+      rawConnStr.includes('amazonaws.com') ||
+      rawConnStr.includes('pooler.supabase') ||
+      process.env.DB_SSL === 'true');
 
   const poolConfig = {
     connectionString: rawConnStr || undefined,

@@ -3,9 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 function loadEnvFiles() {
-  if (process.env.NODE_ENV === 'production') return;
-
-  const envFiles = ['.env.development', '.env'];
+  const envFiles = ['.env.production', '.env', '.env.development'];
   for (const file of envFiles) {
     const candidates = [
       path.resolve(process.cwd(), file),
@@ -26,7 +24,7 @@ function loadEnvFiles() {
               if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
                 val = val.slice(1, -1);
               }
-              if (process.env[key] === undefined) {
+              if (process.env[key] === undefined || process.env[key] === '') {
                 process.env[key] = val;
               }
             }
