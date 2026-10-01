@@ -227,6 +227,67 @@ export class BulkOrderService {
       await safeDDL('ddl_oi_id_default', `ALTER TABLE order_items ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
       await safeDDL('ddl_po_id_default', `ALTER TABLE provider_orders ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
 
+      // 7c. Drop NOT NULL and set defaults on Supabase-specific columns our INSERT doesn't populate
+      await safeDDL('ddl_bs_relax', `
+        DO $$
+        DECLARE
+          col RECORD;
+        BEGIN
+          FOR col IN
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'bulk_submissions'
+              AND is_nullable = 'NO'
+              AND column_name NOT IN ('id', 'user_id', 'name', 'total_count', 'total_amount_pesewas', 'status')
+          LOOP
+            EXECUTE format('ALTER TABLE bulk_submissions ALTER COLUMN %I DROP NOT NULL', col.column_name);
+          END LOOP;
+        END $$
+      `);
+
+      // Also set a default on public_id specifically if it exists
+      await safeDDL('ddl_bs_pubid', `
+        DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'public_id') THEN
+            ALTER TABLE bulk_submissions ALTER COLUMN public_id DROP NOT NULL;
+            ALTER TABLE bulk_submissions ALTER COLUMN public_id SET DEFAULT ('sub_' || substr(md5(random()::text), 1, 16));
+          END IF;
+      `);
+
+      // Relax NOT NULL on Supabase-specific orders columns our INSERT doesn't populate
+      await safeDDL('ddl_ord_relax', `
+        DO $$
+        DECLARE col RECORD;
+        BEGIN
+          FOR col IN
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'orders'
+              AND is_nullable = 'NO'
+              AND column_name NOT IN ('id', 'user_id')
+          LOOP
+            EXECUTE format('ALTER TABLE orders ALTER COLUMN %I DROP NOT NULL', col.column_name);
+          END LOOP;
+        END $$
+      `);
+
+      // Relax NOT NULL on Supabase-specific bulk_submission_items columns
+      await safeDDL('ddl_bsi_relax', `
+        DO $$
+        DECLARE col RECORD;
+        BEGIN
+          FOR col IN
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'bulk_submission_items'
+              AND is_nullable = 'NO'
+              AND column_name NOT IN ('id', 'submission_id')
+          LOOP
+            EXECUTE format('ALTER TABLE bulk_submission_items ALTER COLUMN %I DROP NOT NULL', col.column_name);
+          END LOOP;
+        END $$
+      `);
+
       // 8. Ensure order_items table exists (needed for batch inserts below)
       await safeDDL('ddl_oi_create', `
         CREATE TABLE IF NOT EXISTS order_items (
@@ -1328,6 +1389,36 @@ export class BulkOrderService {
       // Ensure id columns have DEFAULT gen_random_uuid() (Supabase-restored tables may lack this)
       await safeDDL('ag_bs_id_def', `ALTER TABLE bulk_submissions ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
       await safeDDL('ag_ord_id_def', `ALTER TABLE orders ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+
+      // Drop NOT NULL on Supabase-specific columns our INSERT doesn't populate
+      await safeDDL('ag_bs_relax', `
+        DO $$
+        DECLARE col RECORD;
+        BEGIN
+          FOR col IN
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'bulk_submissions'
+              AND is_nullable = 'NO'
+              AND column_name NOT IN ('id', 'user_id', 'name', 'total_count', 'total_amount_pesewas', 'status')
+          LOOP
+            EXECUTE format('ALTER TABLE bulk_submissions ALTER COLUMN %I DROP NOT NULL', col.column_name);
+          END LOOP;
+        END $$
+      `);
+      await safeDDL('ag_ord_relax', `
+        DO $$
+        DECLARE col RECORD;
+        BEGIN
+          FOR col IN
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'orders'
+              AND is_nullable = 'NO'
+              AND column_name NOT IN ('id', 'user_id')
+          LOOP
+            EXECUTE format('ALTER TABLE orders ALTER COLUMN %I DROP NOT NULL', col.column_name);
+          END LOOP;
+        END $$
+      `);
 
       const submissionPublicId = `sub_${crypto.randomBytes(12).toString('hex')}`;
       const submissionRef = `BLK-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
