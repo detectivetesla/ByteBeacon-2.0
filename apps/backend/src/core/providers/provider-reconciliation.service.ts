@@ -197,8 +197,8 @@ export class ProviderReconciliationService {
                           amount_pesewas, currency, reference_type, reference_id,
                           description
                        ) VALUES 
-                         (uuid_generate_v4(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
-                         (uuid_generate_v4(), 'CREDIT', $4, $5, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
+                         (gen_random_uuid(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
+                         (gen_random_uuid(), 'CREDIT', $4, $5, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
                       [refundAmt, refundDbId, `Automated refund on reconciliation failure [${row.orderId}]`, targetAccountType, targetUserId],
                     ).catch(() => {});
                   }
@@ -449,8 +449,15 @@ export class ProviderReconciliationService {
               po.provider_reference as "providerReference", po.provider_order_id as "providerOrderId",
               po.provider_status as "providerStatus"
        FROM orders o
-       LEFT JOIN provider_orders po ON o.id = po.order_id
-       WHERE o.id = $1`,
+       LEFT JOIN LATERAL (
+         SELECT id, provider_name, provider_reference, provider_order_id, provider_status
+         FROM provider_orders
+         WHERE order_id = o.id
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) po ON true
+       WHERE (o.id::text = $1 OR o.public_id = $1)
+       LIMIT 1`,
       [orderId],
     );
 
@@ -479,16 +486,37 @@ export class ProviderReconciliationService {
       ? OrderStatus.PROCESSING
       : (row.orderStatus as OrderStatus);
 
-    await this.db.query(
-      `UPDATE provider_orders
-       SET provider_status = CASE WHEN $1 = 'UNKNOWN' THEN provider_status ELSE $1 END,
-           provider_order_id = COALESCE($3, provider_order_id),
-           provider_reference = COALESCE($4, provider_reference),
-           last_synced_at = CURRENT_TIMESTAMP,
-           sync_version = sync_version + 1
-       WHERE order_id = $2`,
-      [actualStatus.providerStatus, row.id, actualStatus.providerOrderId || null, actualStatus.providerReference || null],
-    );
+    if (!row.providerOrderIdRow) {
+      await this.db.query(
+        `INSERT INTO provider_orders (
+           order_id, provider_name, provider_reference, provider_order_id, provider_status, last_synced_at, sync_version
+         ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, 1)
+         ON CONFLICT (order_id) DO UPDATE
+         SET provider_status = EXCLUDED.provider_status,
+             provider_order_id = COALESCE(EXCLUDED.provider_order_id, provider_orders.provider_order_id),
+             provider_reference = COALESCE(EXCLUDED.provider_reference, provider_orders.provider_reference),
+             last_synced_at = CURRENT_TIMESTAMP,
+             sync_version = provider_orders.sync_version + 1`,
+        [
+          row.id,
+          orderProvider.providerName,
+          actualStatus.providerReference || reference,
+          actualStatus.providerOrderId || null,
+          actualStatus.providerStatus,
+        ],
+      ).catch(() => {});
+    } else {
+      await this.db.query(
+        `UPDATE provider_orders
+         SET provider_status = CASE WHEN $1 = 'UNKNOWN' THEN provider_status ELSE $1 END,
+             provider_order_id = COALESCE($3, provider_order_id),
+             provider_reference = COALESCE($4, provider_reference),
+             last_synced_at = CURRENT_TIMESTAMP,
+             sync_version = sync_version + 1
+         WHERE order_id = $2`,
+        [actualStatus.providerStatus, row.id, actualStatus.providerOrderId || null, actualStatus.providerReference || null],
+      ).catch(() => {});
+    }
 
     await this.db.query(
       `UPDATE orders
@@ -501,35 +529,17 @@ export class ProviderReconciliationService {
     );
 
     if (isFailed) {
-      const orderInfo = await this.db.query(
-        `SELECT user_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
-        [row.id],
-      );
-      if (orderInfo.rows.length > 0) {
-        const ord = orderInfo.rows[0];
-        if (ord.payment_status === 'PAID' && ord.refund_status !== 'COMPLETED' && ord.user_id && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
-          const refundAmt = Number(ord.amount_pesewas);
-          await this.db.query(
-            `UPDATE users
-             SET wallet_balance_pesewas = wallet_balance_pesewas + $1,
-                 wallet_balance = ROUND((wallet_balance_pesewas + $1) / 100.0, 2),
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = $2`,
-            [refundAmt, ord.user_id],
-          );
-          await this.db.query(
-            `INSERT INTO financial_ledger (
-                transaction_id, entry_type, account_type, account_id,
-                amount_pesewas, currency, reference_type, reference_id,
-                description
-             ) VALUES (
-                uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $1,
-                $2, 'GHS', 'ORDER_REFUND', $3,
-                $4
-             )`,
-            [ord.user_id, refundAmt, row.id, `Automated refund on single reconciliation failure [${row.id}]`],
-          ).catch(() => {});
-        }
+      if (this.refundService) {
+        await this.refundService.executeAutomatedOrderRefund(
+          row.id,
+          `Provider reconciliation confirmed failure [${actualStatus.providerStatus}]`,
+          'admin_reconciliation',
+        ).catch(async (refundErr) => {
+          logger.warn({ err: refundErr?.message, orderId: row.id }, 'RefundService execution notice during single reconcile; falling back to balanced ledger');
+          await this.executeDirectRefundFallback(row.id);
+        });
+      } else {
+        await this.executeDirectRefundFallback(row.id);
       }
     }
 
@@ -544,7 +554,7 @@ export class ProviderReconciliationService {
         JSON.stringify({ orderStatus: row.orderStatus, providerStatus: row.orderProviderStatus || row.providerStatus }),
         JSON.stringify({ orderStatus: newOrderStatus, providerStatus: actualStatus.providerStatus }),
       ],
-    );
+    ).catch(() => {});
 
     return {
       orderId: row.id,
@@ -555,5 +565,76 @@ export class ProviderReconciliationService {
       orderStatus: newOrderStatus,
       updated: (row.orderProviderStatus || row.providerStatus) !== actualStatus.providerStatus,
     };
+  }
+
+  private async executeDirectRefundFallback(orderId: string): Promise<void> {
+    const orderInfo = await this.db.query(
+      `SELECT id, user_id, agent_id, amount_pesewas, payment_status, refund_status FROM orders WHERE id = $1`,
+      [orderId],
+    ).catch(() => ({ rows: [] }));
+
+    if (orderInfo.rows.length === 0) return;
+    const ord = orderInfo.rows[0];
+    const isPaid = ['PAID', 'SUCCESS', 'COMPLETED'].includes(String(ord.payment_status || '').toUpperCase());
+
+    if (isPaid && ord.refund_status !== 'COMPLETED' && ord.amount_pesewas && Number(ord.amount_pesewas) > 0) {
+      const refundAmt = Number(ord.amount_pesewas);
+      let targetUserId = ord.user_id;
+      let targetAccountType = 'CUSTOMER_WALLET';
+      if (!targetUserId && ord.agent_id) {
+        const agRes = await this.db.query('SELECT user_id FROM agents WHERE id = $1 LIMIT 1', [ord.agent_id]).catch(() => ({ rows: [] }));
+        targetUserId = agRes.rows[0]?.user_id;
+        targetAccountType = 'AGENT_WALLET';
+      }
+
+      if (targetUserId) {
+        await this.db.query(
+          `UPDATE users
+           SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
+               wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [refundAmt, targetUserId],
+        );
+
+        await this.db.query(
+          `UPDATE orders
+           SET refund_status = 'COMPLETED',
+               payment_status = 'REFUNDED',
+               order_status = 'FAILED',
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [orderId],
+        );
+
+        const refPubId = `ref_${Math.random().toString(36).substring(2, 10)}`;
+        const refRes = await this.db.query(
+          `INSERT INTO refunds (public_id, order_id, amount_pesewas, reason, status)
+           VALUES ($1, $2, $3, $4, 'COMPLETED')
+           RETURNING id`,
+          [refPubId, orderId, refundAmt, `Automated refund on reconciliation failure [${orderId}]`],
+        ).catch(async () => {
+          return this.db.query(
+            `INSERT INTO refunds (order_id, amount_pesewas, reason, status)
+             VALUES ($1, $2, $3, 'COMPLETED')
+             RETURNING id`,
+            [orderId, refundAmt, `Automated refund on reconciliation failure [${orderId}]`],
+          ).catch(() => ({ rows: [] }));
+        });
+
+        const refundDbId = refRes?.rows?.[0]?.id || orderId;
+
+        await this.db.query(
+          `INSERT INTO financial_ledger (
+              transaction_id, entry_type, account_type, account_id,
+              amount_pesewas, currency, reference_type, reference_id,
+              description
+           ) VALUES 
+             (gen_random_uuid(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
+             (gen_random_uuid(), 'CREDIT', $4, $5, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
+          [refundAmt, refundDbId, `Automated refund on reconciliation failure [${orderId}]`, targetAccountType, targetUserId],
+        ).catch(() => {});
+      }
+    }
   }
 }

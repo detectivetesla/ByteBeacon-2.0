@@ -905,8 +905,8 @@ export async function adminApprovalsRoutes(
                       transaction_id, entry_type, account_type, account_id,
                       amount_pesewas, currency, reference_type, reference_id, description
                    ) VALUES 
-                     (uuid_generate_v4(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
-                     (uuid_generate_v4(), 'CREDIT', 'CUSTOMER_WALLET', $4, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
+                     (gen_random_uuid(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
+                     (gen_random_uuid(), 'CREDIT', 'CUSTOMER_WALLET', $4, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
                   [refundAmt, order.id, `Refund on admin beneficiary rejection [${order.id}]`, targetUserId],
                 ).catch(() => {});
               }

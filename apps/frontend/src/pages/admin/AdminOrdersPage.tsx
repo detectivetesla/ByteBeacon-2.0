@@ -277,8 +277,9 @@ export const AdminOrdersPage: React.FC = () => {
     if (!selectedOrderId) return;
     setIsReconciling(true);
     try {
-      await adminApi.reconcileOrder(selectedOrderId);
-      toastSuccess(`Reconciliation completed for Order [${selectedOrderId}].`);
+      const res: any = await adminApi.reconcileOrder(selectedOrderId);
+      const msg = res?.message || res?.data?.message || `Reconciliation completed for Order [${selectedOrderId}].`;
+      toastSuccess(msg);
       fetchOrderDetail(selectedOrderId);
       fetchOrders();
       fetchStats();
@@ -1726,7 +1727,7 @@ export const AdminOrdersPage: React.FC = () => {
                     style={{ fontSize: '11px', fontWeight: 700 }}
                   >
                     <ShieldCheck size={13} className={isReconciling ? 'animate-spin' : ''} />
-                    <span>Reconcile State</span>
+                    <span>Verify / Reconcile Status</span>
                   </Button>
 
                   {orderDetail.order.orderStatus !== 'COMPLETED' && (

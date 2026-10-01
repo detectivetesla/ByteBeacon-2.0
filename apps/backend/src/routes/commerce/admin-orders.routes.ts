@@ -402,7 +402,8 @@ export async function adminOrdersRoutes(
            ORDER BY created_at DESC
            LIMIT 1
          ) po ON true
-         WHERE o.id = $1`,
+          WHERE (o.id::text = $1 OR o.public_id = $1)
+          LIMIT 1`,
         [orderId],
       );
 
@@ -445,7 +446,7 @@ export async function adminOrdersRoutes(
          WHERE order_id = $1
          ORDER BY created_at DESC
          LIMIT 1`,
-        [orderId],
+        [order.id],
       ).catch(() => ({ rows: [] }));
 
       const providerOrder = providerOrderRes.rows[0] ? {
@@ -458,7 +459,7 @@ export async function adminOrdersRoutes(
         `SELECT id, amount_pesewas as "amountPesewas", payment_status as "paymentStatus",
                 provider, reference, created_at as "createdAt"
          FROM payment_transactions WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [orderId],
+        [order.id],
       ).catch(() => ({ rows: [] }));
 
       const payment = paymentRes.rows[0] || null;
@@ -468,7 +469,7 @@ export async function adminOrdersRoutes(
         `SELECT id, amount_pesewas as "amountPesewas", reason, status,
                 provider_refund_reference as "refundReference", created_at as "createdAt"
          FROM refunds WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [orderId],
+        [order.id],
       ).catch(() => ({ rows: [] }));
 
       const refund = refundRes.rows[0] || null;
@@ -479,7 +480,7 @@ export async function adminOrdersRoutes(
                 actor_id as "actorId", previous_state as "previousState",
                 new_state as "newState", metadata, occurred_at as "occurredAt"
          FROM order_events WHERE order_id = $1 ORDER BY occurred_at ASC`,
-        [orderId],
+        [order.id],
       ).catch(() => ({ rows: [] }));
 
       const events = eventsRes.rows.map((ev) => ({
@@ -492,7 +493,7 @@ export async function adminOrdersRoutes(
         `SELECT id, attempt_count as "attemptCount", error_code as "errorCode",
                 error_message as "errorMessage", status, created_at as "createdAt"
          FROM provider_dlq WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [orderId],
+        [order.id],
       ).catch(() => ({ rows: [] }));
 
       const dlq = dlqRes.rows[0] || null;
@@ -524,15 +525,12 @@ export async function adminOrdersRoutes(
       if (typeof (providerReconciliationService as any).reconcileSingleOrder === 'function') {
         try {
           singleRecon = await providerReconciliationService.reconcileSingleOrder(orderId);
-        } catch {
-          singleRecon = await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1);
+        } catch (err: any) {
+          app.log.warn({ err: err?.message, orderId }, '[ADMIN_ORDERS] reconcileSingleOrder failed, attempting fallback stale sweep');
+          singleRecon = await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1).catch(() => null);
         }
       } else {
-        singleRecon = await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1);
-      }
-
-      if (typeof (providerReconciliationService as any).reconcileStaleOrders === 'function') {
-        await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1).catch(() => {});
+        singleRecon = await providerReconciliationService.reconcileStaleOrders(new Date().toISOString(), 1).catch(() => null);
       }
 
       if (auditService) {
@@ -560,17 +558,34 @@ export async function adminOrdersRoutes(
            ORDER BY created_at DESC
            LIMIT 1
          ) po ON true
-         WHERE o.id = $1`,
+         WHERE (o.id::text = $1 OR o.public_id = $1)
+         LIMIT 1`,
         [orderId],
       ).catch(() => ({ rows: [] }));
+
+      const updatedOrder = updatedOrderRes.rows[0] || null;
+
+      let message = `Order [${orderId}] status reconciled.`;
+      if (singleRecon?.actualStatus) {
+        const status = String(singleRecon.actualStatus).toUpperCase();
+        if (status === 'COMPLETED' || status === 'DELIVERED') {
+          message = `Carrier verified: Order DELIVERED / COMPLETED. Order status updated to COMPLETED.`;
+        } else if (status === 'FAILED' || status === 'REJECTED') {
+          message = `Carrier verified: Order FAILED. Order marked FAILED and wallet automatically refunded.`;
+        } else if (status === 'PROCESSING' || status === 'RECEIVED') {
+          message = `Carrier verified: Order is actively PROCESSING upstream.`;
+        } else {
+          message = `Carrier returned status [${singleRecon.actualStatus}]. Local order state synchronized.`;
+        }
+      }
 
       return reply.send({
         success: true,
         data: {
           ...(typeof singleRecon === 'object' ? singleRecon : { result: singleRecon }),
-          order: updatedOrderRes.rows[0] || null,
+          order: updatedOrder,
         },
-        message: `Order [${orderId}] status reconciled.`,
+        message,
       });
     },
   );
@@ -584,7 +599,8 @@ export async function adminOrdersRoutes(
 
       const orderRes = await db.query(
         `SELECT id, recipient_phone, network, data_amount_mb, order_status, payment_status
-         FROM orders WHERE id = $1`,
+         FROM orders WHERE (id::text = $1 OR public_id = $1)
+         LIMIT 1`,
         [orderId],
       );
 
@@ -610,7 +626,7 @@ export async function adminOrdersRoutes(
 
       await db.query(
         `UPDATE orders SET order_status = 'SUBMITTED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [orderId],
+        [order.id],
       );
 
       if (auditService) {
@@ -620,7 +636,7 @@ export async function adminOrdersRoutes(
           actorType: 'ADMIN',
           action: 'ORDER_RETRY',
           resourceType: 'orders',
-          resourceId: orderId,
+          resourceId: order.id,
           metadata: { recipientPhone: order.recipient_phone, network: order.network },
         });
       }
@@ -645,7 +661,7 @@ export async function adminOrdersRoutes(
       }
 
       const orderRes = await db.query(
-        `SELECT id, user_id, amount_pesewas, refund_status, order_status FROM orders WHERE id = $1`,
+        `SELECT id, user_id, amount_pesewas, refund_status, order_status FROM orders WHERE (id::text = $1 OR public_id = $1) LIMIT 1`,
         [orderId],
       );
 
@@ -671,7 +687,7 @@ export async function adminOrdersRoutes(
             accountId: platformAccountId,
             amountPesewas: refundAmount,
             referenceType: 'ORDER_REFUND',
-            referenceId: orderId,
+            referenceId: order.id,
             description: `Admin Order Refund: ${reason}`,
           },
           {
@@ -680,7 +696,7 @@ export async function adminOrdersRoutes(
             accountId: order.user_id,
             amountPesewas: refundAmount,
             referenceType: 'ORDER_REFUND',
-            referenceId: orderId,
+            referenceId: order.id,
             description: `Admin Order Refund: ${reason}`,
           },
         ]);
@@ -690,7 +706,7 @@ export async function adminOrdersRoutes(
       await db.query(
         `INSERT INTO refunds (order_id, amount_pesewas, reason, status, provider_refund_reference)
          VALUES ($1, $2, $3, 'COMPLETED', $4)`,
-        [orderId, refundAmount, reason, `ref_adm_${Date.now()}`],
+        [order.id, refundAmount, reason, `ref_adm_${Date.now()}`],
       );
 
       // Update Order Status
@@ -698,7 +714,7 @@ export async function adminOrdersRoutes(
         `UPDATE orders
          SET refund_status = 'COMPLETED', order_status = 'REFUNDED', payment_status = 'REFUNDED', updated_at = CURRENT_TIMESTAMP
          WHERE id = $1`,
-        [orderId],
+        [order.id],
       );
 
       // Credit user wallet in users table
@@ -764,7 +780,8 @@ export async function adminOrdersRoutes(
               o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
               o.amount_pesewas as "amountPesewas"
        FROM orders o
-       WHERE o.id = $1`,
+       WHERE (o.id::text = $1 OR o.public_id = $1)
+       LIMIT 1`,
       [orderId],
     );
 
@@ -784,7 +801,7 @@ export async function adminOrdersRoutes(
            failure_reason = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
-      [orderId],
+      [order.id],
     );
 
     // Update provider_orders record if one exists
@@ -794,7 +811,7 @@ export async function adminOrdersRoutes(
            last_synced_at = CURRENT_TIMESTAMP,
            sync_version = sync_version + 1
        WHERE order_id = $1`,
-      [orderId],
+      [order.id],
     ).catch(() => {});
 
     // Record order event
@@ -802,7 +819,7 @@ export async function adminOrdersRoutes(
       `INSERT INTO order_events (order_id, event_type, payload, created_at)
        VALUES ($1, 'ORDER_COMPLETED', $2, CURRENT_TIMESTAMP)`,
       [
-        orderId,
+        order.id,
         JSON.stringify({
           manual: true,
           adminId: req.user?.sub,
@@ -868,7 +885,8 @@ export async function adminOrdersRoutes(
                 o.recipient_phone as "recipientPhone", o.network, o.data_amount_mb as "dataAmountMb",
                 o.amount_pesewas as "amountPesewas", o.public_id as "publicId"
          FROM orders o
-         WHERE o.id = $1`,
+         WHERE (o.id::text = $1 OR o.public_id = $1)
+         LIMIT 1`,
         [orderId],
       );
 
@@ -887,7 +905,7 @@ export async function adminOrdersRoutes(
              paused_at = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $2`,
-        [auditReason, orderId],
+        [auditReason, order.id],
       );
 
       // Update provider_orders record if exists
@@ -897,7 +915,7 @@ export async function adminOrdersRoutes(
              last_synced_at = CURRENT_TIMESTAMP,
              sync_version = sync_version + 1
          WHERE order_id = $1`,
-        [orderId],
+        [order.id],
       ).catch(() => {});
 
       // Record order event
@@ -905,7 +923,7 @@ export async function adminOrdersRoutes(
         `INSERT INTO order_events (order_id, event_type, payload, created_at)
          VALUES ($1, 'ORDER_FAILED', $2, CURRENT_TIMESTAMP)`,
         [
-          orderId,
+          order.id,
           JSON.stringify({
             manual: true,
             adminId: req.user?.sub,
@@ -925,7 +943,7 @@ export async function adminOrdersRoutes(
         if (refundService) {
           try {
             await refundService.executeAutomatedOrderRefund(
-              orderId,
+              order.id,
               auditReason,
               req.id,
             );
@@ -963,7 +981,7 @@ export async function adminOrdersRoutes(
                      payment_status = 'REFUNDED',
                      updated_at = CURRENT_TIMESTAMP
                  WHERE id = $1`,
-                [orderId],
+                [order.id],
               );
 
               const refPubId = `ref_${Math.random().toString(36).substring(2, 10)}`;
@@ -971,17 +989,17 @@ export async function adminOrdersRoutes(
                 `INSERT INTO refunds (public_id, order_id, amount_pesewas, reason, status)
                  VALUES ($1, $2, $3, $4, 'COMPLETED')
                  RETURNING id`,
-                [refPubId, orderId, refundAmt, auditReason],
+                [refPubId, order.id, refundAmt, auditReason],
               ).catch(async () => {
                 return db.query(
                   `INSERT INTO refunds (order_id, amount_pesewas, reason, status)
                    VALUES ($1, $2, $3, 'COMPLETED')
                    RETURNING id`,
-                  [orderId, refundAmt, auditReason],
+                  [order.id, refundAmt, auditReason],
                 ).catch(() => ({ rows: [] }));
               });
 
-              const refundDbId = refRes?.rows?.[0]?.id || orderId;
+              const refundDbId = refRes?.rows?.[0]?.id || order.id;
 
               await db.query(
                 `INSERT INTO financial_ledger (
@@ -989,9 +1007,9 @@ export async function adminOrdersRoutes(
                     amount_pesewas, currency, reference_type, reference_id,
                     description
                  ) VALUES 
-                   (uuid_generate_v4(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
-                   (uuid_generate_v4(), 'CREDIT', $4, $5, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
-                [refundAmt, refundDbId, `Manual failure refund [${orderId}]`, targetAccountType, targetUserId],
+                   (gen_random_uuid(), 'DEBIT', 'PLATFORM_ESCROW', '00000000-0000-0000-0000-000000000000', $1, 'GHS', 'ORDER_REFUND', $2, $3),
+                   (gen_random_uuid(), 'CREDIT', $4, $5, $1, 'GHS', 'ORDER_REFUND', $2, $3)`,
+                [refundAmt, refundDbId, `Manual failure refund [${order.id}]`, targetAccountType, targetUserId],
               ).catch(() => {});
 
               refundProcessed = true;

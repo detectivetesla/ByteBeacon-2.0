@@ -578,7 +578,25 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
   public async getOrderStatus(input: GetOrderStatusInput): Promise<ProviderOrderStatus> {
     const isPortal02 = this.isPortal02();
     const isPortal = this.isPortalOrDataHouse();
-    const orderIdentifier = input.orderId || input.providerReference;
+
+    // Collect candidate identifiers to query upstream provider.
+    // Provider references (e.g. clientReference, pst_sub_*, bulk_sub_*) must be tried first
+    // because upstream systems index orders by client reference rather than ByteBeacon internal database UUIDs.
+    const rawIdentifiers = [
+      input.providerReference,
+      input.orderId,
+    ].filter(Boolean) as string[];
+
+    const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    const candidateIdentifiers = Array.from(new Set(
+      [...rawIdentifiers].sort((a, b) => {
+        const aUuid = isUuid(a);
+        const bUuid = isUuid(b);
+        if (aUuid && !bUuid) return 1;
+        if (!aUuid && bUuid) return -1;
+        return 0;
+      })
+    ));
 
     const candidatePathTemplates = this.config.endpointPaths?.orderStatus
       ? [this.config.endpointPaths.orderStatus]
@@ -600,94 +618,79 @@ export class DynamicHttpTelecomAdapter implements ITelecomProvider {
           '/agent/orders/:reference',
         ];
 
-    const headers = this.buildHeaders(input.providerReference);
-    const resolvedPaths = candidatePathTemplates.map((t) =>
-      t.replace(':reference', encodeURIComponent(orderIdentifier)).replace(':orderId', encodeURIComponent(orderIdentifier)),
-    );
-    const uniqueTargets = this.getUniqueUrls(resolvedPaths);
+    const headers = this.buildHeaders(input.providerReference || candidateIdentifiers[0] || '');
 
-    for (const { path, url } of uniqueTargets) {
-      try {
-        const res = await fetch(url, {
-          method: 'GET',
-          headers,
-          signal: AbortSignal.timeout(10000),
-        });
+    for (const identifier of candidateIdentifiers) {
+      const resolvedPaths = candidatePathTemplates.map((t) =>
+        t.replace(':reference', encodeURIComponent(identifier)).replace(':orderId', encodeURIComponent(identifier)),
+      );
+      const uniqueTargets = this.getUniqueUrls(resolvedPaths);
 
-        if (res.status === 404) {
-          if (uniqueTargets.length > 1 && path !== uniqueTargets[uniqueTargets.length - 1].path) {
+      for (const { url } of uniqueTargets) {
+        try {
+          const res = await fetch(url, {
+            method: 'GET',
+            headers,
+            signal: AbortSignal.timeout(10000),
+          });
+
+          if (res.status === 404) {
             continue;
           }
+
+          if (!res.ok) {
+            const errBody = await res.json().catch(() => ({}));
+            const errMessage = (errBody as any)?.message || (errBody as any)?.error || `HTTP ${res.status}`;
+            logger.warn(
+              { provider: this.providerName, url, status: res.status, err: errMessage },
+              `[DynamicHttpAdapter] Status check returned non-200 response`,
+            );
+            return {
+              providerOrderId: identifier,
+              providerReference: input.providerReference,
+              providerStatus: res.status >= 500 ? ProviderStatus.UNKNOWN : ProviderStatus.FAILED,
+              completedAt: null,
+              errorMessage: `Provider status check returned HTTP ${res.status}: ${errMessage}`,
+              rawResponse: errBody as Record<string, unknown>,
+            };
+          }
+
+          const body = await res.json().catch(() => ({}));
+          const bodyAny = body as any;
+          const dataObj = bodyAny.data || bodyAny;
+          const statusStr = String(dataObj.status || dataObj.providerStatus || 'UNKNOWN').toUpperCase();
+
+          let providerStatus = ProviderStatus.PROCESSING;
+          if (statusStr.includes('COMPLET') || statusStr.includes('SUCCESS') || statusStr === 'DELIVERED') {
+            providerStatus = ProviderStatus.COMPLETED;
+          } else if (statusStr.includes('FAIL') || statusStr.includes('REJECT') || statusStr === 'ERROR' || statusStr.includes('CANCEL')) {
+            providerStatus = ProviderStatus.FAILED;
+          } else if (statusStr.includes('PROCESS') || statusStr.includes('PENDING') || statusStr === 'ACCEPTED') {
+            providerStatus = ProviderStatus.PROCESSING;
+          } else {
+            providerStatus = ProviderStatus.UNKNOWN;
+          }
+
           return {
-            providerOrderId: orderIdentifier,
+            providerOrderId: String(dataObj.providerOrderId || dataObj.orderId || dataObj.id || identifier),
             providerReference: input.providerReference,
-            providerStatus: ProviderStatus.UNKNOWN,
-            completedAt: null,
-            rawResponse: { error: 'Order not found at provider' },
+            providerStatus,
+            completedAt: providerStatus === ProviderStatus.COMPLETED ? new Date().toISOString() : null,
+            errorMessage: dataObj.errorMessage || dataObj.error || null,
+            rawResponse: bodyAny,
           };
-        }
-
-        if (!res.ok) {
-          const errBody = await res.json().catch(() => ({}));
-          const errMessage = (errBody as any)?.message || (errBody as any)?.error || `HTTP ${res.status}`;
-          logger.warn(
-            { provider: this.providerName, url, status: res.status, err: errMessage },
-            `[DynamicHttpAdapter] Status check returned non-200 response`,
-          );
-          return {
-            providerOrderId: orderIdentifier,
-            providerReference: input.providerReference,
-            providerStatus: res.status >= 500 ? ProviderStatus.UNKNOWN : ProviderStatus.FAILED,
-            completedAt: null,
-            errorMessage: `Provider status check returned HTTP ${res.status}: ${errMessage}`,
-            rawResponse: errBody as Record<string, unknown>,
-          };
-        }
-
-        const body = await res.json().catch(() => ({}));
-        const bodyAny = body as any;
-        const dataObj = bodyAny.data || bodyAny;
-        const statusStr = String(dataObj.status || dataObj.providerStatus || 'UNKNOWN').toUpperCase();
-
-        let providerStatus = ProviderStatus.PROCESSING;
-        if (statusStr.includes('COMPLET') || statusStr.includes('SUCCESS') || statusStr === 'DELIVERED') {
-          providerStatus = ProviderStatus.COMPLETED;
-        } else if (statusStr.includes('FAIL') || statusStr.includes('REJECT') || statusStr === 'ERROR' || statusStr.includes('CANCEL')) {
-          providerStatus = ProviderStatus.FAILED;
-        } else if (statusStr.includes('PROCESS') || statusStr.includes('PENDING') || statusStr === 'ACCEPTED') {
-          providerStatus = ProviderStatus.PROCESSING;
-        } else {
-          providerStatus = ProviderStatus.UNKNOWN;
-        }
-
-        return {
-          providerOrderId: String(dataObj.providerOrderId || dataObj.orderId || dataObj.id || orderIdentifier),
-          providerReference: input.providerReference,
-          providerStatus,
-          completedAt: providerStatus === ProviderStatus.COMPLETED ? new Date().toISOString() : null,
-          errorMessage: dataObj.errorMessage || dataObj.error || null,
-          rawResponse: bodyAny,
-        };
-      } catch (err: any) {
-        if (uniqueTargets.indexOf({ path, url }) === uniqueTargets.length - 1) {
-          return {
-            providerOrderId: orderIdentifier,
-            providerReference: input.providerReference,
-            providerStatus: ProviderStatus.UNKNOWN,
-            completedAt: null,
-            errorMessage: err.message,
-            rawResponse: { note: err.message },
-          };
+        } catch (err: any) {
+          logger.warn({ provider: this.providerName, url, err: err?.message }, '[DynamicHttpAdapter] Status request error');
         }
       }
     }
 
     return {
-      providerOrderId: orderIdentifier,
+      providerOrderId: candidateIdentifiers[0] || '',
       providerReference: input.providerReference,
       providerStatus: ProviderStatus.UNKNOWN,
       completedAt: null,
-      rawResponse: {},
+      rawResponse: { error: 'Order not found at provider' },
     };
   }
 
