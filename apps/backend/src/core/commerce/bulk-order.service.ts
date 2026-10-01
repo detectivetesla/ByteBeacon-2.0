@@ -846,8 +846,30 @@ export class BulkOrderService {
             setImmediate(() => {
               this.fulfillmentWorker!
                 .processOrderFulfillment(orderId, `bulk_sub_${subRow.id}`)
-                .catch((err) => {
-                  logger.error({ err, orderId }, 'Bulk submission item background fulfillment error');
+                .catch(async (err) => {
+                  logger.error({ err, orderId }, '[BULK_ORDER_SERVICE] Bulk child order fulfillment FAILED — triggering auto-refund');
+                  // Mark the child order as FAILED
+                  try {
+                    await this.db.query(
+                      `UPDATE orders SET order_status = 'FAILED', failure_reason = $2, updated_at = CURRENT_TIMESTAMP
+                       WHERE id = $1 AND order_status NOT IN ('COMPLETED', 'FAILED')`,
+                      [orderId, `Fulfillment failed: ${err?.message || 'Execution error'}`],
+                    );
+                  } catch {}
+                  // Trigger automatic wallet refund for this child order
+                  try {
+                    await this.fulfillmentWorker!.executeAutomaticRefund(
+                      orderId,
+                      `bulk_sub_${subRow.id}`,
+                      `Bulk order child fulfillment failed: ${err?.message || 'Execution error'}`,
+                    );
+                  } catch (refundErr: any) {
+                    logger.error({ orderId, err: refundErr?.message }, '[BULK_ORDER_SERVICE] Auto-refund for failed bulk child also failed');
+                  }
+                  // Update bulk submission item and batch status
+                  try {
+                    await this.fulfillmentWorker!.checkBulkBatchCompletion(orderId);
+                  } catch {}
                 });
             });
           }
@@ -1702,8 +1724,27 @@ export class BulkOrderService {
             setImmediate(() => {
               this.fulfillmentWorker!
                 .processOrderFulfillment(orderId, `bulk_${submissionPublicId}`)
-                .catch((err) => {
-                  logger.error({ err, orderId }, 'Agent bulk child order background fulfillment error');
+                .catch(async (err) => {
+                  logger.error({ err, orderId }, '[BULK_ORDER_SERVICE] Agent bulk child fulfillment FAILED — triggering auto-refund');
+                  try {
+                    await this.db.query(
+                      `UPDATE orders SET order_status = 'FAILED', failure_reason = $2, updated_at = CURRENT_TIMESTAMP
+                       WHERE id = $1 AND order_status NOT IN ('COMPLETED', 'FAILED')`,
+                      [orderId, `Fulfillment failed: ${err?.message || 'Execution error'}`],
+                    );
+                  } catch {}
+                  try {
+                    await this.fulfillmentWorker!.executeAutomaticRefund(
+                      orderId,
+                      `bulk_${submissionPublicId}`,
+                      `Agent bulk child fulfillment failed: ${err?.message || 'Execution error'}`,
+                    );
+                  } catch (refundErr: any) {
+                    logger.error({ orderId, err: refundErr?.message }, '[BULK_ORDER_SERVICE] Auto-refund for failed agent bulk child also failed');
+                  }
+                  try {
+                    await this.fulfillmentWorker!.checkBulkBatchCompletion(orderId);
+                  } catch {}
                 });
             });
           }

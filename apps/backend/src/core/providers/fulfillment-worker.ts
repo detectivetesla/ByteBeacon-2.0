@@ -1332,4 +1332,102 @@ export class FulfillmentWorker {
       { concurrency: 10 },
     );
   }
+  /**
+   * Sweeps for orders stuck in non-terminal states for too long and auto-refunds them.
+   * This catches orders that failed silently (no webhook, swallowed retryable errors, etc.)
+   */
+  public async sweepStaleOrders(staleMinutes = 15): Promise<{ swept: number; refunded: number }> {
+    let swept = 0;
+    let refunded = 0;
+    try {
+      // Find wallet-paid orders stuck in processing states for longer than staleMinutes
+      const staleRes = await this.db.query(
+        `SELECT o.id, o.public_id, o.user_id, o.amount_pesewas, o.order_status, o.payment_status, o.refund_status,
+                po.provider_status
+         FROM orders o
+         LEFT JOIN provider_orders po ON o.id = po.order_id
+         WHERE o.order_status IN ('READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING')
+           AND o.payment_status = 'PAID'
+           AND (o.refund_status IS NULL OR o.refund_status NOT IN ('COMPLETED', 'PROCESSING'))
+           AND o.updated_at < CURRENT_TIMESTAMP - INTERVAL '${Math.max(5, Math.round(staleMinutes))} minutes'
+         ORDER BY o.updated_at ASC
+         LIMIT 50`,
+      );
+
+      if (staleRes.rows.length === 0) return { swept: 0, refunded: 0 };
+
+      logger.info(
+        { count: staleRes.rows.length, staleMinutes },
+        '[FULFILLMENT_WORKER] Stale order sweep found orders to process',
+      );
+
+      for (const order of staleRes.rows) {
+        swept++;
+
+        // Try to reconcile with provider first (maybe it actually succeeded)
+        let providerSaysCompleted = false;
+        try {
+          const liveStatus = await this.provider.getOrderStatus({
+            providerReference: `pst_sub_${order.id}`,
+            orderId: order.id,
+          });
+          if (liveStatus?.providerStatus === ProviderStatus.COMPLETED) {
+            providerSaysCompleted = true;
+            await this.db.query(
+              `UPDATE orders SET order_status = 'COMPLETED', provider_status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [order.id],
+            );
+            await this.checkBulkBatchCompletion(order.id);
+            continue;
+          }
+          if (liveStatus?.providerStatus === ProviderStatus.PROCESSING || liveStatus?.providerStatus === ProviderStatus.RECEIVED) {
+            // Provider is still working on it — skip for now
+            continue;
+          }
+        } catch {
+          // Provider status check failed — assume order is stale
+        }
+
+        if (!providerSaysCompleted) {
+          // Mark as FAILED and refund
+          try {
+            await this.db.query(
+              `UPDATE orders SET order_status = 'FAILED', failure_reason = $2, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1 AND order_status NOT IN ('COMPLETED', 'FAILED')`,
+              [order.id, `Order timed out after ${staleMinutes} minutes without provider confirmation. Auto-refunded.`],
+            );
+          } catch {}
+
+          const didRefund = await this.executeAutomaticRefund(
+            order.id,
+            `stale_sweep_${Date.now()}`,
+            `Order stale for ${staleMinutes}+ minutes without provider confirmation. Auto-refunded.`,
+          );
+          if (didRefund) refunded++;
+          await this.checkBulkBatchCompletion(order.id);
+        }
+      }
+
+      logger.info({ swept, refunded }, '[FULFILLMENT_WORKER] Stale order sweep completed');
+    } catch (err: any) {
+      logger.error({ err: err?.message }, '[FULFILLMENT_WORKER] Stale order sweep error');
+    }
+    return { swept, refunded };
+  }
+
+  /**
+   * Starts a periodic stale order sweep that runs every intervalMinutes.
+   */
+  public startStaleOrderSweep(intervalMinutes = 5, staleMinutes = 15): void {
+    const intervalMs = intervalMinutes * 60 * 1000;
+    logger.info(
+      { intervalMinutes, staleMinutes },
+      '[FULFILLMENT_WORKER] Starting periodic stale order sweep',
+    );
+    setInterval(() => {
+      this.sweepStaleOrders(staleMinutes).catch((err) => {
+        logger.error({ err: err?.message }, '[FULFILLMENT_WORKER] Periodic stale order sweep failed');
+      });
+    }, intervalMs);
+  }
 }

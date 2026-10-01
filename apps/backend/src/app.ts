@@ -548,6 +548,9 @@ export function createApp(options: AppOptions = {}) {
     beneficiaryVerificationJobService.attachBullWorker(queueManager);
   }
 
+  // Start periodic stale order sweep to auto-refund stuck orders (every 5 min, orders stale > 15 min)
+  fulfillmentWorker.startStaleOrderSweep(5, 15);
+
   // Graceful shutdown: drain queues and stop workers on server close
   app.addHook('onClose', async () => {
     await queueManager.closeAll();
