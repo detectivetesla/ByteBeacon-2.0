@@ -80,6 +80,8 @@ export const envSchema = z.object({
           'https://api.bytebeacon.online',
           'https://admin.bytebeacon.online',
           'https://app.bytebeacon.online',
+          'https://apisolutions.store',
+          'https://www.apisolutions.store',
         ];
         if (process.env.NODE_ENV !== 'production') {
           list.push(
