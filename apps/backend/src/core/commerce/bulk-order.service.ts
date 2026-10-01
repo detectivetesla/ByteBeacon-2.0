@@ -220,6 +220,13 @@ export class BulkOrderService {
         END $$
       `);
 
+      // 7b. Ensure id columns have DEFAULT gen_random_uuid() (Supabase-restored tables may lack this)
+      await safeDDL('ddl_bs_id_default', `ALTER TABLE bulk_submissions ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+      await safeDDL('ddl_bsi_id_default', `ALTER TABLE bulk_submission_items ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+      await safeDDL('ddl_ord_id_default', `ALTER TABLE orders ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+      await safeDDL('ddl_oi_id_default', `ALTER TABLE order_items ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+      await safeDDL('ddl_po_id_default', `ALTER TABLE provider_orders ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+
       // 8. Ensure order_items table exists (needed for batch inserts below)
       await safeDDL('ddl_oi_create', `
         CREATE TABLE IF NOT EXISTS order_items (
@@ -1317,6 +1324,10 @@ export class BulkOrderService {
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(100);
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255)
       `);
+
+      // Ensure id columns have DEFAULT gen_random_uuid() (Supabase-restored tables may lack this)
+      await safeDDL('ag_bs_id_def', `ALTER TABLE bulk_submissions ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+      await safeDDL('ag_ord_id_def', `ALTER TABLE orders ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
 
       const submissionPublicId = `sub_${crypto.randomBytes(12).toString('hex')}`;
       const submissionRef = `BLK-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
