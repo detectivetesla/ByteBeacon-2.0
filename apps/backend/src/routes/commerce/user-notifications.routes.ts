@@ -13,7 +13,7 @@ import { ApiKeyService } from '../../core/security/api-key.service.js';
 import { RbacService } from '../../core/security/rbac.service.js';
 import { NotFoundError, UnauthorizedError } from '../../core/errors/app-error.js';
 import { logger } from '../../core/logging/logger.js';
-import { NotificationService, devNotificationCache } from '../../core/notifications/notification.service.js';
+import { type NotificationService, devNotificationCache } from '../../core/notifications/notification.service.js';
 
 interface UserNotificationsRouteOptions {
   db: pg.Pool;
@@ -28,7 +28,6 @@ export async function userNotificationsRoutes(
   opts: UserNotificationsRouteOptions,
 ): Promise<void> {
   const { db, apiKeyService, tokenService, rbacService } = opts;
-  const notificationService = opts.notificationService ?? new NotificationService(db);
   const authHooks = createAuthHooks(tokenService, apiKeyService, rbacService, db);
 
   // Self-heal notifications table in PostgreSQL if missing
@@ -80,7 +79,7 @@ export async function userNotificationsRoutes(
       const offset = (page - 1) * limit;
       const unreadOnly = req.query.unreadOnly === 'true';
 
-      const conditions = ['(user_id = $1 OR user_id = $2)'];
+      const conditions = ["(user_id::text = $1 OR user_id::text = $2 OR (user_id::text ILIKE $2 AND $2 != ''))"];
       const params: any[] = [userId, userEmail?.toLowerCase() || userId];
 
       if (unreadOnly) {
@@ -91,6 +90,7 @@ export async function userNotificationsRoutes(
 
       let items: UserNotificationItemDto[] = [];
       let total = 0;
+      let dbOnline = false;
 
       // 1. Query PostgreSQL if online
       try {
@@ -122,76 +122,39 @@ export async function userNotificationsRoutes(
         }));
 
         total = Number(countRes.rows[0]?.total ?? 0);
+        dbOnline = true;
       } catch (err: any) {
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS] Non-fatal notification lookup warning');
       }
 
-      // 2. Merge with in-memory cache
-      const memById = devNotificationCache.get(userId) || [];
-      const memByEmail = userEmail ? devNotificationCache.get(userEmail.toLowerCase()) || [] : [];
-      const combinedMem = [...memById, ...memByEmail];
-
-      if (combinedMem.length > 0) {
-        const seenIds = new Set(items.map((i) => i.id));
-        const newFromMem = combinedMem
-          .filter((m) => !seenIds.has(m.id))
-          .filter((m) => (unreadOnly ? !m.isRead : true))
-          .map((m) => ({
-            id: m.id,
-            type: (m.type ?? NotificationType.EMERGENCY_BROADCAST) as NotificationType,
-            severity: (m.severity ?? NotificationSeverity.INFO) as NotificationSeverity,
-            title: m.title,
-            body: m.body,
-            actionUrl: m.actionUrl,
-            isRead: m.isRead,
-            channel: CommunicationChannel.IN_APP,
-            createdAt: m.createdAt,
-          }));
-
-        // Deduplicate within newFromMem
-        const finalMem: UserNotificationItemDto[] = [];
-        for (const nm of newFromMem) {
-          if (!seenIds.has(nm.id)) {
-            seenIds.add(nm.id);
-            finalMem.push(nm);
-          }
-        }
-
-        items = [...finalMem, ...items];
-        total = Math.max(total + finalMem.length, items.length);
-      }
-
-      // 3. Self-healing: If user still has 0 notifications, ensure welcome notifications are generated!
-      if (total === 0) {
-        await notificationService.ensureWelcomeNotifications({
-          userId,
-          email: userEmail,
-          fullName: userEmail ? userEmail.split('@')[0] : 'User',
-          role: req.user?.role || 'customer',
-        });
-
-        const freshById = devNotificationCache.get(userId) || [];
-        const freshByEmail = userEmail ? devNotificationCache.get(userEmail.toLowerCase()) || [] : [];
-        const freshCombined = [...freshById, ...freshByEmail];
+      // 2. Only if DB is offline or returned an error, fallback to in-memory cache
+      if (!dbOnline) {
+        const memById = devNotificationCache.get(userId) || [];
+        const memByEmail = userEmail ? devNotificationCache.get(userEmail.toLowerCase()) || [] : [];
+        const combinedMem = [...memById, ...memByEmail];
 
         const seenIds = new Set<string>();
-        for (const m of freshCombined) {
+        const finalMem: UserNotificationItemDto[] = [];
+        for (const m of combinedMem) {
           if (!seenIds.has(m.id)) {
             seenIds.add(m.id);
-            items.push({
-              id: m.id,
-              type: (m.type ?? NotificationType.EMERGENCY_BROADCAST) as NotificationType,
-              severity: (m.severity ?? NotificationSeverity.INFO) as NotificationSeverity,
-              title: m.title,
-              body: m.body,
-              actionUrl: m.actionUrl,
-              isRead: m.isRead,
-              channel: CommunicationChannel.IN_APP,
-              createdAt: m.createdAt,
-            });
+            if (!unreadOnly || !m.isRead) {
+              finalMem.push({
+                id: m.id,
+                type: (m.type ?? NotificationType.EMERGENCY_BROADCAST) as NotificationType,
+                severity: (m.severity ?? NotificationSeverity.INFO) as NotificationSeverity,
+                title: m.title,
+                body: m.body,
+                actionUrl: m.actionUrl,
+                isRead: m.isRead,
+                channel: CommunicationChannel.IN_APP,
+                createdAt: m.createdAt,
+              });
+            }
           }
         }
-        total = items.length;
+        items = finalMem.slice(offset, offset + limit);
+        total = finalMem.length;
       }
 
       return reply.send({
@@ -222,6 +185,7 @@ export async function userNotificationsRoutes(
 
       let total = 0;
       let unread = 0;
+      let dbOnline = false;
 
       try {
         const countsRes = await db.query<any>(
@@ -229,47 +193,31 @@ export async function userNotificationsRoutes(
              COUNT(*) as total,
              COUNT(*) FILTER (WHERE is_read = false) as unread
            FROM notifications
-           WHERE user_id = $1`,
-          [userId],
+           WHERE (user_id::text = $1 OR user_id::text = $2 OR (user_id::text ILIKE $2 AND $2 != ''))`,
+          [userId, userEmail?.toLowerCase() || userId],
         );
 
         total = Number(countsRes.rows[0]?.total ?? 0);
         unread = Number(countsRes.rows[0]?.unread ?? 0);
+        dbOnline = true;
       } catch (err: any) {
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS_COUNTS] Non-fatal counts query warning');
       }
 
-      // Merge with in-memory counts
-      const memById = devNotificationCache.get(userId) || [];
-      const memByEmail = userEmail ? devNotificationCache.get(userEmail.toLowerCase()) || [] : [];
-      const combinedMem = [...memById, ...memByEmail];
-      const seenIds = new Set<string>();
-      let memTotal = 0;
-      let memUnread = 0;
+      // Fallback to cache only when DB fails or is offline
+      if (!dbOnline) {
+        const memById = devNotificationCache.get(userId) || [];
+        const memByEmail = userEmail ? devNotificationCache.get(userEmail.toLowerCase()) || [] : [];
+        const combinedMem = [...memById, ...memByEmail];
+        const seenIds = new Set<string>();
 
-      for (const m of combinedMem) {
-        if (!seenIds.has(m.id)) {
-          seenIds.add(m.id);
-          memTotal++;
-          if (!m.isRead) memUnread++;
+        for (const m of combinedMem) {
+          if (!seenIds.has(m.id)) {
+            seenIds.add(m.id);
+            total++;
+            if (!m.isRead) unread++;
+          }
         }
-      }
-
-      total = Math.max(total, memTotal);
-      unread = Math.max(unread, memUnread);
-
-      // Self-healing check if user has 0 notifications
-      if (total === 0) {
-        await notificationService.ensureWelcomeNotifications({
-          userId,
-          email: userEmail,
-          fullName: userEmail ? userEmail.split('@')[0] : 'User',
-          role: req.user?.role || 'customer',
-        });
-
-        const freshMem = devNotificationCache.get(userId) || [];
-        total = freshMem.length;
-        unread = freshMem.filter((m) => !m.isRead).length;
       }
 
       const counts: UserNotificationCountsDto = { total, unread };
@@ -286,21 +234,26 @@ export async function userNotificationsRoutes(
     async (req, reply: FastifyReply) => {
       const { id } = req.params;
       const userId = req.user?.sub;
+      const userEmail = req.user?.email;
       if (!userId) {
         throw new UnauthorizedError('Customer authorization token missing');
       }
 
       try {
         const result = await db.query(
-          `UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2`,
-          [id, userId],
+          `UPDATE notifications SET is_read = true WHERE id = $1 AND (user_id::text = $2 OR user_id::text = $3 OR (user_id::text ILIKE $3 AND $3 != ''))`,
+          [id, userId, userEmail?.toLowerCase() || userId],
         );
 
         if (result.rowCount === 0) {
-          // Check memory cache before throwing NotFound
-          const mem = devNotificationCache.get(userId) || [];
-          const found = mem.find((n) => n.id === id);
-          if (!found) {
+          let foundInMem = false;
+          for (const list of devNotificationCache.values()) {
+            if (list.some((n) => n.id === id)) {
+              foundInMem = true;
+              break;
+            }
+          }
+          if (!foundInMem) {
             throw new NotFoundError(`Notification '${id}' not found or unauthorized.`);
           }
         }
@@ -309,10 +262,14 @@ export async function userNotificationsRoutes(
         logger.warn({ err: err?.message, id, userId }, '[NOTIFICATIONS_READ] Non-fatal update warning');
       }
 
-      // Update in-memory cache
-      const mem = devNotificationCache.get(userId) || [];
-      const item = mem.find((n) => n.id === id);
-      if (item) item.isRead = true;
+      // Update in-memory cache across all keys
+      for (const list of devNotificationCache.values()) {
+        for (const item of list) {
+          if (item.id === id) {
+            item.isRead = true;
+          }
+        }
+      }
 
       return reply.send({ success: true, data: { id, isRead: true } });
     },
@@ -324,6 +281,7 @@ export async function userNotificationsRoutes(
     { preHandler: [authHooks.authenticate()] },
     async (req, reply: FastifyReply) => {
       const userId = req.user?.sub;
+      const userEmail = req.user?.email;
       if (!userId) {
         throw new UnauthorizedError('Customer authorization token missing');
       }
@@ -331,8 +289,8 @@ export async function userNotificationsRoutes(
       let markedCount = 0;
       try {
         const result = await db.query(
-          `UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false`,
-          [userId],
+          `UPDATE notifications SET is_read = true WHERE (user_id::text = $1 OR user_id::text = $2 OR (user_id::text ILIKE $2 AND $2 != '')) AND is_read = false`,
+          [userId, userEmail?.toLowerCase() || userId],
         );
         markedCount = result.rowCount ?? 0;
       } catch (err: any) {
@@ -340,12 +298,13 @@ export async function userNotificationsRoutes(
       }
 
       // Update in-memory cache
-      const mem = devNotificationCache.get(userId) || [];
       let memMarked = 0;
-      for (const n of mem) {
-        if (!n.isRead) {
-          n.isRead = true;
-          memMarked++;
+      for (const list of devNotificationCache.values()) {
+        for (const item of list) {
+          if ((item.userId === userId || (userEmail && item.userEmail?.toLowerCase() === userEmail.toLowerCase())) && !item.isRead) {
+            item.isRead = true;
+            memMarked++;
+          }
         }
       }
 
@@ -368,6 +327,7 @@ export async function userNotificationsRoutes(
     { preHandler: [authHooks.authenticate()] },
     async (req, reply: FastifyReply) => {
       const userId = req.user?.sub;
+      const userEmail = req.user?.email;
       if (!userId) {
         throw new UnauthorizedError('Customer authorization token missing');
       }
@@ -375,25 +335,32 @@ export async function userNotificationsRoutes(
 
       let clearedCount = 0;
       try {
-        let query = `DELETE FROM notifications WHERE (user_id = $1 OR user_id = $2)`;
+        let query = `DELETE FROM notifications WHERE (user_id::text = $1 OR user_id::text = $2 OR (user_id::text ILIKE $2 AND $2 != ''))`;
         if (readOnly) {
           query += ` AND is_read = true`;
         }
-        const result = await db.query(query, [userId, req.user?.email?.toLowerCase() || userId]);
+        const result = await db.query(query, [userId, userEmail?.toLowerCase() || userId]);
         clearedCount = result.rowCount ?? 0;
       } catch (err: any) {
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS_DELETE] Non-fatal delete warning');
       }
 
-      // Sync in-memory cache
-      const mem = devNotificationCache.get(userId) || [];
-      if (readOnly) {
-        const remaining = mem.filter((n) => !n.isRead);
-        clearedCount += mem.length - remaining.length;
-        devNotificationCache.set(userId, remaining);
-      } else {
-        clearedCount += mem.length;
-        devNotificationCache.set(userId, []);
+      // Thoroughly purge from in-memory cache across all keys
+      devNotificationCache.delete(userId);
+      devNotificationCache.set(userId, []);
+      if (userEmail) {
+        devNotificationCache.delete(userEmail.toLowerCase());
+        devNotificationCache.set(userEmail.toLowerCase(), []);
+      }
+      for (const [key, list] of devNotificationCache.entries()) {
+        const filtered = list.filter((n) => {
+          const matches = n.userId === userId || (userEmail && n.userEmail?.toLowerCase() === userEmail.toLowerCase());
+          if (!matches) return true;
+          if (readOnly) return !n.isRead;
+          clearedCount++;
+          return false;
+        });
+        devNotificationCache.set(key, filtered);
       }
 
       return reply.send({
@@ -411,6 +378,7 @@ export async function userNotificationsRoutes(
     { preHandler: [authHooks.authenticate()] },
     async (req, reply: FastifyReply) => {
       const userId = req.user?.sub;
+      const userEmail = req.user?.email;
       if (!userId) {
         throw new UnauthorizedError('Customer authorization token missing');
       }
@@ -418,25 +386,32 @@ export async function userNotificationsRoutes(
 
       let clearedCount = 0;
       try {
-        let query = `DELETE FROM notifications WHERE (user_id = $1 OR user_id = $2)`;
+        let query = `DELETE FROM notifications WHERE (user_id::text = $1 OR user_id::text = $2 OR (user_id::text ILIKE $2 AND $2 != ''))`;
         if (readOnly) {
           query += ` AND is_read = true`;
         }
-        const result = await db.query(query, [userId, req.user?.email?.toLowerCase() || userId]);
+        const result = await db.query(query, [userId, userEmail?.toLowerCase() || userId]);
         clearedCount = result.rowCount ?? 0;
       } catch (err: any) {
         logger.warn({ err: err?.message, userId }, '[NOTIFICATIONS_CLEAR] Non-fatal clear warning');
       }
 
-      // Sync in-memory cache
-      const mem = devNotificationCache.get(userId) || [];
-      if (readOnly) {
-        const remaining = mem.filter((n) => !n.isRead);
-        clearedCount += mem.length - remaining.length;
-        devNotificationCache.set(userId, remaining);
-      } else {
-        clearedCount += mem.length;
-        devNotificationCache.set(userId, []);
+      // Thoroughly purge from in-memory cache across all keys
+      devNotificationCache.delete(userId);
+      devNotificationCache.set(userId, []);
+      if (userEmail) {
+        devNotificationCache.delete(userEmail.toLowerCase());
+        devNotificationCache.set(userEmail.toLowerCase(), []);
+      }
+      for (const [key, list] of devNotificationCache.entries()) {
+        const filtered = list.filter((n) => {
+          const matches = n.userId === userId || (userEmail && n.userEmail?.toLowerCase() === userEmail.toLowerCase());
+          if (!matches) return true;
+          if (readOnly) return !n.isRead;
+          clearedCount++;
+          return false;
+        });
+        devNotificationCache.set(key, filtered);
       }
 
       return reply.send({
@@ -452,6 +427,7 @@ export async function userNotificationsRoutes(
     { preHandler: [authHooks.authenticate()] },
     async (req, reply: FastifyReply) => {
       const userId = req.user?.sub;
+      const userEmail = req.user?.email;
       if (!userId) {
         throw new UnauthorizedError('Customer authorization token missing');
       }
@@ -459,14 +435,19 @@ export async function userNotificationsRoutes(
 
       try {
         const result = await db.query(
-          `DELETE FROM notifications WHERE id = $1 AND (user_id = $2 OR user_id = $3)`,
-          [id, userId, req.user?.email?.toLowerCase() || userId],
+          `DELETE FROM notifications WHERE id = $1 AND (user_id::text = $2 OR user_id::text = $3 OR (user_id::text ILIKE $3 AND $3 != ''))`,
+          [id, userId, userEmail?.toLowerCase() || userId],
         );
 
         if (result.rowCount === 0) {
-          const mem = devNotificationCache.get(userId) || [];
-          const found = mem.some((n) => n.id === id);
-          if (!found) {
+          let foundInMem = false;
+          for (const list of devNotificationCache.values()) {
+            if (list.some((n) => n.id === id)) {
+              foundInMem = true;
+              break;
+            }
+          }
+          if (!foundInMem) {
             throw new NotFoundError(`Notification '${id}' not found or unauthorized.`);
           }
         }
@@ -475,12 +456,13 @@ export async function userNotificationsRoutes(
         logger.warn({ err: err?.message, id, userId }, '[NOTIFICATIONS_DELETE_ITEM] Non-fatal delete warning');
       }
 
-      // Sync in-memory cache
-      const mem = devNotificationCache.get(userId) || [];
-      devNotificationCache.set(
-        userId,
-        mem.filter((n) => n.id !== id),
-      );
+      // Purge from in-memory cache across all keys
+      for (const [key, list] of devNotificationCache.entries()) {
+        const filtered = list.filter((n) => n.id !== id);
+        if (filtered.length !== list.length) {
+          devNotificationCache.set(key, filtered);
+        }
+      }
 
       return reply.send({
         success: true,

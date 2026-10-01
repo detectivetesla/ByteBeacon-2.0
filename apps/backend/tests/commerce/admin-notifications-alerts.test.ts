@@ -335,10 +335,10 @@ describe('Phase 11.15 — Notifications, Alerts & System Communications Administ
           if (sql.includes('FROM notifications') && sql.includes('COUNT(*) FILTER')) {
             return { rows: [{ total: '5', unread: '2' }] };
           }
-          if (sql.includes('UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2')) {
+          if (sql.includes('UPDATE notifications SET is_read = true WHERE id = $1')) {
             return { rowCount: 1 };
           }
-          if (sql.includes('UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false')) {
+          if (sql.includes('UPDATE notifications SET is_read = true') && sql.includes('is_read = false')) {
             return { rowCount: 2 };
           }
         }

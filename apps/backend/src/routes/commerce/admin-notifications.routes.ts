@@ -51,7 +51,7 @@ export async function adminNotificationsRoutes(
         CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
         CREATE TABLE IF NOT EXISTS notification_rules (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             name VARCHAR(255) NOT NULL,
             description TEXT,
             event_condition VARCHAR(100) NOT NULL,
@@ -71,7 +71,7 @@ export async function adminNotificationsRoutes(
         CREATE INDEX IF NOT EXISTS idx_notification_rules_status ON notification_rules(status);
 
         CREATE TABLE IF NOT EXISTS notifications (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             type VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
             severity VARCHAR(20) NOT NULL DEFAULT 'INFO',
@@ -89,7 +89,7 @@ export async function adminNotificationsRoutes(
         CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
 
         CREATE TABLE IF NOT EXISTS communication_campaigns (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             name VARCHAR(255) NOT NULL,
             description TEXT,
             status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
@@ -109,7 +109,7 @@ export async function adminNotificationsRoutes(
         );
 
         CREATE TABLE IF NOT EXISTS communication_delivery_logs (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             message_id VARCHAR(100) NOT NULL,
             campaign_id UUID,
             template_id UUID,

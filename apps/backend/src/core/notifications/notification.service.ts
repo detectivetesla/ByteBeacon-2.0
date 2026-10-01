@@ -491,11 +491,35 @@ export class NotificationService {
     // Check DB if available
     try {
       const dbCheck = await this.db.query(
-        `SELECT id FROM notifications WHERE (user_id = $1 OR user_id = $2) AND (type = 'NEW_USER_REGISTRATION' OR type = 'NEW_AGENT_APPLICATION' OR title ILIKE '%Welcome%') LIMIT 1`,
+        `SELECT id FROM notifications WHERE (user_id::text = $1 OR user_id::text = $2) AND (type = 'NEW_USER_REGISTRATION' OR type = 'NEW_AGENT_APPLICATION' OR title ILIKE '%Welcome%') LIMIT 1`,
         [userId, email.toLowerCase()],
       );
       if (dbCheck && dbCheck.rows && dbCheck.rows.length > 0) {
         return;
+      }
+
+      // Check delivery logs: if welcome communication was already sent in the past, do not resurrect!
+      const logCheck = await this.db.query(
+        `SELECT id FROM communication_delivery_logs
+         WHERE (recipient_user_id::text = $1 OR recipient_email = $2)
+           AND (subject ILIKE '%Welcome%' OR subject ILIKE '%Agent%')
+         LIMIT 1`,
+        [userId, email.toLowerCase()],
+      ).catch(() => ({ rows: [] }));
+      if (logCheck && logCheck.rows && logCheck.rows.length > 0) {
+        return;
+      }
+
+      // Check user created_at: if user account is older than 10 minutes, do not regenerate cleared notifications
+      const userRes = await this.db.query(
+        `SELECT created_at FROM users WHERE id::text = $1 LIMIT 1`,
+        [userId],
+      ).catch(() => ({ rows: [] }));
+      if (userRes.rows.length > 0) {
+        const createdAt = new Date(userRes.rows[0].created_at);
+        if (Date.now() - createdAt.getTime() > 10 * 60 * 1000) {
+          return;
+        }
       }
     } catch {
       // Ignore DB errors in offline/dev environments
