@@ -532,15 +532,18 @@ export async function parseSpreadsheetFile(
     });
   }
 
-  const validRows = parsedRows.filter((r) => r.isValid).length;
-  const invalidRows = parsedRows.length - validRows;
-  const approvedRows = parsedRows.filter((r) => r.status === 'APPROVED').length;
-  const unapprovedRows = parsedRows.filter((r) => r.status === 'UNAPPROVED').length;
-  const rejectedRows = parsedRows.filter((r) => r.status === 'REJECTED').length;
+  // Automatically arrange rows according to their data bundles (size ascending, then price & phone)
+  const sortedRows = sortRowsByBundle(parsedRows);
+
+  const validRows = sortedRows.filter((r) => r.isValid).length;
+  const invalidRows = sortedRows.length - validRows;
+  const approvedRows = sortedRows.filter((r) => r.status === 'APPROVED').length;
+  const unapprovedRows = sortedRows.filter((r) => r.status === 'UNAPPROVED').length;
+  const rejectedRows = sortedRows.filter((r) => r.status === 'REJECTED').length;
 
   return {
-    rows: parsedRows,
-    totalRows: parsedRows.length,
+    rows: sortedRows,
+    totalRows: sortedRows.length,
     validRows,
     invalidRows,
     approvedRows,
@@ -548,6 +551,49 @@ export async function parseSpreadsheetFile(
     rejectedRows,
     totalPesewas,
   };
+}
+
+/**
+ * Extracts bundle data volume in megabytes for consistent numerical sorting.
+ */
+export function getRowBundleVolumeMb(row: ParsedSpreadsheetRow): number {
+  if (typeof row.dataAmountMb === 'number' && row.dataAmountMb > 0) {
+    return row.dataAmountMb;
+  }
+  const text = (row.data || row.rawVolume || '').trim().toLowerCase();
+  const numMatch = text.match(/([0-9]+(\.[0-9]+)?)/);
+  if (!numMatch) return 9999999;
+  const val = parseFloat(numMatch[1]);
+  if (text.includes('mb')) return val;
+  return Math.round(val * 1024);
+}
+
+/**
+ * Automatically sorts spreadsheet rows according to their data bundles:
+ * 1. Valid rows before invalid rows
+ * 2. Ascending by bundle data size in MB (e.g. 500MB -> 1GB -> 2GB -> 3GB -> 5GB -> 10GB -> 20GB...)
+ * 3. Ascending by unit price (pesewas)
+ * 4. Alphabetical / numerical order by phone number
+ */
+export function sortRowsByBundle(rows: ParsedSpreadsheetRow[]): ParsedSpreadsheetRow[] {
+  return [...rows].sort((a, b) => {
+    // 1. Valid rows first
+    if (a.isValid !== b.isValid) {
+      return a.isValid ? -1 : 1;
+    }
+    // 2. Data bundle size ascending
+    const volA = getRowBundleVolumeMb(a);
+    const volB = getRowBundleVolumeMb(b);
+    if (volA !== volB) {
+      return volA - volB;
+    }
+    // 3. Price ascending
+    if (a.pricePesewas !== b.pricePesewas) {
+      return a.pricePesewas - b.pricePesewas;
+    }
+    // 4. Stable by phone
+    return (a.phone || a.rawPhone || '').localeCompare(b.phone || b.rawPhone || '');
+  });
 }
 
 /**

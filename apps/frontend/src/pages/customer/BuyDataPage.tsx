@@ -36,6 +36,7 @@ import {
   AlertTriangle,
   Info,
   Lock,
+  Package,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext.js';
 import { usePlatformStatus } from '../../context/PlatformStatusContext.js';
@@ -49,6 +50,7 @@ import {
   isValidGhanaPhoneNumber,
   detectGhanaNetwork,
   matchBundleVolume,
+  sortRowsByBundle,
   ParsedSpreadsheetRow,
   RecipientRowStatus,
   DEFAULT_FALLBACK_BUNDLES,
@@ -299,6 +301,7 @@ export const BuyDataPage: React.FC = () => {
   const [activeVerificationJobId, setActiveVerificationJobId] = useState<string | null>(null);
   const cancelVerificationRef = useRef(false);
   const [excelFilter, setExcelFilter] = useState<RecipientRowStatus | 'ALL'>('ALL');
+  const [excelBundleFilter, setExcelBundleFilter] = useState<string>('ALL');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Resume active verification job from localStorage on initial page load
@@ -1912,6 +1915,7 @@ export const BuyDataPage: React.FC = () => {
     setExcelFile(file);
     setExcelLoading(true);
     setExcelFilter('ALL');
+    setExcelBundleFilter('ALL');
 
     try {
       const result = await parseSpreadsheetFile(file, allCatalogBundles, selectedNetwork);
@@ -2117,12 +2121,30 @@ export const BuyDataPage: React.FC = () => {
     toastSuccess('Set-Aside Downloaded', `${filename} downloaded successfully.`);
   };
 
+  const excelBundleGroups = useMemo(() => {
+    const map = new Map<string, { label: string; count: number; volumeMb: number; totalPesewas: number }>();
+    excelParsedRows.forEach((r) => {
+      const key = r.data || 'Unknown Bundle';
+      const existing = map.get(key);
+      const count = (existing?.count || 0) + 1;
+      const totalPesewas = (existing?.totalPesewas || 0) + (r.pricePesewas || 0);
+      const volumeMb = existing?.volumeMb || r.dataAmountMb || 0;
+      map.set(key, { label: key, count, volumeMb, totalPesewas });
+    });
+    return Array.from(map.values()).sort((a, b) => a.volumeMb - b.volumeMb);
+  }, [excelParsedRows]);
+
   const displayedExcelRows = useMemo(() => {
-    if (excelFilter === 'APPROVED') return approvedExcelRows;
-    if (excelFilter === 'UNAPPROVED') return unapprovedExcelRows;
-    if (excelFilter === 'REJECTED') return rejectedExcelRows;
-    return excelParsedRows;
-  }, [excelParsedRows, excelFilter, approvedExcelRows, unapprovedExcelRows, rejectedExcelRows]);
+    let rows = excelParsedRows;
+    if (excelFilter === 'APPROVED') rows = approvedExcelRows;
+    else if (excelFilter === 'UNAPPROVED') rows = unapprovedExcelRows;
+    else if (excelFilter === 'REJECTED') rows = rejectedExcelRows;
+
+    if (excelBundleFilter !== 'ALL') {
+      rows = rows.filter((r) => r.data === excelBundleFilter);
+    }
+    return sortRowsByBundle(rows);
+  }, [excelParsedRows, excelFilter, excelBundleFilter, approvedExcelRows, unapprovedExcelRows, rejectedExcelRows]);
 
   const excelTotalPesewas = useMemo(() => {
     return approvedExcelRows.reduce((sum, r) => sum + r.pricePesewas, 0);
@@ -2130,10 +2152,14 @@ export const BuyDataPage: React.FC = () => {
 
   const handleDownloadReport = (filter: RecipientRowStatus | 'ALL' = 'ALL') => {
     if (excelParsedRows.length === 0) return;
-    const targetRows =
+    const baseRows =
       filter === 'ALL'
         ? excelParsedRows
         : excelParsedRows.filter((r) => r.status === filter);
+
+    const targetRows = sortRowsByBundle(
+      excelBundleFilter === 'ALL' ? baseRows : baseRows.filter((r) => r.data === excelBundleFilter),
+    );
 
     const timestamp = new Date().toISOString().slice(0, 10);
     const filename = `order_verification_${filter.toLowerCase()}_${timestamp}.csv`;
@@ -2209,7 +2235,7 @@ export const BuyDataPage: React.FC = () => {
       return;
     }
 
-    const targetRows = approvedExcelRows;
+    const targetRows = sortRowsByBundle(approvedExcelRows);
     const bulkItems: BulkOrderItem[] = targetRows.map((r) => {
       let finalProductId = r.bundleId;
       if (!finalProductId || finalProductId.startsWith('fallback-') || finalProductId.startsWith('custom-bundle-')) {
@@ -4047,121 +4073,203 @@ export const BuyDataPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Quick Bundle Arranged Tabs */}
+                  {excelBundleGroups.length > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '2px 0 6px 0' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <Package size={12} color="var(--color-primary)" />
+                        Arranged by Bundle:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setExcelBundleFilter('ALL')}
+                        style={{
+                          padding: '3px 9px',
+                          borderRadius: '12px',
+                          fontSize: '11px',
+                          fontWeight: excelBundleFilter === 'ALL' ? 800 : 600,
+                          backgroundColor: excelBundleFilter === 'ALL' ? 'var(--color-primary)' : 'var(--color-bg-surface-elevated)',
+                          color: excelBundleFilter === 'ALL' ? '#ffffff' : 'var(--color-text-primary)',
+                          border: '1px solid var(--color-border-subtle)',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        All Bundles ({excelParsedRows.length})
+                      </button>
+                      {excelBundleGroups.map((bg) => (
+                        <button
+                          key={bg.label}
+                          type="button"
+                          onClick={() => setExcelBundleFilter(bg.label)}
+                          style={{
+                            padding: '3px 9px',
+                            borderRadius: '12px',
+                            fontSize: '11px',
+                            fontWeight: excelBundleFilter === bg.label ? 800 : 600,
+                            backgroundColor: excelBundleFilter === bg.label ? 'var(--color-primary)' : 'var(--color-bg-surface-elevated)',
+                            color: excelBundleFilter === bg.label ? '#ffffff' : 'var(--color-text-primary)',
+                            border: '1px solid var(--color-border-subtle)',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {bg.label} ({bg.count})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Recipient Rows Table List */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '360px', overflowY: 'auto' }}>
                     {displayedExcelRows.length === 0 ? (
                       <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
-                        No numbers in the "{excelFilter.toLowerCase()}" category.
+                        No numbers in the "{excelFilter.toLowerCase()}" category{excelBundleFilter !== 'ALL' ? ` for ${excelBundleFilter}` : ''}.
                       </div>
                     ) : (
-                      displayedExcelRows.slice(0, 50).map((row, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'minmax(140px, 1fr) 90px 100px minmax(130px, 1.2fr)',
-                            alignItems: 'center',
-                            padding: '8px 12px',
-                            backgroundColor: 'var(--color-bg-base)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: 'var(--font-size-2xs)',
-                            border:
-                              row.status === 'APPROVED'
-                                ? '1px solid var(--color-border-subtle)'
-                                : row.status === 'UNAPPROVED'
-                                ? '1px solid var(--color-warning-border)'
-                                : '1px solid var(--color-danger-border)',
-                            gap: '0.75rem',
-                          }}
-                        >
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                              {row.phone || row.rawPhone || 'Missing Phone'}
-                            </span>
-                            {row.rawPhone && row.rawPhone !== row.phone && (
-                              <span style={{ fontSize: '9px', color: 'var(--color-text-muted)' }}>
-                                Raw: {row.rawPhone}
-                              </span>
-                            )}
-                          </div>
+                      displayedExcelRows.slice(0, 100).map((row, i) => {
+                        const prevRow = i > 0 ? displayedExcelRows[i - 1] : null;
+                        const isNewBundleGroup = excelBundleFilter === 'ALL' && (!prevRow || prevRow.data !== row.data);
+                        const bundleStat = excelBundleGroups.find((g) => g.label === row.data);
 
-                          <div>
-                            <span style={{ fontWeight: 800, color: 'var(--color-text-secondary)' }}>
-                              {row.data}
-                            </span>
-                          </div>
-
-                          <div>
-                            <span style={{ fontFamily: 'var(--font-data)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                              GH₵ {(row.pricePesewas / 100).toFixed(2)}
-                            </span>
-                          </div>
-
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
-                            {row.status === 'APPROVED' && (
-                              <span
+                        return (
+                          <React.Fragment key={i}>
+                            {isNewBundleGroup && (
+                              <div
                                 style={{
-                                  fontSize: '10px',
-                                  fontWeight: 800,
-                                  color: 'var(--color-success)',
-                                  backgroundColor: 'var(--color-success-surface)',
-                                  border: '1px solid var(--color-success-border)',
-                                  padding: '2px 8px',
-                                  borderRadius: '12px',
-                                  display: 'inline-flex',
+                                  display: 'flex',
                                   alignItems: 'center',
-                                  gap: '3px',
+                                  justifyContent: 'space-between',
+                                  padding: '6px 12px',
+                                  backgroundColor: 'var(--color-bg-surface-elevated)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  borderLeft: `3px solid ${theme.primaryColor || 'var(--color-primary)'}`,
+                                  marginTop: i > 0 ? '8px' : '0',
+                                  marginBottom: '2px',
                                 }}
                               >
-                                <CheckCircle2 size={10} /> Approved
-                              </span>
+                                <span style={{ fontWeight: 800, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  <Package size={13} color="var(--color-primary)" />
+                                  {row.data} Bundle Orders
+                                  {bundleStat && (
+                                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                                      ({bundleStat.count} recipient{bundleStat.count > 1 ? 's' : ''})
+                                    </span>
+                                  )}
+                                </span>
+                                <span style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>
+                                  GH₵ {(row.pricePesewas / 100).toFixed(2)} each
+                                </span>
+                              </div>
                             )}
-                            {row.status === 'UNAPPROVED' && (
-                              <span
-                                style={{
-                                  fontSize: '10px',
-                                  fontWeight: 800,
-                                  color: 'var(--color-warning)',
-                                  backgroundColor: 'var(--color-warning-surface)',
-                                  border: '1px solid var(--color-warning-border)',
-                                  padding: '2px 8px',
-                                  borderRadius: '12px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                }}
-                              >
-                                <Clock size={10} /> Unapproved (MTN)
-                              </span>
-                            )}
-                            {row.status === 'REJECTED' && (
-                              <span
-                                style={{
-                                  fontSize: '10px',
-                                  fontWeight: 800,
-                                  color: 'var(--color-danger)',
-                                  backgroundColor: 'var(--color-danger-surface)',
-                                  border: '1px solid var(--color-danger-border)',
-                                  padding: '2px 8px',
-                                  borderRadius: '12px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                }}
-                              >
-                                <XCircle size={10} /> Rejected
-                              </span>
-                            )}
-                            <span style={{ fontSize: '9px', color: 'var(--color-text-muted)', lineHeight: 1.2 }}>
-                              {row.statusReason || (row.status === 'APPROVED' ? 'Valid' : 'Excluded')}
-                            </span>
-                          </div>
-                        </div>
-                      ))
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(140px, 1fr) 90px 100px minmax(130px, 1.2fr)',
+                                alignItems: 'center',
+                                padding: '8px 12px',
+                                backgroundColor: 'var(--color-bg-base)',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: 'var(--font-size-2xs)',
+                                border:
+                                  row.status === 'APPROVED'
+                                    ? '1px solid var(--color-border-subtle)'
+                                    : row.status === 'UNAPPROVED'
+                                    ? '1px solid var(--color-warning-border)'
+                                    : '1px solid var(--color-danger-border)',
+                                gap: '0.75rem',
+                              }}
+                            >
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                                  {row.phone || row.rawPhone || 'Missing Phone'}
+                                </span>
+                                {row.rawPhone && row.rawPhone !== row.phone && (
+                                  <span style={{ fontSize: '9px', color: 'var(--color-text-muted)' }}>
+                                    Raw: {row.rawPhone}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div>
+                                <span style={{ fontWeight: 800, color: 'var(--color-text-secondary)' }}>
+                                  {row.data}
+                                </span>
+                              </div>
+
+                              <div>
+                                <span style={{ fontFamily: 'var(--font-data)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                                  GH₵ {(row.pricePesewas / 100).toFixed(2)}
+                                </span>
+                              </div>
+
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
+                                {row.status === 'APPROVED' && (
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      fontWeight: 800,
+                                      color: 'var(--color-success)',
+                                      backgroundColor: 'var(--color-success-surface)',
+                                      border: '1px solid var(--color-success-border)',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                    }}
+                                  >
+                                    <CheckCircle2 size={10} /> Approved
+                                  </span>
+                                )}
+                                {row.status === 'UNAPPROVED' && (
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      fontWeight: 800,
+                                      color: 'var(--color-warning)',
+                                      backgroundColor: 'var(--color-warning-surface)',
+                                      border: '1px solid var(--color-warning-border)',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                    }}
+                                  >
+                                    <Clock size={10} /> Unapproved (MTN)
+                                  </span>
+                                )}
+                                {row.status === 'REJECTED' && (
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      fontWeight: 800,
+                                      color: 'var(--color-danger)',
+                                      backgroundColor: 'var(--color-danger-surface)',
+                                      border: '1px solid var(--color-danger-border)',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                    }}
+                                  >
+                                    <XCircle size={10} /> Rejected
+                                  </span>
+                                )}
+                                <span style={{ fontSize: '9px', color: 'var(--color-text-muted)', lineHeight: 1.2 }}>
+                                  {row.statusReason || (row.status === 'APPROVED' ? 'Valid' : 'Excluded')}
+                                </span>
+                              </div>
+                            </div>
+                          </React.Fragment>
+                        );
+                      })
                     )}
-                    {displayedExcelRows.length > 50 && (
+                    {displayedExcelRows.length > 100 && (
                       <div style={{ fontSize: 'var(--font-size-3xs)', color: 'var(--color-text-muted)', textAlign: 'center', paddingTop: '4px' }}>
-                        + {displayedExcelRows.length - 50} more recipients in {excelFilter.toLowerCase()} view (download CSV to inspect all)
+                        + {displayedExcelRows.length - 100} more recipients in {excelFilter.toLowerCase()} view (download CSV to inspect all)
                       </div>
                     )}
                   </div>
