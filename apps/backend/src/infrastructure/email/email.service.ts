@@ -57,13 +57,13 @@ export class EmailService {
 
   private loadEnvConfig(): EmailServiceConfig {
     const env = getConfig();
-    const host = env.SMTP_HOST || env.SMPT_HOST;
-    const port = env.SMTP_PORT || env.SMPT_PORT || 587;
-    const user = env.SMTP_USER || env.SMPT_USER;
-    const pass = env.SMTP_PASS || env.SMPT_PASS;
+    const host = process.env.SMTP_HOST || process.env.SMPT_HOST || env.SMTP_HOST || env.SMPT_HOST;
+    const port = Number(process.env.SMTP_PORT || process.env.SMPT_PORT || env.SMTP_PORT || env.SMPT_PORT) || 587;
+    const user = process.env.SMTP_USER || process.env.SMPT_USER || env.SMTP_USER || env.SMPT_USER;
+    const pass = process.env.SMTP_PASS || process.env.SMPT_PASS || env.SMTP_PASS || env.SMPT_PASS;
     const secure = env.SMTP_SECURE !== undefined ? env.SMTP_SECURE : (port === 465);
-    const from = env.SMTP_FROM || 'ByteBeacon <no-reply@bytebeacon.online>';
-    const frontendUrl = env.FRONTEND_URL || 'https://www.bytebeacon.online';
+    const from = process.env.SMTP_FROM || process.env.SMPT_FROM || env.SMPT_FROM || env.SMTP_FROM || 'ByteBeacon <no-reply@bytebeacon.online>';
+    const frontendUrl = process.env.FRONTEND_URL || env.FRONTEND_URL || 'https://www.bytebeacon.online';
 
     return {
       host,
@@ -208,11 +208,22 @@ export class EmailService {
       fromAddress = `"${displayName}" <no-reply@bytebeacon.online>`;
     }
 
-    const replyToAddress = fromAddress;
+    let effectiveFrom = fromAddress;
+    let replyToAddress = fromAddress;
 
     const isGmail = Boolean(
       this.config.host && (this.config.host.toLowerCase().includes('gmail') || this.config.host.toLowerCase() === 'smtp.gmail.com')
     );
+
+    // For Gmail SMTP: if authenticated as a @gmail.com account, using a third-party domain in "from"
+    // without an alias causes Google SMTP error 553 5.7.1. We safely route via authenticated address with display name.
+    if (isGmail && this.config.user && this.config.user.includes('@')) {
+      const authUser = this.config.user.trim().replace(/^["'\(\)]+|["'\(\)]+$/g, '');
+      if (addressPart.toLowerCase() !== authUser.toLowerCase() && !addressPart.toLowerCase().endsWith('@gmail.com')) {
+        effectiveFrom = `"${displayName}" <${authUser}>`;
+        replyToAddress = `"${displayName}" <${addressPart}>`;
+      }
+    }
 
     if (!this.isReady() || !this.transporter) {
       // Mock / Dev fallback: Log the email content safely so local development and tests succeed
@@ -234,7 +245,7 @@ export class EmailService {
 
     try {
       const info = await this.transporter.sendMail({
-        from: fromAddress,
+        from: effectiveFrom,
         replyTo: replyToAddress,
         to: options.to,
         subject: options.subject,
@@ -283,7 +294,7 @@ export class EmailService {
             });
 
             const fallbackInfo = await fallbackTransporter.sendMail({
-              from: fromAddress,
+              from: effectiveFrom,
               replyTo: replyToAddress,
               to: options.to,
               subject: options.subject,
