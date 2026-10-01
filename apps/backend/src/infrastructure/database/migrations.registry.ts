@@ -37,6 +37,7 @@ import { migration00000000000034 } from './migrations/00000000000034_enhance_age
 import { migration00000000000035 } from './migrations/00000000000035_enhance_agent_withdrawal_controls_and_schedules.js';
 import { migration00000000000036 } from './migrations/00000000000036_add_scheduled_status_to_store_payouts.js';
 import { migration00000000000037 } from './migrations/00000000000037_add_paused_order_controls_and_status.js';
+import { migration00000000000038 } from './migrations/00000000000038_reconcile_bulk_submissions_schema.js';
 
 export const allMigrations: MigrationFile[] = [
   migration00000000000000,
@@ -77,4 +78,5 @@ export const allMigrations: MigrationFile[] = [
   migration00000000000035,
   migration00000000000036,
   migration00000000000037,
+  migration00000000000038,
 ];

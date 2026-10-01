@@ -113,14 +113,79 @@ export class BulkOrderService {
     try {
       await client.query('BEGIN');
 
-      // Ensure orders and bulk tables have pause-tracking and idempotent columns
+      // Ensure bulk_submissions, bulk_submission_items, and orders tables have all required columns
       await client.query(`
+        -- 1. Ensure bulk_submissions table exists
+        CREATE TABLE IF NOT EXISTS bulk_submissions (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL,
+          name VARCHAR(255) NOT NULL DEFAULT 'Bulk Order',
+          total_count INT NOT NULL DEFAULT 0,
+          processed_count INT NOT NULL DEFAULT 0,
+          success_count INT NOT NULL DEFAULT 0,
+          failed_count INT NOT NULL DEFAULT 0,
+          total_amount_pesewas BIGINT NOT NULL DEFAULT 0,
+          status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+          idempotency_key VARCHAR(255),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 2. Rename legacy columns if present
+        DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'title')
+             AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'name') THEN
+              ALTER TABLE bulk_submissions RENAME COLUMN title TO name;
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'batch_name')
+             AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'name') THEN
+              ALTER TABLE bulk_submissions RENAME COLUMN batch_name TO name;
+          END IF;
+        END $$;
+
+        -- 3. Ensure all bulk_submissions columns exist
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS name VARCHAR(255) NOT NULL DEFAULT 'Bulk Order';
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS total_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS processed_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS success_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS failed_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS total_amount_pesewas BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING';
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+        -- 4. Ensure orders table pause-tracking and idempotent columns exist
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(30);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(50);
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(50);
-        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(100);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+
+        -- 5. Ensure bulk_submission_items table and columns exist
+        CREATE TABLE IF NOT EXISTS bulk_submission_items (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          submission_id UUID NOT NULL,
+          order_id UUID,
+          recipient_phone VARCHAR(30) NOT NULL DEFAULT '',
+          product_id UUID,
+          amount_pesewas BIGINT NOT NULL DEFAULT 0,
+          status VARCHAR(30) NOT NULL DEFAULT 'CREATED',
+          error_message TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS submission_id UUID;
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS order_id UUID;
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(30) NOT NULL DEFAULT '';
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS product_id UUID;
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'CREATED';
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS error_message TEXT;
+
         DO $$
         BEGIN
           IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submission_items' AND column_name = 'product_id') THEN
@@ -1122,8 +1187,50 @@ export class BulkOrderService {
     try {
       await client.query('BEGIN');
 
-      // Ensure missing columns on orders table exist (self-healing migration)
+      // Ensure missing columns on bulk_submissions, bulk_submission_items, and orders exist (self-healing migration)
       await client.query(`
+        -- 1. Ensure bulk_submissions table exists
+        CREATE TABLE IF NOT EXISTS bulk_submissions (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL,
+          name VARCHAR(255) NOT NULL DEFAULT 'Bulk Order',
+          total_count INT NOT NULL DEFAULT 0,
+          processed_count INT NOT NULL DEFAULT 0,
+          success_count INT NOT NULL DEFAULT 0,
+          failed_count INT NOT NULL DEFAULT 0,
+          total_amount_pesewas BIGINT NOT NULL DEFAULT 0,
+          status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+          idempotency_key VARCHAR(255),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 2. Rename legacy columns if present
+        DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'title')
+             AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'name') THEN
+              ALTER TABLE bulk_submissions RENAME COLUMN title TO name;
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'batch_name')
+             AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'name') THEN
+              ALTER TABLE bulk_submissions RENAME COLUMN batch_name TO name;
+          END IF;
+        END $$;
+
+        -- 3. Ensure all bulk_submissions columns exist
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS name VARCHAR(255) NOT NULL DEFAULT 'Bulk Order';
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS total_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS processed_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS success_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS failed_count INT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS total_amount_pesewas BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING';
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+        -- 4. Ensure orders table pause-tracking and idempotent columns exist
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ NULL;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(50) NULL;

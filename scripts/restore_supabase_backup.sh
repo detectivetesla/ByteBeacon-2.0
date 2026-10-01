@@ -190,6 +190,9 @@ echo -e "${YELLOW}${BOLD}[6/7] Reconciling Database Migrations & Verifying Table
 
 if [[ -d "$APP_DIR" ]]; then
     cd "$APP_DIR"
+    echo -e "${CYAN}Applying migration 37 (paused order controls) & 38 (bulk submissions schema)...${NC}"
+    sudo -u postgres psql -d "${DB_NAME}" -f "$APP_DIR/apps/backend/src/infrastructure/database/migrations/00000000000037_add_paused_order_controls_and_status.sql" || true
+    sudo -u postgres psql -d "${DB_NAME}" -f "$APP_DIR/apps/backend/src/infrastructure/database/migrations/00000000000038_reconcile_bulk_submissions_schema.sql" || true
     echo -e "${CYAN}Applying any missing migrations via application CLI...${NC}"
     npm run migrate:up -w @bytebeacon/backend || true
 fi
