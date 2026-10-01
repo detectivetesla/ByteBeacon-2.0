@@ -1122,6 +1122,16 @@ export class BulkOrderService {
     try {
       await client.query('BEGIN');
 
+      // Ensure missing columns on orders table exist (self-healing migration)
+      await client.query(`
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ NULL;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(50) NULL;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT NULL;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(100);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+      `).catch(() => {});
+
       const submissionPublicId = `sub_${crypto.randomBytes(12).toString('hex')}`;
       const submissionRef = `BLK-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
 
@@ -1418,8 +1428,25 @@ export class BulkOrderService {
       }
 
       return bulkResult;
-    } catch (err) {
+    } catch (err: any) {
       await client.query('ROLLBACK');
+      if (err?.code) {
+        if (err.code === '42703') {
+          throw new BadRequestError(`Database schema mismatch (missing column): ${err.message || 'Unknown column'}`);
+        }
+        if (err.code === '42P01') {
+          throw new BadRequestError(`Database table missing: ${err.message || 'Unknown table'}`);
+        }
+        if (err.code === '23503') {
+          throw new BadRequestError(`Invalid reference: foreign key violation (${err.detail || err.message})`);
+        }
+        if (err.code === '23505') {
+          throw new BadRequestError(`Duplicate transaction detected (${err.detail || err.message})`);
+        }
+        if (err.code === '23514') {
+          throw new BadRequestError(`Constraint violation: ${err.detail || err.message}`);
+        }
+      }
       throw err;
     } finally {
       client.release();

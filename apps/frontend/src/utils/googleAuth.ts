@@ -47,9 +47,10 @@ export async function loadGoogleScript(): Promise<void> {
 export async function promptGoogleSignIn(): Promise<LoginResponse> {
   await loadGoogleScript();
 
-  const clientId =
-    (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID ||
-    '1088713214589-bytebeacon.apps.googleusercontent.com';
+  const clientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID;
+  if (!clientId || clientId.includes('bytebeacon.apps.googleusercontent.com') || clientId === 'your-google-client-id') {
+    throw new Error('Google Sign-In is not configured yet. Please configure VITE_GOOGLE_CLIENT_ID in your frontend .env file.');
+  }
 
   return new Promise((resolve, reject) => {
     if (!window.google?.accounts?.oauth2) {
