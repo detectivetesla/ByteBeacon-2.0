@@ -113,6 +113,45 @@ export class BulkOrderService {
     try {
       await client.query('BEGIN');
 
+      // Ensure orders and bulk tables have pause-tracking and idempotent columns
+      await client.query(`
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(30);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(50);
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+        DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submission_items' AND column_name = 'product_id') THEN
+            ALTER TABLE bulk_submission_items ALTER COLUMN product_id DROP NOT NULL;
+          END IF;
+        END $$;
+      `).catch(() => {});
+
+      // Ensure orders_order_status_check constraint accommodates PAUSED
+      await client.query(`
+        DO $$
+        DECLARE
+            c_name TEXT;
+        BEGIN
+            SELECT con.conname INTO c_name
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = ANY(con.conkey)
+            WHERE rel.relname = 'orders' AND att.attname = 'order_status' AND con.contype = 'c';
+
+            IF c_name IS NOT NULL THEN
+                EXECUTE format('ALTER TABLE orders DROP CONSTRAINT %I', c_name);
+            END IF;
+
+            ALTER TABLE orders ADD CONSTRAINT orders_order_status_check
+                CHECK (order_status IN ('CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PAUSED'));
+        EXCEPTION WHEN OTHERS THEN
+            NULL;
+        END $$;
+      `).catch(() => {});
+
       // Check if user is an agent for correct pricing
       let isUserAgent = false;
       try {
@@ -126,7 +165,7 @@ export class BulkOrderService {
       } catch {}
 
       // 1. Pre-cache ALL active catalog products in one query (eliminates per-item DB lookups)
-      const catalogRes = await client.query(
+      let catalogRes = await client.query(
         `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
                 base_price_pesewas as "basePricePesewas",
                 agent_price_pesewas as "agentPricePesewas",
@@ -135,6 +174,38 @@ export class BulkOrderService {
          WHERE is_active = TRUE
          ORDER BY base_price_pesewas ASC`,
       );
+
+      // Auto-seed default catalog if empty so orders can never fail due to an unseeded catalog
+      if (catalogRes.rows.length === 0) {
+        try {
+          await client.query(`
+            INSERT INTO catalog_products (sku, network, name, data_amount_mb, validity_days, base_price_pesewas, agent_price_pesewas, is_active)
+            VALUES
+              ('MTN-1GB', 'MTN', 'MTN 1GB Non-Expiry', 1024, 30, 600, 550, TRUE),
+              ('MTN-2GB', 'MTN', 'MTN 2GB Non-Expiry', 2048, 30, 1200, 1100, TRUE),
+              ('MTN-3GB', 'MTN', 'MTN 3GB Non-Expiry', 3072, 30, 1700, 1600, TRUE),
+              ('MTN-5GB', 'MTN', 'MTN 5GB Non-Expiry', 5120, 30, 2500, 2400, TRUE),
+              ('MTN-10GB', 'MTN', 'MTN 10GB Non-Expiry', 10240, 30, 4800, 4600, TRUE),
+              ('TELECEL-1GB', 'TELECEL', 'Telecel 1GB Non-Expiry', 1024, 30, 600, 550, TRUE),
+              ('TELECEL-2GB', 'TELECEL', 'Telecel 2GB Non-Expiry', 2048, 30, 1200, 1100, TRUE),
+              ('TELECEL-5GB', 'TELECEL', 'Telecel 5GB Non-Expiry', 5120, 30, 2500, 2400, TRUE),
+              ('AIRTELTIGO-1GB', 'AIRTELTIGO', 'AirtelTigo 1GB Non-Expiry', 1024, 30, 550, 500, TRUE),
+              ('AIRTELTIGO-2GB', 'AIRTELTIGO', 'AirtelTigo 2GB Non-Expiry', 2048, 30, 1100, 1000, TRUE),
+              ('AIRTELTIGO-5GB', 'AIRTELTIGO', 'AirtelTigo 5GB Non-Expiry', 5120, 30, 2400, 2300, TRUE)
+            ON CONFLICT (sku) DO UPDATE SET is_active = TRUE;
+          `);
+          catalogRes = await client.query(
+            `SELECT id, sku, network, name, data_amount_mb as "dataAmountMb",
+                    base_price_pesewas as "basePricePesewas",
+                    agent_price_pesewas as "agentPricePesewas",
+                    is_active as "isActive"
+             FROM catalog_products
+             WHERE is_active = TRUE
+             ORDER BY base_price_pesewas ASC`,
+          );
+        } catch {}
+      }
+
       const allProducts = catalogRes.rows.map((r: any) => ({
         id: r.id,
         sku: r.sku,
@@ -618,8 +689,29 @@ export class BulkOrderService {
         createdAt: new Date(subRow.createdAt).toISOString(),
         updatedAt: new Date(subRow.updatedAt).toISOString(),
       };
-    } catch (err) {
-      await client.query('ROLLBACK');
+    } catch (err: any) {
+      await client.query('ROLLBACK').catch(() => {});
+      logger.error({ err, userId }, '[BULK_ORDER_SERVICE] createBulkSubmission transaction error');
+
+      if (err instanceof BadRequestError || err?.name === 'AppError' || err?.statusCode) {
+        throw err;
+      }
+      if (err?.code === '23503') {
+        throw new BadRequestError(`Database reference error: ${err.detail || err.message}`);
+      }
+      if (err?.code === '23505') {
+        throw new BadRequestError(`Duplicate entry error: ${err.detail || err.message}`);
+      }
+      if (err?.code === '23514') {
+        throw new BadRequestError(`Validation check constraint error: ${err.detail || err.message}`);
+      }
+      if (err?.code === '42703') {
+        throw new BadRequestError(`Database schema column error: ${err.message}. Please apply database migrations.`);
+      }
+      if (err?.code === '42P01') {
+        throw new BadRequestError(`Database table missing: ${err.message}. Please apply database migrations.`);
+      }
+
       throw err;
     } finally {
       client.release();

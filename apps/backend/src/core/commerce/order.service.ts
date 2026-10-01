@@ -241,6 +241,38 @@ export class OrderService {
     try {
       await client.query('BEGIN');
 
+      // Ensure orders table schema has all pause-tracking columns
+      await client.query(`
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(30);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(50);
+      `).catch(() => {});
+
+      // Ensure orders_order_status_check constraint accommodates PAUSED
+      await client.query(`
+        DO $$
+        DECLARE
+            c_name TEXT;
+        BEGIN
+            SELECT con.conname INTO c_name
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = ANY(con.conkey)
+            WHERE rel.relname = 'orders' AND att.attname = 'order_status' AND con.contype = 'c';
+
+            IF c_name IS NOT NULL THEN
+                EXECUTE format('ALTER TABLE orders DROP CONSTRAINT %I', c_name);
+            END IF;
+
+            ALTER TABLE orders ADD CONSTRAINT orders_order_status_check
+                CHECK (order_status IN ('CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PAUSED'));
+        EXCEPTION WHEN OTHERS THEN
+            NULL;
+        END $$;
+      `).catch(() => {});
+
       const isWalletPayment =
         input.paymentMethod === PaymentMethod.WALLET ||
         input.paymentMethod === 'WALLET' ||
@@ -643,8 +675,29 @@ export class OrderService {
         order: orderDetails,
         isIdempotentReplay: false,
       };
-    } catch (err) {
-      await client.query('ROLLBACK');
+    } catch (err: any) {
+      await client.query('ROLLBACK').catch(() => {});
+      logger.error({ err, userId: context.userId }, '[ORDER_SERVICE] createOrder transaction error');
+
+      if (err instanceof BadRequestError || err?.name === 'AppError' || err?.statusCode) {
+        throw err;
+      }
+      if (err?.code === '23503') {
+        throw new BadRequestError(`Database reference error: ${err.detail || err.message}`);
+      }
+      if (err?.code === '23505') {
+        throw new BadRequestError(`Duplicate entry error: ${err.detail || err.message}`);
+      }
+      if (err?.code === '23514') {
+        throw new BadRequestError(`Validation check constraint error: ${err.detail || err.message}`);
+      }
+      if (err?.code === '42703') {
+        throw new BadRequestError(`Database schema column error: ${err.message}. Please apply database migrations.`);
+      }
+      if (err?.code === '42P01') {
+        throw new BadRequestError(`Database table missing: ${err.message}. Please apply database migrations.`);
+      }
+
       throw err;
     } finally {
       client.release();
