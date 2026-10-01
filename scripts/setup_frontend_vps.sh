@@ -125,12 +125,16 @@ cat << 'EOF' > "$APISOLUTIONS_CONF"
 server {
     listen 80;
     listen [::]:80;
-    server_name apisolutions.store www.apisolutions.store *.apisolutions.store;
+    server_name apisolutions.store www.apisolutions.store;
+
+    # If SSL cert exists, redirect HTTP to HTTPS
+    if (-f /etc/letsencrypt/live/apisolutions.store/fullchain.pem) {
+        return 301 https://$host$request_uri;
+    }
 
     root /var/www/bytebeacon/apps/frontend/dist;
     index apisolutions.html;
 
-    # Gzip compression
     gzip on;
     gzip_vary on;
     gzip_min_length 1024;
@@ -138,26 +142,64 @@ server {
     gzip_comp_level 6;
     gzip_types text/plain text/css text/xml application/json application/javascript application/xml+rss image/svg+xml;
 
-    # Immutable caching for hashed assets
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
         access_log off;
     }
 
-    # Static assets
     location ~* \.(?:ico|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|eot)$ {
         expires 30d;
         add_header Cache-Control "public, max-age=2592000";
         access_log off;
     }
 
-    # SPA routing for storefront
     location / {
         try_files $uri $uri/ /apisolutions.html;
     }
 
-    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+}
+
+# HTTPS server block if SSL cert exists
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name apisolutions.store www.apisolutions.store;
+
+    ssl_certificate /etc/letsencrypt/live/apisolutions.store/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/apisolutions.store/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    root /var/www/bytebeacon/apps/frontend/dist;
+    index apisolutions.html;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml application/json application/javascript application/xml+rss image/svg+xml;
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    location ~* \.(?:ico|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|eot)$ {
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000";
+        access_log off;
+    }
+
+    location / {
+        try_files $uri $uri/ /apisolutions.html;
+    }
+
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
