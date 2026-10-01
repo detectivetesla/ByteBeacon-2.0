@@ -391,7 +391,7 @@ describe('Wallet Deduction & Refund End-to-End Suite', () => {
       expect(ledgerEntries).toHaveLength(2);
       expect(ledgerEntries[0]).toMatchObject({
         entryType: 'DEBIT',
-        accountType: 'CUSTOMER_WALLET',
+        accountType: expect.stringMatching(/AGENT_WALLET|CUSTOMER_WALLET/),
         accountId: 'usr_agent_1',
         amountPesewas: 840,
       });

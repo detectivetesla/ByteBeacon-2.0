@@ -100,14 +100,41 @@ export async function refundRoutes(
     const role = req.user!.role as UserRole;
     const isAdmin = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
 
-    // Check if user is an agent
+    // Self-heal table schema if columns are absent
+    try {
+      await deps.db.query(`
+        ALTER TABLE refunds ADD COLUMN IF NOT EXISTS public_id VARCHAR(64);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_status VARCHAR(30) DEFAULT 'NONE';
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'PENDING';
+      `);
+    } catch (e: any) {
+      req.log.warn({ err: e?.message }, '[REFUND_SCHEMA] Schema self-heal notice (non-fatal)');
+    }
+
+    // Resolve agent identity and associated store IDs
     let agentId: string | null = null;
+    let storeIds: string[] = [];
     if (!isAdmin) {
       const agentRes = await deps.db
-        .query('SELECT id FROM agents WHERE user_id = $1 LIMIT 1', [userId])
+        .query(
+          `SELECT id::text, user_id::text FROM agents WHERE user_id::text = $1 OR id::text = $1 LIMIT 1`,
+          [userId],
+        )
         .catch(() => ({ rows: [] }));
+
       if (agentRes.rows.length > 0) {
         agentId = agentRes.rows[0].id;
+        const linkedUserId = agentRes.rows[0].user_id;
+
+        const storesRes = await deps.db
+          .query(
+            `SELECT id::text FROM stores WHERE agent_id::text = $1 OR user_id::text = $1 OR user_id::text = $2`,
+            [agentId, linkedUserId || userId],
+          )
+          .catch(() => ({ rows: [] }));
+
+        storeIds = (storesRes.rows || []).map((s: any) => s.id);
       }
     }
 
@@ -119,10 +146,15 @@ export async function refundRoutes(
       userFilterSql = '1=1';
       queryParams = [];
     } else if (agentId) {
-      userFilterSql = '(o.agent_id = $1 OR o.user_id = $2)';
       queryParams = [agentId, userId];
+      if (storeIds.length > 0) {
+        queryParams.push(storeIds);
+        userFilterSql = `(o.agent_id::text = $1 OR o.user_id::text = $2 OR o.store_id::text = ANY($3::text[]))`;
+      } else {
+        userFilterSql = `(o.agent_id::text = $1 OR o.user_id::text = $2)`;
+      }
     } else {
-      userFilterSql = 'o.user_id = $1';
+      userFilterSql = `o.user_id::text = $1`;
       queryParams = [userId];
     }
 
@@ -154,7 +186,13 @@ export async function refundRoutes(
           COALESCE(o.public_id, 'ord_' || substr(md5(o.id::text), 1, 14)) as "orderPublicId",
           o.amount_pesewas as "amountPesewas",
           COALESCE(o.failure_reason, 'Automated order failure refund') as reason,
-          'COMPLETED' as status,
+          CASE
+            WHEN UPPER(COALESCE(o.refund_status, '')) IN ('COMPLETED', 'REFUNDED') OR UPPER(COALESCE(o.payment_status, '')) = 'REFUNDED' THEN 'COMPLETED'
+            WHEN UPPER(COALESCE(o.refund_status, '')) IN ('PROCESSING') THEN 'PROCESSING'
+            WHEN UPPER(COALESCE(o.refund_status, '')) IN ('PENDING', 'REQUESTED') THEN 'PENDING'
+            WHEN UPPER(COALESCE(o.order_status, '')) = 'FAILED' AND UPPER(COALESCE(o.payment_status, '')) IN ('PAID', 'SUCCESS', 'COMPLETED') THEN 'PENDING'
+            ELSE 'COMPLETED'
+          END as status,
           o.updated_at as "requestedAt",
           o.updated_at as "processedAt",
           COALESCE(p.payment_method, 'WALLET') as "paymentMethod",
@@ -162,7 +200,11 @@ export async function refundRoutes(
         FROM orders o
         LEFT JOIN payments p ON p.order_id = o.id
         WHERE ${userFilterSql}
-          AND (o.refund_status = 'COMPLETED' OR o.payment_status = 'REFUNDED')
+          AND (
+            UPPER(COALESCE(o.refund_status, '')) IN ('COMPLETED', 'REFUNDED', 'PENDING', 'PROCESSING', 'REQUESTED')
+            OR UPPER(COALESCE(o.payment_status, '')) = 'REFUNDED'
+            OR (UPPER(COALESCE(o.order_status, '')) = 'FAILED' AND UPPER(COALESCE(o.payment_status, '')) IN ('PAID', 'SUCCESS', 'COMPLETED'))
+          )
           AND NOT EXISTS (SELECT 1 FROM refunds r WHERE r.order_id = o.id)
       )
       SELECT DISTINCT ON ("publicId") *
@@ -243,20 +285,10 @@ export async function refundRoutes(
     });
   };
 
-  app.get(
-    '/payments/refunds',
-    {
-      preHandler: [authHooks.authenticate],
-    },
-    getRefundsHandler,
-  );
-
-  app.get(
-    '/refunds',
-    {
-      preHandler: [authHooks.authenticate],
-    },
-    getRefundsHandler,
-  );
+  app.get('/payments/refunds', { preHandler: [authHooks.authenticate] }, getRefundsHandler);
+  app.get('/refunds', { preHandler: [authHooks.authenticate] }, getRefundsHandler);
+  app.get('/agent/refunds', { preHandler: [authHooks.authenticate] }, getRefundsHandler);
+  app.get('/agents/refunds', { preHandler: [authHooks.authenticate] }, getRefundsHandler);
+  app.get('/agent/refund-reports', { preHandler: [authHooks.authenticate] }, getRefundsHandler);
 }
 

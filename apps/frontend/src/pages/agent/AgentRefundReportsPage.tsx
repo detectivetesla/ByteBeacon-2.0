@@ -86,6 +86,41 @@ export const PaymentMethodBadge: React.FC<{ method: PaymentMethod }> = ({ method
   );
 };
 
+export const normalizeRefundStatus = (status?: string): RefundStatus => {
+  const s = String(status || '').trim().toUpperCase();
+  if (s === 'PENDING' || s === 'REQUESTED') return 'Pending';
+  if (s === 'PROCESSING') return 'Processing';
+  if (s === 'FAILED') return 'Failed';
+  if (s === 'REJECTED') return 'Rejected';
+  return 'Completed';
+};
+
+export const normalizePaymentMethod = (method?: string): PaymentMethod => {
+  const m = String(method || '').trim().toUpperCase();
+  if (m.includes('PAYSTACK')) return 'Paystack';
+  if (m.includes('MOMO') || m.includes('MOBILE') || m.includes('HUBTEL') || m.includes('MTN') || m.includes('TELECEL') || m.includes('AIRTEL')) return 'Mobile Money';
+  if (m.includes('CARD') || m.includes('VISA') || m.includes('MASTERCARD')) return 'Card';
+  if (m.includes('BANK')) return 'Bank Transfer';
+  return 'Wallet';
+};
+
+export const formatDate = (isoStr?: string): string => {
+  if (!isoStr) return '—';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return isoStr;
+  }
+};
+
 export const AgentRefundReportsPage: React.FC = () => {
   const navigate = useNavigate();
   const { toastSuccess, toastInfo, toastError } = useToast();
@@ -94,7 +129,7 @@ export const AgentRefundReportsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [paymentFilter, setPaymentFilter] = useState<string>('ALL');
-  const [dateFilter, setDateFilter] = useState<string>('30d');
+  const [dateFilter, setDateFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(8);
 
@@ -109,16 +144,57 @@ export const AgentRefundReportsPage: React.FC = () => {
   const fetchRefunds = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const data: any = await apiClient.get('/payments/refunds');
-      if (Array.isArray(data)) {
-        setRefunds(data);
-      } else if (Array.isArray(data?.data)) {
-        setRefunds(data.data);
-      } else if (Array.isArray(data?.refunds)) {
-        setRefunds(data.refunds);
-      } else {
-        setRefunds([]);
+      let data: any;
+      try {
+        data = await apiClient.get('/payments/refunds');
+      } catch {
+        try {
+          data = await apiClient.get('/agent/refunds');
+        } catch {
+          data = await apiClient.get('/refunds');
+        }
       }
+
+      const rawList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.refunds)
+        ? data.refunds
+        : Array.isArray(data?.items)
+        ? data.items
+        : [];
+
+      const parsed: RefundRecord[] = rawList.map((item: any) => {
+        const status = normalizeRefundStatus(item.status);
+        const paymentMethod = normalizePaymentMethod(item.paymentMethod || item.paymentProvider);
+        const amountPesewas = Number(item.amountPesewas || item.amount || 0);
+        const reqDate = item.requestedAt ? new Date(item.requestedAt) : (item.createdAt ? new Date(item.createdAt) : new Date());
+        const procDate = item.processedAt ? new Date(item.processedAt) : (item.updatedAt ? new Date(item.updatedAt) : reqDate);
+        const timeStr = !isNaN(reqDate.getTime()) ? reqDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now';
+        const procTimeStr = !isNaN(procDate.getTime()) ? procDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : timeStr;
+
+        return {
+          id: String(item.id || item.publicId || ''),
+          orderId: String(item.orderId || item.orderPublicId || ''),
+          amountPesewas,
+          paymentMethod,
+          reason: item.reason || 'Automated fulfillment failure refund',
+          status,
+          requestedAt: !isNaN(reqDate.getTime()) ? reqDate.toISOString() : new Date().toISOString(),
+          processedAt: !isNaN(procDate.getTime()) ? procDate.toISOString() : new Date().toISOString(),
+          rawDate: !isNaN(reqDate.getTime()) ? reqDate.toISOString() : new Date().toISOString(),
+          timeline: Array.isArray(item.timeline) && item.timeline.length > 0
+            ? item.timeline
+            : [
+                { stage: 'Order Failed & Refund Requested', time: timeStr, completed: true },
+                { stage: 'Automated Refund Engine Processing', time: timeStr, completed: true },
+                { stage: 'Wallet Credited Successfully', time: procTimeStr, completed: status === 'Completed' },
+              ],
+        };
+      });
+
+      setRefunds(parsed);
     } catch {
       setRefunds([]);
     } finally {
@@ -143,12 +219,11 @@ export const AgentRefundReportsPage: React.FC = () => {
     toastSuccess('Refunds Synchronized', 'Latest refund data reloaded.');
   };
 
-
   const clearFilters = () => {
     setSearchQuery('');
     setStatusFilter('ALL');
     setPaymentFilter('ALL');
-    setDateFilter('30d');
+    setDateFilter('all');
     setCurrentPage(1);
   };
 
@@ -165,8 +240,14 @@ export const AgentRefundReportsPage: React.FC = () => {
           if (dateFilter === 'today') {
             const startOfToday = new Date().setHours(0, 0, 0, 0);
             if (itemTime < startOfToday) return false;
+          } else if (dateFilter === 'yesterday') {
+            const startOfYesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).setHours(0, 0, 0, 0);
+            const endOfYesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).setHours(23, 59, 59, 999);
+            if (itemTime < startOfYesterday || itemTime > endOfYesterday) return false;
           } else if (dateFilter === '7d') {
             if (now - itemTime > 7 * 24 * 60 * 60 * 1000) return false;
+          } else if (dateFilter === '14d') {
+            if (now - itemTime > 14 * 24 * 60 * 60 * 1000) return false;
           } else if (dateFilter === '30d') {
             if (now - itemTime > 30 * 24 * 60 * 60 * 1000) return false;
           } else if (dateFilter === '90d') {
@@ -216,7 +297,7 @@ export const AgentRefundReportsPage: React.FC = () => {
           r.paymentMethod,
           r.reason,
           r.status,
-          r.requestedAt,
+          formatDate(r.requestedAt),
         ]),
       });
       toastSuccess('Export Complete', `Exported ${filteredRefunds.length} refund records.`);
@@ -463,7 +544,7 @@ export const AgentRefundReportsPage: React.FC = () => {
                         <RefundStatusBadge status={refund.status} size="sm" />
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-2xs)' }}>
-                        {refund.requestedAt}
+                        {formatDate(refund.requestedAt)}
                       </td>
                       <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                         <Button
@@ -662,12 +743,12 @@ export const AgentRefundReportsPage: React.FC = () => {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)' }}>
                 <span style={{ color: 'var(--color-text-secondary)' }}>Requested:</span>
-                <span style={{ color: 'var(--color-text-muted)' }}>{selectedRefund.requestedAt}</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>{formatDate(selectedRefund.requestedAt)}</span>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)' }}>
                 <span style={{ color: 'var(--color-text-secondary)' }}>Processed:</span>
-                <span style={{ color: 'var(--color-text-muted)' }}>{selectedRefund.processedAt}</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>{formatDate(selectedRefund.processedAt)}</span>
               </div>
             </div>
 
