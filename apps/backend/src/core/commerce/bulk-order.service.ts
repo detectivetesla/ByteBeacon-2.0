@@ -113,9 +113,21 @@ export class BulkOrderService {
     try {
       await client.query('BEGIN');
 
-      // Ensure bulk_submissions, bulk_submission_items, and orders tables have all required columns
-      await client.query(`
-        -- 1. Ensure bulk_submissions table exists
+      // ─── Self-healing DDL: each statement gets its own SAVEPOINT so a single
+      //     failure does NOT abort the entire transaction (PostgreSQL behaviour).
+      const safeDDL = async (label: string, sql: string) => {
+        try {
+          await client.query(`SAVEPOINT ${label}`);
+          await client.query(sql);
+          await client.query(`RELEASE SAVEPOINT ${label}`);
+        } catch (ddlErr: any) {
+          await client.query(`ROLLBACK TO SAVEPOINT ${label}`).catch(() => {});
+          logger.warn({ err: ddlErr?.message, label }, '[BULK_ORDER_SERVICE] DDL self-heal skipped');
+        }
+      };
+
+      // 1. Ensure bulk_submissions table exists
+      await safeDDL('ddl_bs_create', `
         CREATE TABLE IF NOT EXISTS bulk_submissions (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           user_id UUID NOT NULL,
@@ -129,9 +141,11 @@ export class BulkOrderService {
           idempotency_key VARCHAR(255),
           created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
+        )
+      `);
 
-        -- 2. Rename legacy columns if present
+      // 2. Rename legacy columns if present
+      await safeDDL('ddl_bs_rename', `
         DO $$
         BEGIN
           IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'title')
@@ -142,9 +156,11 @@ export class BulkOrderService {
              AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'name') THEN
               ALTER TABLE bulk_submissions RENAME COLUMN batch_name TO name;
           END IF;
-        END $$;
+        END $$
+      `);
 
-        -- 3. Ensure all bulk_submissions columns exist
+      // 3. Ensure all bulk_submissions columns exist
+      await safeDDL('ddl_bs_cols', `
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS name VARCHAR(255) NOT NULL DEFAULT 'Bulk Order';
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS total_count INT NOT NULL DEFAULT 0;
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS processed_count INT NOT NULL DEFAULT 0;
@@ -154,17 +170,21 @@ export class BulkOrderService {
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING';
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
-        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      `);
 
-        -- 4. Ensure orders table pause-tracking and idempotent columns exist
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
+      // 4. Ensure orders table pause-tracking and idempotent columns exist
+      await safeDDL('ddl_ord_cols', `
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN DEFAULT FALSE;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(50);
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(100);
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255)
+      `);
 
-        -- 5. Ensure bulk_submission_items table and columns exist
+      // 5. Ensure bulk_submission_items table exists
+      await safeDDL('ddl_bsi_create', `
         CREATE TABLE IF NOT EXISTS bulk_submission_items (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           submission_id UUID NOT NULL,
@@ -176,26 +196,57 @@ export class BulkOrderService {
           error_message TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
+        )
+      `);
 
+      // 6. Ensure bulk_submission_items columns exist
+      await safeDDL('ddl_bsi_cols', `
         ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS submission_id UUID;
         ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS order_id UUID;
-        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(30) NOT NULL DEFAULT '';
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS recipient_phone VARCHAR(30) DEFAULT '';
         ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS product_id UUID;
-        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT NOT NULL DEFAULT 0;
-        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'CREATED';
-        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS error_message TEXT;
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS amount_pesewas BIGINT DEFAULT 0;
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'CREATED';
+        ALTER TABLE bulk_submission_items ADD COLUMN IF NOT EXISTS error_message TEXT
+      `);
 
+      // 7. Drop NOT NULL from product_id if needed
+      await safeDDL('ddl_bsi_null', `
         DO $$
         BEGIN
           IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submission_items' AND column_name = 'product_id') THEN
             ALTER TABLE bulk_submission_items ALTER COLUMN product_id DROP NOT NULL;
           END IF;
-        END $$;
-      `).catch(() => {});
+        END $$
+      `);
 
-      // Ensure orders_order_status_check constraint accommodates PAUSED
-      await client.query(`
+      // 8. Ensure order_items table exists (needed for batch inserts below)
+      await safeDDL('ddl_oi_create', `
+        CREATE TABLE IF NOT EXISTS order_items (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          order_id UUID NOT NULL,
+          product_id UUID,
+          quantity INT NOT NULL DEFAULT 1,
+          unit_price_pesewas BIGINT NOT NULL DEFAULT 0,
+          total_pesewas BIGINT NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // 9. Ensure provider_orders table exists (needed for batch inserts below)
+      await safeDDL('ddl_po_create', `
+        CREATE TABLE IF NOT EXISTS provider_orders (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          order_id UUID NOT NULL,
+          provider_name VARCHAR(100) NOT NULL DEFAULT '',
+          provider_reference VARCHAR(255),
+          provider_status VARCHAR(30) NOT NULL DEFAULT 'UNKNOWN',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // 10. Ensure orders_order_status_check constraint accommodates PAUSED
+      await safeDDL('ddl_ord_chk', `
         DO $$
         DECLARE
             c_name TEXT;
@@ -214,8 +265,8 @@ export class BulkOrderService {
                 CHECK (order_status IN ('CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PAUSED'));
         EXCEPTION WHEN OTHERS THEN
             NULL;
-        END $$;
-      `).catch(() => {});
+        END $$
+      `);
 
       // Check if user is an agent for correct pricing
       let isUserAgent = false;
@@ -777,6 +828,20 @@ export class BulkOrderService {
         throw new BadRequestError(`Database table missing: ${err.message}. Please apply database migrations.`);
       }
 
+      // Catch any remaining PostgreSQL errors with a code
+      if (err?.code && typeof err.code === 'string' && /^[0-9A-Z]{5}$/.test(err.code)) {
+        throw new BadRequestError(
+          `Database error [${err.code}]: ${err.message}${err.detail ? ' — ' + err.detail : ''}. Please contact support.`,
+        );
+      }
+
+      // Catch "current transaction is aborted" (happens when a prior statement failed)
+      if (err?.message?.includes('current transaction is aborted')) {
+        throw new BadRequestError(
+          'A database schema issue prevented the order. Please contact support or retry.',
+        );
+      }
+
       throw err;
     } finally {
       client.release();
@@ -1187,9 +1252,20 @@ export class BulkOrderService {
     try {
       await client.query('BEGIN');
 
-      // Ensure missing columns on bulk_submissions, bulk_submission_items, and orders exist (self-healing migration)
-      await client.query(`
-        -- 1. Ensure bulk_submissions table exists
+      // ─── Self-healing DDL: each statement gets its own SAVEPOINT so a single
+      //     failure does NOT abort the entire transaction (PostgreSQL behaviour).
+      const safeDDL = async (label: string, sql: string) => {
+        try {
+          await client.query(`SAVEPOINT ${label}`);
+          await client.query(sql);
+          await client.query(`RELEASE SAVEPOINT ${label}`);
+        } catch (ddlErr: any) {
+          await client.query(`ROLLBACK TO SAVEPOINT ${label}`).catch(() => {});
+          logger.warn({ err: ddlErr?.message, label }, '[BULK_ORDER_SERVICE] Agent DDL self-heal skipped');
+        }
+      };
+
+      await safeDDL('ag_bs_create', `
         CREATE TABLE IF NOT EXISTS bulk_submissions (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           user_id UUID NOT NULL,
@@ -1203,9 +1279,10 @@ export class BulkOrderService {
           idempotency_key VARCHAR(255),
           created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
+        )
+      `);
 
-        -- 2. Rename legacy columns if present
+      await safeDDL('ag_bs_rename', `
         DO $$
         BEGIN
           IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'title')
@@ -1216,9 +1293,10 @@ export class BulkOrderService {
              AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bulk_submissions' AND column_name = 'name') THEN
               ALTER TABLE bulk_submissions RENAME COLUMN batch_name TO name;
           END IF;
-        END $$;
+        END $$
+      `);
 
-        -- 3. Ensure all bulk_submissions columns exist
+      await safeDDL('ag_bs_cols', `
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS name VARCHAR(255) NOT NULL DEFAULT 'Bulk Order';
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS total_count INT NOT NULL DEFAULT 0;
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS processed_count INT NOT NULL DEFAULT 0;
@@ -1228,16 +1306,17 @@ export class BulkOrderService {
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING';
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
         ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
-        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE bulk_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      `);
 
-        -- 4. Ensure orders table pause-tracking and idempotent columns exist
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ NULL;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(50) NULL;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT NULL;
+      await safeDDL('ag_ord_cols', `
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN DEFAULT FALSE;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(50);
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT;
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_id VARCHAR(100);
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
-      `).catch(() => {});
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255)
+      `);
 
       const submissionPublicId = `sub_${crypto.randomBytes(12).toString('hex')}`;
       const submissionRef = `BLK-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
@@ -1553,6 +1632,15 @@ export class BulkOrderService {
         if (err.code === '23514') {
           throw new BadRequestError(`Constraint violation: ${err.detail || err.message}`);
         }
+      }
+      // Catch any remaining PostgreSQL errors
+      if (err?.code && typeof err.code === 'string' && /^[0-9A-Z]{5}$/.test(err.code)) {
+        throw new BadRequestError(
+          `Database error [${err.code}]: ${err.message}${err.detail ? ' — ' + err.detail : ''}`,
+        );
+      }
+      if (err?.message?.includes('current transaction is aborted')) {
+        throw new BadRequestError('A database schema issue prevented the order. Please contact support or retry.');
       }
       throw err;
     } finally {
