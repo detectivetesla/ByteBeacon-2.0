@@ -158,6 +158,21 @@ export async function refundRoutes(
       queryParams = [userId];
     }
 
+    // Self-healing: ensure any refunds linked to orders that are already COMPLETED/REFUNDED are updated to COMPLETED in the database
+    await deps.db
+      .query(
+        `UPDATE refunds r
+         SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP
+         FROM orders o
+         WHERE r.order_id = o.id
+           AND UPPER(COALESCE(r.status, '')) IN ('PENDING', 'REQUESTED', 'PROCESSING', 'NONE')
+           AND (
+             UPPER(COALESCE(o.refund_status, '')) IN ('COMPLETED', 'REFUNDED')
+             OR UPPER(COALESCE(o.payment_status, '')) = 'REFUNDED'
+           )`,
+      )
+      .catch(() => {});
+
     const query = `
       WITH refund_entries AS (
         SELECT 
@@ -167,9 +182,16 @@ export async function refundRoutes(
           COALESCE(o.public_id, 'ord_' || substr(md5(o.id::text), 1, 14)) as "orderPublicId",
           r.amount_pesewas as "amountPesewas",
           COALESCE(r.reason, o.failure_reason, 'Automated order failure refund') as reason,
-          UPPER(COALESCE(r.status, 'COMPLETED')) as status,
+          CASE
+            WHEN UPPER(COALESCE(o.refund_status, '')) IN ('COMPLETED', 'REFUNDED') OR UPPER(COALESCE(o.payment_status, '')) = 'REFUNDED' THEN 'COMPLETED'
+            WHEN UPPER(COALESCE(r.status, '')) IN ('COMPLETED', 'REFUNDED') THEN 'COMPLETED'
+            WHEN UPPER(COALESCE(r.status, '')) IN ('PROCESSING') THEN 'PROCESSING'
+            WHEN UPPER(COALESCE(r.status, '')) IN ('FAILED') THEN 'FAILED'
+            WHEN UPPER(COALESCE(r.status, '')) IN ('REJECTED') THEN 'REJECTED'
+            ELSE 'COMPLETED'
+          END as status,
           r.created_at as "requestedAt",
-          r.updated_at as "processedAt",
+          COALESCE(r.updated_at, r.created_at) as "processedAt",
           COALESCE(p.payment_method, 'WALLET') as "paymentMethod",
           COALESCE(p.provider, 'WALLET') as "paymentProvider"
         FROM refunds r
@@ -189,8 +211,10 @@ export async function refundRoutes(
           CASE
             WHEN UPPER(COALESCE(o.refund_status, '')) IN ('COMPLETED', 'REFUNDED') OR UPPER(COALESCE(o.payment_status, '')) = 'REFUNDED' THEN 'COMPLETED'
             WHEN UPPER(COALESCE(o.refund_status, '')) IN ('PROCESSING') THEN 'PROCESSING'
+            WHEN UPPER(COALESCE(o.refund_status, '')) IN ('FAILED') THEN 'FAILED'
+            WHEN UPPER(COALESCE(o.refund_status, '')) IN ('REJECTED') THEN 'REJECTED'
+            WHEN UPPER(COALESCE(o.order_status, '')) = 'FAILED' THEN 'COMPLETED'
             WHEN UPPER(COALESCE(o.refund_status, '')) IN ('PENDING', 'REQUESTED') THEN 'PENDING'
-            WHEN UPPER(COALESCE(o.order_status, '')) = 'FAILED' AND UPPER(COALESCE(o.payment_status, '')) IN ('PAID', 'SUCCESS', 'COMPLETED') THEN 'PENDING'
             ELSE 'COMPLETED'
           END as status,
           o.updated_at as "requestedAt",
@@ -206,10 +230,22 @@ export async function refundRoutes(
             OR (UPPER(COALESCE(o.order_status, '')) = 'FAILED' AND UPPER(COALESCE(o.payment_status, '')) IN ('PAID', 'SUCCESS', 'COMPLETED'))
           )
           AND NOT EXISTS (SELECT 1 FROM refunds r WHERE r.order_id = o.id)
+      ),
+      deduped_refunds AS (
+        SELECT DISTINCT ON ("orderId") *
+        FROM refund_entries
+        ORDER BY "orderId",
+                 CASE 
+                   WHEN status = 'COMPLETED' THEN 1 
+                   WHEN status = 'PROCESSING' THEN 2 
+                   WHEN status = 'PENDING' THEN 3 
+                   ELSE 4 
+                 END ASC,
+                 "requestedAt" DESC
       )
-      SELECT DISTINCT ON ("publicId") *
-      FROM refund_entries
-      ORDER BY "publicId", "requestedAt" DESC
+      SELECT *
+      FROM deduped_refunds
+      ORDER BY "requestedAt" DESC
     `;
 
     const res = await deps.db.query(query, queryParams).catch((err) => {
@@ -242,14 +278,14 @@ export async function refundRoutes(
       // Map status
       let status: 'Pending' | 'Processing' | 'Completed' | 'Failed' | 'Rejected' = 'Completed';
       const rawStatus = String(row.status || '').toUpperCase();
-      if (rawStatus === 'PENDING' || rawStatus === 'REQUESTED') {
-        status = 'Pending';
-      } else if (rawStatus === 'PROCESSING') {
+      if (rawStatus === 'PROCESSING') {
         status = 'Processing';
       } else if (rawStatus === 'FAILED') {
         status = 'Failed';
       } else if (rawStatus === 'REJECTED') {
         status = 'Rejected';
+      } else if (rawStatus === 'PENDING' || rawStatus === 'REQUESTED') {
+        status = 'Pending';
       } else {
         status = 'Completed';
       }

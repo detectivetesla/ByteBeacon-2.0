@@ -562,67 +562,59 @@ export class RefundService {
       }
 
       // Check if already recorded in refunds table
-      if (paymentId) {
-        let existingRefund: any;
+      let existingRefundRecord: any = null;
+      if (paymentId || order.id) {
         await client.query('SAVEPOINT check_existing_refund');
         try {
-          existingRefund = await client.query(
-            `SELECT id, public_id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
-            [paymentId],
+          const existingRefund = await client.query(
+            `SELECT id, public_id, status, amount_pesewas FROM refunds WHERE order_id = $1 OR (payment_id = $2 AND payment_id IS NOT NULL) LIMIT 1`,
+            [order.id, paymentId],
           );
           await client.query('RELEASE SAVEPOINT check_existing_refund');
+          if (existingRefund && existingRefund.rows.length > 0) {
+            existingRefundRecord = existingRefund.rows[0];
+          }
         } catch {
           await client.query('ROLLBACK TO SAVEPOINT check_existing_refund');
-          existingRefund = await client.query(
-            `SELECT id, status, amount_pesewas FROM refunds WHERE payment_id = $1 AND status = 'COMPLETED'`,
-            [paymentId],
-          );
         }
 
-        if (existingRefund && existingRefund.rows.length > 0) {
+        if (existingRefundRecord && (existingRefundRecord.status === 'COMPLETED' || existingRefundRecord.status === RefundStatus.COMPLETED) && (order.refund_status === 'COMPLETED' || order.payment_status === 'REFUNDED')) {
           await client.query(
             `UPDATE orders SET refund_status = 'COMPLETED', payment_status = 'REFUNDED', order_status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
             [order.id],
           );
           await client.query('COMMIT');
-          return { success: true, alreadyRefunded: true };
+          return { success: true, alreadyRefunded: true, amountRefundedPesewas: Number(existingRefundRecord.amount_pesewas || order.amount_pesewas || 0) };
         }
       }
 
-      // 4. Create authoritative Refund record
-      const refundPublicId = `ref_${crypto.randomBytes(8).toString('hex')}`;
+      // 4. Create or update authoritative Refund record
+      const refundPublicId = existingRefundRecord?.public_id || `ref_${crypto.randomBytes(8).toString('hex')}`;
       const providerRefundRef = `pst_wal_rf_${crypto.randomBytes(6).toString('hex')}`;
 
-      let refundRecord: any;
-      await client.query('SAVEPOINT insert_refund');
-      try {
-        const refundRes = await client.query(
-          `INSERT INTO refunds (
-              public_id, payment_id, order_id, amount_pesewas, reason,
-              status, provider_refund_reference
-           ) VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6)
-           RETURNING id, public_id, created_at, updated_at`,
-          [
-            refundPublicId,
-            paymentId,
-            order.id,
-            amountPesewas,
-            reason,
-            providerRefundRef,
-          ],
-        );
-        await client.query('RELEASE SAVEPOINT insert_refund');
-        refundRecord = refundRes.rows[0];
-      } catch {
-        await client.query('ROLLBACK TO SAVEPOINT insert_refund');
+      let refundRecord: any = existingRefundRecord;
+
+      if (existingRefundRecord) {
+        // Upgrade existing refund record from PENDING/PROCESSING to COMPLETED
+        await client.query(
+          `UPDATE refunds SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [existingRefundRecord.id],
+        ).catch(() => {});
+        refundRecord = {
+          ...existingRefundRecord,
+          status: 'COMPLETED',
+        };
+      } else {
+        await client.query('SAVEPOINT insert_refund');
         try {
           const refundRes = await client.query(
             `INSERT INTO refunds (
-                payment_id, order_id, amount_pesewas, reason,
+                public_id, payment_id, order_id, amount_pesewas, reason,
                 status, provider_refund_reference
-             ) VALUES ($1, $2, $3, $4, 'COMPLETED', $5)
-             RETURNING id, created_at, updated_at`,
+             ) VALUES ($1, $2, $3, $4, $5, 'COMPLETED', $6)
+             RETURNING id, public_id, created_at, updated_at`,
             [
+              refundPublicId,
               paymentId,
               order.id,
               amountPesewas,
@@ -630,24 +622,50 @@ export class RefundService {
               providerRefundRef,
             ],
           );
-          refundRecord = {
-            ...refundRes.rows[0],
-            public_id: refundPublicId,
-          };
+          await client.query('RELEASE SAVEPOINT insert_refund');
+          refundRecord = refundRes.rows[0];
         } catch {
-          const refundRes = await client.query(
-            `INSERT INTO refunds (
-                order_id, amount_pesewas, reason, status
-             ) VALUES ($1, $2, $3, 'COMPLETED')
-             RETURNING id, created_at, updated_at`,
-            [order.id, amountPesewas, reason],
-          );
-          refundRecord = {
-            ...refundRes.rows[0],
-            public_id: refundPublicId,
-          };
+          await client.query('ROLLBACK TO SAVEPOINT insert_refund');
+          try {
+            const refundRes = await client.query(
+              `INSERT INTO refunds (
+                  payment_id, order_id, amount_pesewas, reason,
+                  status, provider_refund_reference
+               ) VALUES ($1, $2, $3, $4, 'COMPLETED', $5)
+               RETURNING id, created_at, updated_at`,
+              [
+                paymentId,
+                order.id,
+                amountPesewas,
+                reason,
+                providerRefundRef,
+              ],
+            );
+            refundRecord = {
+              ...refundRes.rows[0],
+              public_id: refundPublicId,
+            };
+          } catch {
+            const refundRes = await client.query(
+              `INSERT INTO refunds (
+                  order_id, amount_pesewas, reason, status
+               ) VALUES ($1, $2, $3, 'COMPLETED')
+               RETURNING id, created_at, updated_at`,
+              [order.id, amountPesewas, reason],
+            );
+            refundRecord = {
+              ...refundRes.rows[0],
+              public_id: refundPublicId,
+            };
+          }
         }
       }
+
+      // Always ensure any other refund records for this order/payment are marked COMPLETED
+      await client.query(
+        `UPDATE refunds SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1 OR (payment_id = $2 AND payment_id IS NOT NULL)`,
+        [order.id, paymentId],
+      ).catch(() => {});
 
       // 5. Record Refund Event
       await client.query('SAVEPOINT refund_event');

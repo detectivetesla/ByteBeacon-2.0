@@ -88,10 +88,11 @@ export const PaymentMethodBadge: React.FC<{ method: PaymentMethod }> = ({ method
 
 export const normalizeRefundStatus = (status?: string): RefundStatus => {
   const s = String(status || '').trim().toUpperCase();
-  if (s === 'PENDING' || s === 'REQUESTED') return 'Pending';
+  if (s === 'COMPLETED' || s === 'REFUNDED' || s === 'SUCCESS') return 'Completed';
   if (s === 'PROCESSING') return 'Processing';
   if (s === 'FAILED') return 'Failed';
   if (s === 'REJECTED') return 'Rejected';
+  if (s === 'PENDING' || s === 'REQUESTED') return 'Pending';
   return 'Completed';
 };
 
@@ -166,7 +167,28 @@ export const AgentRefundReportsPage: React.FC = () => {
         : [];
 
       const parsed: RefundRecord[] = rawList.map((item: any) => {
-        const status = normalizeRefundStatus(item.status);
+        const rawStatus = String(item.status || '').trim().toUpperCase();
+        const rawRefundStatus = String(item.refundStatus || '').trim().toUpperCase();
+        const rawPaymentStatus = String(item.paymentStatus || '').trim().toUpperCase();
+        const rawReason = String(item.reason || '').toLowerCase();
+
+        // If the refund was completed, or payment refunded, or reason indicates successful automated refund
+        const isActuallyCompleted =
+          rawStatus === 'COMPLETED' ||
+          rawStatus === 'REFUNDED' ||
+          rawRefundStatus === 'COMPLETED' ||
+          rawRefundStatus === 'REFUNDED' ||
+          rawPaymentStatus === 'REFUNDED' ||
+          (rawStatus !== 'FAILED' && rawStatus !== 'REJECTED' && (
+            rawReason.includes('automated') ||
+            rawReason.includes('auto-refund') ||
+            rawReason.includes('wallet') ||
+            rawReason.includes('refunded') ||
+            rawReason.includes('failure refund') ||
+            rawReason.includes('provider rejected')
+          ));
+
+        const status: RefundStatus = isActuallyCompleted ? 'Completed' : normalizeRefundStatus(item.status);
         const paymentMethod = normalizePaymentMethod(item.paymentMethod || item.paymentProvider);
         const amountPesewas = Number(item.amountPesewas || item.amount || 0);
         const reqDate = item.requestedAt ? new Date(item.requestedAt) : (item.createdAt ? new Date(item.createdAt) : new Date());

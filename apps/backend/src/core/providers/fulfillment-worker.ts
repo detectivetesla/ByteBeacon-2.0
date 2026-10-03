@@ -981,6 +981,10 @@ export class FulfillmentWorker {
             [order.id, reason],
           );
           await client.query(
+            `UPDATE refunds SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1 OR (payment_id = $2 AND payment_id IS NOT NULL)`,
+            [order.id, paymentId],
+          ).catch(() => {});
+          await client.query(
             `UPDATE users
              SET wallet_balance_pesewas = COALESCE(wallet_balance_pesewas, 0) + $1,
                  wallet_balance = ROUND((COALESCE(wallet_balance_pesewas, 0) + $1) / 100.0, 2),
