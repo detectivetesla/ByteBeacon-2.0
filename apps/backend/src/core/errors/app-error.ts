@@ -168,6 +168,8 @@ export function errorHandler(
         message: sanitizeBackendVendorText(d.message),
       }));
     }
+  } else if (message === 'An unexpected error occurred. Please contact ByteBeacon support.') {
+    message = `Administrative action failed: ${error.message || 'Internal server error'}`;
   }
 
   reply.status(statusCode).send({

@@ -35,7 +35,7 @@ describe('Admin Orders: Manual Complete and Fail Actions', () => {
           });
         }
 
-        if (sql.includes('FROM orders o WHERE o.id = $1')) {
+        if (sql.includes('FROM orders o WHERE') || sql.includes('FROM orders WHERE')) {
           const id = params?.[0] || 'ord_test_001';
           return Promise.resolve({
             rows: [

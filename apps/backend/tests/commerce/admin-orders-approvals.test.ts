@@ -79,7 +79,7 @@ describe('Phase 11.5: Order & Pending Approval Administration Suite', () => {
           });
         }
 
-        if (sql.includes('FROM orders') && (sql.includes('WHERE id = $1') || sql.includes('WHERE o.id = $1'))) {
+        if (sql.includes('FROM orders') && sql.includes('$1') && !sql.includes('WITH unified_stats') && !sql.includes('WITH unified_approvals') && !sql.includes('WITH paginated_pending')) {
           return Promise.resolve({
             rows: [
               {
@@ -398,7 +398,7 @@ describe('Phase 11.5: Order & Pending Approval Administration Suite', () => {
           rows: [{ id: 'usr_admin_1', uuid: 'usr_admin_1', status: 'ACTIVE', role: UserRole.ADMIN }],
         });
       }
-      if (sql.includes('FROM orders WHERE id = $1')) {
+      if (sql.includes('FROM orders') && sql.includes('WHERE')) {
         return Promise.resolve({
           rows: [
             {
@@ -440,7 +440,7 @@ describe('Phase 11.5: Order & Pending Approval Administration Suite', () => {
           rows: [{ id: 'usr_admin_1', uuid: 'usr_admin_1', status: 'ACTIVE', role: UserRole.ADMIN }],
         });
       }
-      if (sql.includes('FROM orders WHERE id = $1')) {
+      if (sql.includes('FROM orders') && sql.includes('WHERE')) {
         return Promise.resolve({
           rows: [
             {

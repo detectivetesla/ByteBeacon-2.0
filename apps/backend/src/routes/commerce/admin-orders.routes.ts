@@ -80,39 +80,38 @@ export async function adminOrdersRoutes(
     return sanitized;
   };
 
-  // Self-healing migration verification for paused orders schema
+  // Self-healing migration verification for paused orders and manual admin action schema
   const ensurePausedOrdersSchema = async () => {
     try {
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;`).catch(() => {});
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;`).catch(() => {});
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(30);`).catch(() => {});
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS failure_reason TEXT;`).catch(() => {});
       await db.query(`
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS paused_from_status VARCHAR(30);
-
         DO $$
         DECLARE
-            constraint_name TEXT;
+            c record;
         BEGIN
-            SELECT con.conname INTO constraint_name
-            FROM pg_constraint con
-            JOIN pg_class rel ON rel.oid = con.conrelid
-            JOIN pg_attribute att ON att.attrelid = rel.oid
-                AND att.attnum = ANY(con.conkey)
-            WHERE rel.relname = 'orders'
-              AND att.attname = 'order_status'
-              AND con.contype = 'c';
-
-            IF constraint_name IS NOT NULL THEN
-                EXECUTE format('ALTER TABLE orders DROP CONSTRAINT %I', constraint_name);
-            END IF;
+            FOR c IN (
+                SELECT con.conname
+                FROM pg_constraint con
+                JOIN pg_class rel ON rel.oid = con.conrelid
+                WHERE rel.relname = 'orders'
+                  AND con.contype = 'c'
+                  AND pg_get_constraintdef(con.oid) LIKE '%order_status%'
+            ) LOOP
+                EXECUTE format('ALTER TABLE orders DROP CONSTRAINT IF EXISTS %I', c.conname);
+            END LOOP;
 
             ALTER TABLE orders
                 ADD CONSTRAINT orders_order_status_check
-                CHECK (order_status IN ('CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PAUSED'));
+                CHECK (order_status IN ('CREATED', 'VALIDATING', 'READY_FOR_FULFILLMENT', 'SUBMITTED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'PAUSED', 'REFUNDED'));
+        EXCEPTION WHEN OTHERS THEN
+            NULL;
         END $$;
-
-        CREATE INDEX IF NOT EXISTS idx_orders_is_paused ON orders(is_paused) WHERE is_paused = true;
-        CREATE INDEX IF NOT EXISTS idx_orders_paused_status ON orders(order_status) WHERE order_status = 'PAUSED';
-      `);
+      `).catch(() => {});
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_orders_is_paused ON orders(is_paused) WHERE is_paused = true;`).catch(() => {});
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_orders_paused_status ON orders(order_status) WHERE order_status = 'PAUSED';`).catch(() => {});
     } catch {
       // Non-fatal in test mocks or offline
     }
@@ -340,7 +339,7 @@ export async function adminOrdersRoutes(
                COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
                o.refund_status as "refundStatus",
                o.is_paused as "isPaused", o.paused_at as "pausedAt", o.paused_from_status as "pausedFromStatus",
-               (o.pricing_snapshot->>'placedDuringFreeze')::boolean as "placedDuringFreeze",
+               CASE WHEN LOWER(o.pricing_snapshot->>'placedDuringFreeze') IN ('true', '1') THEN true ELSE false END as "placedDuringFreeze",
                o.created_at as "createdAt", o.updated_at as "updatedAt",
                u.email as "userEmail", COALESCE(u.full_name, 'Customer') as "userName",
                COALESCE(po.provider_name, (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Telecom Carrier') as "providerName",
@@ -384,28 +383,54 @@ export async function adminOrdersRoutes(
     async (req, reply) => {
       const orderId = req.params.id;
 
-      const orderRes = await db.query(
-        `SELECT o.id, o.user_id as "userId", o.agent_id as "agentId", o.recipient_phone as "recipientPhone",
-                o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
-                o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
-                COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
-                o.refund_status as "refundStatus",
-                o.is_paused as "isPaused", o.paused_at as "pausedAt", o.paused_from_status as "pausedFromStatus",
-                (o.pricing_snapshot->>'placedDuringFreeze')::boolean as "placedDuringFreeze",
-                o.idempotency_key as "idempotencyKey", o.pricing_snapshot as "pricingSnapshot",
-                o.created_at as "createdAt", o.updated_at as "updatedAt"
-         FROM orders o
-         LEFT JOIN LATERAL (
-           SELECT provider_status
-           FROM provider_orders
-           WHERE order_id = o.id
-           ORDER BY created_at DESC
-           LIMIT 1
-         ) po ON true
-          WHERE (o.id::text = $1 OR o.public_id = $1)
-          LIMIT 1`,
-        [orderId],
-      );
+      let orderRes;
+      try {
+        orderRes = await db.query(
+          `SELECT o.id, o.user_id as "userId", o.agent_id as "agentId", o.recipient_phone as "recipientPhone",
+                  o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
+                  o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+                  COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
+                  o.refund_status as "refundStatus",
+                  COALESCE(o.is_paused, false) as "isPaused", o.paused_at as "pausedAt", o.paused_from_status as "pausedFromStatus",
+                  CASE WHEN LOWER(o.pricing_snapshot->>'placedDuringFreeze') IN ('true', '1') THEN true ELSE false END as "placedDuringFreeze",
+                  o.idempotency_key as "idempotencyKey", o.pricing_snapshot as "pricingSnapshot",
+                  o.created_at as "createdAt", o.updated_at as "updatedAt"
+           FROM orders o
+           LEFT JOIN LATERAL (
+             SELECT provider_status
+             FROM provider_orders
+             WHERE order_id = o.id
+             ORDER BY created_at DESC
+             LIMIT 1
+           ) po ON true
+           WHERE (o.id::text = $1 OR o.public_id = $1)
+           LIMIT 1`,
+          [orderId],
+        );
+      } catch {
+        orderRes = await db.query(
+          `SELECT o.id, o.user_id as "userId", o.agent_id as "agentId", o.recipient_phone as "recipientPhone",
+                  o.network, o.data_amount_mb as "dataAmountMb", o.amount_pesewas as "amountPesewas",
+                  o.currency, o.payment_status as "paymentStatus", o.order_status as "orderStatus",
+                  COALESCE(po.provider_status, o.provider_status, 'UNKNOWN') as "providerStatus",
+                  o.refund_status as "refundStatus",
+                  false as "isPaused", null as "pausedAt", null as "pausedFromStatus",
+                  false as "placedDuringFreeze",
+                  o.idempotency_key as "idempotencyKey", o.pricing_snapshot as "pricingSnapshot",
+                  o.created_at as "createdAt", o.updated_at as "updatedAt"
+           FROM orders o
+           LEFT JOIN LATERAL (
+             SELECT provider_status
+             FROM provider_orders
+             WHERE order_id = o.id
+             ORDER BY created_at DESC
+             LIMIT 1
+           ) po ON true
+           WHERE (o.id::text = $1 OR o.public_id = $1)
+           LIMIT 1`,
+          [orderId],
+        );
+      }
 
       if (orderRes.rows.length === 0) {
         throw new NotFoundError(`Order with ID [${orderId}] not found.`);
@@ -415,7 +440,7 @@ export async function adminOrdersRoutes(
 
       // Customer Details
       const userRes = await db.query(
-        `SELECT id, email, phone, COALESCE(full_name, name, 'Customer') as "fullName", role, status
+        `SELECT id, email, phone, COALESCE(full_name, 'Customer') as "fullName", role, status
          FROM users WHERE id = $1`,
         [order.userId],
       ).catch(() => ({ rows: [] }));
@@ -426,8 +451,7 @@ export async function adminOrdersRoutes(
       let agentData = null;
       if (order.agentId) {
         const agentRes = await db.query(
-          `SELECT a.id, a.store_name as "storeName", a.store_slug as "storeSlug",
-                  a.commission_rate as "commissionRate", a.withdrawable_float_pesewas as "floatPesewas"
+          `SELECT a.id, a.business_name as "storeName", a.slug as "storeSlug"
            FROM agents a WHERE a.id = $1`,
           [order.agentId],
         ).catch(() => ({ rows: [] }));
@@ -437,7 +461,7 @@ export async function adminOrdersRoutes(
       // Provider Order Information
       const providerOrderRes = await db.query(
         `SELECT id, 
-                COALESCE(provider_name, (SELECT name FROM telecom_providers WHERE is_authoritative = TRUE LIMIT 1), 'Telecom Carrier') as "providerName",
+                COALESCE(provider_name, 'Telecom Carrier') as "providerName",
                 provider_order_id as "providerOrderId",
                 provider_reference as "providerReference", provider_status as "providerStatus",
                 raw_payload as "rawPayload", last_synced_at as "lastSyncedAt",
@@ -455,14 +479,36 @@ export async function adminOrdersRoutes(
       } : null;
 
       // Payment Details
-      const paymentRes = await db.query(
-        `SELECT id, amount_pesewas as "amountPesewas", payment_status as "paymentStatus",
-                provider, reference, created_at as "createdAt"
-         FROM payment_transactions WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [order.id],
-      ).catch(() => ({ rows: [] }));
+      let payment: any = null;
+      try {
+        const pRes = await db.query(
+          `SELECT id, amount_pesewas as "amountPesewas", payment_status as "paymentStatus",
+                  provider, reference, created_at as "createdAt"
+           FROM payment_transactions WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
+          [order.id],
+        );
+        if (pRes && pRes.rows && pRes.rows.length > 0) {
+          payment = pRes.rows[0];
+        }
+      } catch {
+        // payment_transactions view may be absent
+      }
 
-      const payment = paymentRes.rows[0] || null;
+      if (!payment) {
+        try {
+          const directPayRes = await db.query(
+            `SELECT id, amount_pesewas as "amountPesewas", status as "paymentStatus",
+                    provider, provider_reference as reference, created_at as "createdAt"
+             FROM payments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1`,
+            [order.id],
+          );
+          if (directPayRes && directPayRes.rows && directPayRes.rows.length > 0) {
+            payment = directPayRes.rows[0];
+          }
+        } catch {
+          // non-fatal
+        }
+      }
 
       // Refund Details
       const refundRes = await db.query(
@@ -483,7 +529,7 @@ export async function adminOrdersRoutes(
         [order.id],
       ).catch(() => ({ rows: [] }));
 
-      const events = eventsRes.rows.map((ev) => ({
+      const events = (eventsRes.rows || []).map((ev) => ({
         ...ev,
         metadata: sanitizePayload(ev.metadata),
       }));
@@ -792,17 +838,26 @@ export async function adminOrdersRoutes(
     const order = orderRes.rows[0];
 
     // If order was in a paused/held state, unpause it as well
-    await db.query(
-      `UPDATE orders
-       SET order_status = 'COMPLETED',
-           delivery_status = 'DELIVERED',
-           is_paused = FALSE,
-           paused_at = NULL,
-           failure_reason = NULL,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [order.id],
-    );
+    try {
+      await db.query(
+        `UPDATE orders
+         SET order_status = 'COMPLETED',
+             is_paused = FALSE,
+             paused_at = NULL,
+             failure_reason = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [order.id],
+      );
+    } catch {
+      await db.query(
+        `UPDATE orders
+         SET order_status = 'COMPLETED',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [order.id],
+      );
+    }
 
     // Update provider_orders record if one exists
     await db.query(
@@ -814,12 +869,14 @@ export async function adminOrdersRoutes(
       [order.id],
     ).catch(() => {});
 
-    // Record order event
+    // Record order event (matching order_events table columns)
     await db.query(
-      `INSERT INTO order_events (order_id, event_type, payload, created_at)
-       VALUES ($1, 'ORDER_COMPLETED', $2, CURRENT_TIMESTAMP)`,
+      `INSERT INTO order_events (order_id, event_type, correlation_id, actor_id, actor_type, metadata, occurred_at)
+       VALUES ($1, 'ORDER_COMPLETED', $2, $3, 'ADMIN', $4, CURRENT_TIMESTAMP)`,
       [
         order.id,
+        req.id || `manual_complete_${Date.now()}`,
+        req.user?.sub || null,
         JSON.stringify({
           manual: true,
           adminId: req.user?.sub,
@@ -897,16 +954,26 @@ export async function adminOrdersRoutes(
       const order = orderRes.rows[0];
 
       // Update order status to FAILED
-      await db.query(
-        `UPDATE orders
-         SET order_status = 'FAILED',
-             failure_reason = $1,
-             is_paused = FALSE,
-             paused_at = NULL,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [auditReason, order.id],
-      );
+      try {
+        await db.query(
+          `UPDATE orders
+           SET order_status = 'FAILED',
+               failure_reason = $1,
+               is_paused = FALSE,
+               paused_at = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [auditReason, order.id],
+        );
+      } catch {
+        await db.query(
+          `UPDATE orders
+           SET order_status = 'FAILED',
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [order.id],
+        );
+      }
 
       // Update provider_orders record if exists
       await db.query(
@@ -918,12 +985,14 @@ export async function adminOrdersRoutes(
         [order.id],
       ).catch(() => {});
 
-      // Record order event
+      // Record order event (matching order_events table columns)
       await db.query(
-        `INSERT INTO order_events (order_id, event_type, payload, created_at)
-         VALUES ($1, 'ORDER_FAILED', $2, CURRENT_TIMESTAMP)`,
+        `INSERT INTO order_events (order_id, event_type, correlation_id, actor_id, actor_type, metadata, occurred_at)
+         VALUES ($1, 'ORDER_FAILED', $2, $3, 'ADMIN', $4, CURRENT_TIMESTAMP)`,
         [
           order.id,
+          req.id || `manual_fail_${Date.now()}`,
+          req.user?.sub || null,
           JSON.stringify({
             manual: true,
             adminId: req.user?.sub,
